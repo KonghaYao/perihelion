@@ -89,27 +89,27 @@ impl SkillsMiddleware {
         self
     }
 
-    /// 根据 cwd 解析实际搜索目录列表（项目级优先）
+    /// 根据 cwd 解析实际搜索目录列表（用户级优先于项目级）
     fn resolve_dirs(&self, cwd: &str) -> Vec<PathBuf> {
+        let user_dir = self.user_skills_dir.clone().unwrap_or_else(|| {
+            dirs_next::home_dir()
+                .map(|h| h.join(".claude").join("skills"))
+                .unwrap_or_default()
+        });
+
+        let global_dir = self.global_skills_dir.clone();
+
         let project_dir = self
             .project_skills_dir
             .clone()
             .unwrap_or_else(|| PathBuf::from(cwd).join(".claude").join("skills"));
 
-        let global_dir = self.global_skills_dir.clone();
-
-        let user_dir = self.user_skills_dir.clone().unwrap_or_else(|| {
-            dirs_next::home_dir()
-                .map(|h| h.join(".claude").join("code").join("skills"))
-                .unwrap_or_default()
-        });
-
-        // 按优先级构建目录列表
-        let mut dirs = vec![project_dir];
+        // 按优先级：~/.claude/skills > globalConfig > ./.claude/skills
+        let mut dirs = vec![user_dir];
         if let Some(global) = global_dir {
             dirs.push(global);
         }
-        dirs.push(user_dir);
+        dirs.push(project_dir);
         dirs
     }
 

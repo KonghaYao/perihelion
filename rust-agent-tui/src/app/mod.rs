@@ -439,13 +439,17 @@ impl App {
             hint_cursor: None,
             skills: {
                 let mut dirs = Vec::new();
+                // 用户级 skills（优先）
+                if let Some(home) = dirs_next::home_dir() {
+                    dirs.push(home.join(".claude").join("skills"));
+                }
+                // 全局配置的 skillsDir（~/.zen-code/settings.json）
+                if let Some(global_dir) = rust_agent_middlewares::skills::load_global_skills_dir() {
+                    dirs.push(global_dir);
+                }
                 // 项目级 skills
                 if let Ok(cwd) = std::env::current_dir() {
                     dirs.push(cwd.join(".claude").join("skills"));
-                }
-                // 用户级 skills
-                if let Some(home) = dirs_next::home_dir() {
-                    dirs.push(home.join(".claude").join("code").join("skills"));
                 }
                 rust_agent_middlewares::skills::list_skills(&dirs)
             },
