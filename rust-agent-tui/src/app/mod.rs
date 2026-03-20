@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agent_panel;
 pub mod hitl;
 pub mod model_panel;
 mod provider;
@@ -18,7 +19,9 @@ use crate::config::ZenConfig;
 use crate::thread::{FilesystemThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
 use agent::LlmProvider;
 pub use hitl::{ApprovalEvent, BatchApprovalRequest};
+pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
+use crate::command::agents::AgentItem;
 use std::sync::Arc;
 use tracing::Instrument;
 
@@ -126,6 +129,8 @@ pub enum AgentEvent {
     AskUserBatch(AskUserBatchRequest),
     /// Todo 列表更新
     TodoUpdate(Vec<TodoItem>),
+    /// Agent 执行结束后的消息快照（用于多轮对话续接）
+    StateSnapshot(Vec<rust_create_agent::messages::BaseMessage>),
 }
 
 // ─── HitlBatchPrompt ──────────────────────────────────────────────────────────
@@ -373,6 +378,8 @@ pub struct App {
     pub zen_config: Option<ZenConfig>,
     /// /model 面板状态
     pub model_panel: Option<ModelPanel>,
+    /// /agents 面板状态
+    pub agent_panel: Option<AgentPanel>,
     /// 命令注册表
     pub command_registry: CommandRegistry,
     /// 可用 skills 列表（启动时加载）
@@ -393,6 +400,10 @@ pub struct App {
     task_start_time: Option<std::time::Instant>,
     /// 上一次任务的总运行时长（任务结束后保留显示）
     last_task_duration: Option<std::time::Duration>,
+    /// 持久化的 Agent 消息历史（多轮对话的上下文）
+    agent_state_messages: Vec<rust_create_agent::messages::BaseMessage>,
+    /// 当前 Agent 的 ID（用于 AgentDefineMiddleware 加载 agent 定义）
+    agent_id: Option<String>,
 }
 
 impl App {
@@ -444,6 +455,7 @@ impl App {
             todo_message_index: None,
             zen_config,
             model_panel: None,
+            agent_panel: None,
             command_registry: crate::command::default_registry(),
             hint_cursor: None,
             skills: {
@@ -469,6 +481,8 @@ impl App {
             cancel_token: None,
             task_start_time: None,
             last_task_duration: None,
+            agent_state_messages: Vec::new(),
+            agent_id: None,
         };
 
         app.messages.push(ChatMessage::system(format!(
@@ -492,7 +506,12 @@ impl App {
             .map(|m| {
                 // Tool 消息：将 display_name 写入 content（content 运行时为空），
                 // 加载时可从 content 还原 display_name，从 tool_call_id 还原 tool_name。
-                if let BaseMessage::Tool { ref tool_call_id, ref content, is_error } = m.inner {
+                if let BaseMessage::Tool {
+                    ref tool_call_id,
+                    ref content,
+                    is_error,
+                } = m.inner
+                {
                     if content.text_content().is_empty() {
                         let display = m.display_name.as_deref().unwrap_or(tool_call_id);
                         return if is_error {
@@ -610,6 +629,16 @@ impl App {
         }
     }
 
+    /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
+    pub fn set_agent_id(&mut self, id: Option<String>) {
+        self.agent_id = id;
+    }
+
+    /// 获取当前 Agent 的 ID
+    pub fn get_agent_id(&self) -> Option<&String> {
+        self.agent_id.as_ref()
+    }
+
     /// 中断正在运行的 Agent（Ctrl+C during loading）
     pub fn interrupt(&mut self) {
         if let Some(token) = &self.cancel_token {
@@ -640,7 +669,7 @@ impl App {
         self.scroll_offset = u16::MAX;
         self.scroll_follow = true;
         self.todo_message_index = None;
-        
+
         // 开始计时新任务
         self.task_start_time = Some(std::time::Instant::now());
         self.last_task_duration = None;
@@ -716,6 +745,8 @@ impl App {
             thread.id = %thread_id,
             thread.cwd = %cwd,
         );
+        let history = self.agent_state_messages.clone();
+        let agent_id = self.agent_id.clone();
         tokio::spawn(
             async move {
                 agent::run_universal_agent(
@@ -724,9 +755,11 @@ impl App {
                     cwd,
                     system_prompt,
                     thread_id,
+                    history,
                     approval_tx,
                     tx,
                     cancel,
+                    agent_id,
                 )
                 .await;
             }
@@ -772,7 +805,8 @@ impl App {
                 Ok(AgentEvent::Interrupted) => {
                     // 中断：工具已以 error 结尾，持久化中间状态，下次发消息可断点续跑
                     self.messages.push(ChatMessage::system(
-                        "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
+                        "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）"
+                            .to_string(),
                     ));
                     updated = true;
                     // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
@@ -810,6 +844,10 @@ impl App {
                         }
                     }
                     updated = true;
+                }
+                Ok(AgentEvent::StateSnapshot(msgs)) => {
+                    // 保存最新的 Agent 消息历史，供下一轮对话使用
+                    self.agent_state_messages = msgs;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
@@ -944,17 +982,22 @@ impl App {
                 .unwrap_or_default()
         });
         self.messages.clear();
+        self.agent_state_messages = base_msgs.clone();
         for msg in base_msgs {
             // Tool 消息：tool_call_id = 工具名，content = display_name（持久化时写入）
-            let (tool_name, display_name) =
-                if let BaseMessage::Tool { ref tool_call_id, ref content, .. } = msg {
-                    let name = tool_call_id.clone();
-                    let text = content.text_content();
-                    let display = if text.is_empty() { name.clone() } else { text };
-                    (Some(name), Some(display))
-                } else {
-                    (None, None)
-                };
+            let (tool_name, display_name) = if let BaseMessage::Tool {
+                ref tool_call_id,
+                ref content,
+                ..
+            } = msg
+            {
+                let name = tool_call_id.clone();
+                let text = content.text_content();
+                let display = if text.is_empty() { name.clone() } else { text };
+                (Some(name), Some(display))
+            } else {
+                (None, None)
+            };
             self.messages.push(ChatMessage {
                 inner: msg,
                 display_name,
@@ -969,8 +1012,10 @@ impl App {
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）
     pub fn new_thread(&mut self) {
         self.messages.clear();
+        self.agent_state_messages.clear();
         self.current_thread_id = None;
         self.persisted_count = 0;
+        self.todo_message_index = None;
         self.thread_browser = None;
     }
 
@@ -996,6 +1041,73 @@ impl App {
     /// 关闭 /model 面板（不保存）
     pub fn close_model_panel(&mut self) {
         self.model_panel = None;
+    }
+
+    // ─── Agent 面板操作 ───────────────────────────────────────────────────────
+
+    /// 打开 /agents 面板（传入扫描到的 agent 列表）
+    pub fn open_agent_panel(&mut self, agents: Vec<AgentItem>) {
+        self.agent_panel = Some(AgentPanel::new(agents, self.agent_id.clone()));
+    }
+
+    /// 关闭 /agents 面板（不选择任何 agent）
+    pub fn close_agent_panel(&mut self) {
+        self.agent_panel = None;
+    }
+
+    /// 在 agent 面板中上移光标
+    pub fn agent_panel_move_up(&mut self) {
+        if let Some(panel) = self.agent_panel.as_mut() {
+            panel.move_cursor(-1);
+        }
+    }
+
+    /// 在 agent 面板中下移光标
+    pub fn agent_panel_move_down(&mut self) {
+        if let Some(panel) = self.agent_panel.as_mut() {
+            panel.move_cursor(1);
+        }
+    }
+
+    /// 确认选择当前 agent，关闭面板，设置 agent_id
+    pub fn agent_panel_confirm(&mut self) {
+        // 先取出 selection，避免同时借用 panel 和 agent_id
+        let (is_none, agent_id, agent_name) = {
+            let panel = match self.agent_panel.as_mut() {
+                Some(p) => p,
+                None => return,
+            };
+            let (is_none, agent_id) = panel.get_selection();
+            let agent_name = if is_none {
+                None
+            } else {
+                agent_id.as_ref().and_then(|_id| {
+                    panel.current_agent().map(|a| a.name.clone())
+                })
+            };
+            (is_none, agent_id, agent_name)
+        };
+
+        if is_none {
+            self.set_agent_id(None);
+            self.messages.push(ChatMessage::system(
+                "Agent 已重置（未设置 agent_id）".to_string(),
+            ));
+        } else if let Some(id) = agent_id {
+            self.set_agent_id(Some(id.clone()));
+            let name = agent_name.unwrap_or_else(|| id.clone());
+            self.messages.push(ChatMessage::system(format!(
+                "Agent 已切换为: {} ({})",
+                name, id
+            )));
+        }
+        self.agent_panel = None;
+    }
+
+    /// 取消选择（不改变当前 agent_id），关闭面板
+    #[allow(dead_code)]
+    pub fn agent_panel_clear(&mut self) {
+        self.agent_panel = None;
     }
 
     /// 在面板中确认选择当前 provider，保存配置，更新 provider_name/model_name

@@ -20,9 +20,11 @@ pub async fn run_universal_agent(
     cwd: String,
     system_prompt: String,
     _thread_id: String,
+    history: Vec<rust_create_agent::messages::BaseMessage>,
     approval_tx: mpsc::Sender<ApprovalEvent>,
     tx: mpsc::Sender<AgentEvent>,
     cancel: AgentCancellationToken,
+    agent_id: Option<String>,
 ) {
     let model = BaseModelReactLLM::new(provider.into_model()).with_system(system_prompt);
 
@@ -80,8 +82,9 @@ pub async fn run_universal_agent(
     // 构建 ReActAgent
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具
     let executor = ReActAgent::new(model)
-        .max_iterations(50)
+        .max_iterations(500)
         .add_middleware(Box::new(AgentsMdMiddleware::new()))
+        .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new(SkillsMiddleware::new()))
         .add_middleware(Box::new(FilesystemMiddleware::new()))
         .add_middleware(Box::new(TerminalMiddleware::new()))
@@ -90,15 +93,26 @@ pub async fn run_universal_agent(
         .with_event_handler(Arc::new(handler))
         .register_tool(Box::new(ask_user_tool));
 
-    let mut state = AgentState::new(cwd);
+    let mut state = AgentState::with_messages(cwd, history);
+    if let Some(id) = agent_id {
+        state = state.with_context("agent_id", id);
+    }
     let agent_input = AgentInput::text(input);
 
-    match executor.execute(agent_input, &mut state, Some(cancel)).await {
+    let result = executor
+        .execute(agent_input, &mut state, Some(cancel))
+        .await;
+
+    // 无论成功/中断/失败，先把最新的消息历史快照发回 App
+    let _ = tx
+        .send(AgentEvent::StateSnapshot(state.into_messages()))
+        .await;
+
+    match result {
         Ok(_) => {
             let _ = tx.send(AgentEvent::Done).await;
         }
         Err(rust_create_agent::error::AgentError::Interrupted) => {
-            // 中断：通知 TUI 正常结束（消息已写入 state，由 TUI 侧持久化）
             let _ = tx.send(AgentEvent::Interrupted).await;
             let _ = tx.send(AgentEvent::Done).await;
         }

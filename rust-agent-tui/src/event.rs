@@ -30,6 +30,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // /agents 面板优先处理
+            if app.agent_panel.is_some() {
+                handle_agent_panel(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
             // /model 面板优先处理
             if app.model_panel.is_some() {
                 handle_model_panel(app, input);
@@ -308,6 +314,42 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             if let Some(b) = app.thread_browser.as_mut() {
                 b.delete_selected();
             }
+        }
+        _ => {}
+    }
+}
+
+// ─── /agents 面板键盘处理 ──────────────────────────────────────────────────────
+
+fn handle_agent_panel(app: &mut App, input: Input) {
+    match input {
+        Input {
+            key: Key::Char('c'),
+            ctrl: true,
+            ..
+        } => {}
+        Input { key: Key::Esc, .. } => {
+            app.close_agent_panel();
+        }
+        Input { key: Key::Up, .. }
+        | Input {
+            key: Key::Char('k'),
+            ..
+        } => {
+            app.agent_panel_move_up();
+        }
+        Input { key: Key::Down, .. }
+        | Input {
+            key: Key::Char('j'),
+            ..
+        } => {
+            app.agent_panel_move_down();
+        }
+        Input {
+            key: Key::Enter, ..
+        } => {
+            // Enter 确认选择当前 agent（或取消选择）
+            app.agent_panel_confirm();
         }
         _ => {}
     }

@@ -16,6 +16,9 @@ pub trait State: Send + Sync + Clone + 'static {
 
     fn current_step(&self) -> usize;
     fn set_current_step(&mut self, step: usize);
+
+    fn get_context(&self, key: &str) -> Option<&str>;
+    fn set_context(&mut self, key: impl Into<String>, value: impl Into<String>);
 }
 
 /// 基础 Agent 状态（与 TypeScript BaseAgentStateType 对齐）
@@ -34,6 +37,20 @@ impl AgentState {
             cwd: cwd.into(),
             ..Default::default()
         }
+    }
+
+    /// 从已有消息历史构建（用于多轮对话续接）
+    pub fn with_messages(cwd: impl Into<String>, messages: Vec<BaseMessage>) -> Self {
+        Self {
+            cwd: cwd.into(),
+            messages,
+            ..Default::default()
+        }
+    }
+
+    /// 消费 state，返回消息历史（用于传回调用方保存）
+    pub fn into_messages(self) -> Vec<BaseMessage> {
+        self.messages
     }
 
     pub fn with_context(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
@@ -77,6 +94,14 @@ impl State for AgentState {
 
     fn set_current_step(&mut self, step: usize) {
         self.current_step = step;
+    }
+
+    fn get_context(&self, key: &str) -> Option<&str> {
+        self.context.get(key).map(|s| s.as_str())
+    }
+
+    fn set_context(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.context.insert(key.into(), value.into());
     }
 }
 

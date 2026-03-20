@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod clear;
 pub mod help;
 pub mod history;
@@ -6,6 +7,7 @@ pub mod model;
 /// 注册所有内置命令，返回配置好的 CommandRegistry
 pub fn default_registry() -> CommandRegistry {
     let mut r = CommandRegistry::new();
+    r.register(Box::new(agents::AgentsCommand));
     r.register(Box::new(model::ModelCommand));
     r.register(Box::new(clear::ClearCommand));
     r.register(Box::new(help::HelpCommand));

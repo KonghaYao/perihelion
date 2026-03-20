@@ -12,6 +12,9 @@
 //! - [`HumanInTheLoopMiddleware`]：敏感工具调用前需用户确认
 
 pub mod agents_md;
+pub mod agent_define;
+pub mod claude_agent_parser;
+pub use claude_agent_parser::{format_agent_id, parse_agent_file, ClaudeAgent, ClaudeAgentFrontmatter, ToolsValue};
 pub mod ask_user;
 pub mod hitl;
 pub mod middleware;
@@ -19,6 +22,7 @@ pub mod skills;
 pub mod tools;
 
 pub use agents_md::AgentsMdMiddleware;
+pub use agent_define::AgentDefineMiddleware;
 pub use ask_user::{
     ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserOption,
     AskUserQuestionData,
@@ -36,6 +40,7 @@ pub use tools::{AskUserTool};
 /// Prelude - 常用类型一次性导入
 pub mod prelude {
     pub use crate::agents_md::AgentsMdMiddleware;
+    pub use crate::agent_define::AgentDefineMiddleware;
     pub use crate::ask_user::{
         ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserHandler,
         AskUserOption, AskUserQuestionData,

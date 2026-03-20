@@ -13,7 +13,6 @@ impl Command for ClearCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
-        app.messages.clear();
-        app.todo_message_index = None;
+        app.new_thread();
     }
 }
