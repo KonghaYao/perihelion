@@ -9,7 +9,7 @@ use rust_agent_middlewares::tools::{AskUserInvoker, AskUserTool, TodoItem};
 use rust_create_agent::agent::events::{AgentEvent as ExecutorEvent, FnEventHandler};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::state::AgentState;
-use rust_create_agent::agent::ReActAgent;
+use rust_create_agent::agent::{AgentCancellationToken, ReActAgent};
 use rust_create_agent::llm::BaseModelReactLLM;
 
 // ─── 主入口 ───────────────────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ pub async fn run_universal_agent(
     _thread_id: String,
     approval_tx: mpsc::Sender<ApprovalEvent>,
     tx: mpsc::Sender<AgentEvent>,
+    cancel: AgentCancellationToken,
 ) {
     let model = BaseModelReactLLM::new(provider.into_model()).with_system(system_prompt);
 
@@ -92,9 +93,13 @@ pub async fn run_universal_agent(
     let mut state = AgentState::new(cwd);
     let agent_input = AgentInput::text(input);
 
-    match executor.execute(agent_input, &mut state).await {
+    match executor.execute(agent_input, &mut state, Some(cancel)).await {
         Ok(_) => {
-            // TextChunk 已通过 FnEventHandler 发送，此处只需通知完成
+            let _ = tx.send(AgentEvent::Done).await;
+        }
+        Err(rust_create_agent::error::AgentError::Interrupted) => {
+            // 中断：通知 TUI 正常结束（消息已写入 state，由 TUI 侧持久化）
+            let _ = tx.send(AgentEvent::Interrupted).await;
             let _ = tx.send(AgentEvent::Done).await;
         }
         Err(e) => {

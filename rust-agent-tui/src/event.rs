@@ -143,7 +143,14 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     key: Key::Char('c'),
                     ctrl: true,
                     ..
-                } => return Ok(Some(Action::Quit)),
+                } => {
+                    if app.loading {
+                        // loading 时：中断 Agent（不退出）
+                        app.interrupt();
+                    } else {
+                        return Ok(Some(Action::Quit));
+                    }
+                }
                 Input { key: Key::Esc, .. } if !app.loading => return Ok(Some(Action::Quit)),
 
                 // Tab：提示浮层候选导航与补全

@@ -23,6 +23,7 @@ opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
 tracing-opentelemetry = "0.32"
+tokio-util = { version = "0.7.18", features = ["rt"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -20,7 +20,7 @@ pub mod prelude {
         events::{AgentEvent, AgentEventHandler, FnEventHandler},
         react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult},
         state::{AgentState, State},
-        ReActAgent,
+        AgentCancellationToken, ReActAgent,
     };
     pub use crate::ask_user::{
         AskUserBatchRequest, AskUserInvoker, AskUserOption, AskUserQuestionData,

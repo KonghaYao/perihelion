@@ -26,8 +26,13 @@ pub enum AgentError {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
+    /// 用户主动中断（Ctrl+C）
+    #[error("Interrupted by user")]
+    Interrupted,
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
 pub type AgentResult<T> = Result<T, AgentError>;
+

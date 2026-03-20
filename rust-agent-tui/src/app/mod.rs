@@ -9,6 +9,7 @@ use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserQuestionData}
 use rust_agent_middlewares::prelude::{
     BatchItem, HitlDecision, SkillMetadata, TodoItem, TodoStatus,
 };
+use rust_create_agent::agent::AgentCancellationToken;
 use rust_create_agent::messages::BaseMessage;
 use tokio::sync::mpsc;
 
@@ -117,6 +118,8 @@ pub enum AgentEvent {
     AssistantChunk(String),
     Done,
     Error(String),
+    /// 用户中断（Ctrl+C），工具已以 error 结尾，消息已持久化
+    Interrupted,
     /// HITL 批量审批请求
     ApprovalNeeded(BatchApprovalRequest),
     /// AskUser 批量提问请求
@@ -384,6 +387,8 @@ pub struct App {
     pub thread_browser: Option<ThreadBrowser>,
     /// 已持久化到 thread 的消息数量（用于增量追加）
     persisted_count: usize,
+    /// 当前 Agent 任务的取消令牌（loading 时有效，Ctrl+C 触发）
+    cancel_token: Option<AgentCancellationToken>,
     /// 当前 Agent 任务开始时间（用于计算运行时长）
     task_start_time: Option<std::time::Instant>,
     /// 上一次任务的总运行时长（任务结束后保留显示）
@@ -461,6 +466,7 @@ impl App {
             current_thread_id: None,
             thread_browser: None,
             persisted_count: 0,
+            cancel_token: None,
             task_start_time: None,
             last_task_duration: None,
         };
@@ -599,6 +605,16 @@ impl App {
     pub fn set_loading(&mut self, loading: bool) {
         self.loading = loading;
         self.textarea = build_textarea(loading);
+        if !loading {
+            self.cancel_token = None;
+        }
+    }
+
+    /// 中断正在运行的 Agent（Ctrl+C during loading）
+    pub fn interrupt(&mut self) {
+        if let Some(token) = &self.cancel_token {
+            token.cancel();
+        }
     }
 
     /// 获取当前任务运行时长（运行中）或上次任务时长（已完成）
@@ -649,6 +665,10 @@ impl App {
 
         let (tx, rx) = mpsc::channel(32);
         self.agent_rx = Some(rx);
+
+        // 创建取消令牌（Ctrl+C 触发中断）
+        let cancel = AgentCancellationToken::new();
+        self.cancel_token = Some(cancel.clone());
 
         // YOLO_MODE 时跳过 HITL channel，直接给 agent 一个永远不会被消费的 sender
         let yolo = rust_agent_middlewares::is_yolo_mode();
@@ -706,6 +726,7 @@ impl App {
                     thread_id,
                     approval_tx,
                     tx,
+                    cancel,
                 )
                 .await;
             }
@@ -742,20 +763,25 @@ impl App {
                 Ok(AgentEvent::Done) => {
                     self.set_loading(false);
                     self.agent_rx = None;
-                    // 记录任务运行时长
                     if let Some(start) = self.task_start_time {
                         self.last_task_duration = Some(start.elapsed());
                     }
-                    // 持久化本轮所有 AI/Tool 消息（Done 时批量追加）
                     self.persist_pending_messages();
                     return true;
+                }
+                Ok(AgentEvent::Interrupted) => {
+                    // 中断：工具已以 error 结尾，持久化中间状态，下次发消息可断点续跑
+                    self.messages.push(ChatMessage::system(
+                        "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
+                    ));
+                    updated = true;
+                    // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
                 }
                 Ok(AgentEvent::Error(e)) => {
                     self.messages
                         .push(ChatMessage::tool("error", "agent-error", e, true));
                     self.set_loading(false);
                     self.agent_rx = None;
-                    // 记录任务运行时长
                     if let Some(start) = self.task_start_time {
                         self.last_task_duration = Some(start.elapsed());
                     }

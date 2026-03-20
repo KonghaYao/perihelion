@@ -98,13 +98,14 @@
 **第一层：基础能力**
 
 - [x] 并行工具调用（多个工具同时执行，而非串行）
-- [ ] 断点续跑（Agent 中途中断后从某步恢复）
+- [x] 断点续跑（Agent 中途中断后从某步恢复）
 - [ ] Token 用量追踪与预算控制
 - [ ] 结构化输出（强制 Agent 按 JSON Schema 返回）
 - [ ] 更多 LLM Provider
   - [ ] Gemini
   - [ ] 本地 Ollama
-- [ ] ot 需要直接打包进去,不需要 --features otel,只是没有配置的时候,不需要进行 ot 的行为
+- [x] ot 需要直接打包进去,不需要 --features otel,只是没有配置的时候,不需要进行 ot 的行为
+- [ ] 支持 thinking 模式
 
 **第二层：Agent 能力**
 

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::agent::events::{AgentEvent, AgentEventHandler};
@@ -11,6 +12,8 @@ use crate::middleware::chain::MiddlewareChain;
 use crate::middleware::r#trait::Middleware;
 use crate::tools::{BaseTool, ToolProvider};
 use std::collections::HashMap;
+
+pub use tokio_util::sync::CancellationToken as AgentCancellationToken;
 
 /// Agent 执行器 - 管理 ReAct 循环
 pub struct ReActAgent<L, S>
@@ -82,9 +85,21 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     }
 
     /// 执行 Agent（ReAct 循环主入口）
-    #[instrument(name = "agent.execute", skip(self, input, state),
+    ///
+    /// `cancel` 可选；触发后：
+    /// - LLM 请求进行中 → 立即返回 `AgentError::Interrupted`
+    /// - 工具执行进行中 → 所有未完成工具以 error 结果写入状态，然后返回 `AgentError::Interrupted`
+    #[instrument(name = "agent.execute", skip(self, input, state, cancel),
         fields(max_iterations = self.max_iterations))]
-    pub async fn execute(&self, input: AgentInput, state: &mut S) -> AgentResult<AgentOutput> {
+    pub async fn execute(
+        &self,
+        input: AgentInput,
+        state: &mut S,
+        cancel: Option<CancellationToken>,
+    ) -> AgentResult<AgentOutput> {
+        // 若未提供 token，创建一个永不触发的占位符，简化后续逻辑
+        let cancel = cancel.unwrap_or_else(CancellationToken::new);
+
         let human_msg = BaseMessage::human(input.content);
         state.add_message(human_msg);
 
@@ -113,15 +128,20 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         for step in 0..self.max_iterations {
             state.set_current_step(step);
 
-            let reasoning = match self
-                .llm
-                .generate_reasoning(state.messages(), &tool_refs)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    self.chain.run_on_error(state, &e).await?;
-                    return Err(e);
+            // ── LLM 推理（与 cancel 竞争）────────────────────────────────────
+            let reasoning = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {
+                    return Err(AgentError::Interrupted);
+                }
+                result = self.llm.generate_reasoning(state.messages(), &tool_refs) => {
+                    match result {
+                        Ok(r) => r,
+                        Err(e) => {
+                            self.chain.run_on_error(state, &e).await?;
+                            return Err(e);
+                        }
+                    }
                 }
             };
 
@@ -142,6 +162,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 // 阶段一：串行执行 before_tool（需要 &mut S，且 HITL 可能修改 call）
                 let mut modified_calls: Vec<ToolCall> = Vec::new();
                 for tool_call in reasoning.tool_calls {
+                    // before_tool 阶段也检查取消
+                    if cancel.is_cancelled() {
+                        return Err(AgentError::Interrupted);
+                    }
                     let modified_call =
                         match self.chain.run_before_tool(state, tool_call.clone()).await {
                             Ok(c) => c,
@@ -150,7 +174,6 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                                 return Err(e);
                             }
                         };
-                    // 工具调用开始事件
                     self.emit(AgentEvent::ToolStart {
                         name: modified_call.name.clone(),
                         input: modified_call.input.clone(),
@@ -158,7 +181,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     modified_calls.push(modified_call);
                 }
 
-                // 阶段二：并发执行所有工具（不涉及 &mut S）
+                // 阶段二：并发执行所有工具；取消时每个工具以 error 收尾
                 let tool_results: Vec<Result<String, AgentError>> = {
                     let futures: Vec<_> = modified_calls
                         .iter()
@@ -167,6 +190,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                             let call_id = call.id.clone();
                             let input = call.input.clone();
                             let tool = all_tools.get(&call.name).copied();
+                            let cancel = cancel.clone();
                             async move {
                                 let span = tracing::info_span!(
                                     "agent.tool_call",
@@ -174,20 +198,35 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                                     tool.call_id = %call_id,
                                 );
                                 let _enter = span.enter();
-                                match tool {
-                                    Some(t) => t.invoke(input).await.map_err(|e| {
-                                        AgentError::ToolExecutionFailed {
+                                let invoke_fut = async {
+                                    match tool {
+                                        Some(t) => t.invoke(input).await.map_err(|e| {
+                                            AgentError::ToolExecutionFailed {
+                                                tool: tool_name.clone(),
+                                                reason: e.to_string(),
+                                            }
+                                        }),
+                                        None => Err(AgentError::ToolNotFound(tool_name.clone())),
+                                    }
+                                };
+                                tokio::select! {
+                                    biased;
+                                    _ = cancel.cancelled() => {
+                                        Err(AgentError::ToolExecutionFailed {
                                             tool: tool_name,
-                                            reason: e.to_string(),
-                                        }
-                                    }),
-                                    None => Err(AgentError::ToolNotFound(tool_name)),
+                                            reason: "interrupted by user".to_string(),
+                                        })
+                                    }
+                                    result = invoke_fut => result,
                                 }
                             }
                         })
                         .collect();
                     futures::future::join_all(futures).await
                 };
+
+                // 检查是否已取消（工具全部结束后再决定是否继续）
+                let was_cancelled = cancel.is_cancelled();
 
                 // 阶段三：串行处理结果、after_tool、state 更新
                 for (modified_call, tool_result) in
@@ -242,7 +281,12 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     all_tool_calls.push((modified_call, result));
                 }
 
-                // 步骤完成事件
+                // 工具结果全部写入状态后，若已取消则以 Interrupted 退出
+                // （调用方可保存此刻的 state.messages 实现断点续跑）
+                if was_cancelled {
+                    return Err(AgentError::Interrupted);
+                }
+
                 tracing::debug!(step, "react step done");
                 self.emit(AgentEvent::StepDone { step });
             } else {
@@ -252,7 +296,6 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
                 state.add_message(BaseMessage::ai(answer.as_str()));
 
-                // 最终文字输出事件
                 self.emit(AgentEvent::TextChunk(answer.clone()));
 
                 let output = AgentOutput {
@@ -301,7 +344,6 @@ mod tests {
             messages: &[BaseMessage],
             _tools: &[&dyn BaseTool],
         ) -> crate::error::AgentResult<Reasoning> {
-            // 第一步（只有 human 消息）：返回两个工具调用
             let has_tool_result = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
             if !has_tool_result {
                 Ok(Reasoning::with_tools(
@@ -353,7 +395,8 @@ mod tests {
 
         let mut state = AgentState::new("/tmp");
         let start = Instant::now();
-        let output = agent.execute(AgentInput::text("go"), &mut state).await.unwrap();
+        let output =
+            agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
         let elapsed = start.elapsed();
 
         assert_eq!(output.text, "parallel ok");
@@ -363,5 +406,67 @@ mod tests {
             "并行执行耗时 {:?}，应 < 160ms（串行需 ≥ 200ms）",
             elapsed
         );
+    }
+
+    /// 验证取消 token 触发时，工具以 error 收尾并返回 Interrupted
+    #[tokio::test]
+    async fn test_cancel_during_tool_execution() {
+        struct HangingTool;
+        #[async_trait::async_trait]
+        impl BaseTool for HangingTool {
+            fn name(&self) -> &str { "hanging_tool" }
+            fn description(&self) -> &str { "hangs forever" }
+            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
+            async fn invoke(
+                &self,
+                _input: serde_json::Value,
+            ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Ok("never".to_string())
+            }
+        }
+
+        struct OneToolLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for OneToolLLM {
+            async fn generate_reasoning(
+                &self,
+                messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                let has_tool = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+                if !has_tool {
+                    Ok(Reasoning::with_tools(
+                        "call tool",
+                        vec![ToolCall::new("id1", "hanging_tool", serde_json::json!({}))],
+                    ))
+                } else {
+                    Ok(Reasoning::with_answer("done", "ok"))
+                }
+            }
+        }
+
+        let cancel = CancellationToken::new();
+        let agent = ReActAgent::new(OneToolLLM)
+            .max_iterations(5)
+            .register_tool(Box::new(HangingTool));
+
+        // 50ms 后触发取消
+        let token = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            token.cancel();
+        });
+
+        let mut state = AgentState::new("/tmp");
+        let result = agent.execute(AgentInput::text("go"), &mut state, Some(cancel)).await;
+
+        assert!(matches!(result, Err(AgentError::Interrupted)));
+        // 工具 error 结果已写入 state（可用于断点续跑）
+        let has_tool_error = state
+            .messages()
+            .iter()
+            .any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
+        assert!(has_tool_error, "取消后工具 error 消息应已写入 state");
     }
 }
