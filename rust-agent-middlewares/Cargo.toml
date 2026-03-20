@@ -1,0 +1,24 @@
+[package]
+name = "rust-agent-middlewares"
+version = "0.1.0"
+edition = "2021"
+description = "Rust Agent middleware implementations, aligned with @langgraph-js/agent-middlewares"
+license = "MIT"
+
+[dependencies]
+rust-create-agent = { path = "../rust-create-agent" }
+anyhow = "1.0"
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1", features = ["full", "process"] }
+glob = "0.3"
+walkdir = "2.4"
+ignore = "0.4"
+gray_matter = "0.2"
+dirs-next = "2"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"

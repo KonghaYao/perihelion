@@ -1,0 +1,30 @@
+[package]
+name = "rust-agent-tui"
+version = "0.1.0"
+edition = "2021"
+description = "TUI interface for Rust Agent - interactive terminal playground"
+
+[[bin]]
+name = "agent-tui"
+path = "src/main.rs"
+
+[dev-dependencies]
+
+[features]
+otel = ["rust-create-agent/otel"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+rust-create-agent = { path = "../rust-create-agent" }
+rust-agent-middlewares = { path = "../rust-agent-middlewares" }
+ratatui = ">=0.30"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v7"] }
+serde_json = "1.0"
+async-trait = "0.1"
+dotenvy = "0.15"
+tracing = "0.1"
+dirs-next = "2"
+ratatui-textarea = "0.8"

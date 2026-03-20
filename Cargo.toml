@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "rust-create-agent",
+    "rust-agent-middlewares",
+    "rust-agent-tui",
+]
+resolver = "2"
