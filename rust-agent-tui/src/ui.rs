@@ -276,6 +276,13 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
+    // 模型信息（始终显示在右侧）
+    left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+    left_spans.push(Span::styled(
+        format!(" {} {}", app.provider_name, app.model_name),
+        Style::default().fg(Color::Rgb(150, 180, 255)),
+    ));
+
     // ── 右侧：弹窗激活时显示快捷键提示 ─────────────────────────────────────
     let right_spans: Vec<Span> = if app.ask_user_prompt.is_some() {
         vec![
@@ -306,27 +313,22 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     };
 
     // ── 计算左右侧宽度，确保右侧对齐 ───────────────────────────────────────
-    let left_line = Line::from(left_spans.clone());
-    let right_line = Line::from(right_spans.clone());
-    let left_width: usize = left_line.width();
-    let right_width: usize = right_line.width();
+    let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
+    let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
 
     // 中间填充空格
-    let padding_len = area.width as usize;
     let total_content_width = left_width + right_width;
-    let padding = if total_content_width < padding_len {
-        " ".repeat(padding_len - total_content_width)
+    let padding = if total_content_width < area.width as usize {
+        " ".repeat(area.width as usize - total_content_width)
     } else {
         " ".to_string()
     };
 
-    let full_line = Line::from(vec![
-        Span::styled(left_line.to_string(), Style::default()),
-        Span::raw(padding),
-        Span::styled(right_line.to_string(), Style::default()),
-    ]);
+    let mut all_spans = left_spans;
+    all_spans.push(Span::raw(padding));
+    all_spans.extend(right_spans);
 
-    f.render_widget(Paragraph::new(full_line), area);
+    f.render_widget(Paragraph::new(Line::from(all_spans)), area);
 }
 
 /// HITL 批量确认弹窗
