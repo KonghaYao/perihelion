@@ -220,8 +220,11 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     // ── 左侧：工作目录 | Agent 状态 | 运行时长 ────────────────────────────────
     let mut left_spans: Vec<Span> = Vec::new();
 
-    // 工作目录（缩短显示）
-    let cwd_short: String = app.cwd.chars().rev().take(30).collect::<String>().chars().rev().collect();
+    // 工作目录（只显示最后一个文件夹名）
+    let cwd_short = std::path::Path::new(&app.cwd)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&app.cwd);
     left_spans.push(Span::styled(
         format!(" 📁 {}", cwd_short),
         Style::default().fg(Color::DarkGray),
@@ -244,17 +247,17 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
-    // ── 右侧：快捷键提示（保持原有逻辑）────────────────────────────────────
+    // ── 右侧：弹窗激活时显示快捷键提示 ─────────────────────────────────────
     let right_spans: Vec<Span> = if app.ask_user_prompt.is_some() {
         vec![
             Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":切换问题  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
             Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":确认此题/全部提交", Style::default().fg(Color::DarkGray)),
+            Span::styled(":确认", Style::default().fg(Color::DarkGray)),
         ]
     } else if app.hitl_prompt.is_some() {
         vec![
@@ -262,29 +265,15 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":确认  ", Style::default().fg(Color::DarkGray)),
             Span::styled("y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled(":全批准  ", Style::default().fg(Color::DarkGray)),
             Span::styled("n", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled(":全拒绝", Style::default().fg(Color::DarkGray)),
-        ]
-    } else if app.loading {
-        vec![
-            Span::styled(" ↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":滚动  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Ctrl+C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":退出", Style::default().fg(Color::DarkGray)),
+            Span::styled(":全拒绝  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(":确认", Style::default().fg(Color::DarkGray)),
         ]
     } else {
-        vec![
-            Span::styled(" Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":发送  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Alt+Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":换行  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Esc/Ctrl+C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":退出  ", Style::default().fg(Color::DarkGray)),
-        ]
+        vec![]
     };
 
     // ── 计算左右侧宽度，确保右侧对齐 ───────────────────────────────────────

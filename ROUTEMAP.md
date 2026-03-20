@@ -104,6 +104,7 @@
 - [ ] 更多 LLM Provider
   - [ ] Gemini
   - [ ] 本地 Ollama
+- [ ] ot 需要直接打包进去,不需要 --features otel,只是没有配置的时候,不需要进行 ot 的行为
 
 **第二层：Agent 能力**
 

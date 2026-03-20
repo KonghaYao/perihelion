@@ -483,7 +483,21 @@ impl App {
             // 跳过纯 UI 用途的 todo_status 和 system 消息
             .filter(|m| !matches!(m.inner, BaseMessage::System { .. }))
             .filter(|m| m.tool_name.as_deref() != Some("__todo_status__"))
-            .map(|m| m.inner.clone())
+            .map(|m| {
+                // Tool 消息：将 display_name 写入 content（content 运行时为空），
+                // 加载时可从 content 还原 display_name，从 tool_call_id 还原 tool_name。
+                if let BaseMessage::Tool { ref tool_call_id, ref content, is_error } = m.inner {
+                    if content.text_content().is_empty() {
+                        let display = m.display_name.as_deref().unwrap_or(tool_call_id);
+                        return if is_error {
+                            BaseMessage::tool_error(tool_call_id, display)
+                        } else {
+                            BaseMessage::tool_result(tool_call_id, display)
+                        };
+                    }
+                }
+                m.inner.clone()
+            })
             .collect();
         let new_count = self.messages.len();
         if new_msgs.is_empty() {
@@ -905,10 +919,20 @@ impl App {
         });
         self.messages.clear();
         for msg in base_msgs {
+            // Tool 消息：tool_call_id = 工具名，content = display_name（持久化时写入）
+            let (tool_name, display_name) =
+                if let BaseMessage::Tool { ref tool_call_id, ref content, .. } = msg {
+                    let name = tool_call_id.clone();
+                    let text = content.text_content();
+                    let display = if text.is_empty() { name.clone() } else { text };
+                    (Some(name), Some(display))
+                } else {
+                    (None, None)
+                };
             self.messages.push(ChatMessage {
                 inner: msg,
-                display_name: None,
-                tool_name: None,
+                display_name,
+                tool_name,
             });
         }
         self.persisted_count = self.messages.len();
@@ -1010,16 +1034,21 @@ pub fn render_todos(todos: &[TodoItem]) -> String {
 
 pub fn build_textarea(disabled: bool) -> TextArea<'static> {
     let mut ta = TextArea::default();
-    let border_color = if disabled {
-        Color::DarkGray
+
+    // Loading 状态：黄色边框 + "处理中…" 标题
+    // 空闲状态：青色边框 + "输入" 标题
+    let (border_color, title_text, title_color) = if disabled {
+        (Color::Yellow, " 处理中… ", Color::Yellow)
     } else {
-        Color::Cyan
+        (Color::Cyan, " 输入 ", Color::Cyan)
     };
+
     let text_color = if disabled {
         Color::DarkGray
     } else {
         Color::White
     };
+
     ta.set_cursor_line_style(Style::default());
     ta.set_style(Style::default().fg(text_color));
     ta.set_block(
@@ -1027,9 +1056,9 @@ pub fn build_textarea(disabled: bool) -> TextArea<'static> {
             .borders(ratatui::widgets::Borders::ALL)
             .border_style(Style::default().fg(border_color))
             .title(ratatui::text::Span::styled(
-                " 输入 ",
+                title_text,
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(title_color)
                     .add_modifier(ratatui::style::Modifier::BOLD),
             )),
     );

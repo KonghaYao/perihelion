@@ -139,6 +139,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     state.add_message(ai_msg);
                 }
 
+                // 阶段一：串行执行 before_tool（需要 &mut S，且 HITL 可能修改 call）
+                let mut modified_calls: Vec<ToolCall> = Vec::new();
                 for tool_call in reasoning.tool_calls {
                     let modified_call =
                         match self.chain.run_before_tool(state, tool_call.clone()).await {
@@ -148,33 +150,49 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                                 return Err(e);
                             }
                         };
-
                     // 工具调用开始事件
                     self.emit(AgentEvent::ToolStart {
                         name: modified_call.name.clone(),
                         input: modified_call.input.clone(),
                     });
+                    modified_calls.push(modified_call);
+                }
 
-                    let tool_span = tracing::info_span!(
-                        "agent.tool_call",
-                        tool.name = %modified_call.name,
-                        tool.call_id = %modified_call.id,
-                    );
-                    let tool_result = {
-                        let _enter = tool_span.enter();
-                        match all_tools.get(&modified_call.name) {
-                            Some(tool) => {
-                                tool.invoke(modified_call.input.clone()).await.map_err(|e| {
-                                    AgentError::ToolExecutionFailed {
-                                        tool: modified_call.name.clone(),
-                                        reason: e.to_string(),
-                                    }
-                                })
+                // 阶段二：并发执行所有工具（不涉及 &mut S）
+                let tool_results: Vec<Result<String, AgentError>> = {
+                    let futures: Vec<_> = modified_calls
+                        .iter()
+                        .map(|call| {
+                            let tool_name = call.name.clone();
+                            let call_id = call.id.clone();
+                            let input = call.input.clone();
+                            let tool = all_tools.get(&call.name).copied();
+                            async move {
+                                let span = tracing::info_span!(
+                                    "agent.tool_call",
+                                    tool.name = %tool_name,
+                                    tool.call_id = %call_id,
+                                );
+                                let _enter = span.enter();
+                                match tool {
+                                    Some(t) => t.invoke(input).await.map_err(|e| {
+                                        AgentError::ToolExecutionFailed {
+                                            tool: tool_name,
+                                            reason: e.to_string(),
+                                        }
+                                    }),
+                                    None => Err(AgentError::ToolNotFound(tool_name)),
+                                }
                             }
-                            None => Err(AgentError::ToolNotFound(modified_call.name.clone())),
-                        }
-                    };
+                        })
+                        .collect();
+                    futures::future::join_all(futures).await
+                };
 
+                // 阶段三：串行处理结果、after_tool、state 更新
+                for (modified_call, tool_result) in
+                    modified_calls.into_iter().zip(tool_results.into_iter())
+                {
                     let result = match tool_result {
                         Ok(output) => {
                             ToolResult::success(&modified_call.id, &modified_call.name, output)
@@ -186,11 +204,14 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         }
                         Err(ref e) => {
                             self.chain.run_on_error(state, e).await?;
-                            ToolResult::error(&modified_call.id, &modified_call.name, e.to_string())
+                            ToolResult::error(
+                                &modified_call.id,
+                                &modified_call.name,
+                                e.to_string(),
+                            )
                         }
                     };
 
-                    // 工具调用结束事件
                     tracing::debug!(
                         tool.name = %result.tool_name,
                         tool.is_error = result.is_error,
