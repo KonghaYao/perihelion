@@ -280,3 +280,88 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         Err(AgentError::MaxIterationsExceeded(self.max_iterations))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::react::{AgentInput, Reasoning};
+    use crate::agent::state::AgentState;
+    use crate::messages::BaseMessage;
+    use crate::tools::BaseTool;
+    use std::time::{Duration, Instant};
+
+    // ─── Mock LLM：第一步返回两个并发工具调用，第二步返回最终答案 ───────────
+
+    struct TwoToolCallLLM;
+
+    #[async_trait::async_trait]
+    impl ReactLLM for TwoToolCallLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+        ) -> crate::error::AgentResult<Reasoning> {
+            // 第一步（只有 human 消息）：返回两个工具调用
+            let has_tool_result = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+            if !has_tool_result {
+                Ok(Reasoning::with_tools(
+                    "need both tools",
+                    vec![
+                        ToolCall::new("id1", "slow_tool_a", serde_json::json!({})),
+                        ToolCall::new("id2", "slow_tool_b", serde_json::json!({})),
+                    ],
+                ))
+            } else {
+                Ok(Reasoning::with_answer("done", "parallel ok"))
+            }
+        }
+    }
+
+    // ─── Mock 工具：sleep 100ms ────────────────────────────────────────────────
+
+    struct SlowTool {
+        tool_name: &'static str,
+    }
+
+    #[async_trait::async_trait]
+    impl BaseTool for SlowTool {
+        fn name(&self) -> &str {
+            self.tool_name
+        }
+        fn description(&self) -> &str {
+            "slow test tool"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn invoke(
+            &self,
+            _input: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(format!("{} done", self.tool_name))
+        }
+    }
+
+    /// 验证两个各耗时 100ms 的工具并发执行，总耗时应 < 160ms（串行需 ≥ 200ms）
+    #[tokio::test]
+    async fn test_parallel_tool_execution() {
+        let agent = ReActAgent::new(TwoToolCallLLM)
+            .max_iterations(5)
+            .register_tool(Box::new(SlowTool { tool_name: "slow_tool_a" }))
+            .register_tool(Box::new(SlowTool { tool_name: "slow_tool_b" }));
+
+        let mut state = AgentState::new("/tmp");
+        let start = Instant::now();
+        let output = agent.execute(AgentInput::text("go"), &mut state).await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(output.text, "parallel ok");
+        assert_eq!(output.tool_calls.len(), 2);
+        assert!(
+            elapsed < Duration::from_millis(160),
+            "并行执行耗时 {:?}，应 < 160ms（串行需 ≥ 200ms）",
+            elapsed
+        );
+    }
+}

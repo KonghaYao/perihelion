@@ -10,9 +10,6 @@ path = "src/main.rs"
 
 [dev-dependencies]
 
-[features]
-otel = ["rust-create-agent/otel"]
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 rust-create-agent = { path = "../rust-create-agent" }

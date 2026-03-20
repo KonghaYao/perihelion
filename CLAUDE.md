@@ -22,7 +22,7 @@ cargo test -p rust-create-agent --lib -- test_name  # 运行单个测试
 
 # OpenTelemetry（需先启动 Jaeger）
 docker compose -f docker-compose.otel.yml up -d
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p rust-agent-tui --features otel
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p rust-agent-tui
 # Jaeger UI: http://localhost:16686
 ```
 
@@ -185,6 +185,6 @@ ReActAgent::new(BaseModelReactLLM::new(model).with_system(prompt))
 | `YOLO_MODE=true` | 跳过 HITL 审批（不影响 ask_user） |
 | `RUST_LOG` | 日志级别（默认 `info`） |
 | `RUST_LOG_FORMAT=json` | JSON 格式日志 |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | 启用 OTLP 导出（需 `--features otel`） |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | 启用 OTLP 导出（设置即生效） |
 
 `.env` 文件已 gitignore，本地开发配置在 `rust-agent-tui/.env`。

@@ -1,4 +1,4 @@
-//! OpenTelemetry OTLP 初始化（需启用 `otel` feature）
+//! OpenTelemetry OTLP 初始化（设置 OTEL_EXPORTER_OTLP_ENDPOINT 后自动启用）
 
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig, WithHttpConfig};
