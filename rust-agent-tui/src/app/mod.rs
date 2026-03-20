@@ -384,6 +384,10 @@ pub struct App {
     pub thread_browser: Option<ThreadBrowser>,
     /// 已持久化到 thread 的消息数量（用于增量追加）
     persisted_count: usize,
+    /// 当前 Agent 任务开始时间（用于计算运行时长）
+    task_start_time: Option<std::time::Instant>,
+    /// 上一次任务的总运行时长（任务结束后保留显示）
+    last_task_duration: Option<std::time::Duration>,
 }
 
 impl App {
@@ -457,6 +461,8 @@ impl App {
             current_thread_id: None,
             thread_browser: None,
             persisted_count: 0,
+            task_start_time: None,
+            last_task_duration: None,
         };
 
         app.messages.push(ChatMessage::system(format!(
@@ -581,6 +587,19 @@ impl App {
         self.textarea = build_textarea(loading);
     }
 
+    /// 获取当前任务运行时长（运行中）或上次任务时长（已完成）
+    pub fn get_current_task_duration(&self) -> Option<std::time::Duration> {
+        if let Some(start) = self.task_start_time {
+            if self.loading {
+                Some(start.elapsed())
+            } else {
+                self.last_task_duration
+            }
+        } else {
+            self.last_task_duration
+        }
+    }
+
     pub fn submit_message(&mut self, input: String) {
         if input.trim().is_empty() {
             return;
@@ -591,6 +610,10 @@ impl App {
         self.scroll_offset = u16::MAX;
         self.scroll_follow = true;
         self.todo_message_index = None;
+        
+        // 开始计时新任务
+        self.task_start_time = Some(std::time::Instant::now());
+        self.last_task_duration = None;
 
         let provider = match self
             .zen_config
@@ -705,6 +728,10 @@ impl App {
                 Ok(AgentEvent::Done) => {
                     self.set_loading(false);
                     self.agent_rx = None;
+                    // 记录任务运行时长
+                    if let Some(start) = self.task_start_time {
+                        self.last_task_duration = Some(start.elapsed());
+                    }
                     // 持久化本轮所有 AI/Tool 消息（Done 时批量追加）
                     self.persist_pending_messages();
                     return true;
@@ -714,6 +741,10 @@ impl App {
                         .push(ChatMessage::tool("error", "agent-error", e, true));
                     self.set_loading(false);
                     self.agent_rx = None;
+                    // 记录任务运行时长
+                    if let Some(start) = self.task_start_time {
+                        self.last_task_duration = Some(start.elapsed());
+                    }
                     self.persist_pending_messages();
                     return true;
                 }

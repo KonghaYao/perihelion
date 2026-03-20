@@ -32,7 +32,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     render_title(f, app, chunks[0]);
     render_messages(f, app, chunks[1]);
     f.render_widget(&app.textarea, chunks[2]);
-    render_help(f, app, chunks[3]);
+    render_status_bar(f, app, chunks[3]);
 
     // 命令/Skills 提示条（浮动在输入框上方）
     render_command_hint(f, app, chunks[2]);
@@ -202,9 +202,51 @@ fn visual_rows(line: &Line, width: usize) -> u16 {
     ((char_count.max(1) + width - 1) / width) as u16
 }
 
-fn render_help(f: &mut Frame, app: &App, area: Rect) {
-    let line = if app.ask_user_prompt.is_some() {
-        Line::from(vec![
+/// 格式化时长为可读字符串
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_secs = duration.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+
+    if hours > 0 {
+        format!("{}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{}:{:02}", minutes, seconds)
+    }
+}
+
+fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
+    // ── 左侧：工作目录 | Agent 状态 | 运行时长 ────────────────────────────────
+    let mut left_spans: Vec<Span> = Vec::new();
+
+    // 工作目录（缩短显示）
+    let cwd_short: String = app.cwd.chars().rev().take(30).collect::<String>().chars().rev().collect();
+    left_spans.push(Span::styled(
+        format!(" 📁 {}", cwd_short),
+        Style::default().fg(Color::DarkGray),
+    ));
+    left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+
+    // Agent 状态
+    if app.loading {
+        left_spans.push(Span::styled("⠿ 运行中", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    } else {
+        left_spans.push(Span::styled("● 空闲", Style::default().fg(Color::Green)));
+    }
+
+    // 运行时长
+    if let Some(duration) = app.get_current_task_duration() {
+        left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        left_spans.push(Span::styled(
+            format!("⏱ {}", format_duration(duration)),
+            Style::default().fg(Color::Cyan),
+        ));
+    }
+
+    // ── 右侧：快捷键提示（保持原有逻辑）────────────────────────────────────
+    let right_spans: Vec<Span> = if app.ask_user_prompt.is_some() {
+        vec![
             Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":切换问题  ", Style::default().fg(Color::DarkGray)),
             Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
@@ -213,9 +255,9 @@ fn render_help(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":确认此题/全部提交", Style::default().fg(Color::DarkGray)),
-        ])
+        ]
     } else if app.hitl_prompt.is_some() {
-        Line::from(vec![
+        vec![
             Span::styled(" ↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
@@ -226,26 +268,47 @@ fn render_help(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(":全批准  ", Style::default().fg(Color::DarkGray)),
             Span::styled("n", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
             Span::styled(":全拒绝", Style::default().fg(Color::DarkGray)),
-        ])
+        ]
     } else if app.loading {
-        Line::from(vec![
-            Span::styled(" ⠿ Agent 运行中", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("  ↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        vec![
+            Span::styled(" ↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":滚动  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Ctrl+C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":退出", Style::default().fg(Color::DarkGray)),
-        ])
+        ]
     } else {
-        Line::from(vec![
+        vec![
             Span::styled(" Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":发送  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Alt+Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":换行  ", Style::default().fg(Color::DarkGray)),
             Span::styled("Esc/Ctrl+C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(":退出  ", Style::default().fg(Color::DarkGray)),
-        ])
+        ]
     };
-    f.render_widget(Paragraph::new(line), area);
+
+    // ── 计算左右侧宽度，确保右侧对齐 ───────────────────────────────────────
+    let left_line = Line::from(left_spans.clone());
+    let right_line = Line::from(right_spans.clone());
+    let left_width: usize = left_line.width();
+    let right_width: usize = right_line.width();
+
+    // 中间填充空格
+    let padding_len = area.width as usize;
+    let total_content_width = left_width + right_width;
+    let padding = if total_content_width < padding_len {
+        " ".repeat(padding_len - total_content_width)
+    } else {
+        " ".to_string()
+    };
+
+    let full_line = Line::from(vec![
+        Span::styled(left_line.to_string(), Style::default()),
+        Span::raw(padding),
+        Span::styled(right_line.to_string(), Style::default()),
+    ]);
+
+    f.render_widget(Paragraph::new(full_line), area);
 }
 
 /// HITL 批量确认弹窗

@@ -26,77 +26,153 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p rust-agent-tui --
 # Jaeger UI: http://localhost:16686
 ```
 
-## 架构
+## 数据流
 
-### 核心执行流程（rust-create-agent）
+### ReAct 循环（rust-create-agent）
 
 ```
 AgentInput
-  → ReActAgent::execute()
-      → chain.before_agent()         ← 所有中间件按注册顺序执行
-      → loop (max_iterations):
-          → llm.generate_reasoning() ← 返回 Reasoning { tool_calls / final_answer }
-          → chain.before_tool()      ← 可修改工具参数（HITL 在此挂入）
-          → tool.invoke()            ← BaseTool trait
-          → chain.after_tool()
-          → emit(AgentEvent)         ← 发给 UI 层
-      → chain.after_agent()
-  → AgentOutput
+  └─ state.add_message(Human)
+  └─ chain.collect_tools(cwd)        # ToolProvider + 中间件工具合并，手动注册的优先级最高
+  └─ chain.before_agent(state)       # 按注册顺序：AgentsMd→Skills→Filesystem→Terminal→Todo→HITL
+                                     #   AgentsMd/Skills 在 state 头部 prepend_message(System)
+  └─ loop(max_iterations=50):
+      └─ llm.generate_reasoning(state.messages, tools)
+      │    └─ BaseModel.invoke(LlmRequest{messages, tools, system})
+      │    └─ stop_reason==ToolUse  → Reasoning{tool_calls}
+      │       stop_reason==EndTurn  → Reasoning{final_answer}
+      │
+      ├─ [有工具调用]:
+      │   └─ state.add_message(Ai{tool_calls})
+      │   └─ for each tool_call:
+      │       └─ chain.before_tool()   # HITL 在此拦截：requires_approval? → handler.request_approval()
+      │       └─ tool.invoke(input)    # BaseTool::invoke，ask_user 在此挂起等待 oneshot 回复
+      │       └─ chain.after_tool()   # TodoMiddleware 在此解析 todo_write 结果，推送 channel
+      │       └─ emit(ToolStart/ToolEnd)
+      │       └─ state.add_message(Tool{result})
+      │
+      └─ [最终回答]:
+          └─ emit(TextChunk(answer))
+          └─ chain.after_agent(state, output) → AgentOutput
 ```
 
-**工具优先级**（同名时）：`register_tool()` 手动注册 > `ToolProvider` > 中间件 `collect_tools()`
+### TUI 异步通信（rust-agent-tui）
 
-**LLM 层**：`ReactLLM` trait，实现有 `OpenAI`（兼容所有 OpenAI 格式 API）和 `Anthropic`。`BaseModelReactLLM` 是统一包装层，通过 `.with_system()` 注入系统提示。
+```
+submit_message()
+  ├─ mpsc(32): AgentEvent channel ──→ agent task
+  │                                       └─ run_universal_agent() 产生事件
+  │                                       └─ emit → tx.try_send(AgentEvent)
+  │  ← poll_agent() 每帧 try_recv ←──────
+  │       ToolCall/AssistantChunk → 追加 messages[]
+  │       ApprovalNeeded          → app.hitl_prompt = Some(...)  [break, 等用户操作]
+  │       AskUserBatch            → app.ask_user_prompt = Some(...) [break, 等用户操作]
+  │       Done/Error              → set_loading(false), agent_rx=None
+  │
+  └─ mpsc(4): ApprovalEvent channel ──→ 转发 task
+       ApprovalEvent::Batch        → YOLO: 直接 response_tx.send(Approve×N)
+                                     非YOLO: tx.send(AgentEvent::ApprovalNeeded)
+       ApprovalEvent::AskUserBatch → tx.send(AgentEvent::AskUserBatch)  [始终转发]
 
-**测试用 Mock**：`MockLLM::always_answer()` / `MockLLM::tool_then_answer()` 按脚本回放推理结果。
+用户操作弹窗后:
+  hitl_confirm()     → response_tx.send(decisions)   → HITL before_tool 的 oneshot 解除阻塞
+  ask_user_confirm() → response_tx.send(answers)     → AskUserTool::invoke 的 oneshot 解除阻塞
+```
 
-### 中间件系统（rust-agent-middlewares）
+### 消息类型
 
-中间件生命周期：`before_agent` → `before_tool` → `after_tool` → `after_agent`，出错时 `on_error`。
+`BaseMessage` 四种变体（`Human/Ai/System/Tool`），内容统一用 `MessageContent`（纯文本 or `ContentBlock[]` or 原生 JSON）。
 
-| 中间件 | 作用 | 挂入点 |
-|--------|------|--------|
-| `AgentsMdMiddleware` | 注入 AGENTS.md/CLAUDE.md 内容 | `before_agent` |
-| `SkillsMiddleware` | 扫描 skills 目录，注入摘要系统消息 | `before_agent` |
-| `FilesystemMiddleware` | 提供文件系统工具 | `collect_tools` |
-| `TerminalMiddleware` | 提供 bash 工具 | `collect_tools` |
-| `TodoMiddleware` | 任务状态管理，变更时通过 channel 通知 UI | `after_tool` |
-| `HumanInTheLoopMiddleware` | 敏感工具调用前请求用户审批 | `before_tool` |
+`ContentBlock` 完整变体：
 
-**Skills 搜索顺序**（优先级高到低）：`~/.claude/skills/` → `skillsDir`（~/.zen-code/settings.json）→ `./.claude/skills/`
+| 变体 | 说明 |
+|------|------|
+| `Text` | 纯文本 |
+| `Image` | 多模态图片（Base64 或 URL） |
+| `Document` | 文档（Anthropic Documents beta） |
+| `ToolUse` | AI 发起的工具调用（id/name/input） |
+| `ToolResult` | 工具执行结果（tool_use_id/content/is_error） |
+| `Reasoning` | 推理/CoT（支持 extended thinking 的 signature 缓存校验） |
+| `Unknown` | 原生 block 透传，保证向前兼容 |
 
-**HITL**：`HumanInTheLoopMiddleware::from_env()` 检测 `YOLO_MODE`，YOLO 时 `disabled()`（直接放行）。非 YOLO 时通过 `HitlHandler::request_approval_batch()` 挂起等待 UI 回复。
+`Ai` 变体同时保存 `tool_calls: Vec<ToolCallRequest>`，与 `ContentBlock::ToolUse` 双写保持一致，`ai_from_blocks()` 自动同步。
 
-**ask_user**：`AskUserTool`（`BaseTool`）→ `AskUserInvoker` trait → TUI 实现（`TuiAskUserHandler`）。工具调用时阻塞等待 `oneshot` channel 回复，不受 YOLO_MODE 影响。
+### LLM 适配层
 
-### TUI 应用（rust-agent-tui）
+`BaseModel` trait（OpenAI/Anthropic 实现）→ `BaseModelReactLLM`（适配为 `ReactLLM`）。
 
-**事件总线**：`submit_message()` 启动两个异步 channel：
-- `mpsc(32)` — `AgentEvent`（工具调用、文字块、完成/错误）→ `poll_agent()` 每帧消费
-- `mpsc(4)` — `ApprovalEvent`（HITL 审批、ask_user 提问）→ 转发 task → `AgentEvent`
+| | OpenAI | Anthropic |
+|---|---|---|
+| system | 转为 `System` 角色消息 prepend | 提取到顶层 `system` 字段（blocks 格式） |
+| 工具格式 | `type:"function"` + `function.arguments` | `type:"tool_use"` + `input_schema` |
+| 推理内容 | `message.reasoning_content`（deepseek-r1/o系列） | `Reasoning` ContentBlock |
+| Prompt Cache | — | 默认开启，最后消息末尾加 `cache_control:ephemeral` |
+| 扩展思考 | — | `.with_extended_thinking(budget_tokens)`（3.7+） |
 
-**弹窗状态机**：
-- `hitl_prompt: Option<HitlBatchPrompt>` — 审批弹窗（YOLO 时转发 task 直接 Approve）
-- `ask_user_prompt: Option<AskUserBatchPrompt>` — 提问弹窗，多问题 Tab 切换
+tool result 消息：Anthropic 要求合并到前一条 user 消息的 content blocks；OpenAI 作为独立 tool 角色消息发送。
 
-**配置**：`~/.zen-code/settings.json`，结构 `{ "config": { "provider_id", "model_id", "providers": [...], "skillsDir" } }`。`/model` 命令打开面板在线编辑。
+测试用 `MockLLM::tool_then_answer()` 按脚本回放推理，无需真实 API。
 
-**Skills hint**：输入框键入 `#` 触发浮层，`Tab` 导航，`Enter` 补全为 `#skill-name `；键入 `/` 触发命令浮层。
+### HITL 决策
+
+`HitlDecision` 四种结果：`Approve` / `Edit(new_input)` / `Reject` → `ToolRejected` 错误 / `Respond(msg)` → `ToolRejected`（向 LLM 回复原因）。
+
+默认需审批工具：`bash`、`write_*`、`edit_*`、`delete_*`、`rm_*`、`folder_operations`。只读工具（`read_file`、`glob_files`、`search_files_rg`）无需审批。
+
+### Skills 搜索顺序
+
+`~/.claude/skills/` → `skillsDir`（`~/.zen-code/settings.json`）→ `./.claude/skills/`
+
+同名 skill 以先出现的为准。每个 skill 是一个子目录，内含 `SKILL.md`（YAML frontmatter: `name`, `description`）。
+
+## 工具清单（rust-agent-middlewares）
+
+| 工具 | 来源中间件 | 需 HITL |
+|------|-----------|---------|
+| `read_file` | FilesystemMiddleware | — |
+| `write_file` | FilesystemMiddleware | ✓ |
+| `edit_file` | FilesystemMiddleware | ✓ |
+| `glob_files` | FilesystemMiddleware | — |
+| `search_files_rg` | FilesystemMiddleware | — |
+| `folder_operations` | FilesystemMiddleware | ✓ |
+| `bash` | TerminalMiddleware | ✓ |
+| `todo_write` | TodoMiddleware | — |
+| `ask_user` | 手动注册（AskUserTool） | — |
+
+`bash` 默认超时 120 秒，超时返回错误。跨平台：Windows 用 `cmd /C`，其他用 `bash -c`。
+
+## TUI 命令
+
+输入 `/` 前缀触发，支持前缀唯一匹配（如 `/m` 匹配 `/model`）：
+
+| 命令 | 说明 |
+|------|------|
+| `/model` | 打开 Provider/Model 配置面板（增删改，写入 `~/.zen-code/settings.json`） |
+| `/history` | 打开历史对话浏览面板（`j/k` 或 `↑↓` 导航，`d` 删除，`Enter` 打开，`Esc` 新建） |
+| `/clear` | 清空当前消息列表 |
+| `/help` | 列出所有命令 |
+
+输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全为 `#skill-name `。
 
 ## 关键模式
 
-**注册中间件**：
 ```rust
-ReActAgent::new(llm)
+// 组装 agent
+ReActAgent::new(BaseModelReactLLM::new(model).with_system(prompt))
     .max_iterations(50)
-    .add_middleware(Box::new(FilesystemMiddleware::new()))
-    .register_tool(Box::new(AskUserTool::new(invoker)))
-    .with_event_handler(Arc::new(FnEventHandler(move |ev| { ... })))
+    .add_middleware(Box::new(FilesystemMiddleware::new()))  // collect_tools 自动提供工具
+    .register_tool(Box::new(AskUserTool::new(invoker)))    // 手动注册，优先级最高
+    .with_event_handler(Arc::new(FnEventHandler(move |ev| { tx.try_send(ev); })))
+    .execute(AgentInput::text(input), &mut AgentState::new(cwd))
 ```
 
-**自定义工具**：实现 `BaseTool` trait（`name` / `description` / `parameters` / `async invoke`），用 `register_tool` 注册，或通过 `ToolProvider` trait 批量提供。
+**自定义工具**：实现 `BaseTool`（`name/description/parameters/async invoke`），`register_tool` 注册或 `ToolProvider` 批量提供。
 
-**自定义中间件**：实现 `Middleware<S: State>` trait，只需覆写用到的钩子方法，未覆写的默认 no-op。
+**自定义中间件**：实现 `Middleware<S: State>`，只覆写需要的钩子，其余默认 no-op。`collect_tools(cwd)` 可动态按工作目录返回工具列表。
+
+**System prompt**：模板在 `rust-agent-tui/prompts/system.md`，`{{cwd}}` 占位符在运行时替换。
+
+**Thread 持久化**：`FilesystemThreadStore` 实现 `ThreadStore` trait，默认路径由 `default_path()` 决定；会话消息在 `Done` 事件时批量 `append_messages`，用户消息在发送时立即持久化。
 
 ## 环境变量
 

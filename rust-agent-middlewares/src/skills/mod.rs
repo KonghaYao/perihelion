@@ -115,10 +115,18 @@ impl SkillsMiddleware {
 
     /// 生成 skills 摘要系统消息内容
     fn build_summary(skills: &[SkillMetadata]) -> String {
-        let mut lines = vec!["你可以使用以下 Skills（专项能力），在需要时提及其名称：".to_string(), String::new()];
+        let mut lines = vec![
+            "你可以使用以下 Skills（专项能力），在需要时提及其名称：".to_string(),
+            String::new(),
+        ];
 
         for skill in skills {
-            lines.push(format!("- **{}**: {}", skill.name, skill.description));
+            lines.push(format!(
+                "- **{}**: {} {}",
+                skill.name,
+                skill.path.display(),
+                skill.description
+            ));
         }
 
         lines.push(String::new());
@@ -178,7 +186,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_no_skills_no_op() {
-        let mw = SkillsMiddleware::new();
+        // 使用临时目录作为所有 skills 目录来源，确保测试隔离
+        let empty_dir = tempdir().unwrap();
+        let empty_path = empty_dir.path().to_path_buf();
+
+        let mw = SkillsMiddleware::new()
+            .with_user_dir(empty_path.clone())
+            .with_project_dir(empty_path);
         let mut state = AgentState::new("/nonexistent/path");
         let result = mw.before_agent(&mut state).await;
         assert!(result.is_ok());
