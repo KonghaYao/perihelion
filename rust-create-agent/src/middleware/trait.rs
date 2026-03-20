@@ -21,7 +21,7 @@ pub trait Middleware<S: State>: Send + Sync {
     /// 声明此中间件提供的工具列表（根据工作目录动态生成）
     ///
     /// 默认返回空列表（无工具的中间件无需实现）。
-    /// `AgentExecutor` 在 `execute` 开始时自动收集所有中间件的工具并合并到工具表。
+    /// `ReActAgent` 在 `execute` 开始时自动收集所有中间件的工具并合并到工具表。
     fn collect_tools(&self, _cwd: &str) -> Vec<Box<dyn BaseTool>> {
         vec![]
     }

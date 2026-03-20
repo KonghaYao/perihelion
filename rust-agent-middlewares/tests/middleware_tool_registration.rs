@@ -26,11 +26,13 @@ async fn test_filesystem_middleware_auto_registers_read_file() {
     );
 
     // 仅通过 add_middleware，不手动 register_tool
-    let agent = AgentExecutor::new(llm)
-        .add_middleware(Box::new(FilesystemMiddleware::new()));
+    let agent = ReActAgent::new(llm).add_middleware(Box::new(FilesystemMiddleware::new()));
     let mut state = AgentState::new(&cwd);
 
-    let output = agent.execute(AgentInput::text("read hello.txt"), &mut state).await.unwrap();
+    let output = agent
+        .execute(AgentInput::text("read hello.txt"), &mut state)
+        .await
+        .unwrap();
 
     assert_eq!(output.tool_calls.len(), 1);
     assert_eq!(output.tool_calls[0].0.name, "read_file");
@@ -71,11 +73,13 @@ async fn test_terminal_middleware_auto_registers_bash() {
         "Got output: hello",
     );
 
-    let agent = AgentExecutor::new(llm)
-        .add_middleware(Box::new(TerminalMiddleware::new()));
+    let agent = ReActAgent::new(llm).add_middleware(Box::new(TerminalMiddleware::new()));
     let mut state = AgentState::new(&cwd);
 
-    let output = agent.execute(AgentInput::text("run echo"), &mut state).await.unwrap();
+    let output = agent
+        .execute(AgentInput::text("run echo"), &mut state)
+        .await
+        .unwrap();
 
     assert_eq!(output.tool_calls.len(), 1);
     assert_eq!(output.tool_calls[0].0.name, "bash");
@@ -96,12 +100,19 @@ async fn test_manual_tool_overrides_filesystem_middleware() {
 
     #[async_trait]
     impl BaseTool for MockReadFile {
-        fn name(&self) -> &str { "read_file" }
-        fn description(&self) -> &str { "Mock read_file" }
+        fn name(&self) -> &str {
+            "read_file"
+        }
+        fn description(&self) -> &str {
+            "Mock read_file"
+        }
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({ "type": "object", "properties": { "file_path": { "type": "string" } } })
         }
-        async fn invoke(&self, _: serde_json::Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
             Ok("mocked content".to_string())
         }
     }
@@ -116,12 +127,15 @@ async fn test_manual_tool_overrides_filesystem_middleware() {
     );
 
     // FilesystemMiddleware 和 MockReadFile 均提供 read_file，手动注册的应优先
-    let agent = AgentExecutor::new(llm)
+    let agent = ReActAgent::new(llm)
         .add_middleware(Box::new(FilesystemMiddleware::new()))
         .register_tool(Box::new(MockReadFile));
     let mut state = AgentState::new(&cwd);
 
-    let output = agent.execute(AgentInput::text("read file"), &mut state).await.unwrap();
+    let output = agent
+        .execute(AgentInput::text("read file"), &mut state)
+        .await
+        .unwrap();
 
     assert_eq!(output.tool_calls.len(), 1);
     assert_eq!(

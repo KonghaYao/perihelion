@@ -47,7 +47,7 @@ impl Middleware<AgentState> for ContextInjectorMiddleware {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let agent = AgentExecutor::new(MockLLM::always_answer("这是回答内容"))
+    let agent = ReActAgent::new(MockLLM::always_answer("这是回答内容"))
         .add_middleware(Box::new(LoggingMiddleware::new()))
         .add_middleware(Box::new(ContextInjectorMiddleware::new("user_id", "user_42")));
 

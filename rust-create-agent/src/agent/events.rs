@@ -13,7 +13,7 @@ pub enum AgentEvent {
 
 /// 事件回调 trait（应用层实现）
 ///
-/// 在 `AgentExecutor` 执行过程中，关键节点会调用 `on_event`。
+/// 在 `ReActAgent` 执行过程中，关键节点会调用 `on_event`。
 /// 实现者通过 `mpsc::Sender` 等机制将事件转发给 UI 层。
 pub trait AgentEventHandler: Send + Sync {
     fn on_event(&self, event: AgentEvent);

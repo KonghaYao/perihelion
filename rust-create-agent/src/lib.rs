@@ -20,18 +20,19 @@ pub mod prelude {
         events::{AgentEvent, AgentEventHandler, FnEventHandler},
         react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult},
         state::{AgentState, State},
-        AgentExecutor,
+        ReActAgent,
+    };
+    pub use crate::ask_user::{
+        AskUserBatchRequest, AskUserInvoker, AskUserOption, AskUserQuestionData,
     };
     pub use crate::error::{AgentError, AgentResult};
-    pub use crate::ask_user::{AskUserBatchRequest, AskUserInvoker, AskUserOption, AskUserQuestionData};
     pub use crate::hitl::{BatchItem, HitlDecision, HitlHandler};
     pub use crate::llm::{BaseModel, BaseModelReactLLM, ChatAnthropic, ChatOpenAI, MockLLM};
     pub use crate::messages::{
         BaseMessage, ContentBlock, DocumentSource, ImageSource, MessageContent, ToolCallRequest,
     };
     pub use crate::middleware::{
-        r#trait::Middleware,
-        LoggingMiddleware, MetricsMiddleware, MiddlewareChain, NoopMiddleware,
+        r#trait::Middleware, LoggingMiddleware, MetricsMiddleware, MiddlewareChain, NoopMiddleware,
     };
     pub use crate::tools::{BaseTool, ToolDefinition, ToolProvider};
 }

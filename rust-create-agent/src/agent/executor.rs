@@ -13,7 +13,7 @@ use crate::tools::{BaseTool, ToolProvider};
 use std::collections::HashMap;
 
 /// Agent 执行器 - 管理 ReAct 循环
-pub struct AgentExecutor<L, S>
+pub struct ReActAgent<L, S>
 where
     L: ReactLLM,
     S: State,
@@ -27,7 +27,7 @@ where
     event_handler: Option<Arc<dyn AgentEventHandler>>,
 }
 
-impl<L: ReactLLM, S: State> AgentExecutor<L, S> {
+impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     pub fn new(llm: L) -> Self {
         Self {
             llm,
@@ -89,7 +89,8 @@ impl<L: ReactLLM, S: State> AgentExecutor<L, S> {
         state.add_message(human_msg);
 
         // 从 ToolProvider 和中间件各收集工具，手动注册的同名工具优先级最高
-        let provider_tools: Vec<Box<dyn BaseTool>> = self.tool_providers
+        let provider_tools: Vec<Box<dyn BaseTool>> = self
+            .tool_providers
             .iter()
             .flat_map(|p| p.tools(state.cwd()))
             .collect();
@@ -139,17 +140,14 @@ impl<L: ReactLLM, S: State> AgentExecutor<L, S> {
                 }
 
                 for tool_call in reasoning.tool_calls {
-                    let modified_call = match self
-                        .chain
-                        .run_before_tool(state, tool_call.clone())
-                        .await
-                    {
-                        Ok(c) => c,
-                        Err(e) => {
-                            self.chain.run_on_error(state, &e).await?;
-                            return Err(e);
-                        }
-                    };
+                    let modified_call =
+                        match self.chain.run_before_tool(state, tool_call.clone()).await {
+                            Ok(c) => c,
+                            Err(e) => {
+                                self.chain.run_on_error(state, &e).await?;
+                                return Err(e);
+                            }
+                        };
 
                     // 工具调用开始事件
                     self.emit(AgentEvent::ToolStart {
@@ -165,13 +163,14 @@ impl<L: ReactLLM, S: State> AgentExecutor<L, S> {
                     let tool_result = {
                         let _enter = tool_span.enter();
                         match all_tools.get(&modified_call.name) {
-                            Some(tool) => tool
-                                .invoke(modified_call.input.clone())
-                                .await
-                                .map_err(|e| AgentError::ToolExecutionFailed {
-                                    tool: modified_call.name.clone(),
-                                    reason: e.to_string(),
-                                }),
+                            Some(tool) => {
+                                tool.invoke(modified_call.input.clone()).await.map_err(|e| {
+                                    AgentError::ToolExecutionFailed {
+                                        tool: modified_call.name.clone(),
+                                        reason: e.to_string(),
+                                    }
+                                })
+                            }
                             None => Err(AgentError::ToolNotFound(modified_call.name.clone())),
                         }
                     };
@@ -187,11 +186,7 @@ impl<L: ReactLLM, S: State> AgentExecutor<L, S> {
                         }
                         Err(ref e) => {
                             self.chain.run_on_error(state, e).await?;
-                            ToolResult::error(
-                                &modified_call.id,
-                                &modified_call.name,
-                                e.to_string(),
-                            )
+                            ToolResult::error(&modified_call.id, &modified_call.name, e.to_string())
                         }
                     };
 
@@ -263,5 +258,4 @@ impl<L: ReactLLM, S: State> AgentExecutor<L, S> {
 
         Err(AgentError::MaxIterationsExceeded(self.max_iterations))
     }
-
 }

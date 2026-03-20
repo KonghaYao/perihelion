@@ -64,7 +64,7 @@ async fn test_full_react_loop() {
     let count = Arc::new(Mutex::new(0usize));
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));
 
-    let agent = AgentExecutor::new(llm)
+    let agent = ReActAgent::new(llm)
         .register_tool(Box::new(CounterTool::new(count.clone())))
         .add_middleware(Box::new(CallRecorder::new(calls.clone())));
 
@@ -106,7 +106,7 @@ async fn test_multiple_middlewares() {
         }
     }
 
-    let agent = AgentExecutor::new(MockLLM::always_answer("ok"))
+    let agent = ReActAgent::new(MockLLM::always_answer("ok"))
         .add_middleware(Box::new(Tagger { tag: "A".into(), log: log.clone() }))
         .add_middleware(Box::new(Tagger { tag: "B".into(), log: log.clone() }))
         .add_middleware(Box::new(Tagger { tag: "C".into(), log: log.clone() }));

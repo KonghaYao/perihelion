@@ -60,7 +60,7 @@ impl BaseTool for FailingTool {
 
 #[tokio::test]
 async fn test_agent_simple_answer() {
-    let agent = AgentExecutor::new(MockLLM::always_answer("simple answer"));
+    let agent = ReActAgent::new(MockLLM::always_answer("simple answer"));
     let mut state = AgentState::new("/test");
 
     let output = agent.execute(AgentInput::text("hello"), &mut state).await.unwrap();
@@ -78,7 +78,7 @@ async fn test_agent_tool_call_then_answer() {
         "The echo said: hello world",
     );
 
-    let agent = AgentExecutor::new(llm).register_tool(Box::new(EchoTool));
+    let agent = ReActAgent::new(llm).register_tool(Box::new(EchoTool));
     let mut state = AgentState::new("/test");
 
     let output = agent.execute(AgentInput::text("echo something"), &mut state).await.unwrap();
@@ -92,7 +92,7 @@ async fn test_agent_tool_call_then_answer() {
 #[tokio::test]
 async fn test_agent_tool_not_found() {
     let llm = MockLLM::tool_then_answer("nonexistent_tool", serde_json::json!({}), "done");
-    let agent = AgentExecutor::new(llm);
+    let agent = ReActAgent::new(llm);
     let mut state = AgentState::new("/test");
 
     let result = agent.execute(AgentInput::text("use missing tool"), &mut state).await;
@@ -107,7 +107,7 @@ async fn test_agent_tool_not_found() {
 #[tokio::test]
 async fn test_agent_failing_tool_is_recorded() {
     let llm = MockLLM::tool_then_answer("fail", serde_json::json!({}), "got error but continuing");
-    let agent = AgentExecutor::new(llm).register_tool(Box::new(FailingTool));
+    let agent = ReActAgent::new(llm).register_tool(Box::new(FailingTool));
     let mut state = AgentState::new("/test");
 
     let output = agent.execute(AgentInput::text("try failing tool"), &mut state).await.unwrap();
@@ -125,7 +125,7 @@ async fn test_agent_max_iterations() {
         ))
         .collect();
 
-    let agent = AgentExecutor::new(MockLLM::new(calls))
+    let agent = ReActAgent::new(MockLLM::new(calls))
         .max_iterations(3)
         .register_tool(Box::new(EchoTool));
     let mut state = AgentState::new("/test");
@@ -146,7 +146,7 @@ async fn test_middleware_auto_registers_tools() {
     );
 
     // 只通过 add_middleware 注册中间件，不手动调用 register_tool
-    let agent = AgentExecutor::new(llm)
+    let agent = ReActAgent::new(llm)
         .add_middleware(Box::new(EchoMiddleware));
     let mut state = AgentState::new("/test");
 
@@ -168,7 +168,7 @@ async fn test_manual_tool_overrides_middleware_tool() {
     );
 
     // EchoMiddleware 提供 echo 工具，但 register_tool(OverrideEchoTool) 应优先
-    let agent = AgentExecutor::new(llm)
+    let agent = ReActAgent::new(llm)
         .add_middleware(Box::new(EchoMiddleware))
         .register_tool(Box::new(OverrideEchoTool));
     let mut state = AgentState::new("/test");
@@ -182,7 +182,7 @@ async fn test_manual_tool_overrides_middleware_tool() {
 
 #[tokio::test]
 async fn test_state_messages_grow() {
-    let agent = AgentExecutor::new(MockLLM::always_answer("ok"));
+    let agent = ReActAgent::new(MockLLM::always_answer("ok"));
     let mut state = AgentState::new("/test");
 
     assert_eq!(state.messages().len(), 0);

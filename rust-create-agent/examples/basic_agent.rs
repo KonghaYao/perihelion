@@ -8,7 +8,7 @@ use rust_create_agent::prelude::*;
 async fn main() -> anyhow::Result<()> {
     let llm = MockLLM::always_answer("任务完成！这是我的回答。");
 
-    let agent = AgentExecutor::new(llm)
+    let agent = ReActAgent::new(llm)
         .max_iterations(10)
         .add_middleware(Box::new(LoggingMiddleware::new().verbose()));
 

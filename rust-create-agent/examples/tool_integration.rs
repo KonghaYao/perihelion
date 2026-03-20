@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
         "计算结果是 100",
     );
 
-    let agent = AgentExecutor::new(llm)
+    let agent = ReActAgent::new(llm)
         .register_tool(Box::new(CalculatorTool))
         .add_middleware(Box::new(LoggingMiddleware::new().verbose()))
         .add_middleware(Box::new(MetricsMiddleware::new()));

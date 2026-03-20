@@ -11,7 +11,7 @@ use rust_create_agent::prelude::*;
 async fn main() -> anyhow::Result<()> {
     let _guard = rust_create_agent::telemetry::init_tracing("my-agent").await;
 
-    let agent = AgentExecutor::new(MockLLM::always_answer("任务完成"))
+    let agent = ReActAgent::new(MockLLM::always_answer("任务完成"))
         .max_iterations(10)
         .add_middleware(Box::new(LoggingMiddleware::new().verbose()));
 
@@ -26,12 +26,12 @@ async fn main() -> anyhow::Result<()> {
 
 ## 核心概念
 
-### AgentExecutor
+### ReActAgent
 
 ReAct 循环的执行器，管理 LLM 推理 → 工具调用 → 结果反馈的完整流程。
 
 ```rust
-let agent = AgentExecutor::new(llm)
+let agent = ReActAgent::new(llm)
     .max_iterations(20)             // 最大循环步数，默认 10
     .register_tool(Box::new(my_tool))
     .add_middleware(Box::new(LoggingMiddleware::new()))
@@ -119,7 +119,7 @@ let handler = FnEventHandler(|event| match event {
     AgentEvent::StepDone { step } => println!("步骤 {step} 完成"),
 });
 
-let agent = AgentExecutor::new(llm)
+let agent = ReActAgent::new(llm)
     .with_event_handler(Arc::new(handler));
 ```
 
@@ -170,7 +170,7 @@ docker compose -f docker-compose.otel.yml down
 
 启动后：
 
-- **可视化 UI**：http://localhost:16686
+- **可视化 UI**：<http://localhost:16686>
 - **OTLP HTTP**：`http://localhost:4318`（`OTEL_EXPORTER_OTLP_ENDPOINT` 填这个）
 - **OTLP gRPC**：`localhost:4317`
 
@@ -191,7 +191,7 @@ rust-create-agent = { version = "*", features = ["otel"] }
 | 配置了变量但未开 feature | `OTEL_EXPORTER_OTLP_ENDPOINT`（无 feature）       | 打印 warn，降级为 stdout    |
 | OTLP 初始化失败          | 网络不通等                                        | 打印 warn，自动降级，不崩溃 |
 
-`AgentExecutor::execute()`、每次工具调用均已自动埋点，无需额外代码。
+`ReActAgent::execute()`、每次工具调用均已自动埋点，无需额外代码。
 
 ## Cargo Features
 
