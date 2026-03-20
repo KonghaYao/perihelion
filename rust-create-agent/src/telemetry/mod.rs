@@ -19,7 +19,7 @@
 //! async fn main() {
 //!     // 未设置 OTEL_EXPORTER_OTLP_ENDPOINT → 只输出到 stdout
 //!     // 设置后（且启用 otel feature）→ 同时导出到 OTLP 后端
-//!     let _guard = rust_create_agent::telemetry::init_tracing("my-agent").await;
+//!     let _guard = rust_create_agent::telemetry::init_tracing("my-agent");
 //! }
 //! ```
 

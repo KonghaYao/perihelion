@@ -11,12 +11,12 @@ use crate::thread::{ThreadId, ThreadMeta, ThreadStore};
 /// 基于文件系统的 ThreadStore 实现
 ///
 /// 目录结构：
-/// ```
+/// ```text
 /// <base_dir>/
-/// ├── index.json                 # 所有 thread 的摘要索引
-/// └── <thread_id>/
-///     ├── meta.json              # 单个 thread 的完整元数据
-///     └── messages.jsonl         # 消息流，每行一条 JSON
+///   index.json                 # 所有 thread 的摘要索引
+///   <thread_id>/
+///     meta.json                # 单个 thread 的完整元数据
+///     messages.jsonl           # 消息流，每行一条 JSON
 /// ```
 pub struct FilesystemThreadStore {
     base_dir: PathBuf,
