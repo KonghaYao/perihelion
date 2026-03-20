@@ -13,6 +13,9 @@ pub struct ChatOpenAI {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    /// o1/o3 系列推理强度："low" | "medium" | "high"
+    /// 设置后请求体加 `reasoning_effort` 字段，同时移除 temperature
+    pub reasoning_effort: Option<String>,
     client: reqwest::Client,
 }
 
@@ -22,12 +25,20 @@ impl ChatOpenAI {
             api_key: api_key.into(),
             base_url: "https://api.openai.com/v1".to_string(),
             model: model.into(),
+            reasoning_effort: None,
             client: reqwest::Client::new(),
         }
     }
 
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
+        self
+    }
+
+    /// 开启 reasoning effort（o1/o3 系列）
+    /// `effort`: "low" | "medium" | "high"
+    pub fn with_reasoning_effort(mut self, effort: impl Into<String>) -> Self {
+        self.reasoning_effort = Some(effort.into());
         self
     }
 
@@ -242,7 +253,10 @@ impl BaseModel for ChatOpenAI {
             body["max_tokens"] = json!(max_tokens);
         }
 
-        if let Some(temperature) = request.temperature {
+        if let Some(ref effort) = self.reasoning_effort {
+            // o1/o3 reasoning effort 模式：加 reasoning_effort，不设 temperature
+            body["reasoning_effort"] = json!(effort);
+        } else if let Some(temperature) = request.temperature {
             body["temperature"] = json!(temperature);
         }
 
@@ -320,7 +334,9 @@ impl ReactLLM for ChatOpenAI {
                 .collect();
 
             if !calls.is_empty() {
-                return Ok(Reasoning::with_tools(thought, calls));
+                let mut r = Reasoning::with_tools(thought, calls);
+                r.source_message = Some(response.message);
+                return Ok(r);
             }
 
             let calls: Vec<ToolCall> = response
@@ -329,10 +345,14 @@ impl ReactLLM for ChatOpenAI {
                 .iter()
                 .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
                 .collect();
-            Ok(Reasoning::with_tools(thought, calls))
+            let mut r = Reasoning::with_tools(thought, calls);
+            r.source_message = Some(response.message);
+            Ok(r)
         } else {
             let text = response.message.content();
-            Ok(Reasoning::with_answer("", text))
+            let mut r = Reasoning::with_answer("", text);
+            r.source_message = Some(response.message);
+            Ok(r)
         }
     }
 }

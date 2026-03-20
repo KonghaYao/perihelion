@@ -142,11 +142,40 @@ fn message_to_lines(msg: &crate::app::ChatMessage, _width: usize) -> Vec<Line<'s
             lines.push(Line::from(vec![
                 Span::styled("◆ Agent  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             ]));
-            for text_line in content.lines() {
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(text_line.to_string(), Style::default().fg(Color::White)),
-                ]));
+            // 分别处理 Reasoning block（仅显示字数）和 Text block（正常展示）
+            let blocks = msg.inner.content_blocks();
+            if blocks.is_empty() {
+                // 无 blocks → 直接用 content() 文本
+                for text_line in content.lines() {
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(text_line.to_string(), Style::default().fg(Color::White)),
+                    ]));
+                }
+            } else {
+                for block in &blocks {
+                    match block {
+                        rust_create_agent::messages::ContentBlock::Reasoning { text, .. } => {
+                            let chars = text.chars().count();
+                            lines.push(Line::from(vec![
+                                Span::raw("  "),
+                                Span::styled(
+                                    format!("💭 思考 ({} chars)", chars),
+                                    Style::default().fg(Color::Rgb(150, 120, 200)),
+                                ),
+                            ]));
+                        }
+                        rust_create_agent::messages::ContentBlock::Text { text } => {
+                            for text_line in text.lines() {
+                                lines.push(Line::from(vec![
+                                    Span::raw("  "),
+                                    Span::styled(text_line.to_string(), Style::default().fg(Color::White)),
+                                ]));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         BaseMessage::Tool { is_error, .. } => {
@@ -750,42 +779,53 @@ fn render_model_panel(f: &mut Frame, app: &App) {
                         Span::styled("  Base URL", Style::default().fg(Color::DarkGray)),
                         Span::styled(format!(" {}", p.base_url), Style::default().fg(Color::White)),
                     ]),
-                    Line::from(""),
-                    Line::from(vec![
-                        Span::styled(" Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("e", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(":编辑  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("n", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                        Span::styled(":新建  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("d", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                        Span::styled(":删除  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(":关闭", Style::default().fg(Color::DarkGray)),
-                    ]),
                 ];
+                // thinking 状态行
+                let thinking_status = if panel.buf_thinking_enabled {
+                    format!(" ON  (budget: {} tokens)", panel.buf_thinking_budget)
+                } else {
+                    " OFF".to_string()
+                };
+                let thinking_color = if panel.buf_thinking_enabled { Color::Rgb(150, 120, 200) } else { Color::DarkGray };
+                info_lines.push(Line::from(vec![
+                    Span::styled("  Thinking", Style::default().fg(Color::DarkGray)),
+                    Span::styled(thinking_status, Style::default().fg(thinking_color)),
+                ]));
+                info_lines.push(Line::from(""));
+                info_lines.push(Line::from(vec![
+                    Span::styled(" Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("e", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(":编辑  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("n", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::styled(":新建  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("d", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Span::styled(":删除  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(":关闭", Style::default().fg(Color::DarkGray)),
+                ]));
                 // 剪裁到可用高度
                 info_lines.truncate(form_area.height as usize);
                 f.render_widget(Paragraph::new(Text::from(info_lines)), form_area);
             }
         }
         ModelPanelMode::Edit | ModelPanelMode::New => {
-            let fields = [
-                (EditField::Name,         &panel.buf_name),
-                (EditField::ProviderType, &panel.buf_type),
-                (EditField::ModelId,      &panel.buf_model),
-                (EditField::ApiKey,       &panel.buf_api_key),
-                (EditField::BaseUrl,      &panel.buf_base_url),
+            let fields: &[(EditField, &str)] = &[
+                (EditField::Name,          &panel.buf_name),
+                (EditField::ProviderType,  &panel.buf_type),
+                (EditField::ModelId,       &panel.buf_model),
+                (EditField::ApiKey,        &panel.buf_api_key),
+                (EditField::BaseUrl,       &panel.buf_base_url),
             ];
             let mut form_lines: Vec<Line> = Vec::new();
-            for (field, buf) in &fields {
+            for (field, buf) in fields {
                 let is_active = *field == panel.edit_field;
                 let label = field.label();
 
                 // 特殊处理 ProviderType：显示可选值列表
                 let value_display = if *field == EditField::ProviderType {
                     PROVIDER_TYPES.iter()
-                        .map(|t| if *t == buf.as_str() { format!("[{}]", t) } else { t.to_string() })
+                        .map(|t| if *t == *buf { format!("[{}]", t) } else { t.to_string() })
                         .collect::<Vec<_>>()
                         .join("  ")
                 } else if is_active {
@@ -811,12 +851,48 @@ fn render_model_panel(f: &mut Frame, app: &App) {
                     Span::styled(format!(" {}", value_display), value_style),
                 ]));
             }
+
+            // ThinkingBudget 字段：特殊渲染（enabled toggle + budget 数字输入）
+            {
+                let is_active = panel.edit_field == EditField::ThinkingBudget;
+                let label = EditField::ThinkingBudget.label();
+                let enabled_tag = if panel.buf_thinking_enabled { "[ON] " } else { "[OFF]" };
+                let budget_display = if is_active {
+                    format!("{}█", panel.buf_thinking_budget)
+                } else {
+                    panel.buf_thinking_budget.clone()
+                };
+                let enabled_color = if panel.buf_thinking_enabled {
+                    Color::Rgb(150, 120, 200)
+                } else {
+                    Color::DarkGray
+                };
+                let (label_style, enabled_style, budget_style) = if is_active {
+                    (
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        Style::default().fg(if panel.buf_thinking_enabled { Color::Rgb(180, 100, 255) } else { Color::DarkGray }).bg(Color::Cyan),
+                        Style::default().fg(Color::Black).bg(Color::Cyan),
+                    )
+                } else {
+                    (
+                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(enabled_color),
+                        Style::default().fg(Color::White),
+                    )
+                };
+                form_lines.push(Line::from(vec![
+                    Span::styled(format!("  {} ", label), label_style),
+                    Span::styled(format!(" {} ", enabled_tag), enabled_style),
+                    Span::styled(format!("budget:{}", budget_display), budget_style),
+                ]));
+            }
+
             form_lines.push(Line::from(""));
             form_lines.push(Line::from(vec![
                 Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::styled(":切换字段  ", Style::default().fg(Color::DarkGray)),
                 Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换类型  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(":切换/开关  ", Style::default().fg(Color::DarkGray)),
                 Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::styled(":保存  ", Style::default().fg(Color::DarkGray)),
                 Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),

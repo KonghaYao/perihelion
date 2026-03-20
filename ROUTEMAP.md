@@ -105,10 +105,12 @@
   - [ ] Gemini
   - [ ] 本地 Ollama
 - [x] ot 需要直接打包进去,不需要 --features otel,只是没有配置的时候,不需要进行 ot 的行为
-- [ ] 支持 thinking 模式
+- [x] 支持 thinking 模式
+- [ ] 替换默认提示词
 
 **第二层：Agent 能力**
 
+- [ ] AgentDefineMiddleware
 - [ ] SubAgents
 - [ ] MCP Server 接入（Model Context Protocol）
 - [ ] 知识库检索 / RAG（向量搜索 + 上下文注入）

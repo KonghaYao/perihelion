@@ -460,7 +460,9 @@ impl ReactLLM for ChatAnthropic {
                 .collect();
 
             if !calls.is_empty() {
-                return Ok(Reasoning::with_tools(thought, calls));
+                let mut r = Reasoning::with_tools(thought, calls);
+                r.source_message = Some(response.message);
+                return Ok(r);
             }
 
             let calls: Vec<ToolCall> = response
@@ -469,10 +471,14 @@ impl ReactLLM for ChatAnthropic {
                 .iter()
                 .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
                 .collect();
-            Ok(Reasoning::with_tools(thought, calls))
+            let mut r = Reasoning::with_tools(thought, calls);
+            r.source_message = Some(response.message);
+            Ok(r)
         } else {
             let text = response.message.content();
-            Ok(Reasoning::with_answer("", text))
+            let mut r = Reasoning::with_answer("", text);
+            r.source_message = Some(response.message);
+            Ok(r)
         }
     }
 }

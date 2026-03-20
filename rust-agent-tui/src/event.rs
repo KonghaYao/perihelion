@@ -393,9 +393,11 @@ fn handle_model_panel(app: &mut App, input: Input) {
                 key: Key::Char(' '),
                 ..
             } => {
-                // 在 ProviderType 字段循环切换
-                if app.model_panel.as_ref().unwrap().edit_field == EditField::ProviderType {
+                let field = app.model_panel.as_ref().unwrap().edit_field.clone();
+                if field == EditField::ProviderType {
                     app.model_panel.as_mut().unwrap().cycle_type();
+                } else if field == EditField::ThinkingBudget {
+                    app.model_panel.as_mut().unwrap().toggle_thinking();
                 } else {
                     app.model_panel.as_mut().unwrap().push_char(' ');
                 }

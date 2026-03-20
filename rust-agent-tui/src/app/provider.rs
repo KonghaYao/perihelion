@@ -1,5 +1,5 @@
 use rust_create_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
-use crate::config::ZenConfig;
+use crate::config::{ThinkingConfig, ZenConfig};
 
 #[derive(Clone)]
 pub enum LlmProvider {
@@ -7,11 +7,13 @@ pub enum LlmProvider {
         api_key: String,
         base_url: String,
         model: String,
+        thinking: Option<ThinkingConfig>,
     },
     Anthropic {
         api_key: String,
         model: String,
         base_url: Option<String>,
+        thinking: Option<ThinkingConfig>,
     },
 }
 
@@ -25,7 +27,7 @@ impl LlmProvider {
                 let model = std::env::var("ANTHROPIC_MODEL")
                     .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
                 let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-                Some(Self::Anthropic { api_key, model, base_url })
+                Some(Self::Anthropic { api_key, model, base_url, thinking: None })
             }
             "openai" | "" => {
                 if provider_hint.is_empty() {
@@ -33,7 +35,7 @@ impl LlmProvider {
                         let model = std::env::var("ANTHROPIC_MODEL")
                             .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
                         let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-                        return Some(Self::Anthropic { api_key, model, base_url });
+                        return Some(Self::Anthropic { api_key, model, base_url, thinking: None });
                     }
                 }
                 let api_key = std::env::var("OPENAI_API_KEY").ok()?;
@@ -42,7 +44,7 @@ impl LlmProvider {
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
                 let model = std::env::var("OPENAI_MODEL")
                     .unwrap_or_else(|_| "gpt-4o".to_string());
-                Some(Self::OpenAi { api_key, base_url, model })
+                Some(Self::OpenAi { api_key, base_url, model, thinking: None })
             }
             _ => {
                 let api_key = std::env::var("OPENAI_API_KEY").ok()?;
@@ -51,7 +53,7 @@ impl LlmProvider {
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
                 let model = std::env::var("OPENAI_MODEL")
                     .unwrap_or_else(|_| "gpt-4o".to_string());
-                Some(Self::OpenAi { api_key, base_url, model })
+                Some(Self::OpenAi { api_key, base_url, model, thinking: None })
             }
         }
     }
@@ -68,18 +70,20 @@ impl LlmProvider {
         let model = if !app.model_id.is_empty() {
             app.model_id.clone()
         } else {
-            // fallback：根据 provider 类型给默认值
             match provider.provider_type.as_str() {
                 "anthropic" => "claude-sonnet-4-6".to_string(),
                 _ => "gpt-4o".to_string(),
             }
         };
 
+        let thinking = app.thinking.clone().filter(|t| t.enabled);
+
         match provider.provider_type.as_str() {
             "anthropic" => Some(Self::Anthropic {
                 api_key: provider.api_key.clone(),
                 model,
                 base_url: if provider.base_url.is_empty() { None } else { Some(provider.base_url.clone()) },
+                thinking,
             }),
             _ => Some(Self::OpenAi {
                 api_key: provider.api_key.clone(),
@@ -89,6 +93,7 @@ impl LlmProvider {
                     provider.base_url.clone()
                 },
                 model,
+                thinking,
             }),
         }
     }
@@ -109,13 +114,20 @@ impl LlmProvider {
 
     pub fn into_model(self) -> Box<dyn BaseModel> {
         match self {
-            Self::OpenAi { api_key, base_url, model } => {
-                Box::new(ChatOpenAI::new(api_key, model).with_base_url(base_url))
+            Self::OpenAi { api_key, base_url, model, thinking } => {
+                let mut m = ChatOpenAI::new(api_key, model).with_base_url(base_url);
+                if let Some(t) = thinking {
+                    m = m.with_reasoning_effort(t.openai_effort());
+                }
+                Box::new(m)
             }
-            Self::Anthropic { api_key, model, base_url } => {
+            Self::Anthropic { api_key, model, base_url, thinking } => {
                 let mut m = ChatAnthropic::new(api_key, model);
                 if let Some(url) = base_url {
                     m = m.with_base_url(url);
+                }
+                if let Some(t) = thinking {
+                    m = m.with_extended_thinking(t.budget_tokens);
                 }
                 Box::new(m)
             }

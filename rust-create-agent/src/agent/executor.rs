@@ -154,8 +154,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                             ToolCallRequest::new(tc.id.clone(), tc.name.clone(), tc.input.clone())
                         })
                         .collect();
-                    let ai_msg =
-                        BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs);
+                    // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
+                    // source_message 的 tool_calls 字段在 LLM 解析阶段已填好
+                    let ai_msg = reasoning.source_message.clone()
+                        .unwrap_or_else(|| BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs));
                     state.add_message(ai_msg);
                 }
 
@@ -294,7 +296,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     .final_answer
                     .unwrap_or_else(|| reasoning.thought.clone());
 
-                state.add_message(BaseMessage::ai(answer.as_str()));
+                // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
+                let ai_msg = reasoning.source_message
+                    .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
+                state.add_message(ai_msg);
 
                 self.emit(AgentEvent::TextChunk(answer.clone()));
 

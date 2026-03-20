@@ -123,6 +123,8 @@ pub struct Reasoning {
     pub thought: String,
     pub tool_calls: Vec<ToolCall>,
     pub final_answer: Option<String>,
+    /// 原始 LLM 响应消息（含 Reasoning/Text blocks），优先用于存 state
+    pub source_message: Option<BaseMessage>,
 }
 
 impl Reasoning {
@@ -131,6 +133,7 @@ impl Reasoning {
             thought: thought.into(),
             tool_calls,
             final_answer: None,
+            source_message: None,
         }
     }
 
@@ -139,6 +142,7 @@ impl Reasoning {
             thought: thought.into(),
             tool_calls: Vec::new(),
             final_answer: Some(answer.into()),
+            source_message: None,
         }
     }
 

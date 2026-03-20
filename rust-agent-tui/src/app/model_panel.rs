@@ -1,4 +1,4 @@
-use crate::config::{ProviderConfig, ZenConfig};
+use crate::config::{ProviderConfig, ThinkingConfig, ZenConfig};
 
 // ─── 枚举 ─────────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,7 @@ pub enum EditField {
     ModelId,
     ApiKey,
     BaseUrl,
+    ThinkingBudget,
 }
 
 impl EditField {
@@ -30,16 +31,18 @@ impl EditField {
             Self::ProviderType => Self::ModelId,
             Self::ModelId => Self::ApiKey,
             Self::ApiKey => Self::BaseUrl,
-            Self::BaseUrl => Self::Name,
+            Self::BaseUrl => Self::ThinkingBudget,
+            Self::ThinkingBudget => Self::Name,
         }
     }
     pub fn prev(&self) -> Self {
         match self {
-            Self::Name => Self::BaseUrl,
+            Self::Name => Self::ThinkingBudget,
             Self::ProviderType => Self::Name,
             Self::ModelId => Self::ProviderType,
             Self::ApiKey => Self::ModelId,
             Self::BaseUrl => Self::ApiKey,
+            Self::ThinkingBudget => Self::BaseUrl,
         }
     }
     pub fn label(&self) -> &str {
@@ -49,6 +52,7 @@ impl EditField {
             Self::ModelId => "Model ID",
             Self::ApiKey => "API Key ",
             Self::BaseUrl => "Base URL",
+            Self::ThinkingBudget => "Thinking",
         }
     }
 }
@@ -75,6 +79,9 @@ pub struct ModelPanel {
     pub buf_model: String,
     pub buf_api_key: String,
     pub buf_base_url: String,
+    /// Thinking 配置缓冲（全局，不属于单个 provider）
+    pub buf_thinking_enabled: bool,
+    pub buf_thinking_budget: String,
 }
 
 impl ModelPanel {
@@ -83,6 +90,10 @@ impl ModelPanel {
         let active_id = cfg.config.provider_id.clone();
         // 将光标定位到当前激活的 provider
         let cursor = providers.iter().position(|p| p.id == active_id).unwrap_or(0);
+        let (thinking_enabled, thinking_budget) = match &cfg.config.thinking {
+            Some(t) => (t.enabled, t.budget_tokens.to_string()),
+            None => (false, "8000".to_string()),
+        };
         Self {
             providers,
             active_id,
@@ -94,6 +105,8 @@ impl ModelPanel {
             buf_model: String::new(),
             buf_api_key: String::new(),
             buf_base_url: String::new(),
+            buf_thinking_enabled: thinking_enabled,
+            buf_thinking_budget: thinking_budget,
         }
     }
 
@@ -113,6 +126,7 @@ impl ModelPanel {
             self.buf_model = String::new();
             self.buf_api_key = p.api_key.clone();
             self.buf_base_url = p.base_url.clone();
+            // thinking 缓冲保持当前全局值，不重置
             self.edit_field = EditField::Name;
             self.mode = ModelPanelMode::Edit;
         }
@@ -125,8 +139,16 @@ impl ModelPanel {
         self.buf_model = String::new();
         self.buf_api_key = String::new();
         self.buf_base_url = String::new();
+        // thinking 缓冲保持当前全局值，不重置
         self.edit_field = EditField::Name;
         self.mode = ModelPanelMode::New;
+    }
+
+    /// 切换 thinking enabled（空格键，当 edit_field == ThinkingBudget 时）
+    pub fn toggle_thinking(&mut self) {
+        if self.edit_field == EditField::ThinkingBudget {
+            self.buf_thinking_enabled = !self.buf_thinking_enabled;
+        }
     }
 
     /// 进入删除确认模式
@@ -166,6 +188,11 @@ impl ModelPanel {
             EditField::ModelId => self.buf_model.push(c),
             EditField::ApiKey => self.buf_api_key.push(c),
             EditField::BaseUrl => self.buf_base_url.push(c),
+            EditField::ThinkingBudget => {
+                if c.is_ascii_digit() {
+                    self.buf_thinking_budget.push(c);
+                }
+            }
         }
     }
 
@@ -176,6 +203,7 @@ impl ModelPanel {
             EditField::ModelId => { self.buf_model.pop(); }
             EditField::ApiKey => { self.buf_api_key.pop(); }
             EditField::BaseUrl => { self.buf_base_url.pop(); }
+            EditField::ThinkingBudget => { self.buf_thinking_budget.pop(); }
         }
     }
 
@@ -223,6 +251,13 @@ impl ModelPanel {
         if !self.buf_model.trim().is_empty() && cfg.config.provider_id == id {
             cfg.config.model_id = self.buf_model.trim().to_string();
         }
+
+        // 保存 thinking 配置（全局，不属于单个 provider）
+        let budget_tokens = self.buf_thinking_budget.trim().parse::<u32>().unwrap_or(8000);
+        cfg.config.thinking = Some(ThinkingConfig {
+            enabled: self.buf_thinking_enabled,
+            budget_tokens,
+        });
 
         self.providers = cfg.config.providers.clone();
         self.mode = ModelPanelMode::Browse;

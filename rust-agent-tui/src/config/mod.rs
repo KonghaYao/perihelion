@@ -2,4 +2,4 @@ pub mod store;
 pub mod types;
 
 pub use store::{load, save};
-pub use types::{ProviderConfig, ZenConfig};
+pub use types::{ProviderConfig, ThinkingConfig, ZenConfig};

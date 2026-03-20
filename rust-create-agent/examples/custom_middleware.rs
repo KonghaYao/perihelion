@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         .add_middleware(Box::new(ContextInjectorMiddleware::new("user_id", "user_42")));
 
     let mut state = AgentState::new("/workspace");
-    let output = agent.execute(AgentInput::text("你好"), &mut state).await?;
+    let output = agent.execute(AgentInput::text("你好"), &mut state, None).await?;
 
     println!("\n=== Output with Context ===");
     println!("{}", output.text);

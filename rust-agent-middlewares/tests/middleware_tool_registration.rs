@@ -30,7 +30,7 @@ async fn test_filesystem_middleware_auto_registers_read_file() {
     let mut state = AgentState::new(&cwd);
 
     let output = agent
-        .execute(AgentInput::text("read hello.txt"), &mut state)
+        .execute(AgentInput::text("read hello.txt"), &mut state, None)
         .await
         .unwrap();
 
@@ -77,7 +77,7 @@ async fn test_terminal_middleware_auto_registers_bash() {
     let mut state = AgentState::new(&cwd);
 
     let output = agent
-        .execute(AgentInput::text("run echo"), &mut state)
+        .execute(AgentInput::text("run echo"), &mut state, None)
         .await
         .unwrap();
 
@@ -133,7 +133,7 @@ async fn test_manual_tool_overrides_filesystem_middleware() {
     let mut state = AgentState::new(&cwd);
 
     let output = agent
-        .execute(AgentInput::text("read file"), &mut state)
+        .execute(AgentInput::text("read file"), &mut state, None)
         .await
         .unwrap();
 

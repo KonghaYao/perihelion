@@ -71,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut state = AgentState::new("/workspace");
     let output = agent
-        .execute(AgentInput::text("请计算 42 + 58"), &mut state)
+        .execute(AgentInput::text("请计算 42 + 58"), &mut state, None)
         .await?;
 
     println!("\n=== Final Answer ===");

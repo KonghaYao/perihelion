@@ -69,7 +69,7 @@ async fn test_full_react_loop() {
         .add_middleware(Box::new(CallRecorder::new(calls.clone())));
 
     let mut state = AgentState::new("/workspace");
-    let output = agent.execute(AgentInput::text("count twice"), &mut state).await.unwrap();
+    let output = agent.execute(AgentInput::text("count twice"), &mut state, None).await.unwrap();
 
     assert_eq!(*count.lock().unwrap(), 2);
     assert_eq!(output.tool_calls.len(), 2);
@@ -112,7 +112,7 @@ async fn test_multiple_middlewares() {
         .add_middleware(Box::new(Tagger { tag: "C".into(), log: log.clone() }));
 
     let mut state = AgentState::new("/test");
-    agent.execute(AgentInput::text("go"), &mut state).await.unwrap();
+    agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
 
     let recorded = log.lock().unwrap().clone();
     assert_eq!(
