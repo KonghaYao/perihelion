@@ -10,16 +10,47 @@ use rust_create_agent::error::AgentResult;
 use rust_create_agent::messages::BaseMessage;
 use rust_create_agent::middleware::r#trait::Middleware;
 
+/// 全局配置文件路径：~/.zen-code/settings.json
+pub fn global_config_path() -> PathBuf {
+    dirs_next::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".zen-code")
+        .join("settings.json")
+}
+
+/// 从全局配置中加载 skills_dir 路径
+pub fn load_global_skills_dir() -> Option<PathBuf> {
+    let path = global_config_path();
+    if !path.exists() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    // 支持嵌套 { "config": { "skillsDir": "..." } } 或扁平 { "skillsDir": "..." }
+    let skills_dir = json
+        .get("config")
+        .and_then(|c| c.get("skillsDir"))
+        .or_else(|| json.get("skillsDir"))
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from);
+
+    skills_dir.filter(|p| !p.as_os_str().is_empty())
+}
+
 /// SkillsMiddleware - 渐进式 Skills 摘要注入
 ///
 /// 在 `before_agent` 时扫描 skills 目录，将所有 skill 的 name + description
 /// 生成摘要系统消息前插到消息历史中。
 ///
-/// 搜索路径：
+/// 搜索路径（按优先级）：
 /// 1. `{cwd}/.claude/skills/`（项目级，优先）
-/// 2. `{home}/.claude/code/skills/`（用户级）
+/// 2. 全局配置的 `skills_dir`（可配置）
+/// 3. `{home}/.claude/code/skills/`（用户级）
 pub struct SkillsMiddleware {
     project_skills_dir: Option<PathBuf>,
+    global_skills_dir: Option<PathBuf>,
     user_skills_dir: Option<PathBuf>,
 }
 
@@ -27,6 +58,7 @@ impl SkillsMiddleware {
     pub fn new() -> Self {
         Self {
             project_skills_dir: None,
+            global_skills_dir: None,
             user_skills_dir: None,
         }
     }
@@ -37,9 +69,23 @@ impl SkillsMiddleware {
         self
     }
 
+    /// 设置全局 skills 目录（从配置读取）
+    pub fn with_global_dir(mut self, dir: PathBuf) -> Self {
+        self.global_skills_dir = Some(dir);
+        self
+    }
+
     /// 覆盖用户级 skills 目录（默认 `{home}/.claude/code/skills/`）
     pub fn with_user_dir(mut self, dir: PathBuf) -> Self {
         self.user_skills_dir = Some(dir);
+        self
+    }
+
+    /// 从全局配置加载 skills 目录（默认从 `~/.zen-code/settings.json` 读取）
+    pub fn with_global_config(mut self) -> Self {
+        if let Some(dir) = load_global_skills_dir() {
+            self.global_skills_dir = Some(dir);
+        }
         self
     }
 
@@ -50,13 +96,21 @@ impl SkillsMiddleware {
             .clone()
             .unwrap_or_else(|| PathBuf::from(cwd).join(".claude").join("skills"));
 
+        let global_dir = self.global_skills_dir.clone();
+
         let user_dir = self.user_skills_dir.clone().unwrap_or_else(|| {
             dirs_next::home_dir()
                 .map(|h| h.join(".claude").join("code").join("skills"))
                 .unwrap_or_default()
         });
 
-        vec![project_dir, user_dir]
+        // 按优先级构建目录列表
+        let mut dirs = vec![project_dir];
+        if let Some(global) = global_dir {
+            dirs.push(global);
+        }
+        dirs.push(user_dir);
+        dirs
     }
 
     /// 生成 skills 摘要系统消息内容

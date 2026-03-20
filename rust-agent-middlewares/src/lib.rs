@@ -30,7 +30,7 @@ pub use hitl::{
 // AskUserInvoker 从核心库直通，AskUserHandler 是其别名
 pub use rust_create_agent::ask_user::AskUserInvoker;
 pub use rust_create_agent::ask_user::AskUserInvoker as AskUserHandler;
-pub use skills::SkillsMiddleware;
+pub use skills::{load_global_skills_dir, list_skills, load_skill_metadata, SkillsMiddleware, SkillMetadata};
 pub use tools::{AskUserTool};
 
 /// Prelude - 常用类型一次性导入

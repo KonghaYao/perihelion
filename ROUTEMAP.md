@@ -32,6 +32,10 @@
   - tracing 日志（stdout / JSON 格式）
   - OpenTelemetry OTLP 导出
   - Jaeger 可视化
+- [ ] i18n 方案
+  - 文件系统读取 lang/xxx.json 文件
+  - list lang
+  - pick lang
 
 ---
 
@@ -111,3 +115,4 @@
 
 - [ ] Web UI（浏览器端对话界面）
 - [ ] 多 Agent 并发面板（同时跑多个任务）
+- [ ] 添加一个会话内的数据统计 status bar

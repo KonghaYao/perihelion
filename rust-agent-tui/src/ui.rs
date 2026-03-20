@@ -168,10 +168,12 @@ fn message_to_lines(msg: &crate::app::ChatMessage, _width: usize) -> Vec<Line<'s
             }
         }
         BaseMessage::System { .. } => {
-            lines.push(Line::from(vec![
-                Span::styled("ℹ ", Style::default().fg(Color::Blue)),
-                Span::styled(content, Style::default().fg(Color::DarkGray)),
-            ]));
+            for line in content.lines() {
+                lines.push(Line::from(vec![
+                    Span::styled("ℹ ", Style::default().fg(Color::Blue)),
+                    Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                ]));
+            }
         }
     }
 

@@ -88,8 +88,8 @@ impl AskUserInvoker for TuiAskUserHandler {
         if self.tx.send(ApprovalEvent::AskUserBatch(req)).await.is_err() {
             return vec!["[UI 已断开]".to_string(); n];
         }
-        response_rx
-            .await
-            .unwrap_or_else(|_| vec!["[等待超时]".to_string(); n])
+        // 等待 TUI 后台任务通过原始 request 的 response_tx 回复
+        response_rx.await.unwrap_or_else(|_| vec!["[等待超时]".to_string(); n])
     }
 }
+

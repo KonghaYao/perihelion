@@ -613,14 +613,20 @@ impl App {
         let yolo = rust_agent_middlewares::is_yolo_mode();
 
         let (approval_tx, approval_rx) = mpsc::channel::<ApprovalEvent>(4);
-        if !yolo {
+        {
             let tx_hitl = tx.clone();
             tokio::spawn(async move {
                 let mut approval_rx = approval_rx;
                 while let Some(ev) = approval_rx.recv().await {
                     match ev {
                         ApprovalEvent::Batch(req) => {
-                            let _ = tx_hitl.send(AgentEvent::ApprovalNeeded(req)).await;
+                            if yolo {
+                                // YOLO 模式：跳过弹窗，直接全部批准
+                                let decisions = vec![HitlDecision::Approve; req.items.len()];
+                                let _ = req.response_tx.send(decisions);
+                            } else {
+                                let _ = tx_hitl.send(AgentEvent::ApprovalNeeded(req)).await;
+                            }
                         }
                         ApprovalEvent::AskUserBatch(req) => {
                             let _ = tx_hitl.send(AgentEvent::AskUserBatch(req)).await;
@@ -629,7 +635,6 @@ impl App {
                 }
             });
         }
-        // YOLO 时 approval_rx 直接丢弃，approval_tx 随 agent task 结束一起销毁
 
         let cwd = self.cwd.clone();
         let system_prompt = crate::prompt::default_system_prompt(&cwd);
@@ -829,7 +834,11 @@ impl App {
     /// Enter：确认当前问题。若全部问题均已确认则提交并关闭弹窗。
     /// 若当前问题没有选中任何选项（且不在自定义输入模式），自动选中光标所在选项。
     pub fn ask_user_confirm(&mut self) {
-        if let Some(p) = self.ask_user_prompt.as_mut() {
+        let all_done = {
+            let p = match self.ask_user_prompt.as_mut() {
+                Some(p) => p,
+                None => return,
+            };
             let q = &mut p.questions[p.active_tab];
             // 没有选中任何选项且不在自定义输入模式：自动选中当前光标行
             if !q.in_custom_input
@@ -838,13 +847,9 @@ impl App {
             {
                 q.toggle_current();
             }
-        }
-
-        let all_done = if let Some(p) = self.ask_user_prompt.as_mut() {
             p.confirm_current()
-        } else {
-            return;
         };
+
         if all_done {
             if let Some(p) = self.ask_user_prompt.take() {
                 p.confirm();

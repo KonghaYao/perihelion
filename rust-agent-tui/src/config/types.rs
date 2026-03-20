@@ -17,6 +17,9 @@ pub struct AppConfig {
     pub model_id: String,
     #[serde(default)]
     pub providers: Vec<ProviderConfig>,
+    /// 全局 skills 目录路径
+    #[serde(default, alias = "skillsDir")]
+    pub skills_dir: Option<String>,
     /// 保留未知字段，写回时不丢失
     #[serde(flatten)]
     pub extra: Map<String, Value>,
