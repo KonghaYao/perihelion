@@ -28,9 +28,18 @@ pub async fn run_universal_agent(
 ) {
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
-    let overrides = agent_id
-        .as_deref()
-        .and_then(|id| rust_agent_middlewares::AgentDefineMiddleware::load_overrides(&cwd, id));
+    // 使用 spawn_blocking 避免同步 I/O 阻塞 tokio 运行时。
+    let overrides = if let Some(id) = agent_id.as_deref() {
+        let cwd_clone = cwd.clone();
+        let id_owned = id.to_string();
+        tokio::task::spawn_blocking(move || {
+            rust_agent_middlewares::AgentDefineMiddleware::load_overrides(&cwd_clone, &id_owned)
+        })
+        .await
+        .unwrap_or(None)
+    } else {
+        None
+    };
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
     let model = BaseModelReactLLM::new(provider.into_model()).with_system(system_prompt);
 

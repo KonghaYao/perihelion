@@ -103,28 +103,18 @@ impl ChatOpenAI {
     }
 
     fn messages_to_json(messages: &[BaseMessage]) -> Vec<Value> {
-        // 先收集所有 System 消息，合并为一条放到首位
-        let system_parts: Vec<String> = messages
-            .iter()
-            .filter_map(|m| {
-                if let BaseMessage::System { content } = m {
-                    let t = content.text_content();
-                    if !t.trim().is_empty() { Some(t) } else { None }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
+        // 单次遍历：收集 System 消息并处理其他消息
+        let mut system_parts: Vec<String> = Vec::new();
         let mut result: Vec<Value> = Vec::new();
-
-        if !system_parts.is_empty() {
-            result.push(json!({ "role": "system", "content": system_parts.join("\n\n") }));
-        }
 
         for m in messages {
             match m {
-                BaseMessage::System { .. } => {} // 已在上方合并，跳过
+                BaseMessage::System { content } => {
+                    let t = content.text_content();
+                    if !t.trim().is_empty() {
+                        system_parts.push(t);
+                    }
+                }
                 BaseMessage::Human { content } => {
                     result.push(json!({ "role": "user", "content": Self::content_to_openai(content) }));
                 }
@@ -158,6 +148,10 @@ impl ChatOpenAI {
                     }));
                 }
             }
+        }
+
+        if !system_parts.is_empty() {
+            result.insert(0, json!({ "role": "system", "content": system_parts.join("\n\n") }));
         }
 
         result
@@ -254,7 +248,7 @@ impl BaseModel for ChatOpenAI {
             if let Some(first) = messages.first_mut() {
                 if first["role"] == "system" {
                     // 消息列表中已有 System（来自中间件，如 agent.md），追加基础提示词
-                    let existing = first["content"].as_str().unwrap_or("").to_string();
+                    let existing = first["content"].as_str().unwrap_or("");
                     first["content"] = json!(format!("{}\n\n{}", existing, base_system));
                 } else {
                     messages.insert(0, json!({ "role": "system", "content": base_system }));
