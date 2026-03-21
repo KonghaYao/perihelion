@@ -103,18 +103,34 @@ impl ChatOpenAI {
     }
 
     fn messages_to_json(messages: &[BaseMessage]) -> Vec<Value> {
-        messages
+        // 先收集所有 System 消息，合并为一条放到首位
+        let system_parts: Vec<String> = messages
             .iter()
-            .flat_map(|m| match m {
-                BaseMessage::System { content } => {
-                    vec![json!({ "role": "system", "content": Self::content_to_openai(content) })]
+            .filter_map(|m| {
+                if let BaseMessage::System { content } = m {
+                    let t = content.text_content();
+                    if !t.trim().is_empty() { Some(t) } else { None }
+                } else {
+                    None
                 }
+            })
+            .collect();
+
+        let mut result: Vec<Value> = Vec::new();
+
+        if !system_parts.is_empty() {
+            result.push(json!({ "role": "system", "content": system_parts.join("\n\n") }));
+        }
+
+        for m in messages {
+            match m {
+                BaseMessage::System { .. } => {} // 已在上方合并，跳过
                 BaseMessage::Human { content } => {
-                    vec![json!({ "role": "user", "content": Self::content_to_openai(content) })]
+                    result.push(json!({ "role": "user", "content": Self::content_to_openai(content) }));
                 }
                 BaseMessage::Ai { content, tool_calls } => {
                     if tool_calls.is_empty() {
-                        vec![json!({ "role": "assistant", "content": Self::content_to_openai(content) })]
+                        result.push(json!({ "role": "assistant", "content": Self::content_to_openai(content) }));
                     } else {
                         let tcs: Vec<Value> = tool_calls
                             .iter()
@@ -127,22 +143,24 @@ impl ChatOpenAI {
                                 }
                             }))
                             .collect();
-                        vec![json!({
+                        result.push(json!({
                             "role": "assistant",
                             "content": Self::content_to_openai(content),
                             "tool_calls": tcs
-                        })]
+                        }));
                     }
                 }
                 BaseMessage::Tool { tool_call_id, content, .. } => {
-                    vec![json!({
+                    result.push(json!({
                         "role": "tool",
                         "tool_call_id": tool_call_id,
                         "content": Self::content_to_openai(content)
-                    })]
+                    }));
                 }
-            })
-            .collect()
+            }
+        }
+
+        result
     }
 
     // ─── 响应 → BaseMessage ───────────────────────────────────────────────────
@@ -232,9 +250,17 @@ impl BaseModel for ChatOpenAI {
 
         let mut messages = Self::messages_to_json(&request.messages);
 
-        if let Some(system) = &request.system {
-            if !messages.first().map(|m| m["role"] == "system").unwrap_or(false) {
-                messages.insert(0, json!({ "role": "system", "content": system }));
+        if let Some(base_system) = &request.system {
+            if let Some(first) = messages.first_mut() {
+                if first["role"] == "system" {
+                    // 消息列表中已有 System（来自中间件，如 agent.md），追加基础提示词
+                    let existing = first["content"].as_str().unwrap_or("").to_string();
+                    first["content"] = json!(format!("{}\n\n{}", existing, base_system));
+                } else {
+                    messages.insert(0, json!({ "role": "system", "content": base_system }));
+                }
+            } else {
+                messages.insert(0, json!({ "role": "system", "content": base_system }));
             }
         }
 

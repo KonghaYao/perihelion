@@ -2,15 +2,31 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use rust_create_agent::agent::state::State;
-use rust_create_agent::error::{AgentError, AgentResult};
-use rust_create_agent::messages::BaseMessage;
+use rust_create_agent::error::AgentResult;
 use rust_create_agent::middleware::r#trait::Middleware;
 
-use crate::{format_agent_id, parse_agent_file};
+use crate::parse_agent_file;
+
+/// agent.md 中可覆盖 system prompt 的部分
+///
+/// 所有字段均为 `Option`，`None` 表示使用默认值。
+#[derive(Debug, Clone, Default)]
+pub struct AgentOverrides {
+    /// 角色定位（替换 `{{persona}}`）
+    pub persona: Option<String>,
+    /// 输出风格（替换 `{{tone_and_style}}`）
+    pub tone: Option<String>,
+    /// 主动性（替换 `{{proactiveness}}`）
+    pub proactiveness: Option<String>,
+}
+
+impl AgentOverrides {
+    pub fn is_empty(&self) -> bool {
+        self.persona.is_none() && self.tone.is_none() && self.proactiveness.is_none()
+    }
+}
 
 /// AgentDefineMiddleware - 根据 agent_id 注入 Claude Code Agent 定义文件
-///
-/// 在 `before_agent` 时，根据 state 中的 agent_id 查找对应的 md 文件并注入为系统消息。
 ///
 /// Agent 定义文件搜索路径（按优先级）：
 /// 1. `{cwd}/.claude/agents/{agent_id}/agent.md`
@@ -24,7 +40,10 @@ use crate::{format_agent_id, parse_agent_file};
 /// name: code-reviewer
 /// description: Reviews code for quality and best practices
 /// tools: Read, Glob, Grep
-/// model: sonnet
+/// tone: |
+///   Be thorough and explain your reasoning in detail.
+/// proactiveness: |
+///   Proactively review related files and suggest improvements.
 /// ---
 ///
 /// You are a code reviewer. Focus on code quality and best practices.
@@ -36,31 +55,60 @@ impl AgentDefineMiddleware {
         Self
     }
 
-    /// 根据 cwd 和 agent_id 构建候选路径列表（仅 Claude Code 路径）
-    fn candidate_paths(&self, cwd: &str, agent_id: &str) -> Vec<PathBuf> {
+    /// 根据 cwd 和 agent_id 构建候选路径列表
+    fn candidate_paths(cwd: &str, agent_id: &str) -> Vec<PathBuf> {
         let cwd = Path::new(cwd);
         vec![
-            // Claude Code 标准路径: .claude/agents/{id}/agent.md
-            cwd.join(".claude")
-                .join("agents")
-                .join(agent_id)
-                .join("agent.md"),
-            cwd.join(".claude")
-                .join("agents")
-                .join(format!("{}.md", agent_id)),
-            // Claude Code 标准路径: agents/{id}/agent.md
+            cwd.join(".claude").join("agents").join(agent_id).join("agent.md"),
+            cwd.join(".claude").join("agents").join(format!("{}.md", agent_id)),
             cwd.join("agents").join(agent_id).join("agent.md"),
             cwd.join("agents").join(format!("{}.md", agent_id)),
         ]
     }
 
     /// 按优先级找到第一个存在的文件
-    fn find_file(&self, cwd: &str, agent_id: &str) -> Option<PathBuf> {
-        self.candidate_paths(cwd, agent_id)
+    fn find_file(cwd: &str, agent_id: &str) -> Option<PathBuf> {
+        Self::candidate_paths(cwd, agent_id)
             .into_iter()
             .find(|p| p.is_file())
     }
 
+    /// 同步读取 agent.md，返回可覆盖 system prompt 的各个部分。
+    ///
+    /// 供 TUI 层在构建 LLM 前提前获取覆盖内容，传入 `build_system_prompt`。
+    /// 返回 `None` 表示文件不存在或无有效内容。
+    pub fn load_overrides(cwd: &str, agent_id: &str) -> Option<AgentOverrides> {
+        let path = Self::find_file(cwd, agent_id)?;
+        let content = std::fs::read_to_string(&path).ok()?;
+        if content.trim().is_empty() {
+            return None;
+        }
+
+        if let Some(agent) = parse_agent_file(&content) {
+            let persona = if agent.system_prompt.is_empty() {
+                None
+            } else {
+                Some(agent.system_prompt)
+            };
+            let overrides = AgentOverrides {
+                persona,
+                tone: agent.frontmatter.tone,
+                proactiveness: agent.frontmatter.proactiveness,
+            };
+            if overrides.is_empty() {
+                return None;
+            }
+            return Some(overrides);
+        }
+
+        // 没有有效 frontmatter，把整个文件内容当作 persona
+        let text = content.trim().to_string();
+        if text.is_empty() {
+            None
+        } else {
+            Some(AgentOverrides { persona: Some(text), ..Default::default() })
+        }
+    }
 }
 
 impl Default for AgentDefineMiddleware {
@@ -75,52 +123,9 @@ impl<S: State> Middleware<S> for AgentDefineMiddleware {
         "AgentDefineMiddleware"
     }
 
-    async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
-        // 从 state.context 获取 agent_id
-        let agent_id = match state.get_context("agent_id") {
-            Some(id) => id,
-            None => return Ok(()), // 没有 agent_id，静默跳过
-        };
-
-        let Some(path) = self.find_file(state.cwd(), agent_id) else {
-            return Ok(()); // 文件不存在，静默跳过
-        };
-
-        let path_display = path.display().to_string();
-        let content = tokio::task::spawn_blocking(move || std::fs::read_to_string(&path))
-            .await
-            .map_err(|e| AgentError::MiddlewareError {
-                middleware: "AgentDefineMiddleware".to_string(),
-                reason: format!("spawn_blocking 失败: {e}"),
-            })?
-            .map_err(|e| AgentError::MiddlewareError {
-                middleware: "AgentDefineMiddleware".to_string(),
-                reason: format!("读取 {} 失败: {e}", path_display),
-            })?;
-
-        if content.trim().is_empty() {
-            return Ok(());
-        }
-
-        // 解析 Claude Code agent 文件（YAML frontmatter + markdown）
-        let agent = match parse_agent_file(&content) {
-            Some(agent) => agent,
-            None => {
-                // 没有有效的 frontmatter，当作纯 markdown 处理
-                let agent_name = format_agent_id(agent_id);
-                let system_content = format!("[Agent: {}]\n\n{}", agent_name, content.trim());
-                state.prepend_message(BaseMessage::system(system_content));
-                return Ok(());
-            }
-        };
-
-        // 使用 frontmatter 中的 name 或 agent_id 作为 agent 名称
-        let agent_name = &agent.frontmatter.name;
-        let system_content = format!("[Agent: {}]\n\n{}", agent_name, agent.system_prompt);
-
-        // 前插系统消息
-        state.prepend_message(BaseMessage::system(system_content));
-
+    async fn before_agent(&self, _state: &mut S) -> AgentResult<()> {
+        // 覆盖注入已在构建 LLM 时通过 build_system_prompt(overrides, cwd) 完成，
+        // 中间件层无需再操作消息列表。
         Ok(())
     }
 }
@@ -128,120 +133,72 @@ impl<S: State> Middleware<S> for AgentDefineMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_create_agent::agent::state::AgentState;
     use tempfile::tempdir;
 
-    #[tokio::test]
-    async fn test_no_agent_id_no_op() {
-        let mw = AgentDefineMiddleware::new();
-        let mut state = AgentState::new("/tmp");
-        let result = mw.before_agent(&mut state).await;
-        assert!(result.is_ok());
-        assert_eq!(state.messages().len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_with_agent_file() {
+    #[test]
+    fn test_load_overrides_persona_only() {
         let dir = tempdir().unwrap();
         let agents_dir = dir.path().join(".claude").join("agents");
         std::fs::create_dir_all(&agents_dir).unwrap();
         std::fs::write(
             agents_dir.join("code-reviewer.md"),
-            r#"---
-name: code-reviewer
-description: Reviews code
-tools: Read, Grep
----
-
-You are a code reviewer.
-"#,
+            "---\nname: code-reviewer\ndescription: Reviews code\n---\n\nYou are a code reviewer.\n",
         )
         .unwrap();
 
-        let mw = AgentDefineMiddleware::new();
-        let mut state =
-            AgentState::new(dir.path().to_str().unwrap()).with_context("agent_id", "code-reviewer");
-        mw.before_agent(&mut state).await.unwrap();
-
-        assert_eq!(state.messages().len(), 1);
-        assert!(state.messages()[0].is_system());
-        assert!(state.messages()[0].content().contains("code-reviewer"));
-        assert!(state.messages()[0].content().contains("You are a code reviewer"));
-    }
-
-    #[tokio::test]
-    async fn test_with_nested_agent_file() {
-        let dir = tempdir().unwrap();
-        let agent_dir = dir
-            .path()
-            .join(".claude")
-            .join("agents")
-            .join("security-auditor");
-        std::fs::create_dir_all(&agent_dir).unwrap();
-        std::fs::write(
-            agent_dir.join("agent.md"),
-            r#"---
-name: security-auditor
-description: Audit security
----
-
-You are a security auditor.
-"#,
-        )
-        .unwrap();
-
-        let mw = AgentDefineMiddleware::new();
-        let mut state = AgentState::new(dir.path().to_str().unwrap())
-            .with_context("agent_id", "security-auditor");
-        mw.before_agent(&mut state).await.unwrap();
-
-        assert_eq!(state.messages().len(), 1);
-        assert!(state.messages()[0].content().contains("security-auditor"));
-    }
-
-    #[tokio::test]
-    async fn test_file_not_found_silent_skip() {
-        let mw = AgentDefineMiddleware::new();
-        let mut state = AgentState::new("/nonexistent").with_context("agent_id", "unknown-agent");
-        let result = mw.before_agent(&mut state).await;
-        assert!(result.is_ok());
-        assert_eq!(state.messages().len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_prepends_before_existing_messages() {
-        let dir = tempdir().unwrap();
-        let agents_dir = dir.path().join("agents");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        std::fs::write(
-            agents_dir.join("developer.md"),
-            r#"---
-name: developer
-description: Developer agent
----
-
-You are a developer.
-"#,
-        )
-        .unwrap();
-
-        let mw = AgentDefineMiddleware::new();
-        let mut state =
-            AgentState::new(dir.path().to_str().unwrap()).with_context("agent_id", "developer");
-        state.add_message(BaseMessage::human("Hello"));
-
-        mw.before_agent(&mut state).await.unwrap();
-
-        assert_eq!(state.messages().len(), 2);
-        assert!(state.messages()[0].is_system());
-        assert!(state.messages()[0].content().contains("developer"));
-        assert!(matches!(state.messages()[1], BaseMessage::Human { .. }));
+        let ov = AgentDefineMiddleware::load_overrides(dir.path().to_str().unwrap(), "code-reviewer").unwrap();
+        assert_eq!(ov.persona.as_deref().unwrap().trim(), "You are a code reviewer.");
+        assert!(ov.tone.is_none());
+        assert!(ov.proactiveness.is_none());
     }
 
     #[test]
-    fn test_format_agent_name() {
-        assert_eq!(format_agent_id("code-reviewer"), "Code Reviewer");
-        assert_eq!(format_agent_id("security_auditor"), "Security Auditor");
-        assert_eq!(format_agent_id("devops"), "Devops");
+    fn test_load_overrides_with_tone_and_proactiveness() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("analyst.md"),
+            "---\nname: analyst\ndescription: Data analyst\ntone: Be thorough and detailed.\nproactiveness: Proactively explore related data.\n---\n\nYou are a data analyst.\n",
+        )
+        .unwrap();
+
+        let ov = AgentDefineMiddleware::load_overrides(dir.path().to_str().unwrap(), "analyst").unwrap();
+        assert!(ov.persona.is_some());
+        assert_eq!(ov.tone.as_deref().unwrap().trim(), "Be thorough and detailed.");
+        assert_eq!(ov.proactiveness.as_deref().unwrap().trim(), "Proactively explore related data.");
+    }
+
+    #[test]
+    fn test_load_overrides_nested_dir() {
+        let dir = tempdir().unwrap();
+        let agent_dir = dir.path().join(".claude").join("agents").join("security-auditor");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::write(
+            agent_dir.join("agent.md"),
+            "---\nname: security-auditor\ndescription: Audit\n---\n\nYou are a security auditor.\n",
+        )
+        .unwrap();
+
+        let ov = AgentDefineMiddleware::load_overrides(dir.path().to_str().unwrap(), "security-auditor").unwrap();
+        assert_eq!(ov.persona.as_deref().unwrap().trim(), "You are a security auditor.");
+    }
+
+    #[test]
+    fn test_load_overrides_no_file_returns_none() {
+        let ov = AgentDefineMiddleware::load_overrides("/nonexistent", "unknown");
+        assert!(ov.is_none());
+    }
+
+    #[test]
+    fn test_load_overrides_plain_markdown() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(agents_dir.join("plain.md"), "Just a plain persona.").unwrap();
+
+        let ov = AgentDefineMiddleware::load_overrides(dir.path().to_str().unwrap(), "plain").unwrap();
+        assert_eq!(ov.persona.as_deref().unwrap(), "Just a plain persona.");
+        assert!(ov.tone.is_none());
     }
 }

@@ -143,13 +143,16 @@ impl ChatAnthropic {
     /// - System 消息提取到顶层 system 字段
     /// - Tool 消息合并为 user content blocks
     fn messages_to_anthropic(messages: &[BaseMessage]) -> (Vec<Value>, Option<String>) {
-        let mut system_text: Option<String> = None;
+        let mut system_parts: Vec<String> = Vec::new();
         let mut result: Vec<Value> = Vec::new();
 
         for msg in messages {
             match msg {
                 BaseMessage::System { content } => {
-                    system_text = Some(content.text_content());
+                    let text = content.text_content();
+                    if !text.trim().is_empty() {
+                        system_parts.push(text);
+                    }
                 }
                 BaseMessage::Human { content } => {
                     result.push(json!({
@@ -215,6 +218,11 @@ impl ChatAnthropic {
             }
         }
 
+        let system_text = if system_parts.is_empty() {
+            None
+        } else {
+            Some(system_parts.join("\n\n"))
+        };
         (result, system_text)
     }
 
@@ -308,7 +316,13 @@ impl BaseModel for ChatAnthropic {
             .collect();
 
         let (mut messages, system_from_msgs) = Self::messages_to_anthropic(&request.messages);
-        let system = request.system.or(system_from_msgs);
+        // 合并：消息列表中的 System（来自中间件，如 agent.md）在前，
+        // request.system（BaseModelReactLLM 设置的基础提示词）在后
+        let system = match (system_from_msgs, request.system) {
+            (Some(from_msgs), Some(base)) => Some(format!("{}\n\n{}", from_msgs, base)),
+            (Some(from_msgs), None) => Some(from_msgs),
+            (None, base) => base,
+        };
         let max_tokens = request.max_tokens.unwrap_or(4096);
 
         // 开启缓存时：对最后一条消息的最后一个 block 加 cache_control

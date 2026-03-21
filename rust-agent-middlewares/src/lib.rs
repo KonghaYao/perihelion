@@ -22,7 +22,7 @@ pub mod skills;
 pub mod tools;
 
 pub use agents_md::AgentsMdMiddleware;
-pub use agent_define::AgentDefineMiddleware;
+pub use agent_define::{AgentDefineMiddleware, AgentOverrides};
 pub use ask_user::{
     ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserOption,
     AskUserQuestionData,

@@ -33,6 +33,12 @@ pub struct ClaudeAgentFrontmatter {
     /// 使用的模型：sonnet、opus、haiku 或 inherit
     #[serde(default)]
     pub model: Option<String>,
+    /// 输出风格覆盖（替换默认的 Tone and style 章节）
+    #[serde(default)]
+    pub tone: Option<String>,
+    /// 主动性覆盖（替换默认的 Proactiveness 章节）
+    #[serde(default)]
+    pub proactiveness: Option<String>,
     /// 权限模式：default、acceptEdits、dontAsk、bypassPermissions 或 plan
     #[serde(default)]
     pub permission_mode: Option<String>,
