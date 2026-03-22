@@ -29,13 +29,9 @@ pub enum MessageViewModel {
         color: Color,
     },
     /// 系统消息
-    SystemNote {
-        content: String,
-    },
+    SystemNote { content: String },
     /// Todo 状态（特殊系统消息，支持原地更新）
-    TodoStatus {
-        rendered: String,
-    },
+    TodoStatus { rendered: String },
 }
 
 /// ContentBlock 的视图化表示
@@ -48,19 +44,16 @@ pub enum ContentBlockView {
         dirty: bool,
     },
     /// 推理/思考过程（仅显示字数摘要）
-    Reasoning {
-        char_count: usize,
-    },
+    Reasoning { char_count: usize },
     /// 工具使用请求（AI 发起的调用请求）
-    ToolUse {
-        name: String,
-        input_preview: String,
-    },
+    ToolUse { name: String, input_preview: String },
 }
 
 impl MessageViewModel {
     /// 从 BaseMessage 转换为视图模型
-    pub fn from_base_message(msg: &BaseMessage) -> Self {
+    ///
+    /// `prev_ai_tool_calls` 用于为 Tool 消息提供工具名（BaseMessage::Tool 只存储 tool_use_id）
+    pub fn from_base_message(msg: &BaseMessage, prev_ai_tool_calls: &[(String, String)]) -> Self {
         match msg {
             BaseMessage::Human { content } => {
                 let raw = content.text_content();
@@ -70,7 +63,10 @@ impl MessageViewModel {
                     rendered,
                 }
             }
-            BaseMessage::Ai { content, tool_calls: _ } => {
+            BaseMessage::Ai {
+                content,
+                tool_calls: _,
+            } => {
                 let blocks: Vec<ContentBlockView> = content
                     .content_blocks()
                     .into_iter()
@@ -83,7 +79,9 @@ impl MessageViewModel {
                         ContentBlock::Reasoning { text, .. } => ContentBlockView::Reasoning {
                             char_count: text.chars().count(),
                         },
-                        ContentBlock::ToolUse { name, input, id: _, .. } => {
+                        ContentBlock::ToolUse {
+                            name, input, id: _, ..
+                        } => {
                             let preview = serde_json::to_string(&input)
                                 .unwrap_or_default()
                                 .chars()
@@ -113,14 +111,15 @@ impl MessageViewModel {
                 is_error,
                 ..
             } => {
-                // tool_call_id 实际存储的是工具名
-                let tool_name = tool_call_id.clone();
+                // 从前一条 Ai 消息的 tool_calls 中查找工具名
+                let tool_name = prev_ai_tool_calls
+                    .iter()
+                    .find(|(id, _)| id == tool_call_id)
+                    .map(|(_, name)| name.clone())
+                    .unwrap_or_else(|| tool_call_id.clone());
                 let raw_content = content.text_content();
-                let display_name = if raw_content.is_empty() {
-                    tool_name.clone()
-                } else {
-                    raw_content.clone()
-                };
+                // display_name 始终使用工具名
+                let display_name = tool_name.clone();
                 let color = if *is_error {
                     Color::Red
                 } else {
@@ -135,11 +134,9 @@ impl MessageViewModel {
                     color,
                 }
             }
-            BaseMessage::System { content } => {
-                MessageViewModel::SystemNote {
-                    content: content.text_content(),
-                }
-            }
+            BaseMessage::System { content } => MessageViewModel::SystemNote {
+                content: content.text_content(),
+            },
         }
     }
 
@@ -180,10 +177,7 @@ impl MessageViewModel {
     /// 创建用户消息
     pub fn user(content: String) -> Self {
         let rendered = parse_markdown(&content);
-        MessageViewModel::UserBubble {
-            content,
-            rendered,
-        }
+        MessageViewModel::UserBubble { content, rendered }
     }
 
     /// 创建助手消息
@@ -195,11 +189,7 @@ impl MessageViewModel {
     }
 
     /// 创建工具消息
-    pub fn tool_block(
-        tool_name: String,
-        display: String,
-        is_error: bool,
-    ) -> Self {
+    pub fn tool_block(tool_name: String, display: String, is_error: bool) -> Self {
         let color = if is_error {
             Color::Red
         } else {
@@ -229,12 +219,12 @@ impl MessageViewModel {
 /// 按工具名分配颜色
 pub fn tool_color(name: &str) -> Color {
     match name {
-        "bash" => Color::Rgb(255, 165, 0),          // 橙
-        "read_file" => Color::Rgb(97, 214, 214),    // 青
-        "write_file" => Color::Rgb(105, 240, 174), // 绿
-        "edit_file" => Color::Rgb(179, 157, 219),  // 紫
-        "glob_files" => Color::Rgb(255, 213, 79),   // 黄
-        "search_files_rg" => Color::Rgb(100, 181, 246), // 蓝
+        "bash" => Color::Rgb(255, 165, 0),                // 橙
+        "read_file" => Color::Rgb(97, 214, 214),          // 青
+        "write_file" => Color::Rgb(105, 240, 174),        // 绿
+        "edit_file" => Color::Rgb(179, 157, 219),         // 紫
+        "glob_files" => Color::Rgb(255, 213, 79),         // 黄
+        "search_files_rg" => Color::Rgb(100, 181, 246),   // 蓝
         "folder_operations" => Color::Rgb(240, 128, 128), // 玫红
         _ if name.contains("error") => Color::Red,
         _ => Color::Yellow,

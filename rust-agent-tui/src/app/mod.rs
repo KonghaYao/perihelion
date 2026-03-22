@@ -19,7 +19,7 @@ use crate::config::ZenConfig;
 use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
 
 // Re-export MessageViewModel from ui::message_view
-pub use crate::ui::message_view::MessageViewModel;
+pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
 pub use hitl::{ApprovalEvent, BatchApprovalRequest};
 pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
@@ -891,8 +891,24 @@ impl App {
         });
         self.view_messages.clear();
         self.agent_state_messages = base_msgs.clone();
-        for msg in base_msgs {
-            self.view_messages.push(MessageViewModel::from_base_message(&msg));
+        // 维护前一条 Ai 消息的 tool_calls，用于 Tool 消息获取工具名
+        let mut prev_ai_tool_calls: Vec<(String, String)> = Vec::new();
+        for msg in &base_msgs {
+            // 先收集 Ai 消息的 tool_calls
+            if let BaseMessage::Ai { tool_calls, .. } = msg {
+                prev_ai_tool_calls = tool_calls
+                    .iter()
+                    .map(|tc| (tc.id.clone(), tc.name.clone()))
+                    .collect();
+            }
+            let vm = MessageViewModel::from_base_message(&msg, &prev_ai_tool_calls);
+            // 跳过空的 AssistantBubble（只有 ToolUse，无可显示内容）
+            if let MessageViewModel::AssistantBubble { blocks, .. } = &vm {
+                if blocks.iter().all(|b| matches!(b, ContentBlockView::ToolUse { .. })) {
+                    continue;
+                }
+            }
+            self.view_messages.push(vm);
         }
         self.persisted_count = self.view_messages.len();
         self.current_thread_id = Some(thread_id);
