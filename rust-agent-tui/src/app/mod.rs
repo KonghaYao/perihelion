@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 
 use crate::command::CommandRegistry;
 use crate::config::ZenConfig;
-use crate::thread::{FilesystemThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
+use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
 use agent::LlmProvider;
 pub use hitl::{ApprovalEvent, BatchApprovalRequest};
 pub use agent_panel::AgentPanel;
@@ -436,8 +436,9 @@ impl App {
 
         // 初始化 thread 存储（失败时 fallback 到临时目录）
         let thread_store: Arc<dyn ThreadStore> =
-            Arc::new(FilesystemThreadStore::default_path().unwrap_or_else(|_| {
-                FilesystemThreadStore::new(std::env::temp_dir().join("zen-threads"))
+            Arc::new(SqliteThreadStore::default_path().unwrap_or_else(|_| {
+                SqliteThreadStore::new(std::env::temp_dir().join("zen-threads.db"))
+                    .expect("无法创建临时 SQLite 数据库")
             }));
 
         let mut app = Self {
@@ -491,49 +492,6 @@ impl App {
         )));
 
         app
-    }
-
-    /// 把自上次持久化之后的新消息追加到 thread
-    fn persist_pending_messages(&mut self) {
-        let Some(id) = self.current_thread_id.clone() else {
-            return;
-        };
-        let new_msgs: Vec<BaseMessage> = self.messages[self.persisted_count..]
-            .iter()
-            // 跳过纯 UI 用途的 todo_status 和 system 消息
-            .filter(|m| !matches!(m.inner, BaseMessage::System { .. }))
-            .filter(|m| m.tool_name.as_deref() != Some("__todo_status__"))
-            .map(|m| {
-                // Tool 消息：将 display_name 写入 content（content 运行时为空），
-                // 加载时可从 content 还原 display_name，从 tool_call_id 还原 tool_name。
-                if let BaseMessage::Tool {
-                    ref tool_call_id,
-                    ref content,
-                    is_error,
-                } = m.inner
-                {
-                    if content.text_content().is_empty() {
-                        let display = m.display_name.as_deref().unwrap_or(tool_call_id);
-                        return if is_error {
-                            BaseMessage::tool_error(tool_call_id, display)
-                        } else {
-                            BaseMessage::tool_result(tool_call_id, display)
-                        };
-                    }
-                }
-                m.inner.clone()
-            })
-            .collect();
-        let new_count = self.messages.len();
-        if new_msgs.is_empty() {
-            self.persisted_count = new_count;
-            return;
-        }
-        let store = self.thread_store.clone();
-        tokio::spawn(async move {
-            let _ = store.append_messages(&id, &new_msgs).await;
-        });
-        self.persisted_count = new_count;
     }
 
     /// 获取或新建当前 thread id（同步，block_in_place）
@@ -799,7 +757,6 @@ impl App {
                     if let Some(start) = self.task_start_time {
                         self.last_task_duration = Some(start.elapsed());
                     }
-                    self.persist_pending_messages();
                     return true;
                 }
                 Ok(AgentEvent::Interrupted) => {
@@ -819,7 +776,6 @@ impl App {
                     if let Some(start) = self.task_start_time {
                         self.last_task_duration = Some(start.elapsed());
                     }
-                    self.persist_pending_messages();
                     return true;
                 }
                 Ok(AgentEvent::ApprovalNeeded(req)) => {

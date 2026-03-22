@@ -211,4 +211,45 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         assert!(matches!(blocks[1], ContentBlock::Image { .. }));
     }
+
+    #[test]
+    fn test_tool_call_id_persistence() {
+        // 模拟完整的工具调用流程：
+        // 1. AI 消息包含 tool_calls（id=toolu_123）
+        // 2. Tool 消息的 tool_call_id 也是 toolu_123
+        use crate::messages::ContentBlock;
+        let blocks = vec![
+            ContentBlock::text("I'll read a file"),
+            ContentBlock::tool_use("toolu_123", "read_file", serde_json::json!({"path": "test.txt"})),
+        ];
+        let ai_msg = BaseMessage::ai_from_blocks(blocks);
+
+        // 验证 AI 消息包含 tool_calls
+        let tcs = ai_msg.tool_calls();
+        assert_eq!(tcs.len(), 1);
+        assert_eq!(tcs[0].id, "toolu_123");
+        assert_eq!(tcs[0].name, "read_file");
+
+        // 序列化
+        let json = serde_json::to_string(&ai_msg).unwrap();
+
+        // 反序列化
+        let restored: BaseMessage = serde_json::from_str(&json).unwrap();
+
+        // 验证 tool_calls 仍然存在
+        let tcs = restored.tool_calls();
+        assert_eq!(tcs.len(), 1, "反序列化后 tool_calls 应该保留");
+        assert_eq!(tcs[0].id, "toolu_123");
+
+        // 模拟 Tool 消息
+        let tool_msg = BaseMessage::tool_result("toolu_123", "file content");
+        let tool_json = serde_json::to_string(&tool_msg).unwrap();
+        let restored_tool: BaseMessage = serde_json::from_str(&tool_json).unwrap();
+
+        if let BaseMessage::Tool { tool_call_id, .. } = restored_tool {
+            assert_eq!(tool_call_id, "toolu_123");
+        } else {
+            panic!("Tool 消息反序列化失败");
+        }
+    }
 }

@@ -24,6 +24,9 @@ opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
 tracing-opentelemetry = "0.32"
 tokio-util = { version = "0.7.18", features = ["rt"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+parking_lot = "0.12"
 
 [dev-dependencies]
 tokio-test = "0.4"
+tempfile = "3"
