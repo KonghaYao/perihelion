@@ -4,7 +4,7 @@ use ratatui_textarea::{Input, Key};
 use std::time::Duration;
 
 use crate::app::model_panel::ModelPanelMode;
-use crate::app::{App, ChatMessage};
+use crate::app::{App, MessageViewModel};
 
 pub enum Action {
     Quit,
@@ -218,7 +218,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             let known = registry.dispatch(app, &text);
                             app.command_registry = registry;
                             if !known {
-                                app.messages.push(ChatMessage::system(format!(
+                                app.view_messages.push(MessageViewModel::system(format!(
                                     "未知命令: {}  （输入 /help 查看可用命令）",
                                     text
                                 )));

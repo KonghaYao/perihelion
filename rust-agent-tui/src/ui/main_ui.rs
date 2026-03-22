@@ -8,9 +8,11 @@ use ratatui::{
     Frame,
 };
 
-use rust_create_agent::messages::BaseMessage;
 use crate::app::App;
 use crate::app::model_panel::{EditField, ModelPanelMode, PROVIDER_TYPES};
+use super::message_render::render_view_model;
+use super::markdown::ensure_rendered;
+use super::message_view::MessageViewModel;
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
@@ -88,12 +90,20 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     let inner_width = inner.width.saturating_sub(1) as usize;
     let mut all_lines: Vec<Line> = Vec::new();
 
-    for msg in &app.messages {
-        let is_conversational = matches!(msg.inner, BaseMessage::Human { .. } | BaseMessage::Ai { .. });
+    for vm in &mut app.view_messages {
+        let is_conversational = matches!(vm, MessageViewModel::UserBubble { .. } | MessageViewModel::AssistantBubble { .. });
+
+        // 渲染前先处理 dirty blocks
+        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+            for block in blocks.iter_mut() {
+                ensure_rendered(block);
+            }
+        }
+
         if is_conversational {
             all_lines.push(Line::from(""));
         }
-        all_lines.extend(message_to_lines(msg, inner_width));
+        all_lines.extend(render_view_model(&vm, inner_width));
         if is_conversational {
             all_lines.push(Line::from(""));
         }
@@ -129,103 +139,6 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .style(Style::default().fg(Color::DarkGray));
         f.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
-    }
-}
-
-fn message_to_lines(msg: &crate::app::ChatMessage, _width: usize) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let content = msg.content();
-
-    match &msg.inner {
-        BaseMessage::Human { .. } => {
-            lines.push(Line::from(vec![
-                Span::styled("▶ 你  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                Span::styled(content, Style::default().fg(Color::White)),
-            ]));
-        }
-        BaseMessage::Ai { .. } => {
-            lines.push(Line::from(vec![
-                Span::styled("◆ Agent  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]));
-            // 分别处理 Reasoning block（仅显示字数）和 Text block（正常展示）
-            let blocks = msg.inner.content_blocks();
-            if blocks.is_empty() {
-                // 无 blocks → 直接用 content() 文本
-                for text_line in content.lines() {
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(text_line.to_string(), Style::default().fg(Color::White)),
-                    ]));
-                }
-            } else {
-                for block in &blocks {
-                    match block {
-                        rust_create_agent::messages::ContentBlock::Reasoning { text, .. } => {
-                            let chars = text.chars().count();
-                            lines.push(Line::from(vec![
-                                Span::raw("  "),
-                                Span::styled(
-                                    format!("💭 思考 ({} chars)", chars),
-                                    Style::default().fg(Color::Rgb(150, 120, 200)),
-                                ),
-                            ]));
-                        }
-                        rust_create_agent::messages::ContentBlock::Text { text } => {
-                            for text_line in text.lines() {
-                                lines.push(Line::from(vec![
-                                    Span::raw("  "),
-                                    Span::styled(text_line.to_string(), Style::default().fg(Color::White)),
-                                ]));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        BaseMessage::Tool { is_error, .. } => {
-            let name = msg.display_name.as_deref().unwrap_or("tool").to_string();
-            let (icon, color) = if *is_error {
-                ("✗", Color::Red)
-            } else {
-                let raw = msg.tool_name.as_deref().unwrap_or(&name);
-                ("⚙", tool_color(raw))
-            };
-            lines.push(Line::from(vec![
-                Span::styled(format!("{} {}", icon, name), Style::default().fg(color).add_modifier(Modifier::BOLD)),
-            ]));
-            for line in content.lines() {
-                lines.push(Line::from(vec![
-                    Span::raw("  │ "),
-                    Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
-                ]));
-            }
-        }
-        BaseMessage::System { .. } => {
-            for line in content.lines() {
-                lines.push(Line::from(vec![
-                    Span::styled("ℹ ", Style::default().fg(Color::Blue)),
-                    Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
-                ]));
-            }
-        }
-    }
-
-    lines
-}
-
-/// 按工具名分配颜色
-fn tool_color(name: &str) -> Color {
-    match name {
-        "bash"                        => Color::Rgb(255, 165,   0), // 橙
-        "read_file"                   => Color::Rgb( 97, 214, 214), // 青
-        "write_file"                  => Color::Rgb(105, 240, 174), // 绿
-        "edit_file"                   => Color::Rgb(179, 157, 219), // 紫
-        "glob_files"                  => Color::Rgb(255, 213,  79), // 黄
-        "search_files_rg"             => Color::Rgb(100, 181, 246), // 蓝
-        "folder_operations"           => Color::Rgb(240, 128, 128), // 玫红
-        _ if name.contains("error")   => Color::Red,
-        _                             => Color::Yellow,
     }
 }
 

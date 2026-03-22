@@ -1,5 +1,5 @@
-use crate::app::{App, ChatMessage};
-use super::Command;
+use crate::app::{App, MessageViewModel};
+use crate::command::Command;
 
 pub struct HelpCommand;
 
@@ -26,6 +26,6 @@ impl Command for HelpCommand {
             lines.push(format!("  /{:<10} {}", name, desc));
         }
 
-        app.messages.push(ChatMessage::system(lines.join("\n")));
+        app.view_messages.push(MessageViewModel::system(lines.join("\n")));
     }
 }

@@ -304,7 +304,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 tracing::debug!(count = msgs_since_human.len(), "sending state snapshot");
                 for msg in &msgs_since_human {
                     match msg {
-                        BaseMessage::Ai { content, tool_calls } => {
+                        BaseMessage::Ai { content: _, tool_calls } => {
                             tracing::debug!(has_tc = !tool_calls.is_empty(), tc_len = tool_calls.len(), "ai message in snapshot");
                         }
                         BaseMessage::Tool { tool_call_id, .. } => {

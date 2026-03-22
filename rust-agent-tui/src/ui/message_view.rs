@@ -1,0 +1,242 @@
+use ratatui::style::Color;
+use ratatui::text::Text;
+use rust_create_agent::messages::{BaseMessage, ContentBlock};
+
+use super::markdown::parse_markdown;
+
+/// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来
+#[derive(Debug, Clone)]
+pub enum MessageViewModel {
+    /// 用户输入
+    UserBubble {
+        #[allow(dead_code)]
+        content: String,
+        rendered: Text<'static>,
+    },
+    /// AI 回复（支持流式追加）
+    AssistantBubble {
+        blocks: Vec<ContentBlockView>,
+        is_streaming: bool,
+    },
+    /// 工具调用结果
+    ToolBlock {
+        #[allow(dead_code)]
+        tool_name: String,
+        display_name: String,
+        content: String,
+        is_error: bool,
+        collapsed: bool,
+        color: Color,
+    },
+    /// 系统消息
+    SystemNote {
+        content: String,
+    },
+    /// Todo 状态（特殊系统消息，支持原地更新）
+    TodoStatus {
+        rendered: String,
+    },
+}
+
+/// ContentBlock 的视图化表示
+#[derive(Debug, Clone)]
+pub enum ContentBlockView {
+    /// 文本内容（含 markdown 解析缓存）
+    Text {
+        raw: String,
+        rendered: Text<'static>,
+        dirty: bool,
+    },
+    /// 推理/思考过程（仅显示字数摘要）
+    Reasoning {
+        char_count: usize,
+    },
+    /// 工具使用请求（AI 发起的调用请求）
+    ToolUse {
+        name: String,
+        input_preview: String,
+    },
+}
+
+impl MessageViewModel {
+    /// 从 BaseMessage 转换为视图模型
+    pub fn from_base_message(msg: &BaseMessage) -> Self {
+        match msg {
+            BaseMessage::Human { content } => {
+                let raw = content.text_content();
+                let rendered = parse_markdown(&raw);
+                MessageViewModel::UserBubble {
+                    content: raw,
+                    rendered,
+                }
+            }
+            BaseMessage::Ai { content, tool_calls: _ } => {
+                let blocks: Vec<ContentBlockView> = content
+                    .content_blocks()
+                    .into_iter()
+                    .map(|block| match block {
+                        ContentBlock::Text { text } => ContentBlockView::Text {
+                            raw: text.clone(),
+                            rendered: parse_markdown(&text),
+                            dirty: false,
+                        },
+                        ContentBlock::Reasoning { text, .. } => ContentBlockView::Reasoning {
+                            char_count: text.chars().count(),
+                        },
+                        ContentBlock::ToolUse { name, input, id: _, .. } => {
+                            let preview = serde_json::to_string(&input)
+                                .unwrap_or_default()
+                                .chars()
+                                .take(50)
+                                .collect();
+                            ContentBlockView::ToolUse {
+                                name,
+                                input_preview: preview,
+                            }
+                        }
+                        _ => ContentBlockView::Text {
+                            raw: String::new(),
+                            rendered: Text::raw(""),
+                            dirty: false,
+                        },
+                    })
+                    .collect();
+
+                MessageViewModel::AssistantBubble {
+                    blocks,
+                    is_streaming: false,
+                }
+            }
+            BaseMessage::Tool {
+                tool_call_id,
+                content,
+                is_error,
+                ..
+            } => {
+                // tool_call_id 实际存储的是工具名
+                let tool_name = tool_call_id.clone();
+                let raw_content = content.text_content();
+                let display_name = if raw_content.is_empty() {
+                    tool_name.clone()
+                } else {
+                    raw_content.clone()
+                };
+                let color = if *is_error {
+                    Color::Red
+                } else {
+                    tool_color(&tool_name)
+                };
+                MessageViewModel::ToolBlock {
+                    tool_name,
+                    display_name,
+                    content: raw_content,
+                    is_error: *is_error,
+                    collapsed: true,
+                    color,
+                }
+            }
+            BaseMessage::System { content } => {
+                MessageViewModel::SystemNote {
+                    content: content.text_content(),
+                }
+            }
+        }
+    }
+
+    /// 追加流式文本 chunk
+    pub fn append_chunk(&mut self, chunk: &str) {
+        if let MessageViewModel::AssistantBubble { blocks, .. } = self {
+            if let Some(last) = blocks.last_mut() {
+                if let ContentBlockView::Text { raw, dirty, .. } = last {
+                    raw.push_str(chunk);
+                    *dirty = true;
+                    return;
+                }
+            }
+            // 没有 Text block，创建新的
+            let mut raw = String::new();
+            raw.push_str(chunk);
+            blocks.push(ContentBlockView::Text {
+                raw,
+                rendered: Text::raw(""),
+                dirty: true,
+            });
+        }
+    }
+
+    /// 切换折叠状态（仅对 ToolBlock 生效）
+    #[allow(dead_code)]
+    pub fn toggle_collapse(&mut self) {
+        if let MessageViewModel::ToolBlock { collapsed, .. } = self {
+            *collapsed = !*collapsed;
+        }
+    }
+
+    /// 判断是否为 AssistantBubble
+    pub fn is_assistant(&self) -> bool {
+        matches!(self, MessageViewModel::AssistantBubble { .. })
+    }
+
+    /// 创建用户消息
+    pub fn user(content: String) -> Self {
+        let rendered = parse_markdown(&content);
+        MessageViewModel::UserBubble {
+            content,
+            rendered,
+        }
+    }
+
+    /// 创建助手消息
+    pub fn assistant() -> Self {
+        MessageViewModel::AssistantBubble {
+            blocks: Vec::new(),
+            is_streaming: true,
+        }
+    }
+
+    /// 创建工具消息
+    pub fn tool_block(
+        tool_name: String,
+        display: String,
+        is_error: bool,
+    ) -> Self {
+        let color = if is_error {
+            Color::Red
+        } else {
+            tool_color(&tool_name)
+        };
+        MessageViewModel::ToolBlock {
+            tool_name,
+            display_name: display,
+            content: String::new(),
+            is_error,
+            collapsed: true,
+            color,
+        }
+    }
+
+    /// 创建系统消息
+    pub fn system(content: String) -> Self {
+        MessageViewModel::SystemNote { content }
+    }
+
+    /// 创建 Todo 状态消息
+    pub fn todo_status(rendered: String) -> Self {
+        MessageViewModel::TodoStatus { rendered }
+    }
+}
+
+/// 按工具名分配颜色
+pub fn tool_color(name: &str) -> Color {
+    match name {
+        "bash" => Color::Rgb(255, 165, 0),          // 橙
+        "read_file" => Color::Rgb(97, 214, 214),    // 青
+        "write_file" => Color::Rgb(105, 240, 174), // 绿
+        "edit_file" => Color::Rgb(179, 157, 219),  // 紫
+        "glob_files" => Color::Rgb(255, 213, 79),   // 黄
+        "search_files_rg" => Color::Rgb(100, 181, 246), // 蓝
+        "folder_operations" => Color::Rgb(240, 128, 128), // 玫红
+        _ if name.contains("error") => Color::Red,
+        _ => Color::Yellow,
+    }
+}

@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, MessageViewModel};
 use super::Command;
 
 pub struct HistoryCommand;
@@ -14,7 +14,7 @@ impl Command for HistoryCommand {
 
     fn execute(&self, app: &mut App, _args: &str) {
         if app.loading {
-            app.messages.push(crate::app::ChatMessage::system(
+            app.view_messages.push(MessageViewModel::system(
                 "Agent 运行中，无法打开历史面板".to_string(),
             ));
             return;

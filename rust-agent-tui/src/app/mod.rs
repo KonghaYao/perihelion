@@ -17,98 +17,15 @@ use tokio::sync::mpsc;
 use crate::command::CommandRegistry;
 use crate::config::ZenConfig;
 use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
-use agent::LlmProvider;
+
+// Re-export MessageViewModel from ui::message_view
+pub use crate::ui::message_view::MessageViewModel;
 pub use hitl::{ApprovalEvent, BatchApprovalRequest};
 pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
 use crate::command::agents::AgentItem;
 use std::sync::Arc;
 use tracing::Instrument;
-
-// ─── ChatMessage ──────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub struct ChatMessage {
-    pub inner: BaseMessage,
-    pub display_name: Option<String>,
-    pub tool_name: Option<String>,
-}
-
-impl ChatMessage {
-    pub fn user(content: impl Into<String>) -> Self {
-        Self {
-            inner: BaseMessage::human(content.into()),
-            display_name: None,
-            tool_name: None,
-        }
-    }
-
-    pub fn assistant(content: impl Into<String>) -> Self {
-        Self {
-            inner: BaseMessage::ai(content.into()),
-            display_name: None,
-            tool_name: None,
-        }
-    }
-
-    pub fn tool(
-        raw_name: impl Into<String>,
-        display: impl Into<String>,
-        content: impl Into<String>,
-        is_error: bool,
-    ) -> Self {
-        let raw_name = raw_name.into();
-        let display = display.into();
-        let content = content.into();
-        let msg = if is_error {
-            BaseMessage::tool_error(&raw_name, content.as_str())
-        } else {
-            BaseMessage::tool_result(&raw_name, content.as_str())
-        };
-        Self {
-            inner: msg,
-            display_name: Some(display),
-            tool_name: Some(raw_name),
-        }
-    }
-
-    pub fn system(content: impl Into<String>) -> Self {
-        Self {
-            inner: BaseMessage::system(content.into()),
-            display_name: None,
-            tool_name: None,
-        }
-    }
-
-    pub fn todo_status(content: impl Into<String>) -> Self {
-        Self {
-            inner: BaseMessage::system(content.into()),
-            display_name: None,
-            tool_name: Some("__todo_status__".to_string()),
-        }
-    }
-
-    pub fn content(&self) -> String {
-        self.inner.content()
-    }
-
-    pub fn is_assistant(&self) -> bool {
-        matches!(self.inner, BaseMessage::Ai { .. })
-    }
-
-    pub fn push_str(&mut self, chunk: &str) {
-        if let BaseMessage::Ai { content, .. } = &mut self.inner {
-            match content {
-                rust_create_agent::messages::MessageContent::Text(s) => s.push_str(chunk),
-                _ => {
-                    let mut s = content.text_content();
-                    s.push_str(chunk);
-                    *content = rust_create_agent::messages::MessageContent::Text(s);
-                }
-            }
-        }
-    }
-}
 
 // ─── AgentEvent ───────────────────────────────────────────────────────────────
 
@@ -359,7 +276,7 @@ impl AskUserBatchPrompt {
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 pub struct App {
-    pub messages: Vec<ChatMessage>,
+    pub view_messages: Vec<MessageViewModel>,
     pub textarea: TextArea<'static>,
     pub loading: bool,
     pub scroll_offset: u16,
@@ -418,9 +335,9 @@ impl App {
         // 优先从 ~/.zen-code/settings.json 加载配置，失败时 fallback 到环境变量
         let zen_config = crate::config::load().ok();
 
-        let provider_from_config = zen_config.as_ref().and_then(LlmProvider::from_config);
+        let provider_from_config = zen_config.as_ref().and_then(agent::LlmProvider::from_config);
         let (provider_name, model_name, status_msg) =
-            match provider_from_config.or_else(LlmProvider::from_env) {
+            match provider_from_config.or_else(agent::LlmProvider::from_env) {
                 Some(p) => {
                     let name = p.display_name().to_string();
                     let model = p.model_name().to_string();
@@ -442,7 +359,7 @@ impl App {
             }));
 
         let mut app = Self {
-            messages: Vec::new(),
+            view_messages: Vec::new(),
             textarea,
             loading: false,
             scroll_offset: u16::MAX,
@@ -486,7 +403,7 @@ impl App {
             agent_id: None,
         };
 
-        app.messages.push(ChatMessage::system(format!(
+        app.view_messages.push(MessageViewModel::system(format!(
             "Rust Agent TUI 已启动 | {} | 工作目录: {} | 工具: read_file, write_file, glob_files, search_files_rg, bash",
             status_msg, cwd
         )));
@@ -622,7 +539,7 @@ impl App {
             return;
         }
 
-        self.messages.push(ChatMessage::user(input.clone()));
+        self.view_messages.push(MessageViewModel::user(input.clone()));
         self.set_loading(true);
         self.scroll_offset = u16::MAX;
         self.scroll_follow = true;
@@ -635,14 +552,14 @@ impl App {
         let provider = match self
             .zen_config
             .as_ref()
-            .and_then(LlmProvider::from_config)
-            .or_else(LlmProvider::from_env)
+            .and_then(agent::LlmProvider::from_config)
+            .or_else(agent::LlmProvider::from_env)
         {
             Some(p) => p,
             None => {
-                self.messages.push(ChatMessage::tool(
-                    "error", "config-error",
-                    "请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY 环境变量后重启，或输入 /model 配置 provider",
+                self.view_messages.push(MessageViewModel::tool_block(
+                    "error".to_string(),
+                    "config-error".to_string(),
                     true,
                 ));
                 self.set_loading(false);
@@ -695,8 +612,8 @@ impl App {
         tokio::spawn(async move {
             let _ = store.append_messages(&tid, &[user_msg]).await;
         });
-        // 用户消息已追加到 self.messages，更新已持久化计数
-        self.persisted_count = self.messages.len();
+        // 用户消息已追加到 self.view_messages，更新已持久化计数
+        self.persisted_count = self.view_messages.len();
 
         let span = tracing::info_span!(
             "thread.run",
@@ -740,18 +657,28 @@ impl App {
                     display,
                     is_error,
                 }) => {
-                    self.messages
-                        .push(ChatMessage::tool(name, display, "", is_error));
+                    self.view_messages
+                        .push(MessageViewModel::tool_block(name, display, is_error));
                     updated = true;
                 }
                 Ok(AgentEvent::AssistantChunk(chunk)) => {
-                    match self.messages.last_mut() {
-                        Some(m) if m.is_assistant() => m.push_str(&chunk),
-                        _ => self.messages.push(ChatMessage::assistant(chunk)),
+                    match self.view_messages.last_mut() {
+                        Some(m) if m.is_assistant() => m.append_chunk(&chunk),
+                        _ => {
+                            let mut vm = MessageViewModel::assistant();
+                            vm.append_chunk(&chunk);
+                            self.view_messages.push(vm);
+                        }
                     }
                     updated = true;
                 }
                 Ok(AgentEvent::Done) => {
+                    // 将最后一个 AssistantBubble 的 is_streaming 设为 false
+                    if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
+                        self.view_messages.last_mut()
+                    {
+                        *is_streaming = false;
+                    }
                     self.set_loading(false);
                     self.agent_rx = None;
                     if let Some(start) = self.task_start_time {
@@ -761,16 +688,15 @@ impl App {
                 }
                 Ok(AgentEvent::Interrupted) => {
                     // 中断：工具已以 error 结尾，持久化中间状态，下次发消息可断点续跑
-                    self.messages.push(ChatMessage::system(
-                        "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）"
-                            .to_string(),
+                    self.view_messages.push(MessageViewModel::system(
+                        "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
                     ));
                     updated = true;
                     // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
                 }
-                Ok(AgentEvent::Error(e)) => {
-                    self.messages
-                        .push(ChatMessage::tool("error", "agent-error", e, true));
+                Ok(AgentEvent::Error(_e)) => {
+                    self.view_messages
+                        .push(MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), true));
                     self.set_loading(false);
                     self.agent_rx = None;
                     if let Some(start) = self.task_start_time {
@@ -791,12 +717,12 @@ impl App {
                 Ok(AgentEvent::TodoUpdate(todos)) => {
                     let rendered = render_todos(&todos);
                     match self.todo_message_index {
-                        Some(idx) if idx < self.messages.len() => {
-                            self.messages[idx] = ChatMessage::todo_status(rendered);
+                        Some(idx) if idx < self.view_messages.len() => {
+                            self.view_messages[idx] = MessageViewModel::todo_status(rendered);
                         }
                         _ => {
-                            self.messages.push(ChatMessage::todo_status(rendered));
-                            self.todo_message_index = Some(self.messages.len() - 1);
+                            self.view_messages.push(MessageViewModel::todo_status(rendered));
+                            self.todo_message_index = Some(self.view_messages.len() - 1);
                         }
                     }
                     updated = true;
@@ -837,12 +763,8 @@ impl App {
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
-                    self.messages.push(ChatMessage::tool(
-                        "error",
-                        "agent-error",
-                        "Agent 任务意外终止",
-                        true,
-                    ));
+                    self.view_messages
+                        .push(MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), true));
                     self.set_loading(false);
                     self.agent_rx = None;
                     return true;
@@ -967,37 +889,19 @@ impl App {
                 .block_on(store.load_messages(&tid))
                 .unwrap_or_default()
         });
-        self.messages.clear();
+        self.view_messages.clear();
         self.agent_state_messages = base_msgs.clone();
         for msg in base_msgs {
-            // Tool 消息：tool_call_id = 工具名，content = display_name（持久化时写入）
-            let (tool_name, display_name) = if let BaseMessage::Tool {
-                ref tool_call_id,
-                ref content,
-                ..
-            } = msg
-            {
-                let name = tool_call_id.clone();
-                let text = content.text_content();
-                let display = if text.is_empty() { name.clone() } else { text };
-                (Some(name), Some(display))
-            } else {
-                (None, None)
-            };
-            self.messages.push(ChatMessage {
-                inner: msg,
-                display_name,
-                tool_name,
-            });
+            self.view_messages.push(MessageViewModel::from_base_message(&msg));
         }
-        self.persisted_count = self.messages.len();
+        self.persisted_count = self.view_messages.len();
         self.current_thread_id = Some(thread_id);
         self.thread_browser = None;
     }
 
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）
     pub fn new_thread(&mut self) {
-        self.messages.clear();
+        self.view_messages.clear();
         self.agent_state_messages.clear();
         self.current_thread_id = None;
         self.persisted_count = 0;
@@ -1076,13 +980,13 @@ impl App {
 
         if is_none {
             self.set_agent_id(None);
-            self.messages.push(ChatMessage::system(
+            self.view_messages.push(MessageViewModel::system(
                 "Agent 已重置（未设置 agent_id）".to_string(),
             ));
         } else if let Some(id) = agent_id {
             self.set_agent_id(Some(id.clone()));
             let name = agent_name.unwrap_or_else(|| id.clone());
-            self.messages.push(ChatMessage::system(format!(
+            self.view_messages.push(MessageViewModel::system(format!(
                 "Agent 已切换为: {} ({})",
                 name, id
             )));
@@ -1106,7 +1010,7 @@ impl App {
         };
         panel.confirm_select(cfg);
         let _ = crate::config::save(cfg);
-        if let Some(p) = LlmProvider::from_config(cfg) {
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
         }
@@ -1135,7 +1039,7 @@ impl App {
         };
         panel.confirm_delete(cfg);
         let _ = crate::config::save(cfg);
-        if let Some(p) = LlmProvider::from_config(cfg) {
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
         }
