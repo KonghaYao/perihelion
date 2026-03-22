@@ -13,6 +13,7 @@
 
 pub mod agents_md;
 pub mod agent_define;
+pub mod subagent;
 pub mod claude_agent_parser;
 pub use claude_agent_parser::{format_agent_id, parse_agent_file, ClaudeAgent, ClaudeAgentFrontmatter, ToolsValue};
 pub mod ask_user;
@@ -35,7 +36,8 @@ pub use hitl::{
 pub use rust_create_agent::ask_user::AskUserInvoker;
 pub use rust_create_agent::ask_user::AskUserInvoker as AskUserHandler;
 pub use skills::{load_global_skills_dir, list_skills, load_skill_metadata, SkillsMiddleware, SkillMetadata};
-pub use tools::{AskUserTool};
+pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
+pub use subagent::{SubAgentMiddleware, SubAgentTool};
 
 /// Prelude - 常用类型一次性导入
 pub mod prelude {
@@ -53,9 +55,11 @@ pub mod prelude {
     pub use rust_create_agent::tools::ToolProvider;
     pub use crate::skills::{SkillMetadata, SkillsMiddleware};
     pub use crate::tools::{
-        AskUserInvoker, AskUserTool, EditFileTool, FolderOperationsTool, GlobFilesTool,
-        ReadFileTool, SearchFilesRgTool, TodoItem, TodoStatus, TodoWriteTool, WriteFileTool,
+        ArcToolWrapper, AskUserInvoker, AskUserTool, BoxToolWrapper, EditFileTool, FolderOperationsTool,
+        GlobFilesTool, ReadFileTool, SearchFilesRgTool, TodoItem, TodoStatus, TodoWriteTool,
+        WriteFileTool,
     };
+    pub use crate::subagent::{SubAgentMiddleware, SubAgentTool};
 
     // 重导出 rust-create-agent 核心类型
     pub use rust_create_agent::prelude::*;

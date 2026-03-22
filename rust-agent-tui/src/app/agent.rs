@@ -41,6 +41,7 @@ pub async fn run_universal_agent(
         None
     };
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
+    let provider_for_factory = provider.clone();
     let model = BaseModelReactLLM::new(provider.into_model()).with_system(system_prompt);
 
     // Todo channel：TodoMiddleware → TUI
@@ -61,7 +62,7 @@ pub async fn run_universal_agent(
 
     // 事件回调 → TUI AgentEvent channel
     let tx_event = tx.clone();
-    let handler = FnEventHandler(move |event: ExecutorEvent| {
+    let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
         let msg = match event {
             ExecutorEvent::TextChunk(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::ToolStart { name, input } => AgentEvent::ToolCall {
@@ -90,9 +91,40 @@ pub async fn run_universal_agent(
                 is_error: true,
             },
             ExecutorEvent::ToolEnd { .. } | ExecutorEvent::StepDone { .. } => return,
+            // StateSnapshot 由 TUI poll_agent 通过 run_universal_agent 的返回值直接获取
+            ExecutorEvent::StateSnapshot(_) => return,
         };
         let _ = tx_event.try_send(msg);
+    }));
+
+    // 构建父工具集（供子 agent 继承），来自 Filesystem + Terminal
+    let parent_tools: Arc<Vec<Arc<dyn rust_create_agent::tools::BaseTool>>> = {
+        use rust_create_agent::tools::ToolProvider;
+        let fs_tools = FilesystemMiddleware::new().tools(&cwd);
+        let term_tools = TerminalMiddleware::new().tools(&cwd);
+        let tools = fs_tools
+            .into_iter()
+            .chain(term_tools)
+            .map(|t| Arc::new(BoxToolWrapper(t)) as Arc<dyn rust_create_agent::tools::BaseTool>)
+            .collect();
+        Arc::new(tools)
+    };
+
+    // LLM 工厂：每次为子 agent 创建独立实例
+    let provider_clone = provider_for_factory;
+    let cwd_clone = cwd.clone();
+    let llm_factory: Arc<dyn Fn() -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync> = Arc::new(move || {
+        let overrides = rust_agent_middlewares::AgentDefineMiddleware::load_overrides(&cwd_clone, "");
+        let system = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd_clone);
+        Box::new(BaseModelReactLLM::new(provider_clone.clone().into_model()).with_system(system))
     });
+
+    // SubAgent 中间件
+    let subagent = SubAgentMiddleware::new(
+        Arc::clone(&parent_tools),
+        Some(Arc::clone(&handler) as Arc<dyn rust_create_agent::agent::events::AgentEventHandler>),
+        llm_factory,
+    );
 
     // 构建 ReActAgent
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具
@@ -105,7 +137,8 @@ pub async fn run_universal_agent(
         .add_middleware(Box::new(TerminalMiddleware::new()))
         .add_middleware(Box::new(TodoMiddleware::new(todo_tx)))
         .add_middleware(Box::new(hitl))
-        .with_event_handler(Arc::new(handler))
+        .add_middleware(Box::new(subagent))
+        .with_event_handler(Arc::clone(&handler))
         .register_tool(Box::new(ask_user_tool));
 
     let mut state = AgentState::with_messages(cwd, history);

@@ -56,7 +56,7 @@ impl AgentDefineMiddleware {
     }
 
     /// 根据 cwd 和 agent_id 构建候选路径列表
-    fn candidate_paths(cwd: &str, agent_id: &str) -> Vec<PathBuf> {
+    pub fn candidate_paths(cwd: &str, agent_id: &str) -> Vec<PathBuf> {
         let cwd = Path::new(cwd);
         vec![
             cwd.join(".claude").join("agents").join(agent_id).join("agent.md"),

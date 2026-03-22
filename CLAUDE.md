@@ -138,8 +138,33 @@ tool result 消息：Anthropic 要求合并到前一条 user 消息的 content b
 | `bash` | TerminalMiddleware | ✓ |
 | `todo_write` | TodoMiddleware | — |
 | `ask_user` | 手动注册（AskUserTool） | — |
+| `launch_agent` | SubAgentMiddleware | — |
 
 `bash` 默认超时 120 秒，超时返回错误。跨平台：Windows 用 `cmd /C`，其他用 `bash -c`。
+
+### SubAgents（子 Agent 委派）
+
+`launch_agent` 工具允许 LLM 将子任务委派给 `.claude/agents/{agent_id}.md` 定义的专门 agent 执行。
+
+**工具参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `agent_id` | string（必填） | agent 定义文件名（不含 `.md`），如 `code-reviewer` |
+| `task` | string（必填） | 委派给子 agent 的任务描述 |
+| `cwd` | string（可选） | 子 agent 工作目录，默认继承父 agent cwd |
+
+**工具过滤规则：**
+
+- `tools` 字段为空 → 子 agent 继承所有父工具（但始终排除 `launch_agent` 自身，防递归）
+- `tools` 字段有值 → 仅保留名称在允许列表中的工具
+- `disallowedTools` 字段 → 从结果中额外排除指定工具
+
+**返回值格式：**
+
+子 agent 执行结果以字符串形式返回给父 agent 作为工具调用结果：
+- 无工具调用：直接返回最终回答文本
+- 有工具调用：`[子 agent 执行了 N 个工具调用: tool1, tool2]\n\n最终回答`（中间结果舍弃，避免 token 膨胀）
 
 ## TUI 命令
 
@@ -169,6 +194,27 @@ ReActAgent::new(BaseModelReactLLM::new(model).with_system(prompt))
 **自定义工具**：实现 `BaseTool`（`name/description/parameters/async invoke`），`register_tool` 注册或 `ToolProvider` 批量提供。
 
 **自定义中间件**：实现 `Middleware<S: State>`，只覆写需要的钩子，其余默认 no-op。`collect_tools(cwd)` 可动态按工作目录返回工具列表。
+
+**SubAgent 委派**：
+
+```rust
+// 构建父工具集（Arc 共享，传给子 agent 使用）
+let parent_tools: Arc<Vec<Arc<dyn BaseTool>>> = Arc::new(
+    FilesystemMiddleware::new().tools(cwd)
+        .into_iter()
+        .map(|t| Arc::new(BoxToolWrapper(t)) as Arc<dyn BaseTool>)
+        .collect()
+);
+// LLM 工厂：每次为子 agent 创建独立实例
+let llm_factory = Arc::new(move || {
+    Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
+});
+// 挂载中间件，LLM 即可调用 launch_agent 工具
+ReActAgent::new(llm)
+    .add_middleware(Box::new(SubAgentMiddleware::new(parent_tools, Some(event_handler), llm_factory)))
+```
+
+agent 定义文件放在 `.claude/agents/{agent_id}.md`，YAML frontmatter 支持 `tools`、`disallowedTools`、`maxTurns`、`description`。
 
 **System prompt**：模板在 `rust-agent-tui/prompts/system.md`，`{{cwd}}` 占位符在运行时替换。
 

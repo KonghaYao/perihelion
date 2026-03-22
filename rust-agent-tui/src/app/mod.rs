@@ -846,8 +846,38 @@ impl App {
                     updated = true;
                 }
                 Ok(AgentEvent::StateSnapshot(msgs)) => {
-                    // 保存最新的 Agent 消息历史，供下一轮对话使用
-                    self.agent_state_messages = msgs;
+                    tracing::debug!(count = msgs.len(), "received StateSnapshot in poll_agent");
+                    for msg in &msgs {
+                        match msg {
+                            BaseMessage::Ai { content: _, tool_calls } => {
+                                tracing::debug!(has_tc = !tool_calls.is_empty(), tc_len = tool_calls.len(), "ai msg in snapshot");
+                            }
+                            BaseMessage::Tool { tool_call_id, .. } => {
+                                tracing::debug!(tc_id = %tool_call_id, "tool msg in snapshot");
+                            }
+                            _ => {}
+                        }
+                    }
+                    // 增量追加到 agent_state_messages（去重，避免重复消息）
+                    let start = self.agent_state_messages.len();
+                    self.agent_state_messages.extend(msgs);
+
+                    // 增量持久化到 thread（从上次持久化位置之后的所有消息）
+                    if let Some(id) = self.current_thread_id.clone() {
+                        let new_msgs: Vec<_> = self.agent_state_messages[start..]
+                            .iter()
+                            .filter(|m| !matches!(m, BaseMessage::System { .. }))
+                            .cloned()
+                            .collect();
+                        if !new_msgs.is_empty() {
+                            let store = self.thread_store.clone();
+                            let tid = id.clone();
+                            tokio::spawn(async move {
+                                let _ = store.append_messages(&tid, &new_msgs).await;
+                            });
+                        }
+                    }
+                    updated = true;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {

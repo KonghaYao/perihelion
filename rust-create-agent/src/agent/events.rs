@@ -9,6 +9,8 @@ pub enum AgentEvent {
     ToolEnd { name: String, output: String, is_error: bool },
     /// 一轮 ReAct 步骤完成
     StepDone { step: usize },
+    /// 状态快照（含完整的消息历史），用于持久化和断点续跑
+    StateSnapshot(Vec<crate::messages::BaseMessage>),
 }
 
 /// 事件回调 trait（应用层实现）

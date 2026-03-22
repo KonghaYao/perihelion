@@ -66,7 +66,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
 fn render_title(f: &mut Frame, app: &App, area: Rect) {
     let subtitle = format!(
-        "  —  {} · {} | FilesystemMiddleware + TerminalMiddleware",
+        "  —  {} · {} | FilesystemMiddleware + TerminalMiddleware + SubAgentMiddleware",
         app.provider_name, app.model_name
     );
     let title = Paragraph::new(

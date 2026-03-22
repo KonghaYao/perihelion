@@ -63,6 +63,12 @@
 - Skills 系统
   - 外部 Skill 文件按需加载
   - 渐进式摘要注入
+- SubAgents（子 Agent 委派）
+  - `launch_agent` 工具：LLM 将子任务委派给专门 agent
+  - 读取 `.claude/agents/{agent_id}.md` 定义文件
+  - 子 agent 继承父工具集（tools / disallowedTools 过滤）
+  - 防递归：子 agent 不含 `launch_agent` 自身
+  - 执行摘要：工具调用列表 + 最终回答返回父 agent
 
 ---
 
@@ -112,8 +118,9 @@
 **第二层：Agent 能力**
 
 - [ ] AgentDefineMiddleware
-- [ ] Skill 预加载功能
-- [ ] SubAgents
+- [ ] Subagent 的 Skill 预加载功能
+- [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
+- [x] SubAgents
 - [ ] MCP Server 接入（Model Context Protocol）
 - [ ] 知识库检索 / RAG（向量搜索 + 上下文注入）
 

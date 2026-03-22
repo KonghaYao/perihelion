@@ -161,4 +161,14 @@ pub trait ReactLLM: Send + Sync {
     ) -> crate::error::AgentResult<Reasoning>;
 }
 
-
+/// Blanket impl：允许将 Box<dyn ReactLLM + Send + Sync> 直接用于 ReActAgent
+#[async_trait::async_trait]
+impl ReactLLM for Box<dyn ReactLLM + Send + Sync> {
+    async fn generate_reasoning(
+        &self,
+        messages: &[BaseMessage],
+        tools: &[&dyn BaseTool],
+    ) -> crate::error::AgentResult<Reasoning> {
+        (**self).generate_reasoning(messages, tools).await
+    }
+}

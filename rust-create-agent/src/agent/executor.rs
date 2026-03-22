@@ -28,6 +28,8 @@ where
     max_iterations: usize,
     /// 可选事件回调：在工具调用、答案生成等关键节点触发
     event_handler: Option<Arc<dyn AgentEventHandler>>,
+    /// 上次发送 StateSnapshot 后的消息数量（用于增量发送）
+    last_message_count: std::sync::atomic::AtomicUsize,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -39,6 +41,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             chain: MiddlewareChain::new(),
             max_iterations: 10,
             event_handler: None,
+            last_message_count: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -102,6 +105,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
         let human_msg = BaseMessage::human(input.content);
         state.add_message(human_msg);
+
+        // 重置消息计数，从用户消息之后开始跟踪
+        self.last_message_count.store(state.messages().len(), std::sync::atomic::Ordering::SeqCst);
 
         // 从 ToolProvider 和中间件各收集工具，手动注册的同名工具优先级最高
         let provider_tools: Vec<Box<dyn BaseTool>> = self
@@ -291,6 +297,26 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
                 tracing::debug!(step, "react step done");
                 self.emit(AgentEvent::StepDone { step });
+
+                // 发送状态快照（从用户消息开始的所有消息），便于增量持久化
+                let msgs_since_human = state.messages()[self.last_message_count.load(std::sync::atomic::Ordering::SeqCst)..]
+                    .to_vec();
+                tracing::debug!(count = msgs_since_human.len(), "sending state snapshot");
+                for msg in &msgs_since_human {
+                    match msg {
+                        BaseMessage::Ai { content, tool_calls } => {
+                            tracing::debug!(has_tc = !tool_calls.is_empty(), tc_len = tool_calls.len(), "ai message in snapshot");
+                        }
+                        BaseMessage::Tool { tool_call_id, .. } => {
+                            tracing::debug!(tc_id = %tool_call_id, "tool message in snapshot");
+                        }
+                        _ => {}
+                    }
+                }
+                if !msgs_since_human.is_empty() {
+                    self.emit(AgentEvent::StateSnapshot(msgs_since_human));
+                }
+                self.last_message_count.store(state.messages().len(), std::sync::atomic::Ordering::SeqCst);
             } else {
                 let answer = reasoning
                     .final_answer
