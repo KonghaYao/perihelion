@@ -1,0 +1,48 @@
+[package]
+name = "rust-relay-server"
+version = "0.1.0"
+edition = "2021"
+description = "Relay server for remote agent control + client library"
+
+[[bin]]
+name = "relay-server"
+path = "src/main.rs"
+required-features = ["server"]
+
+[features]
+default = ["server"]
+server = [
+    "dep:axum",
+    "dep:axum-extra",
+    "dep:tower-http",
+    "dep:rust-embed",
+    "dep:dashmap",
+    "dep:mime_guess",
+]
+client = ["dep:tokio-tungstenite"]
+
+[dependencies]
+# Shared dependencies (always included)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3"
+
+# Reference to core agent types
+rust-create-agent = { path = "../rust-create-agent" }
+
+# Server-only dependencies
+axum = { version = "0.8", features = ["ws"], optional = true }
+axum-extra = { version = "0.10", features = ["query"], optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
+rust-embed = { version = "8", optional = true }
+dashmap = { version = "6", optional = true }
+mime_guess = { version = "2", optional = true }
+
+# Client-only dependencies
+tokio-tungstenite = { version = "0.26", features = ["native-tls"], optional = true }

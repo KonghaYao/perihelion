@@ -3,5 +3,6 @@ members = [
     "rust-create-agent",
     "rust-agent-middlewares",
     "rust-agent-tui",
+    "rust-relay-server",
 ]
 resolver = "2"

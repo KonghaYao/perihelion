@@ -1,5 +1,6 @@
 /// Agent 执行过程中的增量事件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
     /// LLM 输出最终文字（非流式，整段答案）
     TextChunk(String),

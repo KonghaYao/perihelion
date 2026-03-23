@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Remote Control</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="tab-bar">
+    <div id="tabs"></div>
+    <div id="connection-status" class="status-disconnected">断线</div>
+  </header>
+
+  <div id="todo-panel" class="hidden">
+    <div class="panel-title">📋 TODO</div>
+    <ul id="todo-list"></ul>
+  </div>
+
+  <main id="messages"></main>
+
+  <!-- HITL Modal -->
+  <div id="hitl-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-card">
+      <h3>工具审批</h3>
+      <div id="hitl-items"></div>
+      <div class="modal-actions">
+        <button id="hitl-approve-all" class="btn-approve">全部批准</button>
+        <button id="hitl-reject-all" class="btn-reject">全部拒绝</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AskUser Modal -->
+  <div id="askuser-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-card">
+      <h3>请回答</h3>
+      <div id="askuser-items"></div>
+      <div class="modal-actions">
+        <button id="askuser-submit" class="btn-approve">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <footer id="input-bar">
+    <input type="text" id="input" placeholder="输入消息..." autocomplete="off" />
+    <button id="send-btn">发送</button>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

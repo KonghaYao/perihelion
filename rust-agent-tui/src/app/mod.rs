@@ -452,26 +452,41 @@ impl App {
         app
     }
 
-    /// 尝试连接 Relay Server（从 zen_config extra 中读取配置）
-    /// 配置字段：relay_url, relay_token, relay_name
-    pub async fn try_connect_relay(&mut self) {
-        let config = match &self.zen_config {
-            Some(c) => &c.config.extra,
-            None => return,
+    /// 尝试连接 Relay Server
+    /// CLI 参数（--remote-control）优先，其次从 zen_config extra 中读取配置
+    pub async fn try_connect_relay(&mut self, cli: Option<&crate::RelayCli>) {
+        // CLI 参数优先
+        let (relay_url, relay_token, relay_name) = if let Some(c) = cli {
+            let token = c.token.clone().unwrap_or_else(|| {
+                // token 回退到 settings.json
+                self.zen_config.as_ref()
+                    .and_then(|cfg| cfg.config.extra.get("relay_token"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            });
+            (c.url.clone(), token, c.name.clone())
+        } else {
+            // 无 CLI 参数时从 settings.json 读取
+            let config = match &self.zen_config {
+                Some(c) => &c.config.extra,
+                None => return,
+            };
+            let url = match config.get("relay_url").and_then(|v| v.as_str()) {
+                Some(u) => u.to_string(),
+                None => return,
+            };
+            let token = config
+                .get("relay_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = config
+                .get("relay_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            (url, token, name)
         };
-        let relay_url = match config.get("relay_url").and_then(|v| v.as_str()) {
-            Some(u) => u.to_string(),
-            None => return,
-        };
-        let relay_token = config
-            .get("relay_token")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let relay_name = config
-            .get("relay_name")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
 
         match rust_relay_server::client::RelayClient::connect(
             &relay_url,
@@ -482,12 +497,18 @@ impl App {
         {
             Ok((client, event_rx)) => {
                 let sid = client.session_id.read().await.clone().unwrap_or_default();
-                tracing::info!(session_id = %sid, "Relay 已连接");
+                // 在 TUI 消息区域显示连接状态（不用 tracing，避免 raw mode 乱码）
+                let status_msg = format!("Relay connected (session: {})", &sid[..8.min(sid.len())]);
+                let vm = MessageViewModel::from_base_message(&BaseMessage::system(status_msg), &[]);
+                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
                 self.relay_client = Some(Arc::new(client));
                 self.relay_event_rx = Some(event_rx);
             }
             Err(e) => {
-                tracing::warn!(error = %e, "Relay 连接失败，继续离线模式");
+                // 不用 tracing，通过 TUI 消息显示
+                let err_msg = format!("Relay connection failed: {}", e);
+                let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
+                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
             }
         }
     }
@@ -515,8 +536,14 @@ impl App {
         }
 
         if disconnected {
-            tracing::warn!("Relay 连接已断开");
+            // 不用 tracing，通过 TUI 消息显示
             self.relay_event_rx = None;
+            self.relay_client = None;
+            let vm = MessageViewModel::from_base_message(
+                &BaseMessage::system("Relay disconnected"),
+                &[],
+            );
+            let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
         }
 
         if events.is_empty() {
@@ -885,14 +912,53 @@ impl App {
                 (true, false, true)
             }
             AgentEvent::ApprovalNeeded(req) => {
+                // 转发 HITL 审批请求到 Relay
+                if let Some(ref relay) = self.relay_client {
+                    let items: Vec<rust_relay_server::protocol::ApprovalItem> = req.items.iter().map(|item| {
+                        rust_relay_server::protocol::ApprovalItem {
+                            tool_name: item.tool_name.clone(),
+                            input: item.input.clone(),
+                        }
+                    }).collect();
+                    let msg = rust_relay_server::protocol::RelayMessage::ApprovalNeeded { items };
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        relay.send_raw(&json);
+                    }
+                }
                 self.hitl_prompt = Some(HitlBatchPrompt::new(req.items, req.response_tx));
                 (true, true, false) // 暂停消费，等待用户确认
             }
             AgentEvent::AskUserBatch(req) => {
+                // 转发 AskUser 请求到 Relay
+                if let Some(ref relay) = self.relay_client {
+                    let questions: Vec<rust_relay_server::protocol::AskUserQuestion> = req.questions.iter().map(|q| {
+                        rust_relay_server::protocol::AskUserQuestion {
+                            question: q.description.clone(),
+                            options: q.options.iter().map(|o| o.label.clone()).collect(),
+                        }
+                    }).collect();
+                    let msg = rust_relay_server::protocol::RelayMessage::AskUserBatch { questions };
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        relay.send_raw(&json);
+                    }
+                }
                 self.ask_user_prompt = Some(AskUserBatchPrompt::from_request(req));
                 (true, true, false) // 暂停消费，等待用户输入
             }
             AgentEvent::TodoUpdate(todos) => {
+                // 转发 TODO 更新到 Relay
+                if let Some(ref relay) = self.relay_client {
+                    let items: Vec<rust_relay_server::protocol::TodoItemInfo> = todos.iter().map(|t| {
+                        rust_relay_server::protocol::TodoItemInfo {
+                            content: t.content.clone(),
+                            status: format!("{:?}", t.status),
+                        }
+                    }).collect();
+                    let msg = rust_relay_server::protocol::RelayMessage::TodoUpdate { items };
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        relay.send_raw(&json);
+                    }
+                }
                 self.todo_items = todos;
                 (true, false, false)
             }

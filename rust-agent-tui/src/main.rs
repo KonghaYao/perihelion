@@ -21,11 +21,14 @@ fn main() -> Result<()> {
     // 加载 .env 文件（仅开发环境，文件不存在时静默忽略）
     let _ = dotenvy::dotenv();
 
-    // 解析命令行参数：--yolo / -y 启用 YOLO 模式（禁用 HITL 审批）
+    // 解析命令行参数
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--yolo" || a == "-y") {
         std::env::set_var("YOLO_MODE", "true");
     }
+
+    // 解析 --remote-control <url> [--relay-token <token>] [--relay-name <name>]
+    let relay_cli = parse_relay_args(&args);
 
     // 在创建 tokio runtime 之前初始化 tracing，确保 reqwest::blocking::Client
     // 的内部 runtime 与应用 runtime 完全隔离，避免嵌套 runtime drop panic。
@@ -44,7 +47,7 @@ fn main() -> Result<()> {
         let mut terminal = Terminal::new(backend)?;
 
         // 运行应用
-        let result = run_app(&mut terminal).await;
+        let result = run_app(&mut terminal, relay_cli).await;
 
         // 恢复终端
         disable_raw_mode()?;
@@ -66,11 +69,31 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+/// CLI 参数解析结果：--remote-control <url> [--relay-token <token>] [--relay-name <name>]
+pub struct RelayCli {
+    pub url: String,
+    pub token: Option<String>,
+    pub name: Option<String>,
+}
+
+fn parse_relay_args(args: &[String]) -> Option<RelayCli> {
+    let url = args.windows(2)
+        .find(|w| w[0] == "--remote-control")
+        .map(|w| w[1].clone())?;
+    let token = args.windows(2)
+        .find(|w| w[0] == "--relay-token")
+        .map(|w| w[1].clone());
+    let name = args.windows(2)
+        .find(|w| w[0] == "--relay-name")
+        .map(|w| w[1].clone());
+    Some(RelayCli { url, token, name })
+}
+
+async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cli: Option<RelayCli>) -> Result<()> {
     let mut app = app::App::new();
 
-    // 尝试连接 Relay Server（如果配置了 relay_url）
-    app.try_connect_relay().await;
+    // 尝试连接 Relay Server（CLI 参数优先，其次读 settings.json）
+    app.try_connect_relay(relay_cli.as_ref()).await;
 
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;

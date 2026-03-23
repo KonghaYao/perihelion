@@ -1,0 +1,233 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Tab bar */
+#tab-bar {
+  display: flex;
+  align-items: center;
+  background: #16213e;
+  border-bottom: 1px solid #333;
+  padding: 0 12px;
+  min-height: 40px;
+}
+
+#tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 8px 16px;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  font-size: 13px;
+  white-space: nowrap;
+  background: transparent;
+  color: #888;
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.tab.active {
+  background: #1a1a2e;
+  color: #fff;
+  border-color: #333;
+  border-bottom-color: #1a1a2e;
+}
+
+.tab .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 6px;
+}
+
+.dot-online { background: #4caf50; }
+.dot-offline { background: #666; }
+
+.tab .badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 10px;
+}
+
+#connection-status {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.status-connected { color: #4caf50; }
+.status-disconnected { color: #f44336; }
+.status-reconnecting { color: #ff9800; }
+
+/* TODO panel */
+#todo-panel {
+  background: #16213e;
+  border-bottom: 1px solid #333;
+  padding: 8px 12px;
+}
+
+#todo-panel.hidden { display: none; }
+
+.panel-title {
+  font-size: 13px;
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #0f9;
+}
+
+#todo-list {
+  list-style: none;
+  font-size: 13px;
+}
+
+#todo-list li { padding: 2px 0; }
+
+.todo-pending { color: #e0e0e0; }
+.todo-in-progress { color: #ff9800; font-weight: bold; }
+.todo-done { color: #666; }
+
+/* Messages */
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.message {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  max-width: 90%;
+  line-height: 1.5;
+}
+
+.msg-user {
+  background: #0a3d62;
+  margin-left: auto;
+  text-align: right;
+}
+
+.msg-assistant {
+  background: #222;
+}
+
+.msg-tool {
+  background: #1e1e3f;
+  border-left: 3px solid #0ff;
+  font-size: 13px;
+}
+
+.tool-name {
+  color: #0ff;
+  font-weight: bold;
+}
+
+.tool-args {
+  color: #666;
+  font-size: 12px;
+}
+
+.tool-output {
+  color: #aaa;
+  font-size: 12px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.msg-error {
+  color: #f44336;
+  background: #2d1111;
+}
+
+/* Input bar */
+#input-bar {
+  display: flex;
+  padding: 8px 12px;
+  gap: 8px;
+  background: #16213e;
+  border-top: 1px solid #333;
+}
+
+#input {
+  flex: 1;
+  padding: 8px 12px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+#input:focus { border-color: #0ff; }
+
+#send-btn {
+  padding: 8px 16px;
+  background: #0a3d62;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#send-btn:hover { background: #1565c0; }
+
+/* Modals */
+.modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; }
+.modal.hidden { display: none; }
+.modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+.modal-card {
+  position: relative;
+  background: #1e1e3f;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.modal-card h3 { margin-bottom: 12px; }
+.modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+.btn-approve { padding: 8px 16px; background: #4caf50; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+.btn-reject { padding: 8px 16px; background: #f44336; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+
+.hitl-item {
+  padding: 8px;
+  margin-bottom: 8px;
+  background: #222;
+  border-radius: 6px;
+}
+
+.hitl-item .tool-info { font-size: 13px; margin-bottom: 4px; }
+.hitl-item .tool-input { font-size: 12px; color: #aaa; white-space: pre-wrap; max-height: 100px; overflow-y: auto; }
+
+/* Responsive */
+@media (max-width: 600px) {
+  .message { max-width: 100%; }
+  .modal-card { width: 95%; }
+}
