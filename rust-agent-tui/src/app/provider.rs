@@ -58,17 +58,25 @@ impl LlmProvider {
         }
     }
 
-    /// 从 ZenConfig 构造 LlmProvider（按 provider_id 查找对应 ProviderConfig）
+    /// 从 ZenConfig 构造 LlmProvider（按 active_alias 查 model_aliases 表）
     pub fn from_config(cfg: &ZenConfig) -> Option<Self> {
         let app = &cfg.config;
-        let provider = app.providers.iter().find(|p| p.id == app.provider_id)?;
+        let alias = app.active_alias.as_str();
+        let mapping = match alias {
+            "opus"   => &app.model_aliases.opus,
+            "sonnet" => &app.model_aliases.sonnet,
+            "haiku"  => &app.model_aliases.haiku,
+            _        => &app.model_aliases.opus,  // 未知别名 fallback
+        };
+
+        let provider = app.providers.iter().find(|p| p.id == mapping.provider_id)?;
 
         if provider.api_key.is_empty() {
             return None;
         }
 
-        let model = if !app.model_id.is_empty() {
-            app.model_id.clone()
+        let model = if !mapping.model_id.is_empty() {
+            mapping.model_id.clone()
         } else {
             match provider.provider_type.as_str() {
                 "anthropic" => "claude-sonnet-4-6".to_string(),
@@ -132,5 +140,79 @@ impl LlmProvider {
                 Box::new(m)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ModelAliasConfig, ProviderConfig, ZenConfig};
+
+    fn make_config_with_alias(alias: &str, provider_id: &str, model_id: &str, provider_type: &str) -> ZenConfig {
+        let mut cfg = ZenConfig::default();
+        cfg.config.active_alias = alias.to_string();
+        cfg.config.providers.push(ProviderConfig {
+            id: provider_id.to_string(),
+            provider_type: provider_type.to_string(),
+            api_key: "test-key".to_string(),
+            ..Default::default()
+        });
+        let alias_cfg = ModelAliasConfig {
+            provider_id: provider_id.to_string(),
+            model_id: model_id.to_string(),
+        };
+        match alias {
+            "opus"   => cfg.config.model_aliases.opus = alias_cfg,
+            "sonnet" => cfg.config.model_aliases.sonnet = alias_cfg,
+            "haiku"  => cfg.config.model_aliases.haiku = alias_cfg,
+            _ => {}
+        }
+        cfg
+    }
+
+    #[test]
+    fn test_from_config_opus_alias() {
+        let cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        let provider = LlmProvider::from_config(&cfg).expect("应成功解析");
+        assert_eq!(provider.model_name(), "claude-opus-4-6");
+    }
+
+    #[test]
+    fn test_from_config_sonnet_alias() {
+        let cfg = make_config_with_alias("sonnet", "openrouter", "gpt-5.4", "openai");
+        let provider = LlmProvider::from_config(&cfg).expect("应成功解析");
+        assert_eq!(provider.model_name(), "gpt-5.4");
+    }
+
+    #[test]
+    fn test_provider_default() {
+        // 空 model_id 时回退到默认 model，不 panic
+        let cfg = make_config_with_alias("opus", "anthropic", "", "anthropic");
+        let provider = LlmProvider::from_config(&cfg).expect("空 model_id 不应 panic");
+        assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn test_provider_default_openai() {
+        let cfg = make_config_with_alias("haiku", "openai", "", "openai");
+        let provider = LlmProvider::from_config(&cfg).expect("空 model_id openai 不应 panic");
+        assert_eq!(provider.model_name(), "gpt-4o");
+    }
+
+    #[test]
+    fn test_from_config_unknown_alias_fallback_to_opus() {
+        // 未知 alias 应 fallback 到 opus
+        let mut cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        cfg.config.active_alias = "ultra".to_string(); // 未知别名
+        let provider = LlmProvider::from_config(&cfg).expect("未知别名应 fallback 到 opus");
+        assert_eq!(provider.model_name(), "claude-opus-4-6");
+    }
+
+    #[test]
+    fn test_from_config_empty_api_key_returns_none() {
+        let mut cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        cfg.config.providers[0].api_key = String::new();
+        let result = LlmProvider::from_config(&cfg);
+        assert!(result.is_none(), "空 api_key 应返回 None");
     }
 }

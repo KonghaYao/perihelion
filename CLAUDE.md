@@ -173,6 +173,7 @@ tool result 消息：Anthropic 要求合并到前一条 user 消息的 content b
 | 命令 | 说明 |
 |------|------|
 | `/model` | 打开 Provider/Model 配置面板（增删改，写入 `~/.zen-code/settings.json`） |
+| `/model <alias>` | 直接切换激活别名（`opus` / `sonnet` / `haiku`），保存并更新状态栏，无需打开面板 |
 | `/history` | 打开历史对话浏览面板（`j/k` 或 `↑↓` 导航，`d` 删除，`Enter` 打开，`Esc` 新建） |
 | `/clear` | 清空当前消息列表 |
 | `/help` | 列出所有命令 |

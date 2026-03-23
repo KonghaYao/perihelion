@@ -361,83 +361,102 @@ fn handle_agent_panel(app: &mut App, input: Input) {
 // ─── /model 面板键盘处理 ──────────────────────────────────────────────────────
 
 fn handle_model_panel(app: &mut App, input: Input) {
-    use crate::app::model_panel::EditField;
+    use crate::app::model_panel::{AliasEditField, EditField};
 
     let Some(panel) = app.model_panel.as_mut() else {
         return;
     };
 
     match panel.mode.clone() {
-        ModelPanelMode::Browse => match input {
-            Input {
-                key: Key::Char('c'),
-                ctrl: true,
-                ..
-            } => {}
+        // ── 别名配置主界面 ────────────────────────────────────────────────────
+        ModelPanelMode::AliasConfig => match input {
             Input { key: Key::Esc, .. } => {
                 app.close_model_panel();
             }
+            // Tab / Shift+Tab：切换 Alias Tab（Opus / Sonnet / Haiku）
+            Input { key: Key::Tab, shift: false, .. } => {
+                app.model_panel.as_mut().unwrap().tab_next();
+            }
+            Input { key: Key::Tab, shift: true, .. } => {
+                app.model_panel.as_mut().unwrap().tab_prev();
+            }
+            // ↓：切换到下一个编辑字段（Provider → ModelId）
+            Input { key: Key::Down, .. } => {
+                app.model_panel.as_mut().unwrap().alias_field_next();
+            }
+            // ↑：切换到上一个编辑字段（ModelId → Provider）
+            Input { key: Key::Up, .. } => {
+                app.model_panel.as_mut().unwrap().alias_field_prev();
+            }
+            // Space：循环切换 Provider（当 alias_edit_field == Provider 时）
+            Input { key: Key::Char(' '), .. } => {
+                let field = app.model_panel.as_ref().unwrap().alias_edit_field.clone();
+                if field == AliasEditField::Provider {
+                    app.model_panel.as_mut().unwrap().cycle_alias_provider();
+                }
+            }
+            // Enter：激活当前 Tab（写入 active_alias）并保存
+            Input { key: Key::Enter, .. } => {
+                app.model_panel_activate_tab();
+            }
+            // s：保存当前 Tab 的 provider/model 配置
+            Input { key: Key::Char('s'), ctrl: false, alt: false, .. } => {
+                app.model_panel_save_alias();
+            }
+            // p：进入 provider 管理子面板
+            Input { key: Key::Char('p'), ctrl: false, alt: false, .. } => {
+                app.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
+            }
+            // Backspace：删除当前 Tab 的 model_id 末字符
+            Input { key: Key::Backspace, .. } => {
+                app.model_panel.as_mut().unwrap().pop_alias_char();
+            }
+            // 字符输入：写入 model_id 缓冲（当 alias_edit_field == ModelId 时）
+            Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
+                app.model_panel.as_mut().unwrap().push_alias_char(c);
+            }
+            _ => {}
+        },
+        // ── Provider 管理浏览 ─────────────────────────────────────────────────
+        ModelPanelMode::Browse => match input {
+            Input { key: Key::Esc, .. } => {
+                // 回到别名配置主界面
+                app.model_panel.as_mut().unwrap().mode = ModelPanelMode::AliasConfig;
+            }
             Input { key: Key::Up, .. }
-            | Input {
-                key: Key::Char('k'),
-                ..
-            } => {
+            | Input { key: Key::Char('k'), .. } => {
                 app.model_panel.as_mut().unwrap().move_cursor(-1);
             }
             Input { key: Key::Down, .. }
-            | Input {
-                key: Key::Char('j'),
-                ..
-            } => {
+            | Input { key: Key::Char('j'), .. } => {
                 app.model_panel.as_mut().unwrap().move_cursor(1);
             }
-            Input {
-                key: Key::Enter, ..
-            } => {
+            Input { key: Key::Enter, .. } => {
                 app.model_panel_confirm_select();
             }
-            Input {
-                key: Key::Char('e'),
-                ..
-            } => {
+            Input { key: Key::Char('e'), .. } => {
                 app.model_panel.as_mut().unwrap().enter_edit();
             }
-            Input {
-                key: Key::Char('n'),
-                ..
-            } => {
+            Input { key: Key::Char('n'), .. } => {
                 app.model_panel.as_mut().unwrap().enter_new();
             }
-            Input {
-                key: Key::Char('d'),
-                ..
-            } => {
+            Input { key: Key::Char('d'), .. } => {
                 app.model_panel.as_mut().unwrap().request_delete();
             }
             _ => {}
         },
+        // ── Provider 编辑/新建 ────────────────────────────────────────────────
         ModelPanelMode::Edit | ModelPanelMode::New => match input {
             Input { key: Key::Esc, .. } => {
                 app.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
             }
-            Input {
-                key: Key::Tab,
-                shift: false,
-                ..
-            } => {
+            Input { key: Key::Tab, shift: false, .. } => {
                 app.model_panel.as_mut().unwrap().field_next();
             }
-            Input {
-                key: Key::Tab,
-                shift: true,
-                ..
-            } => {
+            Input { key: Key::Tab, shift: true, .. } => {
                 app.model_panel.as_mut().unwrap().field_prev();
             }
-            Input {
-                key: Key::Char(' '),
-                ..
-            } => {
+            Input { key: Key::Char(' '), .. } => {
                 let field = app.model_panel.as_ref().unwrap().edit_field.clone();
                 if field == EditField::ProviderType {
                     app.model_panel.as_mut().unwrap().cycle_type();
@@ -447,38 +466,23 @@ fn handle_model_panel(app: &mut App, input: Input) {
                     app.model_panel.as_mut().unwrap().push_char(' ');
                 }
             }
-            Input {
-                key: Key::Enter, ..
-            } => {
+            Input { key: Key::Enter, .. } => {
                 app.model_panel_apply_edit();
             }
-            Input {
-                key: Key::Backspace,
-                ..
-            } => {
+            Input { key: Key::Backspace, .. } => {
                 app.model_panel.as_mut().unwrap().pop_char();
             }
-            Input {
-                key: Key::Char(c),
-                ctrl: false,
-                alt: false,
-                ..
-            } => {
+            Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
                 app.model_panel.as_mut().unwrap().push_char(c);
             }
             _ => {}
         },
+        // ── 删除确认 ──────────────────────────────────────────────────────────
         ModelPanelMode::ConfirmDelete => match input {
-            Input {
-                key: Key::Char('y'),
-                ..
-            } => {
+            Input { key: Key::Char('y'), .. } => {
                 app.model_panel_confirm_delete();
             }
-            Input {
-                key: Key::Char('n'),
-                ..
-            }
+            Input { key: Key::Char('n'), .. }
             | Input { key: Key::Esc, .. } => {
                 app.model_panel.as_mut().unwrap().cancel_delete();
             }

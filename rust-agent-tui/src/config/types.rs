@@ -8,6 +8,30 @@ pub struct ZenConfig {
     pub config: AppConfig,
 }
 
+/// 单个别名的目标绑定（provider_id + model_id）
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelAliasConfig {
+    #[serde(default)]
+    pub provider_id: String,
+    #[serde(default)]
+    pub model_id: String,
+}
+
+fn default_alias() -> String {
+    "opus".to_string()
+}
+
+/// 三级别名映射表（opus / sonnet / haiku）
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelAliasMap {
+    #[serde(default)]
+    pub opus: ModelAliasConfig,
+    #[serde(default)]
+    pub sonnet: ModelAliasConfig,
+    #[serde(default)]
+    pub haiku: ModelAliasConfig,
+}
+
 /// Thinking / 推理模式配置
 ///
 /// 对两个 provider 的映射：
@@ -42,10 +66,18 @@ impl ThinkingConfig {
 /// 应用配置（只映射用到的字段，其余字段用 extra 保留）
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
-    #[serde(default)]
+    /// 旧格式兼容字段（只读，不写回），用于迁移检测
+    #[serde(default, skip_serializing)]
     pub provider_id: String,
-    #[serde(default)]
+    /// 旧格式兼容字段（只读，不写回），用于迁移检测
+    #[serde(default, skip_serializing)]
     pub model_id: String,
+    /// 当前激活的模型别名（"opus" | "sonnet" | "haiku"）
+    #[serde(default = "default_alias")]
+    pub active_alias: String,
+    /// 三级别名映射表
+    #[serde(default)]
+    pub model_aliases: ModelAliasMap,
     #[serde(default)]
     pub providers: Vec<ProviderConfig>,
     /// 全局 skills 目录路径
@@ -132,8 +164,8 @@ mod tests {
 
     #[test]
     fn test_app_config_thinking_optional() {
-        // thinking 字段缺失时应为 None
-        let json = r#"{"provider_id": "x", "model_id": "y", "providers": []}"#;
+        // thinking 字段缺失时应为 None（使用新格式字段）
+        let json = r#"{"active_alias": "opus", "model_aliases": {}, "providers": []}"#;
         let cfg: AppConfig = serde_json::from_str(json).unwrap();
         assert!(cfg.thinking.is_none());
     }
@@ -141,8 +173,7 @@ mod tests {
     #[test]
     fn test_app_config_thinking_roundtrip() {
         let json = r#"{
-            "provider_id": "x",
-            "model_id": "y",
+            "active_alias": "opus",
             "providers": [],
             "thinking": {"enabled": true, "budget_tokens": 8000}
         }"#;
@@ -154,6 +185,8 @@ mod tests {
         // 序列化后 thinking 字段存在
         let out = serde_json::to_string(&cfg).unwrap();
         assert!(out.contains("\"thinking\""));
+        // active_alias 字段正确序列化
+        assert!(out.contains("\"active_alias\""));
     }
 
     #[test]
@@ -233,7 +266,9 @@ mod tests {
             api_key: "key".to_string(),
             ..Default::default()
         });
-        cfg.config.provider_id = "p1".to_string();
+        // 使用新格式：active_alias + model_aliases 设置激活的 provider
+        cfg.config.active_alias = "opus".to_string();
+        cfg.config.model_aliases.opus.provider_id = "p1".to_string();
 
         let mut panel = ModelPanel::from_config(&cfg);
         panel.mode = ModelPanelMode::Edit;

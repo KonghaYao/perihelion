@@ -1067,7 +1067,7 @@ impl App {
         self.agent_panel = None;
     }
 
-    /// 在面板中确认选择当前 provider，保存配置，更新 provider_name/model_name
+    /// 在面板中确认选择当前 provider（Browse 模式下，仅更新 active_id 显示）
     pub fn model_panel_confirm_select(&mut self) {
         let Some(panel) = self.model_panel.as_mut() else {
             return;
@@ -1077,11 +1077,6 @@ impl App {
         };
         panel.confirm_select(cfg);
         let _ = crate::config::save(cfg);
-        if let Some(p) = agent::LlmProvider::from_config(cfg) {
-            self.provider_name = p.display_name().to_string();
-            self.model_name = p.model_name().to_string();
-        }
-        self.model_panel = None;
     }
 
     /// 在面板中保存编辑/新建，写回配置
@@ -1106,6 +1101,41 @@ impl App {
         };
         panel.confirm_delete(cfg);
         let _ = crate::config::save(cfg);
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
+            self.provider_name = p.display_name().to_string();
+            self.model_name = p.model_name().to_string();
+        }
+    }
+
+    /// 激活当前 Tab（写入 active_alias），保存配置，更新状态栏
+    pub fn model_panel_activate_tab(&mut self) {
+        let Some(panel) = self.model_panel.as_ref() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
+        panel.activate_current_tab(cfg);
+        panel.apply_alias_edit(cfg);
+        let _ = crate::config::save(cfg);
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
+            self.provider_name = p.display_name().to_string();
+            self.model_name = p.model_name().to_string();
+        }
+        self.model_panel = None;
+    }
+
+    /// 保存当前 Tab 的 provider/model 配置（不改变 active_alias）
+    pub fn model_panel_save_alias(&mut self) {
+        let Some(panel) = self.model_panel.as_ref() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
+        panel.apply_alias_edit(cfg);
+        let _ = crate::config::save(cfg);
+        // 更新状态栏（在 active_alias 对应的别名配置改变时）
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
