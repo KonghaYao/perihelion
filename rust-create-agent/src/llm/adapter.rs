@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
 use crate::error::AgentResult;
@@ -7,16 +8,19 @@ use crate::messages::BaseMessage;
 use crate::tools::BaseTool;
 
 /// Mock ReactLLM - 用于测试，按预设脚本返回推理结果
+///
+/// `script` 创建后不再修改，用 `Arc<Vec<_>>` 共享；
+/// `index` 用原子计数器替代 Mutex，消除在 async fn 中持有同步锁的潜在风险。
 pub struct MockLLM {
-    script: Arc<Mutex<Vec<Reasoning>>>,
-    index: Arc<Mutex<usize>>,
+    script: Arc<Vec<Reasoning>>,
+    index: Arc<AtomicUsize>,
 }
 
 impl MockLLM {
     pub fn new(script: Vec<Reasoning>) -> Self {
         Self {
-            script: Arc::new(Mutex::new(script)),
-            index: Arc::new(Mutex::new(0)),
+            script: Arc::new(script),
+            index: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -45,19 +49,11 @@ impl ReactLLM for MockLLM {
         _messages: &[BaseMessage],
         _tools: &[&dyn BaseTool],
     ) -> AgentResult<Reasoning> {
-        let script = self.script.lock().unwrap();
-        let mut index = self.index.lock().unwrap();
-
-        let reasoning = if *index < script.len() {
-            script[*index].clone()
-        } else {
-            script
-                .last()
-                .cloned()
-                .unwrap_or_else(|| Reasoning::with_answer("(no more script)", "Done"))
-        };
-
-        *index += 1;
+        let idx = self.index.fetch_add(1, Ordering::Relaxed);
+        let reasoning = self.script.get(idx)
+            .or_else(|| self.script.last())
+            .cloned()
+            .unwrap_or_else(|| Reasoning::with_answer("(no more script)", "Done"));
         Ok(reasoning)
     }
 }
