@@ -553,6 +553,13 @@ impl App {
         for web_msg in events {
             match web_msg {
                 WebMessage::UserInput { text } => {
+                    // 将用户消息缓存到 relay 历史，供 sync_response 回放
+                    if let Some(ref relay) = self.relay_client {
+                        relay.send_value(serde_json::json!({
+                            "role": "user",
+                            "content": text,
+                        }));
+                    }
                     if self.loading {
                         self.pending_messages.push(text);
                     } else {
@@ -589,6 +596,20 @@ impl App {
                     self.new_thread();
                 }
                 WebMessage::Pong => {}
+                WebMessage::SyncRequest { since_seq } => {
+                    if let Some(ref relay) = self.relay_client {
+                        let events = relay.get_history_since(since_seq);
+                        let response = serde_json::json!({
+                            "type": "sync_response",
+                            "events": events.iter()
+                                .map(|s| serde_json::from_str::<serde_json::Value>(s).unwrap_or_default())
+                                .collect::<Vec<_>>()
+                        });
+                        if let Ok(json) = serde_json::to_string(&response) {
+                            relay.send_raw(&json);
+                        }
+                    }
+                }
             }
         }
         true
@@ -914,16 +935,16 @@ impl App {
             AgentEvent::ApprovalNeeded(req) => {
                 // 转发 HITL 审批请求到 Relay
                 if let Some(ref relay) = self.relay_client {
-                    let items: Vec<rust_relay_server::protocol::ApprovalItem> = req.items.iter().map(|item| {
-                        rust_relay_server::protocol::ApprovalItem {
-                            tool_name: item.tool_name.clone(),
-                            input: item.input.clone(),
-                        }
+                    let items: Vec<serde_json::Value> = req.items.iter().map(|item| {
+                        serde_json::json!({
+                            "tool_name": item.tool_name,
+                            "input": item.input,
+                        })
                     }).collect();
-                    let msg = rust_relay_server::protocol::RelayMessage::ApprovalNeeded { items };
-                    if let Ok(json) = serde_json::to_string(&msg) {
-                        relay.send_raw(&json);
-                    }
+                    relay.send_value(serde_json::json!({
+                        "type": "approval_needed",
+                        "items": items,
+                    }));
                 }
                 self.hitl_prompt = Some(HitlBatchPrompt::new(req.items, req.response_tx));
                 (true, true, false) // 暂停消费，等待用户确认
@@ -931,16 +952,17 @@ impl App {
             AgentEvent::AskUserBatch(req) => {
                 // 转发 AskUser 请求到 Relay
                 if let Some(ref relay) = self.relay_client {
-                    let questions: Vec<rust_relay_server::protocol::AskUserQuestion> = req.questions.iter().map(|q| {
-                        rust_relay_server::protocol::AskUserQuestion {
-                            question: q.description.clone(),
-                            options: q.options.iter().map(|o| o.label.clone()).collect(),
-                        }
+                    let questions: Vec<serde_json::Value> = req.questions.iter().map(|q| {
+                        serde_json::json!({
+                            "question": q.description,
+                            "options": q.options.iter().map(|o| o.label.clone()).collect::<Vec<_>>(),
+                            "multi_select": q.multi_select,
+                        })
                     }).collect();
-                    let msg = rust_relay_server::protocol::RelayMessage::AskUserBatch { questions };
-                    if let Ok(json) = serde_json::to_string(&msg) {
-                        relay.send_raw(&json);
-                    }
+                    relay.send_value(serde_json::json!({
+                        "type": "ask_user_batch",
+                        "questions": questions,
+                    }));
                 }
                 self.ask_user_prompt = Some(AskUserBatchPrompt::from_request(req));
                 (true, true, false) // 暂停消费，等待用户输入
@@ -948,16 +970,16 @@ impl App {
             AgentEvent::TodoUpdate(todos) => {
                 // 转发 TODO 更新到 Relay
                 if let Some(ref relay) = self.relay_client {
-                    let items: Vec<rust_relay_server::protocol::TodoItemInfo> = todos.iter().map(|t| {
-                        rust_relay_server::protocol::TodoItemInfo {
-                            content: t.content.clone(),
-                            status: format!("{:?}", t.status),
-                        }
+                    let items: Vec<serde_json::Value> = todos.iter().map(|t| {
+                        serde_json::json!({
+                            "content": t.content,
+                            "status": format!("{:?}", t.status),
+                        })
                     }).collect();
-                    let msg = rust_relay_server::protocol::RelayMessage::TodoUpdate { items };
-                    if let Ok(json) = serde_json::to_string(&msg) {
-                        relay.send_raw(&json);
-                    }
+                    relay.send_value(serde_json::json!({
+                        "type": "todo_update",
+                        "items": items,
+                    }));
                 }
                 self.todo_items = todos;
                 (true, false, false)

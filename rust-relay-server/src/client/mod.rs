@@ -1,5 +1,6 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
@@ -16,6 +17,10 @@ pub struct RelayClient {
     connected: Arc<AtomicBool>,
     /// 后台任务句柄，Drop 时 abort 避免清理输出
     _tasks: Vec<JoinHandle<()>>,
+    /// 序列号计数器（每次发送事件时递增）
+    seq: Arc<AtomicU64>,
+    /// 历史缓存（seq, json），最多 1000 条
+    history: Arc<Mutex<VecDeque<(u64, String)>>>,
 }
 
 impl Drop for RelayClient {
@@ -107,29 +112,80 @@ impl RelayClient {
                 session_id,
                 connected,
                 _tasks: vec![write_handle, read_handle],
+                seq: Arc::new(AtomicU64::new(1)),
+                history: Arc::new(Mutex::new(VecDeque::new())),
             },
             event_rx,
         ))
     }
 
-    /// 发送 agent 事件到 relay，断线后静默跳过
+    /// 扁平化发送：注入 seq 并缓存，然后通过 WS 发送
+    fn send_with_seq(&self, mut val: serde_json::Value) {
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+        if let Some(obj) = val.as_object_mut() {
+            obj.insert("seq".to_string(), seq.into());
+        }
+        let json = match serde_json::to_string(&val) {
+            Ok(j) => j,
+            Err(_) => return,
+        };
+        // 缓存（最多 1000 条）
+        if let Ok(mut hist) = self.history.lock() {
+            if hist.len() >= 1000 {
+                hist.pop_front();
+            }
+            hist.push_back((seq, json.clone()));
+        }
+        let _ = self.tx.send(json);
+    }
+
+    /// 发送 agent 事件到 relay（扁平化 + seq），断线后静默跳过
     pub fn send_agent_event(&self, event: &rust_create_agent::agent::AgentEvent) {
         if !self.connected.load(Ordering::Relaxed) {
             return;
         }
-        let msg = RelayMessage::AgentEvent {
-            event: event.clone(),
-        };
-        if let Ok(json) = serde_json::to_string(&msg) {
-            let _ = self.tx.send(json);
+        if let Ok(val) = serde_json::to_value(event) {
+            self.send_with_seq(val);
         }
     }
 
-    /// 发送原始 JSON 到 relay，断线后静默跳过
+    /// 发送带 seq 的 JSON Value 到 relay，断线后静默跳过
+    /// 用于 ApprovalNeeded / AskUserBatch / TodoUpdate 等需要 seq + 缓存的消息
+    pub fn send_value(&self, val: serde_json::Value) {
+        if !self.connected.load(Ordering::Relaxed) {
+            return;
+        }
+        self.send_with_seq(val);
+    }
+
+    /// 发送 BaseMessage 到 relay（序列化为 JSON + seq）
+    pub fn send_message(&self, msg: &rust_create_agent::messages::BaseMessage) {
+        if !self.connected.load(Ordering::Relaxed) {
+            return;
+        }
+        if let Ok(val) = serde_json::to_value(msg) {
+            self.send_with_seq(val);
+        }
+    }
+
+    /// 发送原始 JSON 字符串到 relay（不注入 seq，不缓存），断线后静默跳过
+    /// 用于 sync_response 等协议消息
     pub fn send_raw(&self, msg: &str) {
         if !self.connected.load(Ordering::Relaxed) {
             return;
         }
         let _ = self.tx.send(msg.to_string());
+    }
+
+    /// 获取 seq > since_seq 的历史事件 JSON 列表
+    pub fn get_history_since(&self, since_seq: u64) -> Vec<String> {
+        match self.history.lock() {
+            Ok(hist) => hist
+                .iter()
+                .filter(|(seq, _)| *seq > since_seq)
+                .map(|(_, json)| json.clone())
+                .collect(),
+            Err(_) => vec![],
+        }
     }
 }

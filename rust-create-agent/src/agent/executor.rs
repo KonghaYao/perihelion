@@ -104,7 +104,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         let cancel = cancel.unwrap_or_else(CancellationToken::new);
 
         let human_msg = BaseMessage::human(input.content);
-        state.add_message(human_msg);
+        state.add_message(human_msg.clone());
+        self.emit(AgentEvent::MessageAdded(human_msg));
 
         // 重置消息计数，从用户消息之后开始跟踪
         self.last_message_count.store(state.messages().len(), std::sync::atomic::Ordering::SeqCst);
@@ -164,8 +165,12 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     // source_message 的 tool_calls 字段在 LLM 解析阶段已填好
                     let ai_msg = reasoning.source_message.clone()
                         .unwrap_or_else(|| BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs));
+                    let ai_msg_clone = ai_msg.clone();
                     state.add_message(ai_msg);
+                    self.emit(AgentEvent::MessageAdded(ai_msg_clone));
                 }
+                // emit AI 推理内容到 Relay
+                self.emit(AgentEvent::AiReasoning(reasoning.thought.clone()));
 
                 // 阶段一：串行执行 before_tool（需要 &mut S，且 HITL 可能修改 call）
                 let mut modified_calls: Vec<ToolCall> = Vec::new();
@@ -285,7 +290,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     } else {
                         BaseMessage::tool_result(&result.tool_call_id, result.output.as_str())
                     };
+                    let tool_msg_clone = tool_msg.clone();
                     state.add_message(tool_msg);
+                    self.emit(AgentEvent::MessageAdded(tool_msg_clone));
 
                     all_tool_calls.push((modified_call, result));
                 }
@@ -326,7 +333,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
                 let ai_msg = reasoning.source_message
                     .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
+                let ai_msg_clone = ai_msg.clone();
                 state.add_message(ai_msg);
+                self.emit(AgentEvent::MessageAdded(ai_msg_clone));
 
                 self.emit(AgentEvent::TextChunk(answer.clone()));
 

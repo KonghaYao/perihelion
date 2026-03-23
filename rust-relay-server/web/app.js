@@ -6,7 +6,7 @@
   const TOKEN = params.get('token') || '';
 
   // State
-  const agents = new Map(); // sessionId -> { name, status, messages[], todos[], ws, pendingHitl, pendingAskUser }
+  const agents = new Map(); // sessionId -> { name, status, messages[], todos[], ws, pendingHitl, pendingAskUser, maxSeq }
   let activeSessionId = null;
   let managementWs = null;
 
@@ -61,6 +61,12 @@
     const ws = new WebSocket(url);
     agent.ws = ws;
 
+    ws.onopen = () => {
+      // 首次连接 since_seq=0，重连时使用已知最大 seq 实现增量 sync
+      const since = agent ? agent.maxSeq : 0;
+      ws.send(JSON.stringify({ type: 'sync_request', since_seq: since }));
+    };
+
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       handleAgentEvent(sessionId, msg);
@@ -109,7 +115,7 @@
       }
     }
     if (existingId) {
-      // 同名 Agent 重连：关闭旧 WS，迁移数据到新 session
+      // 同名 Agent 重连：关闭旧 WS，迁移数据到新 session（保留历史消息和 maxSeq）
       const old = agents.get(existingId);
       if (old.ws) old.ws.close();
       agents.delete(existingId);
@@ -121,6 +127,7 @@
         ws: null,
         pendingHitl: null,
         pendingAskUser: null,
+        maxSeq: old.maxSeq,  // 保留旧 maxSeq 用于增量 sync
       });
       connectSession(sessionId);
       if (activeSessionId === existingId) activeSessionId = sessionId;
@@ -133,6 +140,7 @@
         ws: null,
         pendingHitl: null,
         pendingAskUser: null,
+        maxSeq: 0,
       });
       connectSession(sessionId);
     } else {
@@ -144,17 +152,84 @@
 
   // ---- Agent Event Handlers ----
 
-  function handleAgentEvent(sessionId, msg) {
+  // 处理单条事件（可被实时消息和 sync_response 批量回放共同调用）
+  // 支持两种格式：
+  // - BaseMessage 格式：{ role: "user"|"assistant"|"tool"|"system", content: "...", tool_calls?: [...] }
+  // - 旧 AgentEvent 格式：{ type: "text_chunk"|"tool_start"|"tool_end"|"...", ... }
+  function handleSingleEvent(sessionId, event) {
     const agent = agents.get(sessionId);
     if (!agent) return;
 
-    // Relay wraps events as { type: "agent_event", event: {...} }
-    // Or it might forward raw text from agent
-    const event = msg.event || msg;
+    // 更新已知最大 seq
+    if (event.seq !== undefined && event.seq > agent.maxSeq) {
+      agent.maxSeq = event.seq;
+    }
+
+    // BaseMessage 格式（role 字段）
+    if (event.role !== undefined) {
+      handleBaseMessage(agent, event);
+      return;
+    }
+
+    // 旧 AgentEvent 格式（type 字段）
+    handleLegacyEvent(agent, event);
+  }
+
+  // 处理 BaseMessage 格式
+  function handleBaseMessage(agent, event) {
+    const text = typeof event.content === 'string' ? event.content : '';
+    const toolCalls = event.tool_calls || [];
+
+    switch (event.role) {
+      case 'user':
+        agent.messages.push({ type: 'user', text });
+        break;
+      case 'assistant':
+        // 检查是否有工具调用
+        if (toolCalls.length > 0) {
+          toolCalls.forEach(tc => {
+            agent.messages.push({
+              type: 'tool',
+              name: tc.name,
+              tool_call_id: tc.id,
+              input: tc.arguments,
+              output: null,
+            });
+          });
+        }
+        if (text || !agent.messages.length) {
+          agent.messages.push({ type: 'assistant', text, streaming: false });
+        }
+        break;
+      case 'tool':
+        // 查找对应的 tool 消息并更新 output
+        const tcId = event.tool_call_id;
+        if (tcId) {
+          for (let i = agent.messages.length - 1; i >= 0; i--) {
+            const m = agent.messages[i];
+            if (m.type === 'tool' && m.tool_call_id === tcId) {
+              m.output = text;
+              m.isError = event.is_error || false;
+              break;
+            }
+          }
+        }
+        break;
+      case 'system':
+        // system 消息暂不显示
+        break;
+    }
+  }
+
+  // 处理旧 AgentEvent 格式（兼容保留）
+  function handleLegacyEvent(agent, event) {
     const eventType = event.type;
 
     // serde tuple variants serialize as {"type":"text_chunk","0":"text"} — use event["0"] for tuple data
     switch (eventType) {
+      case 'user_message':
+        agent.messages.push({ type: 'user', text: event.text || '' });
+        break;
       case 'text_chunk':
         agent.messages.push({ type: 'assistant', text: event["0"] || '' });
         break;
@@ -206,6 +281,24 @@
         else showAskUserDialog(agent.pendingAskUser);
         break;
     }
+  }
+
+  function handleAgentEvent(sessionId, msg) {
+    const agent = agents.get(sessionId);
+    if (!agent) return;
+
+    // 处理 sync_response：批量回放历史事件
+    if (msg.type === 'sync_response') {
+      (msg.events || []).forEach(ev => handleSingleEvent(sessionId, ev));
+      if (sessionId === activeSessionId) {
+        renderMessages();
+        renderTodoPanel();
+      }
+      return;
+    }
+
+    // 处理单条实时事件（格式已扁平化，直接使用 msg）
+    handleSingleEvent(sessionId, msg);
 
     if (sessionId === activeSessionId) {
       renderMessages();

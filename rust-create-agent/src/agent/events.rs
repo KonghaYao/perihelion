@@ -2,6 +2,8 @@
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
+    /// AI 推理内容（reasoning/思考过程）
+    AiReasoning(String),
     /// LLM 输出最终文字（非流式，整段答案）
     TextChunk(String),
     /// 工具调用开始（工具名 + 参数）
@@ -12,6 +14,8 @@ pub enum AgentEvent {
     StepDone { step: usize },
     /// 状态快照（含完整的消息历史），用于持久化和断点续跑
     StateSnapshot(Vec<crate::messages::BaseMessage>),
+    /// 增量消息（BaseMessage），relay 传输的最小数据单元
+    MessageAdded(crate::messages::BaseMessage),
 }
 
 /// 事件回调 trait（应用层实现）

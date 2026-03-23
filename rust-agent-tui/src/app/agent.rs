@@ -66,11 +66,19 @@ pub async fn run_universal_agent(
     let cwd_for_handler = cwd.clone();
     let relay_for_handler = relay_client.clone();
     let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
-        // 转发到 Relay（如果已连接）
+        // 转发到 Relay
         if let Some(ref relay) = relay_for_handler {
-            relay.send_agent_event(&event);
+            match &event {
+                // BaseMessage 走新的 relay.send_message 路径
+                ExecutorEvent::MessageAdded(msg) => relay.send_message(msg),
+                // 其他事件走原有路径（兼容性保留）
+                _ => relay.send_agent_event(&event),
+            }
         }
+
+        // 映射为 TUI AgentEvent
         let msg = match event {
+            ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::TextChunk(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::ToolStart { tool_call_id, name, input } => AgentEvent::ToolCall {
                 tool_call_id,
@@ -103,9 +111,11 @@ pub async fn run_universal_agent(
                 name,
                 is_error: true,
             },
-            ExecutorEvent::ToolEnd { .. } | ExecutorEvent::StepDone { .. } => return,
-            // StateSnapshot 由 TUI poll_agent 通过 run_universal_agent 的返回值直接获取
-            ExecutorEvent::StateSnapshot(_) => return,
+            // 无需转发的内部事件
+            ExecutorEvent::ToolEnd { .. }
+            | ExecutorEvent::StepDone { .. }
+            | ExecutorEvent::StateSnapshot(_)
+            | ExecutorEvent::MessageAdded(_) => return,
         };
         let _ = tx_event.try_send(msg);
     }));

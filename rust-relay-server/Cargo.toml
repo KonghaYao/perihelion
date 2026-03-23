@@ -38,11 +38,13 @@ rust-create-agent = { path = "../rust-create-agent" }
 
 # Server-only dependencies
 axum = { version = "0.8", features = ["ws"], optional = true }
-axum-extra = { version = "0.10", features = ["query"], optional = true }
+axum-extra = { version = "0.12", features = ["query"], optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
 rust-embed = { version = "8", optional = true }
 dashmap = { version = "6", optional = true }
 mime_guess = { version = "2", optional = true }
 
 # Client-only dependencies
-tokio-tungstenite = { version = "0.26", features = ["native-tls"], optional = true }
+tokio-tungstenite = { version = "0.29", features = [
+    "native-tls",
+], optional = true }
