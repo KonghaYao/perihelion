@@ -282,4 +282,52 @@ mod tests {
             panic!("期望 Tool 消息");
         }
     }
+
+    /// 双写一致性 roundtrip：从 OpenAI API 响应解析后，
+    /// content blocks 中的 ToolUse 与 tool_calls 字段始终同步
+    #[test]
+    fn test_tool_calls_dual_write_roundtrip() {
+        // 模拟 OpenAI API 返回包含工具调用的 assistant 消息
+        let api_response = json!({
+            "role": "assistant",
+            "content": "I'll run bash",
+            "tool_calls": [{
+                "id": "tc1",
+                "type": "function",
+                "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\":\"ls\"}"
+                }
+            }]
+        });
+
+        let msg = OpenAiAdapter::to_base_message(&api_response).unwrap();
+
+        // tool_calls 字段应正确提取
+        assert!(msg.has_tool_calls());
+        assert_eq!(msg.tool_calls().len(), 1);
+        assert_eq!(msg.tool_calls()[0].id, "tc1");
+        assert_eq!(msg.tool_calls()[0].name, "bash");
+
+        // content blocks 中也应有 ToolUse（双写一致）
+        let has_tool_use = msg
+            .content_blocks()
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+        assert!(has_tool_use, "content blocks 中应有 ToolUse block");
+
+        // 序列化回 OpenAI 格式后，tool_calls 字段应存在（OpenAI 用 tool_calls 字段，不在 content 里）
+        let re_serialized = OpenAiAdapter::from_base_messages(&[msg]);
+        let arr = re_serialized.as_array().unwrap();
+        // system prompt prepended if any, here just one assistant msg
+        let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
+        assert!(assistant["tool_calls"].is_array());
+        assert_eq!(assistant["tool_calls"][0]["id"], "tc1");
+        // OpenAI content 不含 ToolUse（已过滤），只保留 text
+        let content_has_tool_use = assistant["content"]
+            .as_array()
+            .map(|arr| arr.iter().any(|b| b["type"] == "tool_use"))
+            .unwrap_or(false);
+        assert!(!content_has_tool_use, "OpenAI content 中不应出现 ToolUse block");
+    }
 }

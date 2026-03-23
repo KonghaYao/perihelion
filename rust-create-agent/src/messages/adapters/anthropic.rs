@@ -355,4 +355,60 @@ mod tests {
         let restored = AnthropicAdapter::to_base_message(&arr[0]).unwrap();
         assert_eq!(restored.content(), "Test");
     }
+
+    /// 双写一致性 roundtrip：Ai 消息经过序列化→API→反序列化后，
+    /// content blocks 中的 ToolUse 与 tool_calls 字段始终保持同步
+    #[test]
+    fn test_tool_calls_dual_write_roundtrip() {
+        // 构造包含工具调用的 AI 消息（模拟 LLM 响应解析后的内部状态）
+        let original = BaseMessage::ai_from_blocks(vec![
+            ContentBlock::text("I'll run bash"),
+            ContentBlock::tool_use("tc1", "bash", json!({"command": "ls"})),
+        ]);
+        assert!(original.has_tool_calls());
+        assert_eq!(original.tool_calls().len(), 1);
+
+        // 序列化为 Anthropic API 格式
+        let api_json = AnthropicAdapter::from_base_messages(&[original]);
+        let arr = api_json.as_array().unwrap();
+        let assistant_msg = &arr[0];
+        assert_eq!(assistant_msg["role"], "assistant");
+
+        // API 格式应包含 tool_use block
+        let blocks = assistant_msg["content"].as_array().unwrap();
+        let has_tool_use = blocks.iter().any(|b| b["type"] == "tool_use");
+        assert!(has_tool_use, "序列化后 content 应包含 tool_use block");
+
+        // 反序列化回 BaseMessage，双写应仍然一致
+        let restored = AnthropicAdapter::to_base_message(assistant_msg).unwrap();
+        assert!(restored.has_tool_calls(), "反序列化后 tool_calls 应保留");
+        assert_eq!(restored.tool_calls().len(), 1);
+        assert_eq!(restored.tool_calls()[0].id, "tc1");
+        assert_eq!(restored.tool_calls()[0].name, "bash");
+
+        // content blocks 中也应有 ToolUse（双写一致性验证）
+        let content_has_tool_use = restored
+            .content_blocks()
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+        assert!(content_has_tool_use, "content blocks 中应有 ToolUse block");
+    }
+
+    /// Text 类型内容 + tool_calls 的序列化：应从 tool_calls 重建 ToolUse blocks
+    #[test]
+    fn test_text_content_with_tool_calls_serializes_correctly() {
+        let msg = BaseMessage::ai_with_tool_calls(
+            "I'll run bash",
+            vec![ToolCallRequest::new("tc2", "bash", json!({"command": "pwd"}))],
+        );
+        let api_json = AnthropicAdapter::from_base_messages(&[msg]);
+        let arr = api_json.as_array().unwrap();
+        let blocks = arr[0]["content"].as_array().unwrap();
+
+        let text_block = blocks.iter().find(|b| b["type"] == "text");
+        let tool_block = blocks.iter().find(|b| b["type"] == "tool_use");
+        assert!(text_block.is_some(), "应包含 text block");
+        assert!(tool_block.is_some(), "应从 tool_calls 重建 tool_use block");
+        assert_eq!(tool_block.unwrap()["id"], "tc2");
+    }
 }
