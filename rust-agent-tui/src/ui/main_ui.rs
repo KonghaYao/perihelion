@@ -395,6 +395,7 @@ fn render_ask_user_popup(f: &mut Frame, app: &App) {
     // 1 header + 1 空行 + 描述行 + 空行 + 选项 + extra + 边框(2)
     let desc_rows = cur.data.description.lines().count() as u16;
     let popup_height = (1 + 1 + desc_rows + 1 + option_rows + extra_rows + 2)
+        .min(area.height * 4 / 5)
         .min(area.height.saturating_sub(2));
 
     let x = (area.width.saturating_sub(popup_width)) / 2;
@@ -502,7 +503,9 @@ fn render_ask_user_popup(f: &mut Frame, app: &App) {
     }
 
     f.render_widget(
-        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+        Paragraph::new(Text::from(lines))
+            .scroll((prompt.scroll_offset, 0))
+            .wrap(Wrap { trim: false }),
         content_area,
     );
 }
@@ -650,7 +653,7 @@ fn render_model_panel(f: &mut Frame, app: &App) {
 
     let area = f.area();
     let popup_width = (area.width * 4 / 5).max(60).min(area.width.saturating_sub(4));
-    let popup_height = 22u16.min(area.height.saturating_sub(4));
+    let popup_height = 22u16.min(area.height * 4 / 5).min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(x, y, popup_width, popup_height);
@@ -993,7 +996,7 @@ fn render_thread_browser(f: &mut Frame, app: &App) {
 
     let area = f.area();
     let popup_width = (area.width * 3 / 4).max(50).min(area.width.saturating_sub(4));
-    let popup_height = (browser.total() as u16 + 4).min(area.height.saturating_sub(4)).max(6);
+    let popup_height = (browser.total() as u16 + 4).min(area.height * 4 / 5).min(area.height.saturating_sub(4)).max(6);
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(x, y, popup_width, popup_height);
@@ -1054,7 +1057,11 @@ fn render_thread_browser(f: &mut Frame, app: &App) {
         ]));
     }
 
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
+    f.render_widget(
+        Paragraph::new(Text::from(lines))
+            .scroll((browser.scroll_offset, 0)),
+        inner,
+    );
 }
 
 /// /agents 面板渲染
@@ -1070,7 +1077,7 @@ fn render_agent_panel(f: &mut Frame, app: &App) {
     let items_height: u16 = panel.agents.iter().map(|a| {
         if a.description.is_empty() { 1 } else { 2 }
     }).sum::<u16>();
-    let popup_height = (base_height + items_height).min(area.height.saturating_sub(4)).max(6);
+    let popup_height = (base_height + items_height).min(area.height * 4 / 5).min(area.height.saturating_sub(4)).max(6);
     let popup_width = (area.width * 3 / 4).max(50).min(area.width.saturating_sub(4));
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
@@ -1164,9 +1171,11 @@ fn render_agent_panel(f: &mut Frame, app: &App) {
         Span::styled(":关闭", Style::default().fg(Color::DarkGray)),
     ]));
 
-    // 剪裁到可用高度
-    lines.truncate(inner.height as usize);
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
+    f.render_widget(
+        Paragraph::new(Text::from(lines))
+            .scroll((panel.scroll_offset, 0)),
+        inner,
+    );
 }
 
 /// 将工具参数格式化为单行预览

@@ -177,6 +177,8 @@ pub struct ModelPanel {
     /// Thinking 配置缓冲（全局，不属于单个 provider）
     pub buf_thinking_enabled: bool,
     pub buf_thinking_budget: String,
+    /// 内容滚动偏移
+    pub scroll_offset: u16,
 }
 
 impl ModelPanel {
@@ -224,6 +226,7 @@ impl ModelPanel {
             buf_base_url: String::new(),
             buf_thinking_enabled: thinking_enabled,
             buf_thinking_budget: thinking_budget,
+            scroll_offset: 0,
         }
     }
 

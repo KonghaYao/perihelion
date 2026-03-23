@@ -11,7 +11,7 @@ use ratatui::{
     crossterm::{
         execute,
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
-        event::{EnableMouseCapture, DisableMouseCapture},
+        event::{EnableMouseCapture, DisableMouseCapture, EnableBracketedPaste, DisableBracketedPaste},
     },
     prelude::*,
 };
@@ -39,7 +39,7 @@ fn main() -> Result<()> {
         // 初始化终端
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
 
         // 恢复终端
         disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture, DisableBracketedPaste)?;
         terminal.show_cursor()?;
 
         result
@@ -69,12 +69,17 @@ fn main() -> Result<()> {
 async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     let mut app = app::App::new();
 
+    // 尝试连接 Relay Server（如果配置了 relay_url）
+    app.try_connect_relay().await;
+
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
 
     loop {
         // 轮询后台 agent 结果
         let agent_updated = app.poll_agent();
+        // 轮询 Relay 事件（Web 端控制消息）
+        let relay_updated = app.poll_relay();
 
         // 检查渲染缓存是否有新内容（version 变化）
         let cache_version = app.render_cache.read().version;
@@ -96,8 +101,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             }
         }
 
-        // 无用户事件时：仅在缓存版本变化或 agent 状态更新时重绘
-        if cache_updated || agent_updated {
+        // 无用户事件时：仅在缓存版本变化或 agent/relay 状态更新时重绘
+        if cache_updated || agent_updated || relay_updated {
             terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
         }
     }

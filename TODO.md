@@ -12,7 +12,7 @@
 - [x] ot 需要直接打包进去,不需要 --features otel,只是没有配置的时候,不需要进行 ot 的行为
 - [x] 支持 thinking 模式
 - [x] 替换默认提示词
-- [ ] Model 定位 Opus\Sonnet\Haiku -> provider -> model
+- [x] Model 定位 Opus\Sonnet\Haiku -> provider -> model
 
 **第二层：Agent 能力**
 
@@ -28,13 +28,13 @@
 
 - [x] 渲染线程分离
 - [x] Headless 模式
-- [ ] 粘贴换行符,会导致 enter 事件被唤醒
-- [ ] loading 状态,缓冲区输入
+- [x] 粘贴换行符,会导致 enter 事件被唤醒
+- [x] loading 状态, 输入框应该可以输入, 输入之后进入缓冲区, 消息完成之后直接发送
 - [ ] Web UI（浏览器端对话界面）
 - [x] 工具调用显示的颜色调整, 工具名称一个颜色,然后工具内的描述通统一使用 dimColor.
 - [x] 工具内的描述文本需要 replace 掉 pwd 的路径,保证足够短小(Bash 和 search 不需要,仅仅显示层)
 - [x] TODOWrite 只显示占位, TODO 的状态由全数据计算出来,然后显示到输入框的上面
 - [ ] Tarui 整合
-- [ ] 弹窗面板里面的内容超长会有问题
+- [x] 弹窗面板里面的内容超长会有问题
 - [ ] 多 Agent 并发面板（同时跑多个任务）
 - [ ] 添加一个会话内的数据统计 status bar

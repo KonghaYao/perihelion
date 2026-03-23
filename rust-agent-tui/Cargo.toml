@@ -30,3 +30,4 @@ dirs-next = "2"
 ratatui-textarea = "0.8"
 tui-markdown = "0.3"
 parking_lot = "0.12"
+rust-relay-server = { path = "../rust-relay-server", default-features = false, features = ["client"] }

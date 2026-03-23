@@ -25,6 +25,7 @@ pub async fn run_universal_agent(
     tx: mpsc::Sender<AgentEvent>,
     cancel: AgentCancellationToken,
     agent_id: Option<String>,
+    relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
 ) {
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
@@ -60,10 +61,15 @@ pub async fn run_universal_agent(
     let ask_user_invoker: Arc<dyn AskUserInvoker> = TuiAskUserHandler::new(approval_tx);
     let ask_user_tool = AskUserTool::new(ask_user_invoker);
 
-    // 事件回调 → TUI AgentEvent channel
+    // 事件回调 → TUI AgentEvent channel + Relay 转发
     let tx_event = tx.clone();
     let cwd_for_handler = cwd.clone();
+    let relay_for_handler = relay_client.clone();
     let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
+        // 转发到 Relay（如果已连接）
+        if let Some(ref relay) = relay_for_handler {
+            relay.send_agent_event(&event);
+        }
         let msg = match event {
             ExecutorEvent::TextChunk(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::ToolStart { tool_call_id, name, input } => AgentEvent::ToolCall {

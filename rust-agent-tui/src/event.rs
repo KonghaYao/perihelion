@@ -198,7 +198,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     key: Key::Enter,
                     alt: true,
                     ..
-                } if !app.loading => {
+                } => {
                     app.textarea.input(Input {
                         key: Key::Enter,
                         ctrl: false,
@@ -207,15 +207,19 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     });
                 }
 
-                // Enter：提交
+                // Enter：提交（非 loading）或缓冲（loading）
                 Input {
                     key: Key::Enter, ..
-                } if !app.loading => {
+                } => {
                     let text = app.textarea.lines().join("\n");
                     let text = text.trim().to_string();
                     if !text.is_empty() {
-                        app.textarea = crate::app::build_textarea(false);
-                        if text.starts_with('/') {
+                        if app.loading {
+                            // Loading 状态：缓冲消息
+                            app.pending_messages.push(text);
+                            app.update_textarea_hint();
+                        } else if text.starts_with('/') {
+                            app.textarea = crate::app::build_textarea(false, 0);
                             // 命令模式：取出 registry 避免借用冲突
                             let registry = std::mem::take(&mut app.command_registry);
                             let known = registry.dispatch(app, &text);
@@ -227,6 +231,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                 )));
                             }
                         } else {
+                            app.textarea = crate::app::build_textarea(false, 0);
                             return Ok(Some(Action::Submit(text)));
                         }
                     }
@@ -247,15 +252,23 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     }
                 }
 
-                // 拦截普通 Enter，避免 textarea 默认换行
-                input if !app.loading && input.key != Key::Enter => {
+                // 拦截普通 Enter，避免 textarea 默认换行；允许 loading 时输入
+                input if input.key != Key::Enter => {
                     app.textarea.input(input);
                     // 输入内容变化时重置提示光标
-                    app.hint_cursor = None;
+                    if !app.loading {
+                        app.hint_cursor = None;
+                    }
                 }
 
                 _ => {}
             }
+        }
+        Event::Paste(text) => {
+            // 粘贴文本直接插入 textarea（保留换行），不触发 Submit
+            // 某些终端（如 VSCode）在 bracketed paste 中使用 \r 而非 \n 作为换行符
+            let text = text.replace('\r', "\n");
+            app.textarea.insert_str(&text);
         }
         Event::Mouse(mouse) => match mouse.kind {
             MouseEventKind::ScrollUp => app.scroll_up(),
@@ -288,6 +301,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         } => {
             if let Some(b) = app.thread_browser.as_mut() {
                 b.move_cursor(-1);
+                b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
             }
         }
         Input { key: Key::Down, .. }
@@ -297,6 +311,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         } => {
             if let Some(b) = app.thread_browser.as_mut() {
                 b.move_cursor(1);
+                b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
             }
         }
         Input {

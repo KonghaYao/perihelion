@@ -9,6 +9,8 @@ pub struct AgentPanel {
     pub selected_id: Option<String>,
     /// 光标位置（0 = "无 Agent" 选项，1+ = agents 列表索引-1）
     pub cursor: usize,
+    /// 内容滚动偏移
+    pub scroll_offset: u16,
 }
 
 impl AgentPanel {
@@ -24,6 +26,7 @@ impl AgentPanel {
             agents,
             selected_id: current_id,
             cursor,
+            scroll_offset: 0,
         }
     }
 

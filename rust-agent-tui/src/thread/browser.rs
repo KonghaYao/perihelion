@@ -7,11 +7,13 @@ pub struct ThreadBrowser {
     /// 当前光标位置（0 = 新建对话，1+ = 历史 thread）
     pub cursor: usize,
     pub store: Arc<dyn ThreadStore>,
+    /// 内容滚动偏移
+    pub scroll_offset: u16,
 }
 
 impl ThreadBrowser {
     pub fn new(threads: Vec<ThreadMeta>, store: Arc<dyn ThreadStore>) -> Self {
-        Self { threads, cursor: 0, store }
+        Self { threads, cursor: 0, store, scroll_offset: 0 }
     }
 
     /// 条目总数 = 1（新建）+ 历史数量

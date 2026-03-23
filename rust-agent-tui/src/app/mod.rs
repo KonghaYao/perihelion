@@ -220,6 +220,8 @@ pub struct AskUserBatchPrompt {
     /// 每个问题是否已按 Enter 确认
     pub confirmed: Vec<bool>,
     pub response_tx: tokio::sync::oneshot::Sender<Vec<String>>,
+    /// 内容滚动偏移
+    pub scroll_offset: u16,
 }
 
 impl AskUserBatchPrompt {
@@ -231,6 +233,7 @@ impl AskUserBatchPrompt {
             active_tab: 0,
             confirmed: vec![false; len],
             response_tx: req.response_tx,
+            scroll_offset: 0,
         }
     }
 
@@ -339,6 +342,12 @@ pub struct App {
     /// 测试用事件注入队列（仅测试时使用，生产时保持为空）
     #[doc(hidden)]
     pub agent_event_queue: Vec<AgentEvent>,
+    /// Loading 期间的消息缓冲区（完成后合并发送）
+    pub pending_messages: Vec<String>,
+    /// Relay 客户端（远程控制，可选）
+    relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
+    /// Relay 事件接收端（来自 Web 端的控制消息）
+    relay_event_rx: Option<rust_relay_server::client::RelayEventRx>,
 }
 
 impl App {
@@ -348,7 +357,7 @@ impl App {
             .to_string_lossy()
             .to_string();
 
-        let textarea = build_textarea(false);
+        let textarea = build_textarea(false, 0);
 
         // 优先从 ~/.zen-code/settings.json 加载配置，失败时 fallback 到环境变量
         let zen_config = crate::config::load().ok();
@@ -428,6 +437,9 @@ impl App {
             render_notify,
             last_render_version: 0,
             agent_event_queue: Vec::new(),
+            pending_messages: Vec::new(),
+            relay_client: None,
+            relay_event_rx: None,
         };
 
         let sys_msg = MessageViewModel::system(format!(
@@ -438,6 +450,121 @@ impl App {
         let _ = app.render_tx.try_send(RenderEvent::AddMessage(sys_msg));
 
         app
+    }
+
+    /// 尝试连接 Relay Server（从 zen_config extra 中读取配置）
+    /// 配置字段：relay_url, relay_token, relay_name
+    pub async fn try_connect_relay(&mut self) {
+        let config = match &self.zen_config {
+            Some(c) => &c.config.extra,
+            None => return,
+        };
+        let relay_url = match config.get("relay_url").and_then(|v| v.as_str()) {
+            Some(u) => u.to_string(),
+            None => return,
+        };
+        let relay_token = config
+            .get("relay_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let relay_name = config
+            .get("relay_name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        match rust_relay_server::client::RelayClient::connect(
+            &relay_url,
+            &relay_token,
+            relay_name.as_deref(),
+        )
+        .await
+        {
+            Ok((client, event_rx)) => {
+                let sid = client.session_id.read().await.clone().unwrap_or_default();
+                tracing::info!(session_id = %sid, "Relay 已连接");
+                self.relay_client = Some(Arc::new(client));
+                self.relay_event_rx = Some(event_rx);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Relay 连接失败，继续离线模式");
+            }
+        }
+    }
+
+    /// 每帧调用：消费 Relay 事件（Web 端发来的控制消息）
+    pub fn poll_relay(&mut self) -> bool {
+        use rust_relay_server::protocol::WebMessage;
+
+        // 先收集所有待处理事件（避免借用冲突）
+        let mut events = Vec::new();
+        let mut disconnected = false;
+        if let Some(rx) = self.relay_event_rx.as_mut() {
+            loop {
+                match rx.try_recv() {
+                    Ok(msg) => events.push(msg),
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                        disconnected = true;
+                        break;
+                    }
+                }
+            }
+        } else {
+            return false;
+        }
+
+        if disconnected {
+            tracing::warn!("Relay 连接已断开");
+            self.relay_event_rx = None;
+        }
+
+        if events.is_empty() {
+            return false;
+        }
+
+        for web_msg in events {
+            match web_msg {
+                WebMessage::UserInput { text } => {
+                    if self.loading {
+                        self.pending_messages.push(text);
+                    } else {
+                        self.submit_message(text);
+                    }
+                }
+                WebMessage::HitlDecision { decisions } => {
+                    if let Some(prompt) = self.hitl_prompt.as_mut() {
+                        for (i, d) in decisions.iter().enumerate() {
+                            if let Some(a) = prompt.approved.get_mut(i) {
+                                *a = d.decision == "Approve";
+                            }
+                        }
+                    }
+                    self.hitl_confirm();
+                }
+                WebMessage::AskUserResponse { answers } => {
+                    if let Some(prompt) = self.ask_user_prompt.as_mut() {
+                        for (q_text, answer) in &answers {
+                            if let Some(q) = prompt.questions.iter_mut().find(|q| {
+                                q.data.description == *q_text
+                            }) {
+                                q.custom_input = answer.clone();
+                                q.in_custom_input = true;
+                            }
+                        }
+                        for c in prompt.confirmed.iter_mut() {
+                            *c = true;
+                        }
+                    }
+                    self.ask_user_confirm();
+                }
+                WebMessage::ClearThread => {
+                    self.new_thread();
+                }
+                WebMessage::Pong => {}
+            }
+        }
+        true
     }
 
     /// 获取或新建当前 thread id（同步，block_in_place）
@@ -505,7 +632,7 @@ impl App {
             let prefix = first_line.trim_start_matches('/');
             let candidates = self.command_registry.match_prefix(prefix);
             if let Some((name, _)) = candidates.get(cursor) {
-                self.textarea = build_textarea(false);
+                self.textarea = build_textarea(false, 0);
                 self.textarea.insert_str(&format!("/{} ", name));
                 self.hint_cursor = None;
             }
@@ -518,7 +645,7 @@ impl App {
                 .take(8)
                 .collect();
             if let Some(skill) = candidates.get(cursor) {
-                self.textarea = build_textarea(false);
+                self.textarea = build_textarea(false, 0);
                 self.textarea.insert_str(&format!("#{} ", skill.name));
                 self.hint_cursor = None;
             }
@@ -527,10 +654,15 @@ impl App {
 
     pub fn set_loading(&mut self, loading: bool) {
         self.loading = loading;
-        self.textarea = build_textarea(loading);
+        self.textarea = build_textarea(loading, self.pending_messages.len());
         if !loading {
             self.cancel_token = None;
         }
+    }
+
+    /// 更新输入框标题以反映缓冲消息数量
+    pub fn update_textarea_hint(&mut self) {
+        self.textarea = build_textarea(self.loading, self.pending_messages.len());
     }
 
     /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
@@ -654,6 +786,7 @@ impl App {
         );
         let history = self.agent_state_messages.clone();
         let agent_id = self.agent_id.clone();
+        let relay_client = self.relay_client.clone();
         tokio::spawn(
             async move {
                 agent::run_universal_agent(
@@ -667,6 +800,7 @@ impl App {
                     tx,
                     cancel,
                     agent_id,
+                    relay_client,
                 )
                 .await;
             }
@@ -715,6 +849,12 @@ impl App {
                 if let Some(start) = self.task_start_time {
                     self.last_task_duration = Some(start.elapsed());
                 }
+                // 检查缓冲消息，合并发送
+                if !self.pending_messages.is_empty() {
+                    let combined = self.pending_messages.join("\n\n");
+                    self.pending_messages.clear();
+                    self.submit_message(combined);
+                }
                 (true, false, true)
             }
             AgentEvent::Interrupted => {
@@ -735,6 +875,12 @@ impl App {
                 self.agent_rx = None;
                 if let Some(start) = self.task_start_time {
                     self.last_task_duration = Some(start.elapsed());
+                }
+                // 检查缓冲消息，合并发送
+                if !self.pending_messages.is_empty() {
+                    let combined = self.pending_messages.join("\n\n");
+                    self.pending_messages.clear();
+                    self.submit_message(combined);
                 }
                 (true, false, true)
             }
@@ -876,6 +1022,9 @@ impl App {
     pub fn ask_user_move(&mut self, delta: isize) {
         if let Some(p) = self.ask_user_prompt.as_mut() {
             p.current().move_option_cursor(delta);
+            // 光标跟随滚动
+            let cursor_row = p.current().option_cursor.max(0) as u16;
+            p.scroll_offset = ensure_cursor_visible(cursor_row, p.scroll_offset, 10);
         }
     }
 
@@ -1016,6 +1165,7 @@ impl App {
     pub fn agent_panel_move_up(&mut self) {
         if let Some(panel) = self.agent_panel.as_mut() {
             panel.move_cursor(-1);
+            panel.scroll_offset = ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
         }
     }
 
@@ -1023,6 +1173,7 @@ impl App {
     pub fn agent_panel_move_down(&mut self) {
         if let Some(panel) = self.agent_panel.as_mut() {
             panel.move_cursor(1);
+            panel.scroll_offset = ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
         }
     }
 
@@ -1143,25 +1294,37 @@ impl App {
     }
 }
 
-pub fn build_textarea(disabled: bool) -> TextArea<'static> {
+/// 确保光标在滚动视口内可见，返回调整后的 scroll_offset
+pub fn ensure_cursor_visible(cursor_row: u16, scroll_offset: u16, visible_height: u16) -> u16 {
+    if visible_height == 0 {
+        return 0;
+    }
+    if cursor_row < scroll_offset {
+        cursor_row
+    } else if cursor_row >= scroll_offset + visible_height {
+        cursor_row.saturating_sub(visible_height - 1)
+    } else {
+        scroll_offset
+    }
+}
+
+pub fn build_textarea(disabled: bool, buffered_count: usize) -> TextArea<'static> {
     let mut ta = TextArea::default();
 
     // Loading 状态：黄色边框 + "处理中…" 标题
     // 空闲状态：青色边框 + "输入" 标题
     let (border_color, title_text, title_color) = if disabled {
-        (Color::Yellow, " 处理中… ", Color::Yellow)
+        if buffered_count > 0 {
+            (Color::Yellow, format!(" 处理中… (已缓存 {} 条) ", buffered_count), Color::Yellow)
+        } else {
+            (Color::Yellow, " 处理中… ".to_string(), Color::Yellow)
+        }
     } else {
-        (Color::Cyan, " 输入 ", Color::Cyan)
-    };
-
-    let text_color = if disabled {
-        Color::DarkGray
-    } else {
-        Color::White
+        (Color::Cyan, " 输入 ".to_string(), Color::Cyan)
     };
 
     ta.set_cursor_line_style(Style::default());
-    ta.set_style(Style::default().fg(text_color));
+    ta.set_style(Style::default().fg(Color::White));
     ta.set_block(
         ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
@@ -1217,7 +1380,7 @@ impl App {
 
         let app = App {
             view_messages: Vec::new(),
-            textarea: build_textarea(false),
+            textarea: build_textarea(false, 0),
             loading: false,
             scroll_offset: u16::MAX,
             scroll_follow: true,
@@ -1248,6 +1411,9 @@ impl App {
             render_notify: Arc::clone(&render_notify),
             last_render_version: 0,
             agent_event_queue: Vec::new(),
+            pending_messages: Vec::new(),
+            relay_client: None,
+            relay_event_rx: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {
