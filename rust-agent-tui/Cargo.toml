@@ -8,6 +8,9 @@ description = "TUI interface for Rust Agent - interactive terminal playground"
 name = "agent-tui"
 path = "src/main.rs"
 
+[features]
+headless = []
+
 [dev-dependencies]
 
 [dependencies]

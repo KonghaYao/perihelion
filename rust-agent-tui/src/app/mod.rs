@@ -335,6 +335,9 @@ pub struct App {
     pub render_notify: Arc<Notify>,
     /// UI 线程记录的最后绘制版本
     pub last_render_version: u64,
+    /// 测试用事件注入队列（仅测试时使用，生产时保持为空）
+    #[doc(hidden)]
+    pub agent_event_queue: Vec<AgentEvent>,
 }
 
 impl App {
@@ -423,6 +426,7 @@ impl App {
             render_cache,
             render_notify,
             last_render_version: 0,
+            agent_event_queue: Vec::new(),
         };
 
         let sys_msg = MessageViewModel::system(format!(
@@ -668,143 +672,154 @@ impl App {
         );
     }
 
+    /// 处理单个 AgentEvent，返回 `(updated, should_break, should_return)`
+    fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
+        match event {
+            AgentEvent::ToolCall {
+                tool_call_id: _,
+                name,
+                display,
+                is_error,
+            } => {
+                let vm = MessageViewModel::tool_block(name, display, is_error);
+                self.view_messages.push(vm.clone());
+                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                (true, false, false)
+            }
+            AgentEvent::AssistantChunk(chunk) => {
+                match self.view_messages.last_mut() {
+                    Some(m) if m.is_assistant() => m.append_chunk(&chunk),
+                    _ => {
+                        let vm = MessageViewModel::assistant();
+                        self.view_messages.push(vm.clone());
+                        let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                    }
+                }
+                let _ = self.render_tx.try_send(RenderEvent::AppendChunk(chunk));
+                (true, false, false)
+            }
+            AgentEvent::Done => {
+                // 将最后一个 AssistantBubble 的 is_streaming 设为 false
+                if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
+                    self.view_messages.last_mut()
+                {
+                    *is_streaming = false;
+                }
+                // 通知渲染线程清除流式指示器
+                let _ = self.render_tx.try_send(RenderEvent::StreamingDone);
+                self.set_loading(false);
+                self.agent_rx = None;
+                if let Some(start) = self.task_start_time {
+                    self.last_task_duration = Some(start.elapsed());
+                }
+                (true, false, true)
+            }
+            AgentEvent::Interrupted => {
+                // 中断：工具已以 error 结尾，持久化中间状态，下次发消息可断点续跑
+                let vm = MessageViewModel::system(
+                    "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
+                );
+                self.view_messages.push(vm.clone());
+                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
+                (true, false, false)
+            }
+            AgentEvent::Error(_e) => {
+                let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), true);
+                self.view_messages.push(vm.clone());
+                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                self.set_loading(false);
+                self.agent_rx = None;
+                if let Some(start) = self.task_start_time {
+                    self.last_task_duration = Some(start.elapsed());
+                }
+                (true, false, true)
+            }
+            AgentEvent::ApprovalNeeded(req) => {
+                self.hitl_prompt = Some(HitlBatchPrompt::new(req.items, req.response_tx));
+                (true, true, false) // 暂停消费，等待用户确认
+            }
+            AgentEvent::AskUserBatch(req) => {
+                self.ask_user_prompt = Some(AskUserBatchPrompt::from_request(req));
+                (true, true, false) // 暂停消费，等待用户输入
+            }
+            AgentEvent::TodoUpdate(todos) => {
+                let rendered = render_todos(&todos);
+                match self.todo_message_index {
+                    Some(idx) if idx < self.view_messages.len() => {
+                        let vm = MessageViewModel::todo_status(rendered);
+                        self.view_messages[idx] = vm.clone();
+                        // Todo 更新：用 LoadHistory 触发全量重渲染（todo 是原地替换）
+                        let _ = self.render_tx.try_send(RenderEvent::LoadHistory(
+                            self.view_messages.clone(),
+                        ));
+                    }
+                    _ => {
+                        let vm = MessageViewModel::todo_status(rendered);
+                        self.view_messages.push(vm.clone());
+                        self.todo_message_index = Some(self.view_messages.len() - 1);
+                        let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                    }
+                }
+                (true, false, false)
+            }
+            AgentEvent::StateSnapshot(msgs) => {
+                tracing::debug!(count = msgs.len(), "received StateSnapshot in poll_agent");
+                for msg in &msgs {
+                    match msg {
+                        BaseMessage::Ai { content: _, tool_calls } => {
+                            tracing::debug!(has_tc = !tool_calls.is_empty(), tc_len = tool_calls.len(), "ai msg in snapshot");
+                        }
+                        BaseMessage::Tool { tool_call_id, .. } => {
+                            tracing::debug!(tc_id = %tool_call_id, "tool msg in snapshot");
+                        }
+                        _ => {}
+                    }
+                }
+                // 增量追加到 agent_state_messages（去重，避免重复消息）
+                let start = self.agent_state_messages.len();
+                self.agent_state_messages.extend(msgs);
+
+                // 增量持久化到 thread（从上次持久化位置之后的所有消息）
+                if let Some(id) = self.current_thread_id.clone() {
+                    let new_msgs: Vec<_> = self.agent_state_messages[start..]
+                        .iter()
+                        .filter(|m| !matches!(m, BaseMessage::System { .. }))
+                        .cloned()
+                        .collect();
+                    if !new_msgs.is_empty() {
+                        let store = self.thread_store.clone();
+                        let tid = id.clone();
+                        tokio::spawn(async move {
+                            let _ = store.append_messages(&tid, &new_msgs).await;
+                        });
+                    }
+                }
+                (true, false, false)
+            }
+        }
+    }
+
     /// 每帧调用：消费 channel 事件，返回是否有 UI 更新
     pub fn poll_agent(&mut self) -> bool {
-        let Some(rx) = self.agent_rx.as_mut() else {
+        if self.agent_rx.is_none() {
             return false;
-        };
+        }
 
         let mut updated = false;
 
         loop {
-            match rx.try_recv() {
-                Ok(AgentEvent::ToolCall {
-                    tool_call_id: _,
-                    name,
-                    display,
-                    is_error,
-                }) => {
-                    let vm = MessageViewModel::tool_block(name, display, is_error);
-                    self.view_messages.push(vm.clone());
-                    let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
-                    updated = true;
+            // 先 try_recv 拿到事件（短暂借用 rx），立即释放借用
+            let result = self.agent_rx.as_mut().map(|rx| rx.try_recv());
+            match result {
+                Some(Ok(event)) => {
+                    let (ev_updated, should_break, should_return) = self.handle_agent_event(event);
+                    if ev_updated { updated = true; }
+                    if should_return { return true; }
+                    if should_break { break; }
                 }
-                Ok(AgentEvent::AssistantChunk(chunk)) => {
-                    match self.view_messages.last_mut() {
-                        Some(m) if m.is_assistant() => m.append_chunk(&chunk),
-                        _ => {
-                            let vm = MessageViewModel::assistant();
-                            self.view_messages.push(vm.clone());
-                            let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
-                        }
-                    }
-                    let _ = self.render_tx.try_send(RenderEvent::AppendChunk(chunk));
-                    updated = true;
-                }
-                Ok(AgentEvent::Done) => {
-                    // 将最后一个 AssistantBubble 的 is_streaming 设为 false
-                    if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
-                        self.view_messages.last_mut()
-                    {
-                        *is_streaming = false;
-                    }
-                    // 通知渲染线程清除流式指示器
-                    let _ = self.render_tx.try_send(RenderEvent::StreamingDone);
-                    self.set_loading(false);
-                    self.agent_rx = None;
-                    if let Some(start) = self.task_start_time {
-                        self.last_task_duration = Some(start.elapsed());
-                    }
-                    return true;
-                }
-                Ok(AgentEvent::Interrupted) => {
-                    // 中断：工具已以 error 结尾，持久化中间状态，下次发消息可断点续跑
-                    let vm = MessageViewModel::system(
-                        "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
-                    );
-                    self.view_messages.push(vm.clone());
-                    let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
-                    updated = true;
-                    // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
-                }
-                Ok(AgentEvent::Error(_e)) => {
-                    let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), true);
-                    self.view_messages.push(vm.clone());
-                    let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
-                    self.set_loading(false);
-                    self.agent_rx = None;
-                    if let Some(start) = self.task_start_time {
-                        self.last_task_duration = Some(start.elapsed());
-                    }
-                    return true;
-                }
-                Ok(AgentEvent::ApprovalNeeded(req)) => {
-                    self.hitl_prompt = Some(HitlBatchPrompt::new(req.items, req.response_tx));
-                    updated = true;
-                    break; // 暂停消费，等待用户确认
-                }
-                Ok(AgentEvent::AskUserBatch(req)) => {
-                    self.ask_user_prompt = Some(AskUserBatchPrompt::from_request(req));
-                    updated = true;
-                    break; // 暂停消费，等待用户输入
-                }
-                Ok(AgentEvent::TodoUpdate(todos)) => {
-                    let rendered = render_todos(&todos);
-                    match self.todo_message_index {
-                        Some(idx) if idx < self.view_messages.len() => {
-                            let vm = MessageViewModel::todo_status(rendered);
-                            self.view_messages[idx] = vm.clone();
-                            // Todo 更新：用 LoadHistory 触发全量重渲染（todo 是原地替换）
-                            // 简单处理：发 Clear + LoadHistory
-                            let _ = self.render_tx.try_send(RenderEvent::LoadHistory(
-                                self.view_messages.clone(),
-                            ));
-                        }
-                        _ => {
-                            let vm = MessageViewModel::todo_status(rendered);
-                            self.view_messages.push(vm.clone());
-                            self.todo_message_index = Some(self.view_messages.len() - 1);
-                            let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
-                        }
-                    }
-                    updated = true;
-                }
-                Ok(AgentEvent::StateSnapshot(msgs)) => {
-                    tracing::debug!(count = msgs.len(), "received StateSnapshot in poll_agent");
-                    for msg in &msgs {
-                        match msg {
-                            BaseMessage::Ai { content: _, tool_calls } => {
-                                tracing::debug!(has_tc = !tool_calls.is_empty(), tc_len = tool_calls.len(), "ai msg in snapshot");
-                            }
-                            BaseMessage::Tool { tool_call_id, .. } => {
-                                tracing::debug!(tc_id = %tool_call_id, "tool msg in snapshot");
-                            }
-                            _ => {}
-                        }
-                    }
-                    // 增量追加到 agent_state_messages（去重，避免重复消息）
-                    let start = self.agent_state_messages.len();
-                    self.agent_state_messages.extend(msgs);
-
-                    // 增量持久化到 thread（从上次持久化位置之后的所有消息）
-                    if let Some(id) = self.current_thread_id.clone() {
-                        let new_msgs: Vec<_> = self.agent_state_messages[start..]
-                            .iter()
-                            .filter(|m| !matches!(m, BaseMessage::System { .. }))
-                            .cloned()
-                            .collect();
-                        if !new_msgs.is_empty() {
-                            let store = self.thread_store.clone();
-                            let tid = id.clone();
-                            tokio::spawn(async move {
-                                let _ = store.append_messages(&tid, &new_msgs).await;
-                            });
-                        }
-                    }
-                    updated = true;
-                }
-                Err(mpsc::error::TryRecvError::Empty) => break,
-                Err(mpsc::error::TryRecvError::Disconnected) => {
+                Some(Err(mpsc::error::TryRecvError::Empty)) | None => break,
+                Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
                     let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), true);
                     self.view_messages.push(vm.clone());
                     let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
@@ -1156,4 +1171,87 @@ pub fn build_textarea(disabled: bool) -> TextArea<'static> {
             )),
     );
     ta
+}
+
+// ─── 测试辅助方法（仅在 cfg(any(test, feature = "headless")) 下编译）──────────
+
+#[cfg(any(test, feature = "headless"))]
+impl App {
+    /// 向事件队列注入 AgentEvent（测试用）
+    pub fn push_agent_event(&mut self, event: AgentEvent) {
+        self.agent_event_queue.push(event);
+    }
+
+    /// 批量处理队列中所有待处理事件，复用 handle_agent_event 逻辑
+    pub fn process_pending_events(&mut self) {
+        let events: Vec<AgentEvent> = std::mem::take(&mut self.agent_event_queue);
+        for event in events {
+            let (_updated, should_break, should_return) = self.handle_agent_event(event);
+            if should_return || should_break {
+                break;
+            }
+        }
+    }
+
+    /// 构造 Headless 测试用 App，使用 ratatui TestBackend 替代真实终端
+    pub fn new_headless(width: u16, height: u16) -> (App, crate::ui::headless::HeadlessHandle) {
+        use ratatui::{Terminal, backend::TestBackend};
+        use crate::thread::SqliteThreadStore;
+
+        let backend = TestBackend::new(width, height);
+        let terminal = Terminal::new(backend).expect("TestBackend should never fail");
+
+        // 启动渲染线程
+        let (render_tx, render_cache, render_notify) =
+            crate::ui::render_thread::spawn_render_thread(width);
+
+        // 使用唯一临时 SQLite 存储，避免测试并发时文件锁冲突
+        let db_name = format!("zen-threads-test-{}.db", uuid::Uuid::now_v7());
+        let thread_store: Arc<dyn ThreadStore> = Arc::new(
+            SqliteThreadStore::new(std::env::temp_dir().join(db_name))
+                .expect("无法创建测试用 SQLite 数据库"),
+        );
+
+        let app = App {
+            view_messages: Vec::new(),
+            textarea: build_textarea(false),
+            loading: false,
+            scroll_offset: u16::MAX,
+            scroll_follow: true,
+            cwd: "/tmp".to_string(),
+            provider_name: "test".to_string(),
+            model_name: "test-model".to_string(),
+            agent_rx: None,
+            hitl_prompt: None,
+            ask_user_prompt: None,
+            todo_message_index: None,
+            zen_config: None,
+            model_panel: None,
+            agent_panel: None,
+            command_registry: crate::command::default_registry(),
+            skills: Vec::new(),
+            hint_cursor: None,
+            thread_store,
+            current_thread_id: None,
+            thread_browser: None,
+            persisted_count: 0,
+            cancel_token: None,
+            task_start_time: None,
+            last_task_duration: None,
+            agent_state_messages: Vec::new(),
+            agent_id: None,
+            render_tx,
+            render_cache,
+            render_notify: Arc::clone(&render_notify),
+            last_render_version: 0,
+            agent_event_queue: Vec::new(),
+        };
+
+        let handle = crate::ui::headless::HeadlessHandle {
+            terminal,
+            render_notify,
+        };
+
+        (app, handle)
+    }
 }
