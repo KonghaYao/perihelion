@@ -26,9 +26,11 @@ pub fn is_yolo_mode() -> bool {
 /// - `write_*`：文件写入
 /// - `edit_*`：文件编辑
 /// - `folder_operations`：目录操作
+/// - `launch_agent`：子 Agent 委派（子 Agent 不含 HITL，可传递绕过审批）
 pub fn default_requires_approval(tool_name: &str) -> bool {
     tool_name == "bash"
         || tool_name == "folder_operations"
+        || tool_name == "launch_agent"
         || tool_name.starts_with("write_")
         || tool_name.starts_with("edit_")
         || tool_name.starts_with("delete_")
@@ -254,14 +256,22 @@ mod tests {
 
     #[test]
     fn test_default_requires_approval() {
+        // 需要审批的工具
         assert!(default_requires_approval("bash"));
         assert!(default_requires_approval("write_file"));
         assert!(default_requires_approval("edit_file"));
         assert!(default_requires_approval("folder_operations"));
         assert!(default_requires_approval("delete_something"));
+        assert!(default_requires_approval("rm_rf"));
+        // launch_agent 子 Agent 不含 HITL，可传递绕过审批，必须审批
+        assert!(default_requires_approval("launch_agent"));
+
+        // 不需要审批的工具（只读或无副作用）
         assert!(!default_requires_approval("read_file"));
         assert!(!default_requires_approval("glob_files"));
         assert!(!default_requires_approval("search_files_rg"));
+        assert!(!default_requires_approval("todo_write")); // 内存操作，无磁盘副作用
+        assert!(!default_requires_approval("ask_user"));   // 仅询问用户，无副作用
     }
 
     /// Edit 决策：修改工具调用参数后继续执行
