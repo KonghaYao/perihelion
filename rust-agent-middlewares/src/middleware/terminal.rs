@@ -60,6 +60,8 @@ impl BaseTool for BashTool {
                 .current_dir(&self.cwd)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
+                // 超时时 future 被 drop → Child 被 drop → 自动 SIGKILL 终止子进程
+                .kill_on_drop(true)
                 .output(),
         )
         .await;
@@ -137,5 +139,68 @@ impl<S: State> Middleware<S> for TerminalMiddleware {
 
     fn name(&self) -> &str {
         "TerminalMiddleware"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_create_agent::tools::BaseTool;
+    use std::time::Instant;
+
+    #[tokio::test]
+    async fn test_bash_normal_command() {
+        let tool = BashTool::new("/tmp");
+        let result = tool
+            .invoke(serde_json::json!({"command": "echo hello"}))
+            .await
+            .unwrap();
+        assert!(result.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn test_bash_nonzero_exit_code() {
+        let tool = BashTool::new("/tmp");
+        let result = tool
+            .invoke(serde_json::json!({"command": "exit 42"}))
+            .await
+            .unwrap();
+        assert!(result.contains("42"), "应包含退出码: {result}");
+    }
+
+    /// 验证超时后在合理时间内返回，且 kill_on_drop 确保子进程被清理
+    #[tokio::test]
+    async fn test_bash_timeout_returns_quickly() {
+        let tool = BashTool::new("/tmp");
+        let start = Instant::now();
+        let result = tool
+            .invoke(serde_json::json!({
+                "command": "sleep 60",
+                "timeout_secs": 1
+            }))
+            .await
+            .unwrap();
+        let elapsed = start.elapsed();
+
+        // 应在约 1 秒内返回（不超过 3 秒），不等待 sleep 60 完成
+        assert!(
+            elapsed.as_secs() < 3,
+            "超时后应快速返回，实际耗时 {:?}",
+            elapsed
+        );
+        assert!(
+            result.contains("timed out"),
+            "返回值应包含超时提示: {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bash_stderr_captured() {
+        let tool = BashTool::new("/tmp");
+        let result = tool
+            .invoke(serde_json::json!({"command": "echo err >&2"}))
+            .await
+            .unwrap();
+        assert!(result.contains("err"), "stderr 应被捕获: {result}");
     }
 }
