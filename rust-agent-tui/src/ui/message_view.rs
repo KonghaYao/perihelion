@@ -23,6 +23,7 @@ pub enum MessageViewModel {
         #[allow(dead_code)]
         tool_name: String,
         display_name: String,
+        args_display: Option<String>,
         content: String,
         is_error: bool,
         collapsed: bool,
@@ -30,8 +31,6 @@ pub enum MessageViewModel {
     },
     /// 系统消息
     SystemNote { content: String },
-    /// Todo 状态（特殊系统消息，支持原地更新）
-    TodoStatus { rendered: String },
 }
 
 /// ContentBlock 的视图化表示
@@ -119,7 +118,8 @@ impl MessageViewModel {
                     .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
                 let raw_content = content.text_content();
                 // 使用统一格式化函数生成 display_name（与实时流式一致）
-                let display_name = crate::app::tool_display::format_tool_call_display(&tool_name, &input);
+                let display_name = crate::app::tool_display::format_tool_name(&tool_name);
+                let args_display = crate::app::tool_display::format_tool_args(&tool_name, &input, None);
                 let color = if *is_error {
                     Color::Red
                 } else {
@@ -128,6 +128,7 @@ impl MessageViewModel {
                 MessageViewModel::ToolBlock {
                     tool_name,
                     display_name,
+                    args_display,
                     content: raw_content,
                     is_error: *is_error,
                     collapsed: true,
@@ -189,7 +190,7 @@ impl MessageViewModel {
     }
 
     /// 创建工具消息
-    pub fn tool_block(tool_name: String, display: String, is_error: bool) -> Self {
+    pub fn tool_block(tool_name: String, display: String, args: Option<String>, is_error: bool) -> Self {
         let color = if is_error {
             Color::Red
         } else {
@@ -198,6 +199,7 @@ impl MessageViewModel {
         MessageViewModel::ToolBlock {
             tool_name,
             display_name: display,
+            args_display: args,
             content: String::new(),
             is_error,
             collapsed: true,
@@ -210,10 +212,6 @@ impl MessageViewModel {
         MessageViewModel::SystemNote { content }
     }
 
-    /// 创建 Todo 状态消息
-    pub fn todo_status(rendered: String) -> Self {
-        MessageViewModel::TodoStatus { rendered }
-    }
 }
 
 /// 按工具名分配颜色

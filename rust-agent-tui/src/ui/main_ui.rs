@@ -10,6 +10,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::app::model_panel::{EditField, ModelPanelMode, PROVIDER_TYPES};
+use rust_agent_middlewares::prelude::TodoStatus;
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
@@ -18,24 +19,33 @@ pub fn render(f: &mut Frame, app: &mut App) {
     let line_count = app.textarea.lines().len() as u16;
     let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
 
+    // TODO 面板高度：无内容时为 0，有内容时为条目数 + 边框(2)，上限 10
+    let todo_height = if app.todo_items.is_empty() {
+        0
+    } else {
+        (app.todo_items.len() as u16 + 2).min(10)
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),            // 标题栏
-            Constraint::Min(3),               // 聊天区
-            Constraint::Length(input_height), // 输入框（动态）
-            Constraint::Length(1),            // 帮助栏
+            Constraint::Length(1),             // [0] 标题栏
+            Constraint::Min(3),                // [1] 聊天区
+            Constraint::Length(todo_height),   // [2] TODO 面板（动态）
+            Constraint::Length(input_height),  // [3] 输入框（动态）
+            Constraint::Length(1),             // [4] 帮助栏
         ])
         .split(area);
 
     render_title(f, app, chunks[0]);
     render_messages(f, app, chunks[1]);
-    f.render_widget(&app.textarea, chunks[2]);
-    render_status_bar(f, app, chunks[3]);
+    render_todo_panel(f, app, chunks[2]);
+    f.render_widget(&app.textarea, chunks[3]);
+    render_status_bar(f, app, chunks[4]);
 
     // 命令/Skills 提示条（浮动在输入框上方）
-    render_command_hint(f, app, chunks[2]);
-    render_skill_hint(f, app, chunks[2]);
+    render_command_hint(f, app, chunks[3]);
+    render_skill_hint(f, app, chunks[3]);
 
     // HITL 弹窗（覆盖层）
     if app.hitl_prompt.is_some() {
@@ -1075,4 +1085,53 @@ fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
     } else {
         s
     }
+}
+
+/// TODO 状态面板（固定在输入框上方）
+fn render_todo_panel(f: &mut Frame, app: &App, area: Rect) {
+    if area.height == 0 {
+        return;
+    }
+
+    let border_color = if app.loading {
+        Color::Yellow
+    } else {
+        Color::Cyan
+    };
+
+    let block = Block::default()
+        .title(Span::styled(
+            " 📋 TODO ",
+            Style::default().fg(border_color).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+    f.render_widget(&block, area);
+
+    let inner = block.inner(area);
+    let max_display = inner.height as usize;
+
+    let lines: Vec<Line> = app
+        .todo_items
+        .iter()
+        .take(max_display)
+        .map(|item| {
+            let (icon, style) = match item.status {
+                TodoStatus::InProgress => (
+                    "→",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                TodoStatus::Completed => ("✓", Style::default().fg(Color::DarkGray)),
+                TodoStatus::Pending => ("○", Style::default().fg(Color::White)),
+            };
+            Line::from(vec![
+                Span::styled(format!(" {} ", icon), style),
+                Span::styled(item.content.clone(), style),
+            ])
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }

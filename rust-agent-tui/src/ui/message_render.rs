@@ -63,6 +63,7 @@ pub fn render_view_model(vm: &MessageViewModel, _width: usize) -> Vec<Line<'stat
         MessageViewModel::ToolBlock {
             collapsed,
             display_name,
+            args_display,
             content,
             color,
             is_error,
@@ -70,12 +71,19 @@ pub fn render_view_model(vm: &MessageViewModel, _width: usize) -> Vec<Line<'stat
         } => {
             let icon = if *is_error { "✗" } else { "⚙" };
             let arrow = if *collapsed { "▸" } else { "▾" };
-            let mut lines = vec![Line::from(vec![
+            let mut header_spans = vec![
                 Span::styled(
                     format!("{} {} {}", icon, display_name, arrow),
                     Style::default().fg(*color).add_modifier(Modifier::BOLD),
                 ),
-            ])];
+            ];
+            if let Some(args) = args_display {
+                header_spans.push(Span::styled(
+                    format!("  {}", args),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            let mut lines = vec![Line::from(header_spans)];
             if !collapsed {
                 for line in content.lines() {
                     lines.push(Line::from(vec![
@@ -95,12 +103,6 @@ pub fn render_view_model(vm: &MessageViewModel, _width: usize) -> Vec<Line<'stat
                 ]));
             }
             lines
-        }
-        MessageViewModel::TodoStatus { rendered } => {
-            rendered
-                .lines()
-                .map(|l| Line::from(Span::styled(l.to_string(), Style::default().fg(Color::White))))
-                .collect()
         }
     }
 }

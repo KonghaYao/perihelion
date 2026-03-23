@@ -9,7 +9,7 @@ use ratatui::style::{Color, Style};
 use ratatui_textarea::TextArea;
 use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserQuestionData};
 use rust_agent_middlewares::prelude::{
-    BatchItem, HitlDecision, SkillMetadata, TodoItem, TodoStatus,
+    BatchItem, HitlDecision, SkillMetadata, TodoItem,
 };
 use rust_create_agent::agent::AgentCancellationToken;
 use rust_create_agent::messages::BaseMessage;
@@ -39,6 +39,7 @@ pub enum AgentEvent {
         tool_call_id: String,
         name: String,
         display: String,
+        args: Option<String>,
         is_error: bool,
     },
     AssistantChunk(String),
@@ -295,8 +296,8 @@ pub struct App {
     pub hitl_prompt: Option<HitlBatchPrompt>,
     /// 当前等待用户输入的 AskUser 批量弹窗
     pub ask_user_prompt: Option<AskUserBatchPrompt>,
-    /// 消息列表中 todo 状态消息的下标（用于替换更新而非追加）
-    pub todo_message_index: Option<usize>,
+    /// 当前 TODO 列表（固定面板，不写入消息流）
+    pub todo_items: Vec<TodoItem>,
     /// 内存中的配置快照（来自 ~/.zen-code/settings.json）
     pub zen_config: Option<ZenConfig>,
     /// /model 面板状态
@@ -391,7 +392,7 @@ impl App {
             agent_rx: None,
             hitl_prompt: None,
             ask_user_prompt: None,
-            todo_message_index: None,
+            todo_items: Vec::new(),
             zen_config,
             model_panel: None,
             agent_panel: None,
@@ -573,7 +574,7 @@ impl App {
         self.set_loading(true);
         self.scroll_offset = u16::MAX;
         self.scroll_follow = true;
-        self.todo_message_index = None;
+        self.todo_items.clear();
 
         // 开始计时新任务
         self.task_start_time = Some(std::time::Instant::now());
@@ -590,6 +591,7 @@ impl App {
                 self.view_messages.push(MessageViewModel::tool_block(
                     "error".to_string(),
                     "config-error".to_string(),
+                    None,
                     true,
                 ));
                 self.set_loading(false);
@@ -679,9 +681,10 @@ impl App {
                 tool_call_id: _,
                 name,
                 display,
+                args,
                 is_error,
             } => {
-                let vm = MessageViewModel::tool_block(name, display, is_error);
+                let vm = MessageViewModel::tool_block(name, display, args, is_error);
                 self.view_messages.push(vm.clone());
                 let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
                 (true, false, false)
@@ -725,7 +728,7 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Error(_e) => {
-                let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), true);
+                let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), None, true);
                 self.view_messages.push(vm.clone());
                 let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
                 self.set_loading(false);
@@ -744,23 +747,7 @@ impl App {
                 (true, true, false) // 暂停消费，等待用户输入
             }
             AgentEvent::TodoUpdate(todos) => {
-                let rendered = render_todos(&todos);
-                match self.todo_message_index {
-                    Some(idx) if idx < self.view_messages.len() => {
-                        let vm = MessageViewModel::todo_status(rendered);
-                        self.view_messages[idx] = vm.clone();
-                        // Todo 更新：用 LoadHistory 触发全量重渲染（todo 是原地替换）
-                        let _ = self.render_tx.try_send(RenderEvent::LoadHistory(
-                            self.view_messages.clone(),
-                        ));
-                    }
-                    _ => {
-                        let vm = MessageViewModel::todo_status(rendered);
-                        self.view_messages.push(vm.clone());
-                        self.todo_message_index = Some(self.view_messages.len() - 1);
-                        let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
-                    }
-                }
+                self.todo_items = todos;
                 (true, false, false)
             }
             AgentEvent::StateSnapshot(msgs) => {
@@ -820,7 +807,7 @@ impl App {
                 }
                 Some(Err(mpsc::error::TryRecvError::Empty)) | None => break,
                 Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
-                    let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), true);
+                    let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), None, true);
                     self.view_messages.push(vm.clone());
                     let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
                     self.set_loading(false);
@@ -984,7 +971,7 @@ impl App {
         self.agent_state_messages.clear();
         self.current_thread_id = None;
         self.persisted_count = 0;
-        self.todo_message_index = None;
+        self.todo_items.clear();
         self.thread_browser = None;
         let _ = self.render_tx.try_send(RenderEvent::Clear);
     }
@@ -1126,20 +1113,6 @@ impl App {
     }
 }
 
-/// 将 todo 列表渲染为可读文本
-pub fn render_todos(todos: &[TodoItem]) -> String {
-    let mut lines = vec![format!("📋 Todo ({})", todos.len())];
-    for item in todos {
-        let icon = match item.status {
-            TodoStatus::Completed => "✓",
-            TodoStatus::InProgress => "→",
-            TodoStatus::Pending => "○",
-        };
-        lines.push(format!("  {} {}", icon, item.content));
-    }
-    lines.join("\n")
-}
-
 pub fn build_textarea(disabled: bool) -> TextArea<'static> {
     let mut ta = TextArea::default();
 
@@ -1224,7 +1197,7 @@ impl App {
             agent_rx: None,
             hitl_prompt: None,
             ask_user_prompt: None,
-            todo_message_index: None,
+            todo_items: Vec::new(),
             zen_config: None,
             model_panel: None,
             agent_panel: None,

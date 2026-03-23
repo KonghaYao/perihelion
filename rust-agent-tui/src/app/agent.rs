@@ -62,12 +62,14 @@ pub async fn run_universal_agent(
 
     // 事件回调 → TUI AgentEvent channel
     let tx_event = tx.clone();
+    let cwd_for_handler = cwd.clone();
     let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
         let msg = match event {
             ExecutorEvent::TextChunk(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::ToolStart { tool_call_id, name, input } => AgentEvent::ToolCall {
                 tool_call_id,
-                display: format_tool_call_display(&name, &input),
+                args: format_tool_args(&name, &input, Some(cwd_for_handler.as_str())),
+                display: format_tool_name(&name),
                 name,
                 is_error: false,
             },
@@ -78,7 +80,8 @@ pub async fn run_universal_agent(
                 is_error: false,
             } if name == "ask_user" => AgentEvent::ToolCall {
                 tool_call_id: String::new(),
-                display: format!("? → {}", truncate(&output, 60)),
+                display: "AskUser".to_string(),
+                args: Some(format!("? → {}", truncate(&output, 60))),
                 name,
                 is_error: false,
             },
@@ -89,7 +92,8 @@ pub async fn run_universal_agent(
                 is_error: true,
             } => AgentEvent::ToolCall {
                 tool_call_id: String::new(),
-                display: format!("✗ {}", truncate(&output, 60)),
+                display: format_tool_name(&name),
+                args: Some(format!("✗ {}", truncate(&output, 60))),
                 name,
                 is_error: true,
             },
@@ -176,4 +180,4 @@ pub async fn run_universal_agent(
 
 // ─── 辅助函数 ─────────────────────────────────────────────────────────────────
 
-use super::tool_display::{format_tool_call_display, truncate};
+use super::tool_display::{format_tool_args, format_tool_name, truncate};

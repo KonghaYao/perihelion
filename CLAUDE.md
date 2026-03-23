@@ -179,6 +179,50 @@ tool result 消息：Anthropic 要求合并到前一条 user 消息的 content b
 
 输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全为 `#skill-name `。
 
+## TUI Headless 测试模式
+
+`rust-agent-tui` 支持无真实终端的 headless 集成测试，渲染管道（`main_ui::render`）与生产代码完全一致。
+
+**入口：** `App::new_headless(width, height)` — 仅在 `#[cfg(test)]` 或 `feature = "headless"` 下编译。
+
+```rust
+#[tokio::test]
+async fn test_example() {
+    let (mut app, mut handle) = App::new_headless(120, 30);
+
+    // 注意：必须在发送事件前注册监听，避免错过通知
+    let notified = handle.render_notify.notified();
+
+    // 注入 AgentEvent（复用与生产相同的 handle_agent_event 路径）
+    app.push_agent_event(AgentEvent::AssistantChunk("Hello".into()));
+    app.push_agent_event(AgentEvent::Done);
+    app.process_pending_events();
+
+    notified.await;  // 等待渲染线程处理完成，零 sleep
+
+    // 走完整 main_ui draw 路径
+    handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+    // 断言屏幕内容
+    assert!(handle.contains("Hello"));
+    let lines: Vec<String> = handle.snapshot();  // 每行去尾空格的纯文本
+}
+```
+
+**关键注意事项：**
+
+- `notified()` 必须在 `process_pending_events()` **之前**调用，否则可能错过通知
+- `AssistantChunk` 事件会发送 2 个 `RenderEvent`（`AddMessage` + `AppendChunk`），需等待 2 次通知
+- CJK 字符在 `TestBackend` buffer 中有宽字符填充（"你好" → "你 好"），`contains()` 断言应使用 ASCII 内容
+- 测试文件位于 `rust-agent-tui/src/ui/headless.rs` 的 `#[cfg(test)] mod tests`（bin crate 不支持 `tests/` 目录集成测试）
+
+**运行测试：**
+
+```bash
+cargo test -p rust-agent-tui              # 全量（含 headless 测试）
+cargo test -p rust-agent-tui <test_name> -- --nocapture  # 单个测试
+```
+
 ## 关键模式
 
 ```rust

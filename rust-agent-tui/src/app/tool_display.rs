@@ -1,37 +1,64 @@
-pub fn format_tool_call_display(tool: &str, input: &serde_json::Value) -> String {
-    let name = to_pascal(tool);
-    let arg = extract_display_arg(tool, input);
-    match arg {
-        Some(a) => format!("{}({})", name, truncate(&a, 60)),
-        None => name,
+/// 将绝对路径剥离 cwd 前缀，返回相对路径；失败则取末段文件名
+fn strip_cwd(path: &str, cwd: Option<&str>) -> String {
+    if let Some(cwd) = cwd {
+        let base = if cwd.ends_with('/') {
+            cwd.to_string()
+        } else {
+            format!("{}/", cwd)
+        };
+        if let Some(rel) = path.strip_prefix(&base) {
+            return rel.to_string();
+        }
+    }
+    // fallback：取最后一段文件名
+    path.rsplit('/').next().unwrap_or(path).to_string()
+}
+
+/// 返回 PascalCase 工具名
+pub fn format_tool_name(tool: &str) -> String {
+    to_pascal(tool)
+}
+
+/// 返回参数摘要（含路径缩短逻辑）
+pub fn format_tool_args(
+    tool: &str,
+    input: &serde_json::Value,
+    cwd: Option<&str>,
+) -> Option<String> {
+    match tool {
+        "bash" => input["command"].as_str().map(|s| truncate(s, 60)),
+        "read_file" | "write_file" | "edit_file" => {
+            input["file_path"]
+                .as_str()
+                .map(|p| truncate(&strip_cwd(p, cwd), 60))
+        }
+        "glob_files" => {
+            input["pattern"]
+                .as_str()
+                .map(|p| truncate(&strip_cwd(p, cwd), 60))
+        }
+        "search_files_rg" => input["args"].as_array().map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        }),
+        "folder_operations" => {
+            let op = input["operation"].as_str().unwrap_or("?");
+            let path = input["folder_path"].as_str().unwrap_or("?");
+            Some(format!("{} {}", op, strip_cwd(path, cwd)))
+        }
+        _ => None,
     }
 }
 
-pub fn extract_display_arg(tool: &str, input: &serde_json::Value) -> Option<String> {
-    let key = match tool {
-        "bash" => "command",
-        "read_file" => "file_path",
-        "write_file" => "file_path",
-        "edit_file" => "file_path",
-        "glob_files" => "pattern",
-        "search_files_rg" => {
-            return input["args"].as_array().map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            });
-        }
-        "folder_operations" => {
-            return Some(format!(
-                "{} {}",
-                input["operation"].as_str().unwrap_or("?"),
-                input["folder_path"].as_str().unwrap_or("?")
-            ));
-        }
-        _ => return None,
-    };
-    input[key].as_str().map(|s| s.to_string())
+/// 兼容旧调用点：无 cwd，用于历史消息回放
+pub fn format_tool_call_display(tool: &str, input: &serde_json::Value) -> String {
+    let name = format_tool_name(tool);
+    match format_tool_args(tool, input, None) {
+        Some(a) => format!("{}({})", name, a),
+        None => name,
+    }
 }
 
 pub fn to_pascal(s: &str) -> String {

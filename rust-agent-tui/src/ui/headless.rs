@@ -91,7 +91,8 @@ mod tests {
         app.push_agent_event(AgentEvent::ToolCall {
             tool_call_id: "t1".into(),
             name: "read_file".into(),
-            display: "读取 src/main.rs".into(),
+            display: "ReadFile".into(),
+            args: Some("src/main.rs".into()),
             is_error: false,
         });
         app.process_pending_events();
