@@ -2,6 +2,8 @@ use rust_create_agent::tools::BaseTool;
 use serde_json::Value;
 use std::path::Path;
 
+use super::resolve_path;
+
 /// folder_operations tool - 与 TypeScript folder_tool 对齐
 pub struct FolderOperationsTool {
     pub cwd: String,
@@ -10,14 +12,6 @@ pub struct FolderOperationsTool {
 impl FolderOperationsTool {
     pub fn new(cwd: impl Into<String>) -> Self {
         Self { cwd: cwd.into() }
-    }
-}
-
-fn resolve_path(cwd: &str, folder_path: &str) -> std::path::PathBuf {
-    if Path::new(folder_path).is_absolute() {
-        Path::new(folder_path).to_path_buf()
-    } else {
-        Path::new(cwd).join(folder_path)
     }
 }
 

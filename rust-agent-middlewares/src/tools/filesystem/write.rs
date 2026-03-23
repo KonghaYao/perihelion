@@ -1,6 +1,7 @@
 use rust_create_agent::tools::BaseTool;
 use serde_json::Value;
-use std::path::Path;
+
+use super::resolve_path;
 
 /// write_file tool - 与 TypeScript write_tool 对齐
 pub struct WriteFileTool {
@@ -42,11 +43,7 @@ impl BaseTool for WriteFileTool {
             .as_str()
             .ok_or("Missing content parameter")?;
 
-        let resolved = if Path::new(file_path).is_absolute() {
-            Path::new(file_path).to_path_buf()
-        } else {
-            Path::new(&self.cwd).join(file_path)
-        };
+        let resolved = resolve_path(&self.cwd, file_path);
 
         if let Some(parent) = resolved.parent() {
             if !parent.exists() {

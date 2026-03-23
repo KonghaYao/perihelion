@@ -2,6 +2,8 @@ use rust_create_agent::tools::BaseTool;
 use serde_json::Value;
 use std::path::Path;
 
+use super::resolve_path;
+
 /// glob_files tool - 与 TypeScript glob_tool 对齐
 pub struct GlobFilesTool {
     pub cwd: String,
@@ -94,11 +96,7 @@ impl BaseTool for GlobFilesTool {
             .ok_or("Missing pattern parameter")?;
 
         let search_root = if let Some(p) = input["path"].as_str() {
-            if Path::new(p).is_absolute() {
-                Path::new(p).to_path_buf()
-            } else {
-                Path::new(&self.cwd).join(p)
-            }
+            resolve_path(&self.cwd, p)
         } else {
             Path::new(&self.cwd).to_path_buf()
         };

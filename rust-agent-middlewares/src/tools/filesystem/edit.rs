@@ -1,6 +1,7 @@
 use rust_create_agent::tools::BaseTool;
 use serde_json::Value;
-use std::path::Path;
+
+use super::resolve_path;
 
 /// edit_file tool (replace) - 与 TypeScript replace_tool 对齐
 pub struct EditFileTool {
@@ -48,11 +49,7 @@ impl BaseTool for EditFileTool {
             .ok_or("Missing new_string parameter")?;
         let replace_all = input["replace_all"].as_bool().unwrap_or(false);
 
-        let resolved = if Path::new(file_path).is_absolute() {
-            Path::new(file_path).to_path_buf()
-        } else {
-            Path::new(&self.cwd).join(file_path)
-        };
+        let resolved = resolve_path(&self.cwd, file_path);
 
         let content = match std::fs::read_to_string(&resolved) {
             Ok(c) => c,

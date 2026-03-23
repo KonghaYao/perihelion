@@ -1,6 +1,7 @@
 use rust_create_agent::tools::BaseTool;
 use serde_json::Value;
-use std::path::Path;
+
+use super::resolve_path;
 
 /// read_file tool - 与 TypeScript read_tool 对齐
 pub struct ReadFileTool {
@@ -57,11 +58,7 @@ impl BaseTool for ReadFileTool {
         let offset = input["offset"].as_u64().unwrap_or(0) as usize;
         let limit = input["limit"].as_u64().unwrap_or(MAX_LINES as u64) as usize;
 
-        let resolved = if Path::new(file_path).is_absolute() {
-            Path::new(file_path).to_path_buf()
-        } else {
-            Path::new(&self.cwd).join(file_path)
-        };
+        let resolved = resolve_path(&self.cwd, file_path);
 
         if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
             if is_binary_extension(&ext.to_lowercase()) {
