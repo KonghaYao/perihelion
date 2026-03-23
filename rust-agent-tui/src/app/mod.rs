@@ -567,14 +567,30 @@ impl App {
                     }
                 }
                 WebMessage::HitlDecision { decisions } => {
-                    if let Some(prompt) = self.hitl_prompt.as_mut() {
-                        for (i, d) in decisions.iter().enumerate() {
-                            if let Some(a) = prompt.approved.get_mut(i) {
-                                *a = d.decision == "Approve";
-                            }
-                        }
+                    if let Some(prompt) = self.hitl_prompt.take() {
+                        // 远程控制支持全部 4 种 HITL 决策：Approve / Edit / Reject / Respond
+                        let hitl_decisions: Vec<HitlDecision> = decisions
+                            .iter()
+                            .map(|d| match d.decision.as_str() {
+                                "Approve" => HitlDecision::Approve,
+                                "Edit" => {
+                                    let new_input = d
+                                        .input
+                                        .as_deref()
+                                        .and_then(|s| serde_json::from_str(s).ok())
+                                        .unwrap_or(serde_json::json!({}));
+                                    HitlDecision::Edit(new_input)
+                                }
+                                "Respond" => {
+                                    HitlDecision::Respond(
+                                        d.input.clone().unwrap_or_default(),
+                                    )
+                                }
+                                _ => HitlDecision::Reject,
+                            })
+                            .collect();
+                        let _ = prompt.response_tx.send(hitl_decisions);
                     }
-                    self.hitl_confirm();
                 }
                 WebMessage::AskUserResponse { answers } => {
                     if let Some(prompt) = self.ask_user_prompt.as_mut() {

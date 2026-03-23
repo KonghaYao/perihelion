@@ -263,4 +263,54 @@ mod tests {
         assert!(!default_requires_approval("glob_files"));
         assert!(!default_requires_approval("search_files_rg"));
     }
+
+    /// Edit 决策：修改工具调用参数后继续执行
+    #[tokio::test]
+    async fn test_edit_modifies_input() {
+        struct EditHandler;
+
+        #[async_trait]
+        impl HitlHandler for EditHandler {
+            fn requires_approval(&self, _: &str, _: &serde_json::Value) -> bool {
+                true
+            }
+            async fn request_approval(&self, _: &str, _: &serde_json::Value) -> HitlDecision {
+                HitlDecision::Edit(serde_json::json!({"command": "echo safe"}))
+            }
+        }
+
+        let mw = HumanInTheLoopMiddleware::new(Arc::new(EditHandler));
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "bash");
+        assert_eq!(result.input, serde_json::json!({"command": "echo safe"}));
+    }
+
+    /// Respond 决策：拒绝并携带用户消息
+    #[tokio::test]
+    async fn test_respond_returns_error_with_reason() {
+        struct RespondHandler;
+
+        #[async_trait]
+        impl HitlHandler for RespondHandler {
+            fn requires_approval(&self, _: &str, _: &serde_json::Value) -> bool {
+                true
+            }
+            async fn request_approval(&self, _: &str, _: &serde_json::Value) -> HitlDecision {
+                HitlDecision::Respond("请改用 echo 命令".to_string())
+            }
+        }
+
+        let mw = HumanInTheLoopMiddleware::new(Arc::new(RespondHandler));
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await;
+        match result {
+            Err(AgentError::ToolRejected { reason, .. }) => {
+                assert_eq!(reason, "请改用 echo 命令");
+            }
+            other => panic!("期望 ToolRejected，实际: {:?}", other),
+        }
+    }
 }
