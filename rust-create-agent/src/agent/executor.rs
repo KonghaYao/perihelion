@@ -182,6 +182,33 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     let modified_call =
                         match self.chain.run_before_tool(state, tool_call.clone()).await {
                             Ok(c) => c,
+                            Err(AgentError::ToolRejected { ref reason, .. }) => {
+                                // 拒绝不终止 Agent，将拒绝原因作为工具错误反馈给 LLM
+                                let rejection_result = ToolResult::error(
+                                    &tool_call.id,
+                                    &tool_call.name,
+                                    reason.clone(),
+                                );
+                                self.emit(AgentEvent::ToolStart {
+                                    tool_call_id: tool_call.id.clone(),
+                                    name: tool_call.name.clone(),
+                                    input: tool_call.input.clone(),
+                                });
+                                self.emit(AgentEvent::ToolEnd {
+                                    name: tool_call.name.clone(),
+                                    output: rejection_result.output.clone(),
+                                    is_error: true,
+                                });
+                                let tool_msg = BaseMessage::tool_error(
+                                    &rejection_result.tool_call_id,
+                                    rejection_result.output.as_str(),
+                                );
+                                let tool_msg_clone = tool_msg.clone();
+                                state.add_message(tool_msg);
+                                self.emit(AgentEvent::MessageAdded(tool_msg_clone));
+                                all_tool_calls.push((tool_call, rejection_result));
+                                continue;
+                            }
                             Err(e) => {
                                 self.chain.run_on_error(state, &e).await?;
                                 return Err(e);
@@ -510,4 +537,57 @@ mod tests {
             .any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
         assert!(has_tool_error, "取消后工具 error 消息应已写入 state");
     }
+
+    /// 验证 HITL 拒绝（ToolRejected）不终止 Agent，LLM 能收到拒绝原因后继续
+    #[tokio::test]
+    async fn test_tool_rejection_continues_loop() {
+        use crate::middleware::r#trait::Middleware;
+
+        struct RejectAllMiddleware;
+        #[async_trait::async_trait]
+        impl<S: State> Middleware<S> for RejectAllMiddleware {
+            fn name(&self) -> &str { "RejectAllMiddleware" }
+            async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+                Err(AgentError::ToolRejected {
+                    tool: tool_call.name.clone(),
+                    reason: "用户拒绝".to_string(),
+                })
+            }
+        }
+
+        // LLM：先调用工具，收到拒绝结果后返回最终答案
+        struct TestLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for TestLLM {
+            async fn generate_reasoning(
+                &self,
+                messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> AgentResult<Reasoning> {
+                let has_tool_result = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+                if !has_tool_result {
+                    Ok(Reasoning::with_tools("try tool", vec![
+                        ToolCall::new("id1", "bash", serde_json::json!({"command": "ls"})),
+                    ]))
+                } else {
+                    Ok(Reasoning::with_answer("adjusted", "done after rejection"))
+                }
+            }
+        }
+
+        let agent = ReActAgent::new(TestLLM)
+            .max_iterations(5)
+            .add_middleware(Box::new(RejectAllMiddleware));
+
+        let mut state = AgentState::new("/tmp");
+        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+
+        assert_eq!(output.text, "done after rejection");
+        // 拒绝结果应写入 state（is_error=true）
+        let has_rejection = state.messages().iter().any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
+        assert!(has_rejection, "拒绝结果应写入 state");
+        // Agent 总工具调用记录中应有 1 条（被拒绝的）
+        assert_eq!(output.tool_calls.len(), 1);
+    }
+
 }
