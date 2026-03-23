@@ -52,8 +52,8 @@ pub enum ContentBlockView {
 impl MessageViewModel {
     /// 从 BaseMessage 转换为视图模型
     ///
-    /// `prev_ai_tool_calls` 用于为 Tool 消息提供工具名（BaseMessage::Tool 只存储 tool_use_id）
-    pub fn from_base_message(msg: &BaseMessage, prev_ai_tool_calls: &[(String, String)]) -> Self {
+    /// `prev_ai_tool_calls` 用于为 Tool 消息提供工具名和参数（BaseMessage::Tool 只存储 tool_use_id）
+    pub fn from_base_message(msg: &BaseMessage, prev_ai_tool_calls: &[(String, String, serde_json::Value)]) -> Self {
         match msg {
             BaseMessage::Human { content } => {
                 let raw = content.text_content();
@@ -111,15 +111,15 @@ impl MessageViewModel {
                 is_error,
                 ..
             } => {
-                // 从前一条 Ai 消息的 tool_calls 中查找工具名
-                let tool_name = prev_ai_tool_calls
+                // 从前一条 Ai 消息的 tool_calls 中查找工具名和参数
+                let (tool_name, input) = prev_ai_tool_calls
                     .iter()
-                    .find(|(id, _)| id == tool_call_id)
-                    .map(|(_, name)| name.clone())
-                    .unwrap_or_else(|| tool_call_id.clone());
+                    .find(|(id, _, _)| id == tool_call_id)
+                    .map(|(_, name, input)| (name.clone(), input.clone()))
+                    .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
                 let raw_content = content.text_content();
-                // display_name 始终使用工具名
-                let display_name = tool_name.clone();
+                // 使用统一格式化函数生成 display_name（与实时流式一致）
+                let display_name = crate::app::tool_display::format_tool_call_display(&tool_name, &input);
                 let color = if *is_error {
                     Color::Red
                 } else {

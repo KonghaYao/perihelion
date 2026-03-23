@@ -3,6 +3,7 @@ pub mod agent_panel;
 pub mod hitl;
 pub mod model_panel;
 mod provider;
+pub mod tool_display;
 
 use ratatui::style::{Color, Style};
 use ratatui_textarea::TextArea;
@@ -31,6 +32,7 @@ use tracing::Instrument;
 
 pub enum AgentEvent {
     ToolCall {
+        tool_call_id: String,
         name: String,
         display: String,
         is_error: bool,
@@ -653,6 +655,7 @@ impl App {
         loop {
             match rx.try_recv() {
                 Ok(AgentEvent::ToolCall {
+                    tool_call_id: _,
                     name,
                     display,
                     is_error,
@@ -891,14 +894,14 @@ impl App {
         });
         self.view_messages.clear();
         self.agent_state_messages = base_msgs.clone();
-        // 维护前一条 Ai 消息的 tool_calls，用于 Tool 消息获取工具名
-        let mut prev_ai_tool_calls: Vec<(String, String)> = Vec::new();
+        // 维护前一条 Ai 消息的 tool_calls，用于 Tool 消息获取工具名和参数
+        let mut prev_ai_tool_calls: Vec<(String, String, serde_json::Value)> = Vec::new();
         for msg in &base_msgs {
             // 先收集 Ai 消息的 tool_calls
             if let BaseMessage::Ai { tool_calls, .. } = msg {
                 prev_ai_tool_calls = tool_calls
                     .iter()
-                    .map(|tc| (tc.id.clone(), tc.name.clone()))
+                    .map(|tc| (tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
                     .collect();
             }
             let vm = MessageViewModel::from_base_message(&msg, &prev_ai_tool_calls);

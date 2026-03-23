@@ -183,6 +183,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                             }
                         };
                     self.emit(AgentEvent::ToolStart {
+                        tool_call_id: modified_call.id.clone(),
                         name: modified_call.name.clone(),
                         input: modified_call.input.clone(),
                     });
