@@ -69,20 +69,36 @@ fn main() -> Result<()> {
 async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     let mut app = app::App::new();
 
-    loop {
-        terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+    // 初始全量绘制一次
+    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
 
+    loop {
         // 轮询后台 agent 结果
-        app.poll_agent();
+        let agent_updated = app.poll_agent();
+
+        // 检查渲染缓存是否有新内容（version 变化）
+        let cache_version = app.render_cache.read().version;
+        let cache_updated = cache_version != app.last_render_version;
 
         if let Some(action) = event::next_event(&mut app).await? {
             match action {
                 event::Action::Quit => break,
                 event::Action::Submit(input) => {
                     app.submit_message(input);
+                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    continue;
                 }
-                event::Action::Redraw => {}
+                event::Action::Redraw => {
+                    // 有用户交互（键盘/鼠标/resize）→ 始终重绘
+                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
+                    continue;
+                }
             }
+        }
+
+        // 无用户事件时：仅在缓存版本变化或 agent 状态更新时重绘
+        if cache_updated || agent_updated {
+            terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
         }
     }
 

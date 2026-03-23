@@ -10,9 +10,6 @@ use ratatui::{
 
 use crate::app::App;
 use crate::app::model_panel::{EditField, ModelPanelMode, PROVIDER_TYPES};
-use super::message_render::render_view_model;
-use super::markdown::ensure_rendered;
-use super::message_view::MessageViewModel;
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
@@ -85,35 +82,20 @@ fn render_title(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
-    // 右侧留 1 列给滚动条
     let inner = area;
-    let inner_width = inner.width.saturating_sub(1) as usize;
-    let mut all_lines: Vec<Line> = Vec::new();
-
-    for vm in &mut app.view_messages {
-        let is_conversational = matches!(vm, MessageViewModel::UserBubble { .. } | MessageViewModel::AssistantBubble { .. });
-
-        // 渲染前先处理 dirty blocks
-        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
-            for block in blocks.iter_mut() {
-                ensure_rendered(block);
-            }
-        }
-
-        if is_conversational {
-            all_lines.push(Line::from(""));
-        }
-        all_lines.extend(render_view_model(&vm, inner_width));
-        if is_conversational {
-            all_lines.push(Line::from(""));
-        }
-    }
-
-    // 计算每条 Line 经过自动换行后的实际视觉行数
-    let visual_total: u16 = all_lines.iter().map(|l| visual_rows(l, inner_width)).sum();
     let visible_height = inner.height;
 
+    // 从 RenderCache 读取已渲染好的行（读锁，持锁时间极短）
+    let (all_lines, total_lines, cache_version) = {
+        let cache = app.render_cache.read();
+        (cache.lines.clone(), cache.total_lines, cache.version)
+    };
+    // 更新 UI 线程记录的版本
+    app.last_render_version = cache_version;
+
+    let visual_total = total_lines as u16;
     let max_scroll = visual_total.saturating_sub(visible_height);
+
     // 计算本帧实际偏移，并写回 scroll_offset 保持同步
     let offset = if app.scroll_follow {
         max_scroll
@@ -140,13 +122,6 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().fg(Color::DarkGray));
         f.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
     }
-}
-
-/// 估算一条 Line 在给定宽度下占用的视觉行数（含自动换行）
-fn visual_rows(line: &Line, width: usize) -> u16 {
-    if width == 0 { return 1; }
-    let char_count: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
-    ((char_count.max(1) + width - 1) / width) as u16
 }
 
 /// 格式化时长为可读字符串

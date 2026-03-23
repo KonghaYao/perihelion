@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crate::app::model_panel::ModelPanelMode;
 use crate::app::{App, MessageViewModel};
+use crate::ui::render_thread::RenderEvent;
 
 pub enum Action {
     Quit,
@@ -20,7 +21,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     let ev = event::read()?;
 
     match ev {
-        Event::Resize(_, _) => {}
+        Event::Resize(w, _) => {
+            let _ = app.render_tx.try_send(RenderEvent::Resize(w));
+        }
         Event::Key(_) => {
             let input = Input::from(ev);
 

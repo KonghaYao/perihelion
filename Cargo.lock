@@ -2399,6 +2399,7 @@ dependencies = [
  "chrono",
  "dirs-next",
  "dotenvy",
+ "parking_lot",
  "ratatui",
  "ratatui-textarea",
  "rust-agent-middlewares",
