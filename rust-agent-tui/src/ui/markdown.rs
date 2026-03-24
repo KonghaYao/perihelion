@@ -86,14 +86,12 @@ impl RenderState {
             Event::End(TagEnd::Heading(_)) => {
                 self.inline_style = Style::default();
                 self.flush_line();
-                self.lines.push(Line::default());
             }
 
             // ── 段落 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Paragraph) => {}
             Event::End(TagEnd::Paragraph) => {
                 self.flush_line();
-                self.lines.push(Line::default());
             }
 
             // ── 代码块 ────────────────────────────────────────────────────────
@@ -118,7 +116,6 @@ impl RenderState {
                 }
                 self.in_code_block = false;
                 self.code_block_lang.clear();
-                self.lines.push(Line::default());
             }
 
             // ── 列表 ─────────────────────────────────────────────────────────
@@ -131,9 +128,6 @@ impl RenderState {
             }
             Event::End(TagEnd::List(_)) => {
                 self.list_stack.pop();
-                if self.list_stack.is_empty() {
-                    self.lines.push(Line::default());
-                }
             }
             Event::Start(Tag::Item) => {
                 let depth = self.list_stack.len().saturating_sub(1);

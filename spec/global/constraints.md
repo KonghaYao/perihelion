@@ -9,7 +9,7 @@
 - **HTTP 客户端:** reqwest 0.12（json + stream features）
 - **序列化:** serde 1.x + serde_json 1.x
 - **数据库:** rusqlite 0.31（bundled SQLite，WAL 模式）
-- **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + tui-markdown 0.3 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22
+- **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22
 - **Web 框架（Relay Server）:** axum 0.8（WebSocket feature）
 - **错误处理:** thiserror 2.0（库 crate）/ anyhow 1.0（应用层）
 - **日志/追踪:** tracing 0.1 + tracing-subscriber 0.3 + opentelemetry 0.31 + tracing-opentelemetry 0.32

@@ -249,6 +249,15 @@ export function handleLegacyEvent(agent, event) {
         renderPaneForAllPanes();
       }
       break;
+
+    case 'ask_user_resolved':
+      // AskUser 已解决，清除弹窗状态
+      if (agent.pendingAskUser) {
+        agent.pendingAskUser = null;
+        closeDialog('askuser');
+        renderPaneForAllPanes();
+      }
+      break;
   }
 }
 

@@ -4,25 +4,22 @@
 
 - [x] 并行工具调用（多个工具同时执行，而非串行）
 - [x] 断点续跑（Agent 中途中断后从某步恢复）
-- [ ] Token 用量追踪与预算控制
-- [ ] 结构化输出（强制 Agent 按 JSON Schema 返回）
-- [ ] 更多 LLM Provider
-  - [ ] Gemini
-  - [ ] 本地 Ollama
 - [x] ot 需要直接打包进去,不需要 --features otel,只是没有配置的时候,不需要进行 ot 的行为
 - [x] 支持 thinking 模式
 - [x] 替换默认提示词
 - [x] Model 定位 Opus\Sonnet\Haiku -> provider -> model
+- [ ] Token 用量追踪与预算控制
+- [ ] 结构化输出（强制 Agent 按 JSON Schema 返回）
 
 **第二层：Agent 能力**
 
 - [x] AgentDefineMiddleware
-- [ ] Subagent 的 Skill 预加载功能
-- [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
 - [x] SubAgents
 - [ ] MCP Server 接入（Model Context Protocol）
 - [ ] /compact 指令
 - [ ] 系统提示词中需要添加更多的 cli 的信息, 比如现在的模型,等
+- [ ] Subagent 的 Skill 预加载功能
+- [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
 
 **第三层：用户界面**
 

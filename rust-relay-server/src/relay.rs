@@ -253,7 +253,42 @@ pub async fn handle_web_session_ws(
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
-                let _ = entry.agent_tx.send(text.to_string());
+                let text_str = text.to_string();
+
+                // 检测 hitl_decision，广播 approval_resolved 给所有 Web 客户端
+                if let Ok(web_msg) = serde_json::from_str::<crate::protocol::WebMessage>(&text_str) {
+                    if matches!(web_msg, crate::protocol::WebMessage::HitlDecision { .. }) {
+                        if let Ok(crate::protocol::WebMessage::HitlDecision { decisions }) =
+                            serde_json::from_str(&text_str)
+                        {
+                            let resolved_json = serde_json::json!({
+                                "type": "approval_resolved",
+                                "items": decisions.iter().map(|d| d.tool_call_id.clone()).collect::<Vec<_>>(),
+                            });
+                            // 广播给所有 Web 客户端
+                            if let Some(entry) = state.sessions.get(&session_id) {
+                                let txs = entry.web_txs.read().await;
+                                for tx in txs.iter() {
+                                    let _ = tx.send(resolved_json.to_string());
+                                }
+                            }
+                        }
+                    }
+                    // 检测 ask_user_response，广播 ask_user_resolved 给所有 Web 客户端
+                    if matches!(web_msg, crate::protocol::WebMessage::AskUserResponse { .. }) {
+                        let resolved_json = serde_json::json!({
+                            "type": "ask_user_resolved"
+                        });
+                        if let Some(entry) = state.sessions.get(&session_id) {
+                            let txs = entry.web_txs.read().await;
+                            for tx in txs.iter() {
+                                let _ = tx.send(resolved_json.to_string());
+                            }
+                        }
+                    }
+                }
+
+                let _ = entry.agent_tx.send(text_str);
             }
             Message::Close(_) => break,
             _ => {}

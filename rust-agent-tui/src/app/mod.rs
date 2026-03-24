@@ -321,6 +321,8 @@ pub struct App {
     pending_hitl_items: Option<Vec<String>>,
     /// 当前等待用户输入的 AskUser 批量弹窗
     pub ask_user_prompt: Option<AskUserBatchPrompt>,
+    /// AskUser 是否已提交（用于广播 resolved）
+    pending_ask_user: Option<bool>,
     /// 当前 TODO 列表（固定面板，不写入消息流）
     pub todo_items: Vec<TodoItem>,
     /// 内存中的配置快照（来自 ~/.zen-code/settings.json）
@@ -484,6 +486,7 @@ impl App {
             relay_client: None,
             relay_event_rx: None,
             pending_hitl_items: None,
+            pending_ask_user: None,
         };
 
         let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));
@@ -1109,6 +1112,7 @@ impl App {
             }
             AgentEvent::AskUserBatch(req) => {
                 // 转发 AskUser 请求到 Relay
+                self.pending_ask_user = Some(false);
                 if let Some(ref relay) = self.relay_client {
                     let questions: Vec<serde_json::Value> = req.questions.iter().map(|q| {
                         serde_json::json!({
@@ -1322,12 +1326,10 @@ impl App {
     fn send_hitl_resolved(&mut self) {
         if let Some(ref relay) = self.relay_client {
             if let Some(ref hitl_prompt) = self.pending_hitl_items {
-                let payload = serde_json::json!({
+                relay.send_value(serde_json::json!({
                     "type": "approval_resolved",
                     "items": hitl_prompt
-                });
-                eprintln!("[DEBUG] Sending approval_resolved: {:?}", payload);
-                relay.send_value(payload);
+                }));
             }
         }
     }
@@ -1428,6 +1430,13 @@ impl App {
         };
 
         if all_done {
+            // 通知所有端清除 AskUser 弹窗
+            if let Some(ref relay) = self.relay_client {
+                relay.send_value(serde_json::json!({
+                    "type": "ask_user_resolved"
+                }));
+            }
+            self.pending_ask_user = None;
             if let Some(p) = self.ask_user_prompt.take() {
                 p.confirm();
             }
@@ -1844,6 +1853,7 @@ impl App {
             relay_client: None,
             relay_event_rx: None,
             pending_hitl_items: None,
+            pending_ask_user: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

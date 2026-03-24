@@ -21,6 +21,12 @@ pub enum RelayMessage {
     AskUserBatch {
         questions: Vec<AskUserQuestion>,
     },
+    /// HITL 审批已解决（任意一端确认后广播给所有端）
+    ApprovalResolved {
+        items: Vec<String>,
+    },
+    /// AskUser 已解决（任意一端确认后广播给所有端）
+    AskUserResolved,
     /// TODO 列表更新（Agent → Web）
     TodoUpdate {
         items: Vec<TodoItemInfo>,
@@ -200,5 +206,22 @@ mod tests {
         let msg = RelayMessage::MessageBatch { messages: vec![] };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"message_batch\""), "json: {}", json);
+    }
+
+    #[test]
+    fn test_approval_resolved_serialization() {
+        let msg = RelayMessage::ApprovalResolved {
+            items: vec!["bash".into(), "write_file".into()],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"approval_resolved\""), "json: {}", json);
+        assert!(json.contains("bash"));
+    }
+
+    #[test]
+    fn test_ask_user_resolved_serialization() {
+        let msg = RelayMessage::AskUserResolved;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"ask_user_resolved\""), "json: {}", json);
     }
 }
