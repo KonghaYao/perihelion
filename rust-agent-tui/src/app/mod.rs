@@ -11,8 +11,9 @@ use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserQuestionData}
 use rust_agent_middlewares::prelude::{
     BatchItem, HitlDecision, SkillMetadata, TodoItem,
 };
+use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::AgentCancellationToken;
-use rust_create_agent::messages::BaseMessage;
+use rust_create_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use tokio::sync::mpsc;
 
 use crate::command::CommandRegistry;
@@ -59,6 +60,20 @@ pub enum AgentEvent {
     CompactDone(String),
     /// 上下文压缩失败，携带错误信息
     CompactError(String),
+}
+
+// ─── PendingAttachment ────────────────────────────────────────────────────────
+
+/// 待发送的图片附件（Ctrl+V 从剪贴板粘贴）
+pub struct PendingAttachment {
+    /// 显示名称，如 "clipboard_1.png"
+    pub label: String,
+    /// MIME 类型，固定为 "image/png"
+    pub media_type: String,
+    /// base64 编码的 PNG 数据
+    pub base64_data: String,
+    /// PNG 文件大小（字节，用于显示）
+    pub size_bytes: usize,
 }
 
 // ─── HitlBatchPrompt ──────────────────────────────────────────────────────────
@@ -350,6 +365,8 @@ pub struct App {
     pub agent_event_queue: Vec<AgentEvent>,
     /// Loading 期间的消息缓冲区（完成后合并发送）
     pub pending_messages: Vec<String>,
+    /// 待发送的图片附件（Ctrl+V 粘贴图片后缓存，发送时消费）
+    pub pending_attachments: Vec<PendingAttachment>,
     /// Relay 客户端（远程控制，可选）
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     /// Relay 事件接收端（来自 Web 端的控制消息）
@@ -453,6 +470,7 @@ impl App {
             last_render_version: 0,
             agent_event_queue: Vec::new(),
             pending_messages: Vec::new(),
+            pending_attachments: Vec::new(),
             relay_client: None,
             relay_event_rx: None,
         };
@@ -779,7 +797,16 @@ impl App {
             return;
         }
 
-        let user_vm = MessageViewModel::user(input.clone());
+        // 消费待发送附件
+        let attachments = std::mem::take(&mut self.pending_attachments);
+
+        // 构建用于显示的文字（附件摘要追加在末尾）
+        let display = if attachments.is_empty() {
+            input.clone()
+        } else {
+            format!("{} [🖼 {} 张图片]", input, attachments.len())
+        };
+        let user_vm = MessageViewModel::user(display);
         self.view_messages.push(user_vm.clone());
         let _ = self.render_tx.send(RenderEvent::AddMessage(user_vm));
         self.set_loading(true);
@@ -847,14 +874,21 @@ impl App {
         let cwd = self.cwd.clone();
         let system_prompt = crate::prompt::default_system_prompt(&cwd);
 
-        // 确保当前 thread 存在，持久化用户消息
+        // 构建多模态 AgentInput（有附件时包含图片 blocks）
+        let agent_input = if attachments.is_empty() {
+            AgentInput::text(input.clone())
+        } else {
+            let mut blocks = vec![ContentBlock::text(input.clone())];
+            for att in &attachments {
+                blocks.push(ContentBlock::image_base64(&att.media_type, &att.base64_data));
+            }
+            AgentInput::blocks(MessageContent::blocks(blocks))
+        };
+
+        // 确保当前 thread 存在
         let thread_id = self.ensure_thread_id();
-        let user_msg = BaseMessage::human(input.clone());
-        let store = self.thread_store.clone();
-        let tid = thread_id.clone();
-        tokio::spawn(async move {
-            let _ = store.append_messages(&tid, &[user_msg]).await;
-        });
+        // 用户消息将由 agent 执行结束时的 StateSnapshot 统一持久化，
+        // 避免与 StateSnapshot 竞争写 DB seq 导致序号错乱/重复写入
         // 用户消息已追加到 self.view_messages，更新已持久化计数
         self.persisted_count = self.view_messages.len();
 
@@ -870,7 +904,7 @@ impl App {
             async move {
                 agent::run_universal_agent(
                     provider,
-                    input,
+                    agent_input,
                     cwd,
                     system_prompt,
                     thread_id,
@@ -1050,8 +1084,8 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::CompactDone(summary) => {
-                // 替换 LLM 历史为摘要
-                self.agent_state_messages = vec![BaseMessage::system(summary.clone())];
+                // 替换 LLM 历史为摘要（以 AI Message 形式写入，保留 system prompt 由 agent 注入）
+                self.agent_state_messages = vec![BaseMessage::ai(summary.clone())];
 
                 // 保留最近 10 条显示消息
                 let keep_count = 10usize;
@@ -1250,6 +1284,18 @@ impl App {
         }
     }
 
+    // ─── Attachment 操作 ──────────────────────────────────────────────────────
+
+    /// 添加一个图片附件到待发送列表
+    pub fn add_pending_attachment(&mut self, att: PendingAttachment) {
+        self.pending_attachments.push(att);
+    }
+
+    /// 删除最后一个图片附件
+    pub fn pop_pending_attachment(&mut self) {
+        self.pending_attachments.pop();
+    }
+
     // ─── Thread 操作 ──────────────────────────────────────────────────────────
 
     /// 恢复历史 thread：加载消息，关闭 browser
@@ -1299,6 +1345,7 @@ impl App {
         self.current_thread_id = None;
         self.persisted_count = 0;
         self.todo_items.clear();
+        self.pending_attachments.clear();
         self.thread_browser = None;
         let _ = self.render_tx.send(RenderEvent::Clear);
     }
@@ -1629,6 +1676,7 @@ impl App {
             last_render_version: 0,
             agent_event_queue: Vec::new(),
             pending_messages: Vec::new(),
+            pending_attachments: Vec::new(),
             relay_client: None,
             relay_event_rx: None,
         };

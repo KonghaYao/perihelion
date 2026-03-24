@@ -1,11 +1,27 @@
 use anyhow::Result;
+use base64::Engine as _;
 use ratatui::crossterm::event::{self, Event, MouseEventKind};
 use ratatui_textarea::{Input, Key};
 use std::time::Duration;
 
 use crate::app::model_panel::ModelPanelMode;
-use crate::app::{App, MessageViewModel};
+use crate::app::{App, MessageViewModel, PendingAttachment};
 use crate::ui::render_thread::RenderEvent;
+
+/// 将 RGBA 像素数据编码为 PNG，再返回 base64 字符串和 PNG 字节数
+fn rgba_to_png_base64(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<(String, usize)> {
+    let mut png_bytes: Vec<u8> = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(rgba_bytes)?;
+    }
+    let size = png_bytes.len();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+    Ok((b64, size))
+}
 
 pub enum Action {
     Quit,
@@ -162,6 +178,27 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 }
                 Input { key: Key::Esc, .. } if !app.loading => return Ok(Some(Action::Quit)),
 
+                // Ctrl+V：优先尝试粘贴剪贴板图片，失败则回退到粘贴文字
+                Input { key: Key::Char('v'), ctrl: true, .. } if !app.loading => {
+                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                        if let Ok(img) = clipboard.get_image() {
+                            let (w, h) = (img.width as u32, img.height as u32);
+                            if let Ok((b64, sz)) = rgba_to_png_base64(w, h, &img.bytes) {
+                                let n = app.pending_attachments.len() + 1;
+                                app.add_pending_attachment(PendingAttachment {
+                                    label: format!("clipboard_{}.png", n),
+                                    media_type: "image/png".to_string(),
+                                    base64_data: b64,
+                                    size_bytes: sz,
+                                });
+                            }
+                        } else if let Ok(text) = clipboard.get_text() {
+                            let text = text.replace('\r', "\n");
+                            app.textarea.insert_str(&text);
+                        }
+                    }
+                }
+
                 // Tab：提示浮层候选导航与补全
                 Input {
                     key: Key::Tab,
@@ -252,6 +289,11 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     }
                 }
 
+                // Del：删除最后一个待发送附件（有附件时优先消费 Del）
+                Input { key: Key::Delete, .. } if !app.loading && !app.pending_attachments.is_empty() => {
+                    app.pop_pending_attachment();
+                }
+
                 // 拦截普通 Enter，避免 textarea 默认换行；允许 loading 时输入
                 input if input.key != Key::Enter => {
                     app.textarea.input(input);
@@ -291,8 +333,8 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             ..
         } => {}
         Input { key: Key::Esc, .. } => {
-            // Esc 直接新建（跳过历史选择）
-            app.new_thread();
+            // Esc 关闭面板，回到当前对话
+            app.thread_browser = None;
         }
         Input { key: Key::Up, .. }
         | Input {

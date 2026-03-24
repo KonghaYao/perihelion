@@ -26,26 +26,31 @@ pub fn render(f: &mut Frame, app: &mut App) {
         (app.todo_items.len() as u16 + 2).min(10)
     };
 
+    // 附件栏高度：无附件时为 0，有附件时固定 3 行
+    let attachment_height: u16 = if app.pending_attachments.is_empty() { 0 } else { 3 };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),             // [0] 标题栏
-            Constraint::Min(3),                // [1] 聊天区
-            Constraint::Length(todo_height),   // [2] TODO 面板（动态）
-            Constraint::Length(input_height),  // [3] 输入框（动态）
-            Constraint::Length(1),             // [4] 帮助栏
+            Constraint::Length(1),                  // [0] 标题栏
+            Constraint::Min(3),                     // [1] 聊天区
+            Constraint::Length(todo_height),        // [2] TODO 面板（动态）
+            Constraint::Length(attachment_height),  // [3] 附件栏（动态）
+            Constraint::Length(input_height),       // [4] 输入框（动态）
+            Constraint::Length(1),                  // [5] 帮助栏
         ])
         .split(area);
 
     render_title(f, app, chunks[0]);
     render_messages(f, app, chunks[1]);
     render_todo_panel(f, app, chunks[2]);
-    f.render_widget(&app.textarea, chunks[3]);
-    render_status_bar(f, app, chunks[4]);
+    render_attachment_bar(f, app, chunks[3]);
+    f.render_widget(&app.textarea, chunks[4]);
+    render_status_bar(f, app, chunks[5]);
 
     // 命令/Skills 提示条（浮动在输入框上方）
-    render_command_hint(f, app, chunks[3]);
-    render_skill_hint(f, app, chunks[3]);
+    render_command_hint(f, app, chunks[4]);
+    render_skill_hint(f, app, chunks[4]);
 
     // HITL 弹窗（覆盖层）
     if app.hitl_prompt.is_some() {
@@ -1005,7 +1010,7 @@ fn render_thread_browser(f: &mut Frame, app: &App) {
 
     let block = Block::default()
         .title(Span::styled(
-            " 📝 选择对话  ↑↓:移动  Enter:确认  d:删除  Esc:新建",
+            " 📝 选择对话  ↑↓:移动  Enter:确认  d:删除  Esc:关闭",
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -1211,6 +1216,45 @@ fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
     } else {
         s
     }
+}
+
+/// 待发送附件栏（有附件时显示在输入框上方）
+fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
+    if area.height == 0 {
+        return;
+    }
+
+    let block = Block::default()
+        .title(Span::styled(
+            " 待发送附件 ",
+            Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Blue));
+    f.render_widget(&block, area);
+
+    let inner = block.inner(area);
+
+    // 第 1 行：所有附件标签
+    let tags: String = app
+        .pending_attachments
+        .iter()
+        .map(|att| {
+            let size_kb = (att.size_bytes / 1024).max(1);
+            format!("[img {} {}KB]", att.label, size_kb)
+        })
+        .collect::<Vec<_>>()
+        .join("  ");
+
+    let lines = vec![
+        Line::from(Span::styled(tags, Style::default().fg(Color::White))),
+        Line::from(Span::styled(
+            "Del: 删除最后一张",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 /// TODO 状态面板（固定在输入框上方）
