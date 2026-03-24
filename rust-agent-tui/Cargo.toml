@@ -35,3 +35,4 @@ rust-relay-server = { path = "../rust-relay-server", default-features = false, f
 arboard = "3"
 png = "0.18"
 base64 = { version = "0.22", features = ["alloc"] }
+pulldown-cmark = "0.12"

@@ -317,6 +317,8 @@ pub struct App {
     agent_rx: Option<mpsc::Receiver<AgentEvent>>,
     /// 当前等待用户确认的批量 HITL 弹窗
     pub hitl_prompt: Option<HitlBatchPrompt>,
+    /// 已发送待解决的 HITL 工具名称列表（用于 approval_resolved 广播）
+    pending_hitl_items: Option<Vec<String>>,
     /// 当前等待用户输入的 AskUser 批量弹窗
     pub ask_user_prompt: Option<AskUserBatchPrompt>,
     /// 当前 TODO 列表（固定面板，不写入消息流）
@@ -481,6 +483,7 @@ impl App {
             show_tool_messages: false,
             relay_client: None,
             relay_event_rx: None,
+            pending_hitl_items: None,
         };
 
         let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));
@@ -592,13 +595,7 @@ impl App {
         for web_msg in events {
             match web_msg {
                 WebMessage::UserInput { text } => {
-                    // 将用户消息缓存到 relay 历史，供 sync_response 回放
-                    if let Some(ref relay) = self.relay_client {
-                        relay.send_value(serde_json::json!({
-                            "role": "user",
-                            "content": text,
-                        }));
-                    }
+                    // 不在此处发送 user 消息到 relay，由 executor 中的 MessageAdded 事件统一发送
                     if self.loading {
                         self.pending_messages.push(text);
                     } else {
@@ -1321,10 +1318,28 @@ impl App {
         }
     }
 
+    /// 发送 approval_resolved 到 Relay，通知所有端清除 HITL 弹窗
+    fn send_hitl_resolved(&mut self) {
+        if let Some(ref relay) = self.relay_client {
+            if let Some(ref hitl_prompt) = self.pending_hitl_items {
+                let payload = serde_json::json!({
+                    "type": "approval_resolved",
+                    "items": hitl_prompt
+                });
+                eprintln!("[DEBUG] Sending approval_resolved: {:?}", payload);
+                relay.send_value(payload);
+            }
+        }
+    }
+
     /// 全部批准并提交
     pub fn hitl_approve_all(&mut self) {
         if let Some(mut p) = self.hitl_prompt.take() {
             p.approve_all();
+            self.pending_hitl_items = Some(
+                p.items.iter().map(|item| item.tool_name.clone()).collect()
+            );
+            self.send_hitl_resolved();
             p.confirm();
         }
     }
@@ -1333,6 +1348,10 @@ impl App {
     pub fn hitl_reject_all(&mut self) {
         if let Some(mut p) = self.hitl_prompt.take() {
             p.reject_all();
+            self.pending_hitl_items = Some(
+                p.items.iter().map(|item| item.tool_name.clone()).collect()
+            );
+            self.send_hitl_resolved();
             p.confirm();
         }
     }
@@ -1340,6 +1359,10 @@ impl App {
     /// 按当前每项选择确认并提交
     pub fn hitl_confirm(&mut self) {
         if let Some(p) = self.hitl_prompt.take() {
+            self.pending_hitl_items = Some(
+                p.items.iter().map(|item| item.tool_name.clone()).collect()
+            );
+            self.send_hitl_resolved();
             p.confirm();
         }
     }
@@ -1820,6 +1843,7 @@ impl App {
             show_tool_messages: false,
             relay_client: None,
             relay_event_rx: None,
+            pending_hitl_items: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

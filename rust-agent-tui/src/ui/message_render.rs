@@ -13,21 +13,17 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
             let mut first_line = true;
             for line in rendered.lines.iter() {
                 if first_line {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("{} ", index),
-                            Style::default()
-                                .fg(Color::Green)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(line.to_string(), Style::default().fg(Color::White)),
-                    ]));
+                    let mut spans = vec![Span::styled(
+                        format!("{} ", index),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    )];
+                    spans.extend(line.spans.iter().cloned());
+                    lines.push(Line::from(spans));
                     first_line = false;
                 } else {
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(line.to_string(), Style::default().fg(Color::White)),
-                    ]));
+                    let mut spans = vec![Span::raw("  ")];
+                    spans.extend(line.spans.iter().cloned());
+                    lines.push(Line::from(spans));
                 }
             }
             lines
@@ -45,32 +41,25 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
             for block in blocks {
                 match block {
                     ContentBlockView::Text { rendered, .. } => {
-                        let mut line_iter = rendered.lines.iter().peekable();
-                        while let Some(line) = line_iter.next() {
+                        for line in rendered.lines.iter() {
                             if !first_text_merged {
-                                // 第一行文本合并到标题行
-                                lines.push(Line::from(vec![
+                                // 第一行文本合并到标题行，保留 markdown 样式 spans
+                                let mut spans = vec![
                                     Span::styled(
                                         format!("{} {}", index, streaming_suffix),
                                         Style::default()
                                             .fg(Color::Cyan)
                                             .add_modifier(Modifier::BOLD),
                                     ),
-                                    Span::styled(" ", Style::default().fg(Color::White)),
-                                    Span::styled(
-                                        line.to_string(),
-                                        Style::default().fg(Color::White),
-                                    ),
-                                ]));
+                                    Span::raw(" "),
+                                ];
+                                spans.extend(line.spans.iter().cloned());
+                                lines.push(Line::from(spans));
                                 first_text_merged = true;
                             } else {
-                                lines.push(Line::from(vec![
-                                    Span::raw("  "),
-                                    Span::styled(
-                                        line.to_string(),
-                                        Style::default().fg(Color::White),
-                                    ),
-                                ]));
+                                let mut spans = vec![Span::raw("  ")];
+                                spans.extend(line.spans.iter().cloned());
+                                lines.push(Line::from(spans));
                             }
                         }
                     }

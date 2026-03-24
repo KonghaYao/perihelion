@@ -179,6 +179,148 @@ mod tests {
         assert!(!has_tool_call_text, "工具调用消息默认应该是隐藏的，但实际显示为:\n{}", snap.join("\n"));
     }
 
+    mod markdown_tests {
+        use crate::ui::markdown::parse_markdown;
+        use ratatui::style::{Color, Modifier};
+
+        fn all_text(text: &ratatui::text::Text) -> String {
+            text.lines
+                .iter()
+                .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+                .collect::<Vec<_>>()
+                .join("")
+        }
+
+        #[test]
+        fn test_md_heading() {
+            let text = parse_markdown("# Hello World");
+            // H1 首行应有 ━━ 前缀
+            let first_line = &text.lines[0];
+            let all_content: String =
+                first_line.spans.iter().map(|s| s.content.as_ref()).collect();
+            assert!(
+                all_content.contains("━━"),
+                "H1 首行应含 ━━ 前缀，实际: {all_content:?}"
+            );
+            assert!(
+                all_content.contains("Hello World"),
+                "H1 首行应含标题文字，实际: {all_content:?}"
+            );
+            // 检查颜色为 Cyan
+            let has_cyan = first_line
+                .spans
+                .iter()
+                .any(|s| s.style.fg == Some(Color::Cyan));
+            assert!(has_cyan, "H1 应为 Cyan 颜色");
+        }
+
+        #[test]
+        fn test_md_inline_styles() {
+            let text = parse_markdown("**bold** *italic* ~~strike~~");
+            let all = all_text(&text);
+            assert!(all.contains("bold"), "应含 bold 文字");
+            assert!(all.contains("italic"), "应含 italic 文字");
+            assert!(all.contains("strike"), "应含 strike 文字");
+
+            let has_bold = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
+                s.style.add_modifier.contains(Modifier::BOLD)
+                    && s.content.contains("bold")
+            });
+            assert!(has_bold, "bold span 应有 BOLD modifier");
+
+            let has_italic = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
+                s.style.add_modifier.contains(Modifier::ITALIC)
+                    && s.content.contains("italic")
+            });
+            assert!(has_italic, "italic span 应有 ITALIC modifier");
+
+            let has_strike = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
+                s.style.add_modifier.contains(Modifier::CROSSED_OUT)
+                    && s.content.contains("strike")
+            });
+            assert!(has_strike, "strikethrough span 应有 CROSSED_OUT modifier");
+        }
+
+        #[test]
+        fn test_md_inline_code() {
+            let text = parse_markdown("`hello`");
+            let has_code = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
+                s.style.fg == Some(Color::Yellow) && s.content.contains("hello")
+            });
+            assert!(has_code, "行内代码应为 Yellow 颜色，含 hello 文字");
+        }
+
+        #[test]
+        fn test_md_code_block() {
+            let text = parse_markdown("```rust\nfn main() {}\n```");
+            let all_lines: Vec<String> = text
+                .lines
+                .iter()
+                .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .collect();
+            let has_lang_tag = all_lines.iter().any(|l| l.contains("[rust]"));
+            assert!(has_lang_tag, "代码块首行应含 [rust] 标签，实际行:\n{all_lines:#?}");
+            let has_prefix = all_lines.iter().any(|l| l.contains("│ "));
+            assert!(has_prefix, "代码块应含 │ 前缀，实际行:\n{all_lines:#?}");
+        }
+
+        #[test]
+        fn test_md_unordered_list() {
+            let text = parse_markdown("- item1\n- item2");
+            let all_lines: Vec<String> = text
+                .lines
+                .iter()
+                .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .collect();
+            let bullet_lines: Vec<&String> =
+                all_lines.iter().filter(|l| l.contains('•')).collect();
+            assert_eq!(bullet_lines.len(), 2, "无序列表应有 2 行含 • ，实际:{all_lines:#?}");
+        }
+
+        #[test]
+        fn test_md_ordered_list() {
+            let text = parse_markdown("1. first\n2. second");
+            let all_lines: Vec<String> = text
+                .lines
+                .iter()
+                .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .collect();
+            let has_one = all_lines.iter().any(|l| l.contains("1."));
+            let has_two = all_lines.iter().any(|l| l.contains("2."));
+            assert!(has_one, "有序列表应含 1. 前缀，实际:{all_lines:#?}");
+            assert!(has_two, "有序列表应含 2. 前缀，实际:{all_lines:#?}");
+        }
+
+        #[test]
+        fn test_md_blockquote() {
+            let text = parse_markdown("> quoted text");
+            let has_prefix = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
+                s.content.contains('▍')
+            });
+            assert!(has_prefix, "引用块应含 ▍ 前缀");
+        }
+
+        #[test]
+        fn test_md_rule() {
+            let text = parse_markdown("---");
+            let has_rule = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
+                s.content.matches('─').count() >= 10
+            });
+            assert!(has_rule, "水平线应含多个 ─ 字符");
+        }
+
+        #[test]
+        fn test_md_incomplete_does_not_panic() {
+            // 不完整 Markdown 不应 panic，应降级为纯文本
+            let text = parse_markdown("**unclosed bold");
+            let all = all_text(&text);
+            assert!(
+                all.contains("unclosed bold"),
+                "不完整 Markdown 应降级为纯文本，实际: {all:?}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_tool_call_message_visible_when_toggled() {
         let (mut app, mut handle) = App::new_headless(120, 30);
