@@ -683,7 +683,10 @@ impl App {
         let id = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(store.create_thread(meta))
-                .unwrap_or_else(|_| uuid::Uuid::now_v7().to_string())
+                .unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "创建 thread 失败，使用临时 ID（消息将无法持久化）");
+                    uuid::Uuid::now_v7().to_string()
+                })
         });
         self.current_thread_id = Some(id.clone());
         id
@@ -1232,7 +1235,14 @@ impl App {
                         let store = self.thread_store.clone();
                         let tid = id.clone();
                         tokio::spawn(async move {
-                            let _ = store.append_messages(&tid, &new_msgs).await;
+                            if let Err(e) = store.append_messages(&tid, &new_msgs).await {
+                                tracing::warn!(
+                                    thread_id = %tid,
+                                    msg_count = new_msgs.len(),
+                                    error = %e,
+                                    "StateSnapshot 持久化写入失败"
+                                );
+                            }
                         });
                     }
                 }

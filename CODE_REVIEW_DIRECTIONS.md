@@ -20,10 +20,10 @@
   - [x] 审批/AskUser 事件后 UI 阻塞等待
   - [x] Done/Error 后停止轮询
   - [ ] headless 测试通知顺序
-- [ ] **持久化与状态**
-  - [ ] SQLite WAL + 事务写入
-  - [ ] 消息幂等性
-  - [ ] 用户消息立即持久化
+- [x] **持久化与状态**
+  - [x] SQLite WAL + 事务写入
+  - [x] 消息幂等性
+  - [x] 用户消息立即持久化
 - [x] **SubAgent 委派**
   - [x] 防递归（排除 launch_agent 自身）
   - [x] tools / disallowedTools 过滤
