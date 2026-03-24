@@ -13,19 +13,14 @@ impl Command for HelpCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
-        // 借用问题：先收集列表，再推消息
-        let list: Vec<(String, String)> = app
-            .command_registry
-            .list()
-            .into_iter()
-            .map(|(n, d)| (n.to_string(), d.to_string()))
-            .collect();
-
+        // 使用启动时预计算的列表（command_registry 在 dispatch 时已被 std::mem::take 取出）
         let mut lines = vec!["可用命令：".to_string()];
-        for (name, desc) in &list {
+        for (name, desc) in &app.command_help_list {
             lines.push(format!("  /{:<10} {}", name, desc));
         }
 
-        app.view_messages.push(MessageViewModel::system(lines.join("\n")));
+        let vm = MessageViewModel::system(lines.join("\n"));
+        app.view_messages.push(vm.clone());
+        let _ = app.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
     }
 }

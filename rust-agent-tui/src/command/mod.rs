@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod clear;
+pub mod compact;
 pub mod help;
 pub mod history;
 pub mod model;
@@ -10,6 +11,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(agents::AgentsCommand));
     r.register(Box::new(model::ModelCommand));
     r.register(Box::new(clear::ClearCommand));
+    r.register(Box::new(compact::CompactCommand));
     r.register(Box::new(help::HelpCommand));
     r.register(Box::new(history::HistoryCommand));
     r

@@ -55,6 +55,10 @@ pub enum AgentEvent {
     TodoUpdate(Vec<TodoItem>),
     /// Agent 执行结束后的消息快照（用于多轮对话续接）
     StateSnapshot(Vec<rust_create_agent::messages::BaseMessage>),
+    /// 上下文压缩成功，携带摘要文本
+    CompactDone(String),
+    /// 上下文压缩失败，携带错误信息
+    CompactError(String),
 }
 
 // ─── HitlBatchPrompt ──────────────────────────────────────────────────────────
@@ -309,6 +313,8 @@ pub struct App {
     pub agent_panel: Option<AgentPanel>,
     /// 命令注册表
     pub command_registry: CommandRegistry,
+    /// 命令帮助文本缓存（启动时预计算，/help 直接读取，不受 std::mem::take 影响）
+    pub command_help_list: Vec<(String, String)>,
     /// 可用 skills 列表（启动时加载）
     pub skills: Vec<SkillMetadata>,
     /// 提示浮层（命令/Skills）当前光标位置
@@ -389,6 +395,14 @@ impl App {
         let (render_tx, render_cache, render_notify) =
             crate::ui::render_thread::spawn_render_thread(80);
 
+        // 预计算命令帮助列表（在注册表被 std::mem::take 时仍可读）
+        let command_registry = crate::command::default_registry();
+        let command_help_list: Vec<(String, String)> = command_registry
+            .list()
+            .into_iter()
+            .map(|(n, d)| (n.to_string(), d.to_string()))
+            .collect();
+
         let mut app = Self {
             view_messages: Vec::new(),
             textarea,
@@ -405,7 +419,8 @@ impl App {
             zen_config,
             model_panel: None,
             agent_panel: None,
-            command_registry: crate::command::default_registry(),
+            command_registry,
+            command_help_list,
             hint_cursor: None,
             skills: {
                 let mut dirs = Vec::new();
@@ -1034,6 +1049,65 @@ impl App {
                 }
                 (true, false, false)
             }
+            AgentEvent::CompactDone(summary) => {
+                // 替换 LLM 历史为摘要
+                self.agent_state_messages = vec![BaseMessage::system(summary.clone())];
+
+                // 保留最近 10 条显示消息
+                let keep_count = 10usize;
+                if self.view_messages.len() > keep_count {
+                    let tail = self.view_messages.split_off(self.view_messages.len() - keep_count);
+                    self.view_messages = tail;
+                }
+
+                // 头部插入压缩提示
+                let compact_vm = MessageViewModel::system(format!(
+                    "📦 上下文已压缩（保留最近 {} 条显示消息，LLM 历史已替换为摘要）",
+                    keep_count
+                ));
+                self.view_messages.insert(0, compact_vm);
+
+                // 尾部追加摘要内容（可见）
+                let summary_vm = MessageViewModel::system(format!("📋 压缩摘要：\n{}", summary));
+                self.view_messages.push(summary_vm);
+
+                // 通知渲染线程重建显示
+                let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::Clear);
+                for vm in &self.view_messages {
+                    let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm.clone()));
+                }
+
+                // 重置持久化计数（view_messages 已重建）
+                self.persisted_count = 0;
+
+                self.set_loading(false);
+                self.agent_rx = None;
+
+                // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）
+                if !self.pending_messages.is_empty() {
+                    let combined = self.pending_messages.join("\n\n");
+                    self.pending_messages.clear();
+                    self.submit_message(combined);
+                }
+
+                (true, false, true)
+            }
+            AgentEvent::CompactError(msg) => {
+                let vm = MessageViewModel::system(format!("❌ 压缩失败: {}", msg));
+                self.view_messages.push(vm.clone());
+                let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+                self.set_loading(false);
+                self.agent_rx = None;
+
+                // 刷新 compact 期间缓冲的消息
+                if !self.pending_messages.is_empty() {
+                    let combined = self.pending_messages.join("\n\n");
+                    self.pending_messages.clear();
+                    self.submit_message(combined);
+                }
+
+                (true, false, true)
+            }
         }
     }
 
@@ -1227,6 +1301,44 @@ impl App {
         self.todo_items.clear();
         self.thread_browser = None;
         let _ = self.render_tx.send(RenderEvent::Clear);
+    }
+
+    /// 压缩当前对话上下文：调用 LLM 生成摘要，替换 agent_state_messages
+    pub fn start_compact(&mut self, instructions: String) {
+        if self.agent_state_messages.is_empty() {
+            let vm = MessageViewModel::system("无可压缩的上下文（历史消息为空）".to_string());
+            self.view_messages.push(vm.clone());
+            let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+            return;
+        }
+
+        let provider = match self
+            .zen_config
+            .as_ref()
+            .and_then(agent::LlmProvider::from_config)
+            .or_else(agent::LlmProvider::from_env)
+        {
+            Some(p) => p,
+            None => {
+                let vm = MessageViewModel::system(
+                    "❌ 压缩失败: 未配置 LLM Provider（请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY）".to_string(),
+                );
+                self.view_messages.push(vm.clone());
+                let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+                return;
+            }
+        };
+
+        let messages = self.agent_state_messages.clone();
+        let model = provider.into_model();
+
+        let (tx, rx) = mpsc::channel::<AgentEvent>(8);
+        self.agent_rx = Some(rx);
+        self.set_loading(true);
+
+        tokio::spawn(async move {
+            agent::compact_task(messages, model, instructions, tx).await;
+        });
     }
 
     /// 打开 thread 浏览面板（通过命令触发）
@@ -1499,6 +1611,7 @@ impl App {
             model_panel: None,
             agent_panel: None,
             command_registry: crate::command::default_registry(),
+            command_help_list: Vec::new(),
             skills: Vec::new(),
             hint_cursor: None,
             thread_store,

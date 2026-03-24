@@ -197,3 +197,102 @@ pub async fn run_universal_agent(
 // ─── 辅助函数 ─────────────────────────────────────────────────────────────────
 
 use super::tool_display::{format_tool_args, format_tool_name, truncate};
+
+// ─── 上下文压缩任务 ────────────────────────────────────────────────────────────
+
+/// 独立的上下文压缩异步任务：单次 LLM 调用，生成摘要后通过 channel 发回 App
+pub async fn compact_task(
+    messages: Vec<rust_create_agent::messages::BaseMessage>,
+    model: Box<dyn rust_create_agent::llm::BaseModel>,
+    instructions: String,
+    tx: mpsc::Sender<super::AgentEvent>,
+) {
+    use rust_create_agent::llm::types::LlmRequest;
+    use rust_create_agent::messages::BaseMessage;
+
+    // ── 1. 格式化消息历史 ──────────────────────────────────────────────────────
+
+    fn truncate_content(s: &str, max: usize) -> String {
+        if s.chars().count() > max {
+            let end: String = s.chars().take(max).collect();
+            format!("{}...(已截断)", end)
+        } else {
+            s.to_string()
+        }
+    }
+
+    let mut lines = Vec::new();
+    for msg in &messages {
+        match msg {
+            BaseMessage::System { .. } => {
+                // 跳过系统消息，避免将之前的摘要再次嵌入
+            }
+            BaseMessage::Human { .. } => {
+                let content = truncate_content(&msg.content(), 500);
+                lines.push(format!("[用户] {}", content));
+            }
+            BaseMessage::Ai { tool_calls, .. } => {
+                let text = msg.content();
+                let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+                let line = if tool_names.is_empty() {
+                    format!("[助手] {}", truncate_content(&text, 500))
+                } else {
+                    format!(
+                        "[助手] {}（调用了工具: {}）",
+                        truncate_content(&text, 300),
+                        tool_names.join(", ")
+                    )
+                };
+                lines.push(line);
+            }
+            BaseMessage::Tool { tool_call_id, .. } => {
+                let content = truncate_content(&msg.content(), 500);
+                lines.push(format!("[工具结果:{}] {}", tool_call_id, content));
+            }
+        }
+    }
+
+    if lines.is_empty() {
+        let fallback = "## 目标\n（无有效对话历史）\n\n## 已完成操作\n无\n\n## 关键发现\n无".to_string();
+        let _ = tx.send(super::AgentEvent::CompactDone(fallback)).await;
+        return;
+    }
+
+    let conversation_text = lines.join("\n");
+
+    // ── 2. 构造 LLM 请求 ───────────────────────────────────────────────────────
+
+    let system_prompt = "\
+你是一个对话上下文压缩工具。将以下对话历史压缩为一份结构化摘要，要求：\n\
+1. 保留用户的核心目标和意图\n\
+2. 记录已完成的关键操作（文件读写、命令执行结果等）\n\
+3. 记录发现的重要信息（文件路径、错误信息、代码结构等）\n\
+4. 保留对话中的重要决策和约束\n\
+5. 格式：Markdown，分 ## 目标、## 已完成操作、## 关键发现 三个小节\n\
+6. 语言：中文\n\
+7. 尽量简洁，控制在 500 字以内";
+
+    let mut user_content = format!(
+        "以下是需要压缩的对话历史：\n<conversation>\n{}\n</conversation>",
+        conversation_text
+    );
+
+    if !instructions.trim().is_empty() {
+        user_content.push_str(&format!("\n\n压缩时请特别注意：{}", instructions.trim()));
+    }
+
+    let request = LlmRequest::new(vec![BaseMessage::human(user_content)])
+        .with_system(system_prompt.to_string());
+
+    // ── 3. 调用 LLM ───────────────────────────────────────────────────────────
+
+    match model.invoke(request).await {
+        Ok(response) => {
+            let summary = response.message.content();
+            let _ = tx.send(super::AgentEvent::CompactDone(summary)).await;
+        }
+        Err(e) => {
+            let _ = tx.send(super::AgentEvent::CompactError(e.to_string())).await;
+        }
+    }
+}
