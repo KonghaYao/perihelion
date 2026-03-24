@@ -22,7 +22,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
     match ev {
         Event::Resize(w, _) => {
-            let _ = app.render_tx.try_send(RenderEvent::Resize(w));
+            let _ = app.render_tx.send(RenderEvent::Resize(w));
         }
         Event::Key(_) => {
             let input = Input::from(ev);

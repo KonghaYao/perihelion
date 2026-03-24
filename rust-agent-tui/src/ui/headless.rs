@@ -112,7 +112,7 @@ mod tests {
         // 使用 ASCII 内容避免 CJK 宽字符在 buffer 中的空格填充问题
         let vm = MessageViewModel::user("hello from user".into());
         app.view_messages.push(vm.clone());
-        let _ = app.render_tx.try_send(RenderEvent::AddMessage(vm));
+        let _ = app.render_tx.send(RenderEvent::AddMessage(vm));
         notified.await;
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
@@ -138,7 +138,7 @@ mod tests {
         // 注册监听后发送 Clear，确保不错过通知
         let notified_clear = handle.render_notify.notified();
         app.view_messages.clear();
-        let _ = app.render_tx.try_send(RenderEvent::Clear);
+        let _ = app.render_tx.send(RenderEvent::Clear);
         notified_clear.await;
 
         // 验证 RenderCache 已清空

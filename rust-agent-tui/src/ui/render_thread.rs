@@ -101,7 +101,7 @@ impl RenderTask {
     }
 
     /// 主事件循环
-    async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<RenderEvent>) {
         while let Some(event) = rx.recv().await {
             match event {
                 RenderEvent::AddMessage(vm) => {
@@ -203,14 +203,17 @@ impl RenderTask {
 }
 
 /// 启动渲染线程，返回事件发送端、共享缓存和通知
+///
+/// 使用无界 channel：渲染事件处理耗时微秒级，不会积压；
+/// 有界 channel 的 try_send 静默丢弃会导致渲染线程与 App 状态分叉。
 pub fn spawn_render_thread(
     width: u16,
 ) -> (
-    mpsc::Sender<RenderEvent>,
+    mpsc::UnboundedSender<RenderEvent>,
     Arc<RwLock<RenderCache>>,
     Arc<Notify>,
 ) {
-    let (tx, rx) = mpsc::channel(64);
+    let (tx, rx) = mpsc::unbounded_channel();
     let cache = Arc::new(RwLock::new(RenderCache::new()));
     let notify = Arc::new(Notify::new());
 
@@ -237,11 +240,10 @@ mod tests {
         // 初始 version 为 0
         assert_eq!(cache.read().version, 0);
 
-        // 发送一条用户消息
+        // 发送一条用户消息（UnboundedSender::send 是同步的）
         tx.send(RenderEvent::AddMessage(MessageViewModel::user(
             "Hello".to_string(),
         )))
-        .await
         .unwrap();
 
         // 等待渲染线程处理
@@ -259,7 +261,7 @@ mod tests {
         // 先添加一条 assistant 消息
         let mut vm = MessageViewModel::assistant();
         vm.append_chunk("Hello ");
-        tx.send(RenderEvent::AddMessage(vm)).await.unwrap();
+        tx.send(RenderEvent::AddMessage(vm)).unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let v1 = cache.read().version;
@@ -267,7 +269,6 @@ mod tests {
 
         // AppendChunk
         tx.send(RenderEvent::AppendChunk("World".to_string()))
-            .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 

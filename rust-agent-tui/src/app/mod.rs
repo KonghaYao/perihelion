@@ -331,8 +331,8 @@ pub struct App {
     agent_state_messages: Vec<rust_create_agent::messages::BaseMessage>,
     /// 当前 Agent 的 ID（用于 AgentDefineMiddleware 加载 agent 定义）
     agent_id: Option<String>,
-    /// 渲染线程事件发送端
-    pub render_tx: mpsc::Sender<RenderEvent>,
+    /// 渲染线程事件发送端（无界 channel，避免 try_send 静默丢弃导致渲染状态分叉）
+    pub render_tx: mpsc::UnboundedSender<RenderEvent>,
     /// 渲染缓存（UI 线程只读）
     pub render_cache: Arc<RwLock<RenderCache>>,
     /// 渲染线程完成通知
@@ -447,7 +447,7 @@ impl App {
             status_msg, cwd
         ));
         app.view_messages.push(sys_msg.clone());
-        let _ = app.render_tx.try_send(RenderEvent::AddMessage(sys_msg));
+        let _ = app.render_tx.send(RenderEvent::AddMessage(sys_msg));
 
         app
     }
@@ -500,7 +500,7 @@ impl App {
                 // 在 TUI 消息区域显示连接状态（不用 tracing，避免 raw mode 乱码）
                 let status_msg = format!("Relay connected (session: {})", &sid[..8.min(sid.len())]);
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(status_msg), &[]);
-                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 self.relay_client = Some(Arc::new(client));
                 self.relay_event_rx = Some(event_rx);
             }
@@ -508,7 +508,7 @@ impl App {
                 // 不用 tracing，通过 TUI 消息显示
                 let err_msg = format!("Relay connection failed: {}", e);
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
-                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
             }
         }
     }
@@ -543,7 +543,7 @@ impl App {
                 &BaseMessage::system("Relay disconnected"),
                 &[],
             );
-            let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+            let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
         }
 
         if events.is_empty() {
@@ -766,7 +766,7 @@ impl App {
 
         let user_vm = MessageViewModel::user(input.clone());
         self.view_messages.push(user_vm.clone());
-        let _ = self.render_tx.try_send(RenderEvent::AddMessage(user_vm));
+        let _ = self.render_tx.send(RenderEvent::AddMessage(user_vm));
         self.set_loading(true);
         self.scroll_offset = u16::MAX;
         self.scroll_follow = true;
@@ -884,7 +884,7 @@ impl App {
             } => {
                 let vm = MessageViewModel::tool_block(name, display, args, is_error);
                 self.view_messages.push(vm.clone());
-                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
@@ -893,10 +893,10 @@ impl App {
                     _ => {
                         let vm = MessageViewModel::assistant();
                         self.view_messages.push(vm.clone());
-                        let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                        let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                     }
                 }
-                let _ = self.render_tx.try_send(RenderEvent::AppendChunk(chunk));
+                let _ = self.render_tx.send(RenderEvent::AppendChunk(chunk));
                 (true, false, false)
             }
             AgentEvent::Done => {
@@ -907,7 +907,7 @@ impl App {
                     *is_streaming = false;
                 }
                 // 通知渲染线程清除流式指示器
-                let _ = self.render_tx.try_send(RenderEvent::StreamingDone);
+                let _ = self.render_tx.send(RenderEvent::StreamingDone);
                 self.set_loading(false);
                 self.agent_rx = None;
                 if let Some(start) = self.task_start_time {
@@ -927,14 +927,14 @@ impl App {
                     "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
                 );
                 self.view_messages.push(vm.clone());
-                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
                 (true, false, false)
             }
             AgentEvent::Error(_e) => {
                 let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), None, true);
                 self.view_messages.push(vm.clone());
-                let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 self.set_loading(false);
                 self.agent_rx = None;
                 if let Some(start) = self.task_start_time {
@@ -1059,7 +1059,7 @@ impl App {
                 Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
                     let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), None, true);
                     self.view_messages.push(vm.clone());
-                    let _ = self.render_tx.try_send(RenderEvent::AddMessage(vm));
+                    let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                     self.set_loading(false);
                     self.agent_rx = None;
                     return true;
@@ -1213,7 +1213,7 @@ impl App {
         self.thread_browser = None;
 
         // 通知渲染线程加载历史消息
-        let _ = self.render_tx.try_send(RenderEvent::LoadHistory(
+        let _ = self.render_tx.send(RenderEvent::LoadHistory(
             self.view_messages.clone(),
         ));
     }
@@ -1226,7 +1226,7 @@ impl App {
         self.persisted_count = 0;
         self.todo_items.clear();
         self.thread_browser = None;
-        let _ = self.render_tx.try_send(RenderEvent::Clear);
+        let _ = self.render_tx.send(RenderEvent::Clear);
     }
 
     /// 打开 thread 浏览面板（通过命令触发）
