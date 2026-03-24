@@ -89,7 +89,81 @@ impl AskUserInvoker for TuiAskUserHandler {
             return vec!["[UI 已断开]".to_string(); n];
         }
         // 等待 TUI 后台任务通过原始 request 的 response_tx 回复
-        response_rx.await.unwrap_or_else(|_| vec!["[等待超时]".to_string(); n])
+        // oneshot sender drop（App 退出）时返回统一的 "UI 已断开" fallback，与 mpsc 失败路径保持一致
+        response_rx.await.unwrap_or_else(|_| vec!["[UI 已断开]".to_string(); n])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_agent_middlewares::prelude::AskUserQuestionData;
+
+    /// 验证：approval_rx drop（TUI 退出）时，HITL 请求立即返回 Reject 不阻塞
+    #[tokio::test]
+    async fn test_hitl_mpsc_rx_drop_returns_reject() {
+        let (tx, rx) = mpsc::channel::<ApprovalEvent>(4);
+        let handler = TuiHitlHandler { approval_tx: tx };
+        let items = vec![BatchItem {
+            tool_name: "bash".to_string(),
+            input: serde_json::json!({}),
+        }];
+
+        let handle = tokio::spawn(async move {
+            handler.request_approval_batch(&items).await
+        });
+
+        // rx drop → approval_tx.send() 失败 → 立即返回 Reject
+        drop(rx);
+        let decisions = handle.await.unwrap();
+        assert!(matches!(decisions[0], HitlDecision::Reject));
+    }
+
+    /// 验证：oneshot response_tx drop（hitl_prompt 被 drop）时，接收端立即返回 Reject 不阻塞
+    #[tokio::test]
+    async fn test_hitl_response_tx_drop_unblocks_receiver() {
+        let (tx, mut rx) = mpsc::channel::<ApprovalEvent>(4);
+        let handler = TuiHitlHandler { approval_tx: tx };
+        let items = vec![BatchItem {
+            tool_name: "bash".to_string(),
+            input: serde_json::json!({}),
+        }];
+
+        let handle = tokio::spawn(async move {
+            handler.request_approval_batch(&items).await
+        });
+
+        // 收到请求后 drop response_tx（不发送），模拟 App 退出时 hitl_prompt 被 drop
+        if let Some(ApprovalEvent::Batch(req)) = rx.recv().await {
+            drop(req.response_tx);
+        }
+        let decisions = handle.await.unwrap();
+        assert!(matches!(decisions[0], HitlDecision::Reject),
+            "response_tx drop 应返回 Reject");
+    }
+
+    /// 验证：AskUser oneshot response_tx drop 时，ask_batch 立即返回 "UI 已断开" 不阻塞
+    #[tokio::test]
+    async fn test_ask_user_response_tx_drop_returns_fallback() {
+        let (tx, mut rx) = mpsc::channel::<ApprovalEvent>(4);
+        let handler = TuiAskUserHandler { tx };
+        let questions = vec![AskUserQuestionData {
+            tool_call_id: "q1".to_string(),
+            description: "test?".to_string(),
+            multi_select: false,
+            options: vec![],
+            allow_custom_input: true,
+            placeholder: None,
+        }];
+
+        let handle = tokio::spawn(async move { handler.ask_batch(questions).await });
+
+        // 收到请求后 drop response_tx，模拟 AskUserBatchPrompt 被 drop
+        if let Some(ApprovalEvent::AskUserBatch(req)) = rx.recv().await {
+            drop(req.response_tx);
+        }
+        let answers = handle.await.unwrap();
+        assert_eq!(answers[0], "[UI 已断开]", "response_tx drop 应返回 UI 已断开");
     }
 }
 
