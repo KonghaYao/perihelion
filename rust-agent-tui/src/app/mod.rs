@@ -954,39 +954,34 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::MessageAdded(msg) => {
-                // 处理完整的消息添加（主要用于最终 AI 回答）
+                // 只处理工具调用消息的渲染；纯文本 AI 消息由 AssistantChunk 处理
                 match msg {
                     rust_create_agent::messages::BaseMessage::Ai {
                         content,
                         tool_calls,
                         ..
                     } => {
-                        // 提取文本内容
-                        let text = match &content {
-                            rust_create_agent::messages::MessageContent::Text(t) => t.clone(),
-                            rust_create_agent::messages::MessageContent::Blocks(blocks) => blocks
-                                .iter()
-                                .filter_map(|b| match b {
-                                    rust_create_agent::messages::ContentBlock::Text { text } => {
-                                        Some(text.clone())
-                                    }
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>()
-                                .join(""),
-                            _ => String::new(),
-                        };
+                        // 工具调用消息需要同步到 UI（折叠状态、工具调用列表）
+                        if !tool_calls.is_empty() {
+                            let text = match &content {
+                                rust_create_agent::messages::MessageContent::Text(t) => t.clone(),
+                                rust_create_agent::messages::MessageContent::Blocks(blocks) => blocks
+                                    .iter()
+                                    .filter_map(|b| match b {
+                                        rust_create_agent::messages::ContentBlock::Text { text } => {
+                                            Some(text.clone())
+                                        }
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(""),
+                                _ => String::new(),
+                            };
 
-                        // 检查是否为工具调用消息
-                        let is_tool_call_message = !tool_calls.is_empty();
-
-                        // 创建或更新 assistant 消息
-                        match self.view_messages.last_mut() {
-                            Some(m) if m.is_assistant() => {
-                                // 追加文本到现有的 assistant 消息
-                                if !text.is_empty() {
-                                    // 如果是工具调用消息，直接添加文本 block，不使用 append_chunk
-                                    if is_tool_call_message {
+                            match self.view_messages.last_mut() {
+                                Some(m) if m.is_assistant() => {
+                                    // 追加文本到现有的 assistant 消息
+                                    if !text.is_empty() {
                                         if let MessageViewModel::AssistantBubble {
                                             blocks, ..
                                         } = m
@@ -997,16 +992,11 @@ impl App {
                                                 dirty: false,
                                             });
                                         }
-                                    } else {
-                                        m.append_chunk(&text);
                                     }
                                 }
-                            }
-                            _ => {
-                                // 创建新的 assistant 消息
-                                let mut vm = MessageViewModel::assistant();
-                                if is_tool_call_message {
-                                    // 工具调用消息：设置折叠状态并直接添加文本 block
+                                _ => {
+                                    // 创建新的 assistant 消息（折叠状态）
+                                    let mut vm = MessageViewModel::assistant();
                                     if let MessageViewModel::AssistantBubble {
                                         collapsed,
                                         blocks,
@@ -1022,18 +1012,12 @@ impl App {
                                             });
                                         }
                                     }
-                                } else if !text.is_empty() {
-                                    // 普通消息：使用 append_chunk
-                                    vm.append_chunk(&text);
-                                }
-
-                                // 只有当消息有内容时才添加
-                                if !text.is_empty() || is_tool_call_message {
                                     self.view_messages.push(vm.clone());
                                     let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                                 }
                             }
                         }
+                        // 纯文本 AI 消息由 AssistantChunk 事件处理，此处不重复渲染
                     }
                     _ => {}
                 }

@@ -3,13 +3,13 @@ use ratatui::text::Text;
 use super::message_view::ContentBlockView;
 
 /// 解析 markdown 文本为 ratatui Text
+/// 目前简单返回原始文本（后续可替换为更复杂的 markdown 渲染）
 pub fn parse_markdown(input: &str) -> Text<'static> {
     if input.is_empty() {
         return Text::raw("");
     }
-    let rendered = tui_markdown::from_str(input);
-    // 转换为 'static 生命周期（克隆文本内容）
-    Text::from(rendered.to_string())
+    // TODO: 实现更完整的 markdown 渲染
+    Text::from(input.to_string())
 }
 
 /// 确保 block 已渲染（dirty 为 true 时重新解析）

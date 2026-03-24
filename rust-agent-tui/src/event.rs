@@ -1,6 +1,6 @@
 use anyhow::Result;
 use base64::Engine as _;
-use ratatui::crossterm::event::{self, Event, MouseEventKind};
+use ratatui::crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
 use ratatui_textarea::{Input, Key};
 use std::time::Duration;
 
@@ -40,7 +40,11 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
         Event::Resize(w, _) => {
             let _ = app.render_tx.send(RenderEvent::Resize(w));
         }
-        Event::Key(_) => {
+        Event::Key(key_event) => {
+            // 只处理 Press 事件，忽略 Release（防止按键重复触发）
+            if key_event.kind == KeyEventKind::Release {
+                return Ok(Some(Action::Redraw));
+            }
             let input = Input::from(ev);
 
             // Thread 浏览面板优先处理

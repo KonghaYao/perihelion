@@ -99,8 +99,8 @@ mod tests {
         notified.await;
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
-        // ToolBlock 显示 display 字段（"读取 src/main.rs"）或 name 字段
-        let has_tool = snap.iter().any(|l| l.contains("read_file") || l.contains("读取 src/main.rs") || l.contains("⚙"));
+        // ToolBlock 显示 display 字段或 name 字段
+        let has_tool = snap.iter().any(|l| l.contains("read_file") || l.contains("ReadFile"));
         assert!(has_tool, "应显示工具调用块，实际内容:\n{}", snap.join("\n"));
     }
 

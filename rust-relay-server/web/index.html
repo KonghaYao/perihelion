@@ -4,52 +4,81 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agent Remote Control</title>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- highlight.js CSS -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<!-- highlight.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<!-- marked.js -->
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<!-- DOMPurify for XSS sanitization -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<!-- Custom styles -->
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
-  <header id="tab-bar">
-    <div id="tabs"></div>
-    <div id="connection-status" class="status-disconnected">断线</div>
-  </header>
 
-  <div id="todo-panel" class="hidden">
-    <div class="panel-title">📋 TODO</div>
-    <ul id="todo-list"></ul>
-  </div>
-
-  <main id="messages"></main>
-
-  <!-- HITL Modal -->
-  <div id="hitl-modal" class="modal hidden">
-    <div class="modal-overlay"></div>
-    <div class="modal-card">
-      <h3>工具审批</h3>
-      <div id="hitl-items"></div>
-      <div class="modal-actions">
-        <button id="hitl-approve-all" class="btn-approve">全部批准</button>
-        <button id="hitl-reject-all" class="btn-reject">全部拒绝</button>
+  <!-- 左侧边栏 -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <div class="text-sm font-bold" style="color: var(--accent)">在线 Agent</div>
+    </div>
+    <div id="agent-list" class="flex-1 overflow-y-auto"></div>
+    <div id="sidebar-footer">
+      <div id="connection-indicator">
+        <span class="status-dot"></span>
+        <span id="connection-text">断线</span>
       </div>
     </div>
-  </div>
+  </aside>
 
-  <!-- AskUser Modal -->
-  <div id="askuser-modal" class="modal hidden">
-    <div class="modal-overlay"></div>
-    <div class="modal-card">
-      <h3>请回答</h3>
-      <div id="askuser-items"></div>
-      <div class="modal-actions">
-        <button id="askuser-submit" class="btn-approve">提交</button>
-      </div>
+  <!-- 右侧主内容区 -->
+  <main id="main-content">
+    <!-- 分屏工具栏 -->
+    <div id="layout-toolbar">
+      <button id="btn-cols-1" class="layout-btn active" title="单栏">1</button>
+      <button id="btn-cols-2" class="layout-btn" title="双栏">2</button>
+      <button id="btn-cols-3" class="layout-btn" title="三栏">3</button>
     </div>
-  </div>
+    <!-- 分屏容器 -->
+    <div id="pane-container"></div>
+  </main>
 
-  <footer id="input-bar">
-    <input type="text" id="input" placeholder="输入消息..." autocomplete="off" />
-    <button id="send-btn">发送</button>
-  </footer>
 </div>
-<script src="app.js"></script>
+
+<!-- HITL 弹窗（动态创建，初始隐藏） -->
+<div id="hitl-modal" class="modal hidden">
+  <div class="modal-overlay"></div>
+  <div class="modal-card">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-base font-bold" style="color: var(--text-primary)">工具审批</h3>
+      <button id="hitl-close" class="text-gray-400 hover:text-white">&times;</button>
+    </div>
+    <div id="hitl-items"></div>
+    <div class="modal-actions">
+      <button id="hitl-approve-all" class="btn-approve">全部批准</button>
+      <button id="hitl-reject-all" class="btn-reject">全部拒绝</button>
+    </div>
+  </div>
+</div>
+
+<!-- AskUser 弹窗（动态创建，初始隐藏） -->
+<div id="askuser-modal" class="modal hidden">
+  <div class="modal-overlay"></div>
+  <div class="modal-card">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-base font-bold" style="color: var(--text-primary)">请回答</h3>
+      <button id="askuser-close" class="text-gray-400 hover:text-white">&times;</button>
+    </div>
+    <div id="askuser-items"></div>
+    <div class="modal-actions">
+      <button id="askuser-submit" class="btn-approve">提交</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
 </body>
 </html>
