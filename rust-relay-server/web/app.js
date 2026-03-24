@@ -18,6 +18,12 @@
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');
   const statusEl = document.getElementById('connection-status');
+
+  // ─── closeDialog（弹窗管理）────────────────────────────────────
+  function closeDialog(type) {
+    const modal = document.getElementById(type + '-modal');
+    if (modal) modal.classList.add('hidden');
+  }
   const hitlModal = document.getElementById('hitl-modal');
   const hitlItems = document.getElementById('hitl-items');
   const askuserModal = document.getElementById('askuser-modal');
@@ -279,6 +285,14 @@
         agent.pendingAskUser = { questions: event.questions || [] };
         if (sessionId !== activeSessionId) renderTabs();
         else showAskUserDialog(agent.pendingAskUser);
+        break;
+      case 'approval_resolved':
+        // HITL 已解决，清除弹窗状态
+        if (agent.pendingHitl) {
+          agent.pendingHitl = null;
+          closeDialog('hitl');
+          renderMessages();
+        }
         break;
     }
   }
@@ -543,8 +557,7 @@
       renderTodoPanel();
     } else {
       agent.ws.send(JSON.stringify({ type: 'user_input', text }));
-      agent.messages.push({ type: 'user', text });
-      renderMessages();
+      // 不要本地 push，等 Agent 广播 MessageAdded 再渲染
     }
 
     inputEl.value = '';

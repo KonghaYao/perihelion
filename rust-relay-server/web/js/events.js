@@ -89,6 +89,11 @@ export function handleSingleEvent(sessionId, event) {
     agent.maxSeq = event.seq;
   }
 
+  // 基于 seq 去重：如果此 seq 已在 messages 中，跳过
+  if (event.seq !== undefined && agent.messages.some(m => m.seq === event.seq)) {
+    return;
+  }
+
   // 分流：BaseMessage 格式（role 字段） vs 旧 AgentEvent 格式（type 字段）
   if (event.role !== undefined) {
     handleBaseMessage(agent, event);
@@ -105,7 +110,7 @@ export function handleBaseMessage(agent, event) {
 
   switch (event.role) {
     case 'user':
-      agent.messages.push({ type: 'user', text });
+      agent.messages.push({ type: 'user', text, seq: event.seq });
       break;
 
     case 'assistant':
@@ -233,6 +238,16 @@ export function handleLegacyEvent(agent, event) {
     case 'ask_user_batch':
       agent.pendingAskUser = { questions: event.questions || [] };
       renderPaneForAllPanes();
+      break;
+
+    case 'approval_resolved':
+      // HITL 已解决，清除弹窗状态
+      if (agent.pendingHitl) {
+        agent.pendingHitl = null;
+        // 关闭 HITL 弹窗（如果存在）
+        closeDialog('hitl');
+        renderPaneForAllPanes();
+      }
       break;
   }
 }
