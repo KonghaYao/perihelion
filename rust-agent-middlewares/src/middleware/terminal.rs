@@ -150,7 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bash_normal_command() {
-        let tool = BashTool::new("/tmp");
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({"command": "echo hello"}))
             .await
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bash_nonzero_exit_code() {
-        let tool = BashTool::new("/tmp");
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({"command": "exit 42"}))
             .await
@@ -171,12 +171,20 @@ mod tests {
     /// 验证超时后在合理时间内返回，且 kill_on_drop 确保子进程被清理
     #[tokio::test]
     async fn test_bash_timeout_returns_quickly() {
-        let tool = BashTool::new("/tmp");
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
         let start = Instant::now();
+
+        // Windows 用 ping 模拟 sleep，Unix 用 sleep
+        let (sleep_cmd, timeout_secs) = if cfg!(target_os = "windows") {
+            ("ping -n 60 127.0.0.1", 1)
+        } else {
+            ("sleep 60", 1)
+        };
+
         let result = tool
             .invoke(serde_json::json!({
-                "command": "sleep 60",
-                "timeout_secs": 1
+                "command": sleep_cmd,
+                "timeout_secs": timeout_secs
             }))
             .await
             .unwrap();
@@ -196,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bash_stderr_captured() {
-        let tool = BashTool::new("/tmp");
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({"command": "echo err >&2"}))
             .await
