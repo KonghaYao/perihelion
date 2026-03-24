@@ -80,6 +80,7 @@ pub async fn run_universal_agent(
         let msg = match event {
             ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::TextChunk(text) => AgentEvent::AssistantChunk(text),
+            ExecutorEvent::MessageAdded(msg) => AgentEvent::MessageAdded(msg),
             ExecutorEvent::ToolStart { tool_call_id, name, input } => AgentEvent::ToolCall {
                 tool_call_id,
                 args: format_tool_args(&name, &input, Some(cwd_for_handler.as_str())),
@@ -114,8 +115,7 @@ pub async fn run_universal_agent(
             // 无需转发的内部事件
             ExecutorEvent::ToolEnd { .. }
             | ExecutorEvent::StepDone { .. }
-            | ExecutorEvent::StateSnapshot(_)
-            | ExecutorEvent::MessageAdded(_) => return,
+            | ExecutorEvent::StateSnapshot(_) => return,
         };
         let _ = tx_event.try_send(msg);
     }));

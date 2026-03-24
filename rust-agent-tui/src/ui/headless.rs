@@ -145,4 +145,72 @@ mod tests {
         let cache = app.render_cache.read();
         assert_eq!(cache.total_lines, 0, "清空后 RenderCache 应为空");
     }
+
+    #[tokio::test]
+    async fn test_tool_call_message_collapsed_by_default() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 创建一个带工具调用的 AI 消息
+        let tool_calls = vec![rust_create_agent::messages::ToolCallRequest {
+            id: "tc1".into(),
+            name: "bash".into(),
+            arguments: serde_json::json!({"command": "ls"}),
+        }];
+
+        let ai_msg = rust_create_agent::messages::BaseMessage::ai_with_tool_calls(
+            "I'll run ls for you",
+            tool_calls,
+        );
+
+        // 监听渲染事件
+        let notified = handle.render_notify.notified();
+
+        // 发送带工具调用的消息
+        app.push_agent_event(AgentEvent::MessageAdded(ai_msg));
+        app.process_pending_events();
+
+        // 等待渲染
+        notified.await;
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+        let snap = handle.snapshot();
+        // 默认情况下，工具调用消息应该是隐藏的（collapsed=true）
+        let has_tool_call_text = snap.iter().any(|l| l.contains("I'll run ls for you") || l.contains("bash"));
+        assert!(!has_tool_call_text, "工具调用消息默认应该是隐藏的，但实际显示为:\n{}", snap.join("\n"));
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_message_visible_when_toggled() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 创建一个带工具调用的 AI 消息
+        let tool_calls = vec![rust_create_agent::messages::ToolCallRequest {
+            id: "tc1".into(),
+            name: "bash".into(),
+            arguments: serde_json::json!({"command": "ls"}),
+        }];
+
+        let ai_msg = rust_create_agent::messages::BaseMessage::ai_with_tool_calls(
+            "I'll run ls for you",
+            tool_calls,
+        );
+
+        // 发送带工具调用的消息
+        let notified1 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::MessageAdded(ai_msg));
+        app.process_pending_events();
+        notified1.await;
+
+        // 切换显示状态
+        let notified2 = handle.render_notify.notified();
+        app.toggle_collapsed_messages();
+        notified2.await;
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+        let snap = handle.snapshot();
+        // 切换后，工具调用消息应该可见
+        let has_tool_call_text = snap.iter().any(|l| l.contains("I'll run ls for you") || l.contains("bash"));
+        assert!(has_tool_call_text, "切换后工具调用消息应该可见，但实际内容为:\n{}", snap.join("\n"));
+    }
 }

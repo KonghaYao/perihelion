@@ -45,6 +45,8 @@ pub enum RenderEvent {
     Clear,
     /// 加载历史消息（批量）
     LoadHistory(Vec<MessageViewModel>),
+    /// 切换工具调用消息的显示状态
+    ToggleToolMessages(bool),
 }
 
 /// 渲染线程，持有消息数据的私有副本，在后台执行渲染计算
@@ -53,11 +55,19 @@ struct RenderTask {
     cache: Arc<RwLock<RenderCache>>,
     notify: Arc<Notify>,
     width: u16,
+    show_tool_messages: bool,
 }
 
 impl RenderTask {
     /// 渲染单条消息为 lines（含前后空行分隔）
-    fn render_one(vm: &mut MessageViewModel, width: usize) -> Vec<Line<'static>> {
+    fn render_one(vm: &mut MessageViewModel, index: usize, width: usize, show_tool_messages: bool) -> Vec<Line<'static>> {
+        // 如果是折叠的工具调用消息，根据 show_tool_messages 决定是否显示
+        if let MessageViewModel::AssistantBubble { collapsed: true, .. } = vm {
+            if !show_tool_messages {
+                return Vec::new();
+            }
+        }
+
         let is_conversational = matches!(
             vm,
             MessageViewModel::UserBubble { .. } | MessageViewModel::AssistantBubble { .. }
@@ -74,7 +84,7 @@ impl RenderTask {
         if is_conversational {
             lines.push(Line::from(""));
         }
-        lines.extend(render_view_model(vm, width));
+        lines.extend(render_view_model(vm, index, width));
         if is_conversational {
             lines.push(Line::from(""));
         }
@@ -82,14 +92,14 @@ impl RenderTask {
     }
 
     /// 全量重新渲染所有消息，写入缓存
-    fn rebuild_all(&mut self) {
+    fn rebuild_all(&mut self, show_tool_messages: bool) {
         let width = self.width.saturating_sub(1) as usize;
         let mut all_lines: Vec<Line<'static>> = Vec::new();
         let mut offsets: Vec<usize> = Vec::new();
 
-        for vm in &mut self.messages {
+        for (i, vm) in self.messages.iter_mut().enumerate() {
             offsets.push(all_lines.len());
-            all_lines.extend(Self::render_one(vm, width));
+            all_lines.extend(Self::render_one(vm, i + 1, width, show_tool_messages));
         }
 
         let total = all_lines.len();
@@ -108,7 +118,7 @@ impl RenderTask {
                     self.messages.push(vm);
                     let width = self.width.saturating_sub(1) as usize;
                     let idx = self.messages.len() - 1;
-                    let lines = Self::render_one(&mut self.messages[idx], width);
+                    let lines = Self::render_one(&mut self.messages[idx], idx + 1, width, self.show_tool_messages);
 
                     let mut cache = self.cache.write();
                     let offset = cache.lines.len();
@@ -140,7 +150,7 @@ impl RenderTask {
                     // 重新渲染最后一条消息，替换缓存中对应区间
                     let width = self.width.saturating_sub(1) as usize;
                     let last_idx = self.messages.len() - 1;
-                    let new_lines = Self::render_one(&mut self.messages[last_idx], width);
+                    let new_lines = Self::render_one(&mut self.messages[last_idx], last_idx + 1, width, self.show_tool_messages);
 
                     let mut cache = self.cache.write();
                     // 获取最后一条消息的起始偏移
@@ -169,7 +179,7 @@ impl RenderTask {
                     let width = self.width.saturating_sub(1) as usize;
                     if !self.messages.is_empty() {
                         let last_idx = self.messages.len() - 1;
-                        let new_lines = Self::render_one(&mut self.messages[last_idx], width);
+                        let new_lines = Self::render_one(&mut self.messages[last_idx], last_idx + 1, width, self.show_tool_messages);
                         let mut cache = self.cache.write();
                         if let Some(&start) = cache.message_offsets.last() {
                             cache.lines.truncate(start);
@@ -181,7 +191,7 @@ impl RenderTask {
                 }
                 RenderEvent::Resize(new_width) => {
                     self.width = new_width;
-                    self.rebuild_all();
+                    self.rebuild_all(self.show_tool_messages);
                 }
                 RenderEvent::Clear => {
                     self.messages.clear();
@@ -193,7 +203,11 @@ impl RenderTask {
                 }
                 RenderEvent::LoadHistory(vms) => {
                     self.messages = vms;
-                    self.rebuild_all();
+                    self.rebuild_all(self.show_tool_messages);
+                }
+                RenderEvent::ToggleToolMessages(show) => {
+                    self.show_tool_messages = show;
+                    self.rebuild_all(self.show_tool_messages);
                 }
             }
 
@@ -222,6 +236,7 @@ pub fn spawn_render_thread(
         cache: Arc::clone(&cache),
         notify: Arc::clone(&notify),
         width,
+        show_tool_messages: false,
     };
 
     tokio::spawn(task.run(rx));

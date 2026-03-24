@@ -27,16 +27,12 @@ pub fn format_tool_args(
 ) -> Option<String> {
     match tool {
         "bash" => input["command"].as_str().map(|s| truncate(s, 60)),
-        "read_file" | "write_file" | "edit_file" => {
-            input["file_path"]
-                .as_str()
-                .map(|p| truncate(&strip_cwd(p, cwd), 60))
-        }
-        "glob_files" => {
-            input["pattern"]
-                .as_str()
-                .map(|p| truncate(&strip_cwd(p, cwd), 60))
-        }
+        "read_file" | "write_file" | "edit_file" => input["file_path"]
+            .as_str()
+            .map(|p| truncate(&strip_cwd(p, cwd), 60)),
+        "glob_files" => input["pattern"]
+            .as_str()
+            .map(|p| truncate(&strip_cwd(p, cwd), 60)),
         "search_files_rg" => input["args"].as_array().map(|a| {
             a.iter()
                 .filter_map(|x| x.as_str())
@@ -49,15 +45,6 @@ pub fn format_tool_args(
             Some(format!("{} {}", op, strip_cwd(path, cwd)))
         }
         _ => None,
-    }
-}
-
-/// 兼容旧调用点：无 cwd，用于历史消息回放
-pub fn format_tool_call_display(tool: &str, input: &serde_json::Value) -> String {
-    let name = format_tool_name(tool);
-    match format_tool_args(tool, input, None) {
-        Some(a) => format!("{}({})", name, a),
-        None => name,
     }
 }
 

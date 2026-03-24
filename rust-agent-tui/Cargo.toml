@@ -30,7 +30,9 @@ dirs-next = "2"
 ratatui-textarea = "0.8"
 tui-markdown = "0.3"
 parking_lot = "0.12"
-rust-relay-server = { path = "../rust-relay-server", default-features = false, features = ["client"] }
+rust-relay-server = { path = "../rust-relay-server", default-features = false, features = [
+    "client",
+] }
 arboard = "3"
-png = "0.17"
+png = "0.18"
 base64 = { version = "0.22", features = ["alloc"] }

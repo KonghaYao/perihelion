@@ -17,6 +17,8 @@ pub enum MessageViewModel {
     AssistantBubble {
         blocks: Vec<ContentBlockView>,
         is_streaming: bool,
+        /// 折叠状态：true 表示完全隐藏，false 表示展开显示
+        collapsed: bool,
     },
     /// 工具调用结果
     ToolBlock {
@@ -64,7 +66,7 @@ impl MessageViewModel {
             }
             BaseMessage::Ai {
                 content,
-                tool_calls: _,
+                tool_calls,
             } => {
                 let blocks: Vec<ContentBlockView> = content
                     .content_blocks()
@@ -102,6 +104,7 @@ impl MessageViewModel {
                 MessageViewModel::AssistantBubble {
                     blocks,
                     is_streaming: false,
+                    collapsed: !tool_calls.is_empty(),
                 }
             }
             BaseMessage::Tool {
@@ -143,7 +146,11 @@ impl MessageViewModel {
 
     /// 追加流式文本 chunk
     pub fn append_chunk(&mut self, chunk: &str) {
-        if let MessageViewModel::AssistantBubble { blocks, .. } = self {
+        if let MessageViewModel::AssistantBubble { blocks, collapsed, .. } = self {
+            // 如果有内容追加，自动展开
+            if *collapsed && !chunk.is_empty() {
+                *collapsed = false;
+            }
             if let Some(last) = blocks.last_mut() {
                 if let ContentBlockView::Text { raw, dirty, .. } = last {
                     raw.push_str(chunk);
@@ -162,11 +169,17 @@ impl MessageViewModel {
         }
     }
 
-    /// 切换折叠状态（仅对 ToolBlock 生效）
+    /// 切换折叠状态（仅对 ToolBlock 和 AssistantBubble 生效）
     #[allow(dead_code)]
     pub fn toggle_collapse(&mut self) {
-        if let MessageViewModel::ToolBlock { collapsed, .. } = self {
-            *collapsed = !*collapsed;
+        match self {
+            MessageViewModel::ToolBlock { collapsed, .. } => {
+                *collapsed = !*collapsed;
+            }
+            MessageViewModel::AssistantBubble { collapsed, .. } => {
+                *collapsed = !*collapsed;
+            }
+            _ => {}
         }
     }
 
@@ -186,6 +199,7 @@ impl MessageViewModel {
         MessageViewModel::AssistantBubble {
             blocks: Vec::new(),
             is_streaming: true,
+            collapsed: false,
         }
     }
 

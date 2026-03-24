@@ -178,6 +178,7 @@ pub struct ModelPanel {
     pub buf_thinking_enabled: bool,
     pub buf_thinking_budget: String,
     /// 内容滚动偏移
+    #[allow(dead_code)]
     pub scroll_offset: u16,
 }
 

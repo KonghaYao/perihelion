@@ -8,9 +8,7 @@ pub mod tool_display;
 use ratatui::style::{Color, Style};
 use ratatui_textarea::TextArea;
 use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserQuestionData};
-use rust_agent_middlewares::prelude::{
-    BatchItem, HitlDecision, SkillMetadata, TodoItem,
-};
+use rust_agent_middlewares::prelude::{BatchItem, HitlDecision, SkillMetadata, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::AgentCancellationToken;
 use rust_create_agent::messages::{BaseMessage, ContentBlock, MessageContent};
@@ -21,13 +19,14 @@ use crate::config::ZenConfig;
 use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
 
 // Re-export MessageViewModel from ui::message_view
-pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
-pub use hitl::{ApprovalEvent, BatchApprovalRequest};
-pub use agent_panel::AgentPanel;
-pub use model_panel::ModelPanel;
 use crate::command::agents::AgentItem;
-use std::sync::Arc;
+use crate::ui::markdown::parse_markdown;
+pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
+pub use agent_panel::AgentPanel;
+pub use hitl::{ApprovalEvent, BatchApprovalRequest};
+pub use model_panel::ModelPanel;
 use parking_lot::RwLock;
+use std::sync::Arc;
 use tokio::sync::Notify;
 use tracing::Instrument;
 
@@ -44,6 +43,8 @@ pub enum AgentEvent {
         is_error: bool,
     },
     AssistantChunk(String),
+    /// 新消息添加到状态（包括最终 AI 回答）
+    MessageAdded(rust_create_agent::messages::BaseMessage),
     Done,
     Error(String),
     /// 用户中断（Ctrl+C），工具已以 error 结尾，消息已持久化
@@ -357,16 +358,20 @@ pub struct App {
     /// 渲染缓存（UI 线程只读）
     pub render_cache: Arc<RwLock<RenderCache>>,
     /// 渲染线程完成通知
+    #[allow(dead_code)]
     pub render_notify: Arc<Notify>,
     /// UI 线程记录的最后绘制版本
     pub last_render_version: u64,
     /// 测试用事件注入队列（仅测试时使用，生产时保持为空）
     #[doc(hidden)]
+    #[allow(dead_code)]
     pub agent_event_queue: Vec<AgentEvent>,
     /// Loading 期间的消息缓冲区（完成后合并发送）
     pub pending_messages: Vec<String>,
     /// 待发送的图片附件（Ctrl+V 粘贴图片后缓存，发送时消费）
     pub pending_attachments: Vec<PendingAttachment>,
+    /// 是否显示工具调用消息（默认 false，完全隐藏）
+    pub show_tool_messages: bool,
     /// Relay 客户端（远程控制，可选）
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     /// Relay 事件接收端（来自 Web 端的控制消息）
@@ -385,8 +390,10 @@ impl App {
         // 优先从 ~/.zen-code/settings.json 加载配置，失败时 fallback 到环境变量
         let zen_config = crate::config::load().ok();
 
-        let provider_from_config = zen_config.as_ref().and_then(agent::LlmProvider::from_config);
-        let (provider_name, model_name, status_msg) =
+        let provider_from_config = zen_config
+            .as_ref()
+            .and_then(agent::LlmProvider::from_config);
+        let (provider_name, model_name, _status_msg) =
             match provider_from_config.or_else(agent::LlmProvider::from_env) {
                 Some(p) => {
                     let name = p.display_name().to_string();
@@ -471,14 +478,12 @@ impl App {
             agent_event_queue: Vec::new(),
             pending_messages: Vec::new(),
             pending_attachments: Vec::new(),
+            show_tool_messages: false,
             relay_client: None,
             relay_event_rx: None,
         };
 
-        let sys_msg = MessageViewModel::system(format!(
-            "Rust Agent TUI 已启动 | {} | 工作目录: {} | 工具: read_file, write_file, glob_files, search_files_rg, bash",
-            status_msg, cwd
-        ));
+        let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));
         app.view_messages.push(sys_msg.clone());
         let _ = app.render_tx.send(RenderEvent::AddMessage(sys_msg));
 
@@ -492,7 +497,8 @@ impl App {
         let (relay_url, relay_token, relay_name) = if let Some(c) = cli {
             let token = c.token.clone().unwrap_or_else(|| {
                 // token 回退到 settings.json
-                self.zen_config.as_ref()
+                self.zen_config
+                    .as_ref()
                     .and_then(|cfg| cfg.config.extra.get("relay_token"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
@@ -615,9 +621,7 @@ impl App {
                                     HitlDecision::Edit(new_input)
                                 }
                                 "Respond" => {
-                                    HitlDecision::Respond(
-                                        d.input.clone().unwrap_or_default(),
-                                    )
+                                    HitlDecision::Respond(d.input.clone().unwrap_or_default())
                                 }
                                 _ => HitlDecision::Reject,
                             })
@@ -628,9 +632,11 @@ impl App {
                 WebMessage::AskUserResponse { answers } => {
                     if let Some(prompt) = self.ask_user_prompt.as_mut() {
                         for (q_text, answer) in &answers {
-                            if let Some(q) = prompt.questions.iter_mut().find(|q| {
-                                q.data.description == *q_text
-                            }) {
+                            if let Some(q) = prompt
+                                .questions
+                                .iter_mut()
+                                .find(|q| q.data.description == *q_text)
+                            {
                                 q.custom_input = answer.clone();
                                 q.in_custom_input = true;
                             }
@@ -688,6 +694,14 @@ impl App {
     pub fn scroll_down(&mut self) {
         self.scroll_offset = self.scroll_offset.saturating_add(3);
         self.scroll_follow = false;
+    }
+
+    /// 展开/折叠所有工具调用消息
+    pub fn toggle_collapsed_messages(&mut self) {
+        self.show_tool_messages = !self.show_tool_messages;
+        let _ = self
+            .render_tx
+            .send(RenderEvent::ToggleToolMessages(self.show_tool_messages));
     }
 
     /// 获取当前提示浮层的候选数量和类型
@@ -880,7 +894,10 @@ impl App {
         } else {
             let mut blocks = vec![ContentBlock::text(input.clone())];
             for att in &attachments {
-                blocks.push(ContentBlock::image_base64(&att.media_type, &att.base64_data));
+                blocks.push(ContentBlock::image_base64(
+                    &att.media_type,
+                    &att.base64_data,
+                ));
             }
             AgentInput::blocks(MessageContent::blocks(blocks))
         };
@@ -925,7 +942,7 @@ impl App {
     fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         match event {
             AgentEvent::ToolCall {
-                tool_call_id: _,
+                tool_call_id: _tool_call_id,
                 name,
                 display,
                 args,
@@ -934,6 +951,92 @@ impl App {
                 let vm = MessageViewModel::tool_block(name, display, args, is_error);
                 self.view_messages.push(vm.clone());
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                (true, false, false)
+            }
+            AgentEvent::MessageAdded(msg) => {
+                // 处理完整的消息添加（主要用于最终 AI 回答）
+                match msg {
+                    rust_create_agent::messages::BaseMessage::Ai {
+                        content,
+                        tool_calls,
+                        ..
+                    } => {
+                        // 提取文本内容
+                        let text = match &content {
+                            rust_create_agent::messages::MessageContent::Text(t) => t.clone(),
+                            rust_create_agent::messages::MessageContent::Blocks(blocks) => blocks
+                                .iter()
+                                .filter_map(|b| match b {
+                                    rust_create_agent::messages::ContentBlock::Text { text } => {
+                                        Some(text.clone())
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join(""),
+                            _ => String::new(),
+                        };
+
+                        // 检查是否为工具调用消息
+                        let is_tool_call_message = !tool_calls.is_empty();
+
+                        // 创建或更新 assistant 消息
+                        match self.view_messages.last_mut() {
+                            Some(m) if m.is_assistant() => {
+                                // 追加文本到现有的 assistant 消息
+                                if !text.is_empty() {
+                                    // 如果是工具调用消息，直接添加文本 block，不使用 append_chunk
+                                    if is_tool_call_message {
+                                        if let MessageViewModel::AssistantBubble {
+                                            blocks, ..
+                                        } = m
+                                        {
+                                            blocks.push(ContentBlockView::Text {
+                                                raw: text.clone(),
+                                                rendered: parse_markdown(&text),
+                                                dirty: false,
+                                            });
+                                        }
+                                    } else {
+                                        m.append_chunk(&text);
+                                    }
+                                }
+                            }
+                            _ => {
+                                // 创建新的 assistant 消息
+                                let mut vm = MessageViewModel::assistant();
+                                if is_tool_call_message {
+                                    // 工具调用消息：设置折叠状态并直接添加文本 block
+                                    if let MessageViewModel::AssistantBubble {
+                                        collapsed,
+                                        blocks,
+                                        ..
+                                    } = &mut vm
+                                    {
+                                        *collapsed = true;
+                                        if !text.is_empty() {
+                                            blocks.push(ContentBlockView::Text {
+                                                raw: text.clone(),
+                                                rendered: parse_markdown(&text),
+                                                dirty: false,
+                                            });
+                                        }
+                                    }
+                                } else if !text.is_empty() {
+                                    // 普通消息：使用 append_chunk
+                                    vm.append_chunk(&text);
+                                }
+
+                                // 只有当消息有内容时才添加
+                                if !text.is_empty() || is_tool_call_message {
+                                    self.view_messages.push(vm.clone());
+                                    let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
@@ -981,7 +1084,12 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Error(_e) => {
-                let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), None, true);
+                let vm = MessageViewModel::tool_block(
+                    "error".to_string(),
+                    "agent-error".to_string(),
+                    None,
+                    true,
+                );
                 self.view_messages.push(vm.clone());
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 self.set_loading(false);
@@ -1000,12 +1108,16 @@ impl App {
             AgentEvent::ApprovalNeeded(req) => {
                 // 转发 HITL 审批请求到 Relay
                 if let Some(ref relay) = self.relay_client {
-                    let items: Vec<serde_json::Value> = req.items.iter().map(|item| {
-                        serde_json::json!({
-                            "tool_name": item.tool_name,
-                            "input": item.input,
+                    let items: Vec<serde_json::Value> = req
+                        .items
+                        .iter()
+                        .map(|item| {
+                            serde_json::json!({
+                                "tool_name": item.tool_name,
+                                "input": item.input,
+                            })
                         })
-                    }).collect();
+                        .collect();
                     relay.send_value(serde_json::json!({
                         "type": "approval_needed",
                         "items": items,
@@ -1035,12 +1147,15 @@ impl App {
             AgentEvent::TodoUpdate(todos) => {
                 // 转发 TODO 更新到 Relay
                 if let Some(ref relay) = self.relay_client {
-                    let items: Vec<serde_json::Value> = todos.iter().map(|t| {
-                        serde_json::json!({
-                            "content": t.content,
-                            "status": format!("{:?}", t.status),
+                    let items: Vec<serde_json::Value> = todos
+                        .iter()
+                        .map(|t| {
+                            serde_json::json!({
+                                "content": t.content,
+                                "status": format!("{:?}", t.status),
+                            })
                         })
-                    }).collect();
+                        .collect();
                     relay.send_value(serde_json::json!({
                         "type": "todo_update",
                         "items": items,
@@ -1053,8 +1168,15 @@ impl App {
                 tracing::debug!(count = msgs.len(), "received StateSnapshot in poll_agent");
                 for msg in &msgs {
                     match msg {
-                        BaseMessage::Ai { content: _, tool_calls } => {
-                            tracing::debug!(has_tc = !tool_calls.is_empty(), tc_len = tool_calls.len(), "ai msg in snapshot");
+                        BaseMessage::Ai {
+                            content: _,
+                            tool_calls,
+                        } => {
+                            tracing::debug!(
+                                has_tc = !tool_calls.is_empty(),
+                                tc_len = tool_calls.len(),
+                                "ai msg in snapshot"
+                            );
                         }
                         BaseMessage::Tool { tool_call_id, .. } => {
                             tracing::debug!(tc_id = %tool_call_id, "tool msg in snapshot");
@@ -1090,7 +1212,9 @@ impl App {
                 // 保留最近 10 条显示消息
                 let keep_count = 10usize;
                 if self.view_messages.len() > keep_count {
-                    let tail = self.view_messages.split_off(self.view_messages.len() - keep_count);
+                    let tail = self
+                        .view_messages
+                        .split_off(self.view_messages.len() - keep_count);
                     self.view_messages = tail;
                 }
 
@@ -1106,9 +1230,15 @@ impl App {
                 self.view_messages.push(summary_vm);
 
                 // 通知渲染线程重建显示
-                let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::Clear);
+                let _ = self
+                    .render_tx
+                    .send(crate::ui::render_thread::RenderEvent::Clear);
                 for vm in &self.view_messages {
-                    let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm.clone()));
+                    let _ = self
+                        .render_tx
+                        .send(crate::ui::render_thread::RenderEvent::AddMessage(
+                            vm.clone(),
+                        ));
                 }
 
                 // 重置持久化计数（view_messages 已重建）
@@ -1129,7 +1259,9 @@ impl App {
             AgentEvent::CompactError(msg) => {
                 let vm = MessageViewModel::system(format!("❌ 压缩失败: {}", msg));
                 self.view_messages.push(vm.clone());
-                let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+                let _ = self
+                    .render_tx
+                    .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
                 self.set_loading(false);
                 self.agent_rx = None;
 
@@ -1159,13 +1291,24 @@ impl App {
             match result {
                 Some(Ok(event)) => {
                     let (ev_updated, should_break, should_return) = self.handle_agent_event(event);
-                    if ev_updated { updated = true; }
-                    if should_return { return true; }
-                    if should_break { break; }
+                    if ev_updated {
+                        updated = true;
+                    }
+                    if should_return {
+                        return true;
+                    }
+                    if should_break {
+                        break;
+                    }
                 }
                 Some(Err(mpsc::error::TryRecvError::Empty)) | None => break,
                 Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
-                    let vm = MessageViewModel::tool_block("error".to_string(), "agent-error".to_string(), None, true);
+                    let vm = MessageViewModel::tool_block(
+                        "error".to_string(),
+                        "agent-error".to_string(),
+                        None,
+                        true,
+                    );
                     self.view_messages.push(vm.clone());
                     let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                     self.set_loading(false);
@@ -1322,7 +1465,10 @@ impl App {
             let vm = MessageViewModel::from_base_message(&msg, &prev_ai_tool_calls);
             // 跳过空的 AssistantBubble（只有 ToolUse，无可显示内容）
             if let MessageViewModel::AssistantBubble { blocks, .. } = &vm {
-                if blocks.iter().all(|b| matches!(b, ContentBlockView::ToolUse { .. })) {
+                if blocks
+                    .iter()
+                    .all(|b| matches!(b, ContentBlockView::ToolUse { .. }))
+                {
                     continue;
                 }
             }
@@ -1333,9 +1479,9 @@ impl App {
         self.thread_browser = None;
 
         // 通知渲染线程加载历史消息
-        let _ = self.render_tx.send(RenderEvent::LoadHistory(
-            self.view_messages.clone(),
-        ));
+        let _ = self
+            .render_tx
+            .send(RenderEvent::LoadHistory(self.view_messages.clone()));
     }
 
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）
@@ -1355,7 +1501,9 @@ impl App {
         if self.agent_state_messages.is_empty() {
             let vm = MessageViewModel::system("无可压缩的上下文（历史消息为空）".to_string());
             self.view_messages.push(vm.clone());
-            let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+            let _ = self
+                .render_tx
+                .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
             return;
         }
 
@@ -1371,7 +1519,9 @@ impl App {
                     "❌ 压缩失败: 未配置 LLM Provider（请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY）".to_string(),
                 );
                 self.view_messages.push(vm.clone());
-                let _ = self.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+                let _ = self
+                    .render_tx
+                    .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
                 return;
             }
         };
@@ -1428,7 +1578,8 @@ impl App {
     pub fn agent_panel_move_up(&mut self) {
         if let Some(panel) = self.agent_panel.as_mut() {
             panel.move_cursor(-1);
-            panel.scroll_offset = ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
+            panel.scroll_offset =
+                ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
         }
     }
 
@@ -1436,7 +1587,8 @@ impl App {
     pub fn agent_panel_move_down(&mut self) {
         if let Some(panel) = self.agent_panel.as_mut() {
             panel.move_cursor(1);
-            panel.scroll_offset = ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
+            panel.scroll_offset =
+                ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
         }
     }
 
@@ -1452,9 +1604,9 @@ impl App {
             let agent_name = if is_none {
                 None
             } else {
-                agent_id.as_ref().and_then(|_id| {
-                    panel.current_agent().map(|a| a.name.clone())
-                })
+                agent_id
+                    .as_ref()
+                    .and_then(|_id| panel.current_agent().map(|a| a.name.clone()))
             };
             (is_none, agent_id, agent_name)
         };
@@ -1578,7 +1730,11 @@ pub fn build_textarea(disabled: bool, buffered_count: usize) -> TextArea<'static
     // 空闲状态：青色边框 + "输入" 标题
     let (border_color, title_text, title_color) = if disabled {
         if buffered_count > 0 {
-            (Color::Yellow, format!(" 处理中… (已缓存 {} 条) ", buffered_count), Color::Yellow)
+            (
+                Color::Yellow,
+                format!(" 处理中… (已缓存 {} 条) ", buffered_count),
+                Color::Yellow,
+            )
         } else {
             (Color::Yellow, " 处理中… ".to_string(), Color::Yellow)
         }
@@ -1624,8 +1780,8 @@ impl App {
 
     /// 构造 Headless 测试用 App，使用 ratatui TestBackend 替代真实终端
     pub fn new_headless(width: u16, height: u16) -> (App, crate::ui::headless::HeadlessHandle) {
-        use ratatui::{Terminal, backend::TestBackend};
         use crate::thread::SqliteThreadStore;
+        use ratatui::{backend::TestBackend, Terminal};
 
         let backend = TestBackend::new(width, height);
         let terminal = Terminal::new(backend).expect("TestBackend should never fail");
@@ -1677,6 +1833,7 @@ impl App {
             agent_event_queue: Vec::new(),
             pending_messages: Vec::new(),
             pending_attachments: Vec::new(),
+            show_tool_messages: false,
             relay_client: None,
             relay_event_rx: None,
         };

@@ -289,6 +289,15 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     }
                 }
 
+                // Shift+T：切换工具调用消息的显示
+                Input {
+                    key: Key::Char('T'),
+                    shift: true,
+                    ..
+                } => {
+                    app.toggle_collapsed_messages();
+                }
+
                 // Del：删除最后一个待发送附件（有附件时优先消费 Del）
                 Input { key: Key::Delete, .. } if !app.loading && !app.pending_attachments.is_empty() => {
                     app.pop_pending_attachment();
