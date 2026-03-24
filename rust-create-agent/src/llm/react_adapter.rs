@@ -65,6 +65,7 @@ impl ReactLLM for BaseModelReactLLM {
 
             if !calls.is_empty() {
                 let mut r = Reasoning::with_tools(thought, calls);
+                r.source_message = Some(response.message);
                 r.usage = usage;
                 r.model = model_name;
                 return Ok(r);
@@ -78,6 +79,7 @@ impl ReactLLM for BaseModelReactLLM {
                 .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
                 .collect();
             let mut r = Reasoning::with_tools(thought, calls);
+            r.source_message = Some(response.message);
             r.usage = usage;
             r.model = model_name;
             Ok(r)
@@ -85,6 +87,7 @@ impl ReactLLM for BaseModelReactLLM {
             // 最终答案：text_content() 提取所有文字（跳过 reasoning block）
             let text = response.message.content();
             let mut r = Reasoning::with_answer("", text);
+            r.source_message = Some(response.message);
             r.usage = usage;
             r.model = model_name;
             Ok(r)

@@ -200,15 +200,22 @@ impl ChatAnthropic {
                         "is_error": is_error
                     });
 
-                    let should_append = result.last().map(|last| {
-                        last["role"] == "user" && last["content"].is_array()
-                    }).unwrap_or(false);
-
-                    if should_append {
-                        if let Some(last) = result.last_mut() {
-                            last["content"].as_array_mut().unwrap().push(tool_result_block);
+                    let appended = if let Some(last) = result.last_mut() {
+                        if last["role"] == "user" {
+                            if let Some(arr) = last["content"].as_array_mut() {
+                                arr.push(tool_result_block.clone());
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
                         }
                     } else {
+                        false
+                    };
+
+                    if !appended {
                         result.push(json!({
                             "role": "user",
                             "content": [tool_result_block]
@@ -230,7 +237,9 @@ impl ChatAnthropic {
     ///
     /// Anthropic Prompt Caching 要求在需要缓存的边界位置加 `cache_control: { type: "ephemeral" }`。
     fn apply_cache_to_messages(messages: &mut Vec<Value>) {
-        if let Some(last_msg) = messages.last_mut() {
+        // Anthropic 只允许在 user 消息上添加 cache_control，跳过 assistant 消息
+        let last_msg = messages.iter_mut().rev().find(|m| m["role"] == "user");
+        if let Some(last_msg) = last_msg {
             if let Some(content) = last_msg.get_mut("content") {
                 match content {
                     Value::Array(blocks) => {

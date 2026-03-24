@@ -5,8 +5,8 @@
   - [x] 消息双写一致性
   - [x] HITL 四种决策路径
 - [ ] **LLM 适配层**
-  - [ ] Anthropic / OpenAI 消息格式差异
-  - [ ] Prompt Cache 标注
+  - [x] Anthropic / OpenAI 消息格式差异
+  - [x] Prompt Cache 标注
   - [ ] MockLLM 测试覆盖
 - [x] **中间件与工具安全**
   - [x] 文件路径遍历防护
