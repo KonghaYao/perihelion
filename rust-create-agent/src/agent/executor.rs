@@ -136,6 +136,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             state.set_current_step(step);
 
             // ── LLM 推理（与 cancel 竞争）────────────────────────────────────
+            self.emit(AgentEvent::LlmCallStart {
+                step,
+                messages: state.messages().to_vec(),
+            });
             let reasoning = tokio::select! {
                 biased;
                 _ = cancel.cancelled() => {
@@ -151,6 +155,17 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     }
                 }
             };
+            {
+                let llm_output = reasoning.final_answer.as_deref()
+                    .unwrap_or(&reasoning.thought)
+                    .to_string();
+                self.emit(AgentEvent::LlmCallEnd {
+                    step,
+                    model: self.llm.model_name(),
+                    output: llm_output,
+                    usage: reasoning.usage.clone(),
+                });
+            }
 
             if reasoning.needs_tool_call() {
                 {

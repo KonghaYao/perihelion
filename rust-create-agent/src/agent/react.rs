@@ -125,6 +125,10 @@ pub struct Reasoning {
     pub final_answer: Option<String>,
     /// 原始 LLM 响应消息（含 Reasoning/Text blocks），优先用于存 state
     pub source_message: Option<BaseMessage>,
+    /// Token 使用量（来自 LLM 响应，用于 Langfuse Generation 追踪）
+    pub usage: Option<crate::llm::types::TokenUsage>,
+    /// 生成此推理的模型名称
+    pub model: String,
 }
 
 impl Reasoning {
@@ -134,6 +138,8 @@ impl Reasoning {
             tool_calls,
             final_answer: None,
             source_message: None,
+            usage: None,
+            model: String::new(),
         }
     }
 
@@ -143,6 +149,8 @@ impl Reasoning {
             tool_calls: Vec::new(),
             final_answer: Some(answer.into()),
             source_message: None,
+            usage: None,
+            model: String::new(),
         }
     }
 
@@ -159,6 +167,11 @@ pub trait ReactLLM: Send + Sync {
         messages: &[BaseMessage],
         tools: &[&dyn BaseTool],
     ) -> crate::error::AgentResult<Reasoning>;
+
+    /// 返回当前模型名称（用于 Langfuse Generation 追踪）
+    fn model_name(&self) -> String {
+        "unknown".to_string()
+    }
 }
 
 /// Blanket impl：允许将 Box<dyn ReactLLM + Send + Sync> 直接用于 ReActAgent
@@ -170,5 +183,9 @@ impl ReactLLM for Box<dyn ReactLLM + Send + Sync> {
         tools: &[&dyn BaseTool],
     ) -> crate::error::AgentResult<Reasoning> {
         (**self).generate_reasoning(messages, tools).await
+    }
+
+    fn model_name(&self) -> String {
+        (**self).model_name()
     }
 }

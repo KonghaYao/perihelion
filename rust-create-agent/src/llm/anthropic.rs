@@ -428,7 +428,15 @@ impl BaseModel for ChatAnthropic {
             BaseMessage::ai(MessageContent::Blocks(blocks))
         };
 
-        Ok(LlmResponse { message, stop_reason })
+        let usage = {
+            let input = resp_json["usage"]["input_tokens"].as_u64().map(|v| v as u32);
+            let output = resp_json["usage"]["output_tokens"].as_u64().map(|v| v as u32);
+            match (input, output) {
+                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage { input_tokens: i, output_tokens: o }),
+                _ => None,
+            }
+        };
+        Ok(LlmResponse { message, stop_reason, usage })
     }
 
     fn provider_name(&self) -> &str {
@@ -453,6 +461,8 @@ impl ReactLLM for ChatAnthropic {
         // system 消息由 messages_to_anthropic 从消息列表提取，无需单独处理
 
         let response = self.invoke(request).await?;
+        let usage = response.usage.clone();
+        let model_name = self.model.clone();
 
         if response.stop_reason == StopReason::ToolUse {
             let blocks = response.message.content_blocks();
@@ -476,6 +486,8 @@ impl ReactLLM for ChatAnthropic {
             if !calls.is_empty() {
                 let mut r = Reasoning::with_tools(thought, calls);
                 r.source_message = Some(response.message);
+                r.usage = usage;
+                r.model = model_name;
                 return Ok(r);
             }
 
@@ -487,12 +499,20 @@ impl ReactLLM for ChatAnthropic {
                 .collect();
             let mut r = Reasoning::with_tools(thought, calls);
             r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
             Ok(r)
         } else {
             let text = response.message.content();
             let mut r = Reasoning::with_answer("", text);
             r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
             Ok(r)
         }
+    }
+
+    fn model_name(&self) -> String {
+        self.model.clone()
     }
 }

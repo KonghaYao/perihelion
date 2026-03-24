@@ -2,6 +2,7 @@ mod app;
 mod command;
 mod config;
 mod event;
+mod langfuse;
 mod prompt;
 mod thread;
 mod ui;

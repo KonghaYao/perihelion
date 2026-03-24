@@ -38,11 +38,20 @@ impl LlmRequest {
     }
 }
 
+/// Token 使用量（来自 LLM API 响应，用于 Langfuse Generation 追踪）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TokenUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+}
+
 /// LLM 响应
 pub struct LlmResponse {
     /// Ai 变体消息
     pub message: BaseMessage,
     pub stop_reason: StopReason,
+    /// Token 使用量（可选，不支持的 LLM 为 None）
+    pub usage: Option<TokenUsage>,
 }
 
 /// 停止原因

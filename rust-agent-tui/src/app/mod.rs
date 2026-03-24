@@ -380,6 +380,8 @@ pub struct App {
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     /// Relay 事件接收端（来自 Web 端的控制消息）
     relay_event_rx: Option<rust_relay_server::client::RelayEventRx>,
+    /// 当前轮次的 Langfuse Tracer（submit_message 时创建，Done 时结束，未配置时为 None）
+    langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
 }
 
 impl App {
@@ -487,6 +489,7 @@ impl App {
             relay_event_rx: None,
             pending_hitl_items: None,
             pending_ask_user: None,
+            langfuse_tracer: None,
         };
 
         let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));
@@ -909,6 +912,20 @@ impl App {
         // 用户消息已追加到 self.view_messages，更新已持久化计数
         self.persisted_count = self.view_messages.len();
 
+        // 构造 Langfuse Tracer（未配置环境变量时静默跳过）
+        let langfuse_tracer = crate::langfuse::LangfuseConfig::from_env()
+            .and_then(|cfg| {
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(crate::langfuse::LangfuseTracer::new(cfg))
+                })
+            })
+            .map(|mut t| {
+                t.on_trace_start(input.trim(), self.current_thread_id.as_deref());
+                Arc::new(parking_lot::Mutex::new(t))
+            });
+        self.langfuse_tracer = langfuse_tracer.clone();
+
         let span = tracing::info_span!(
             "thread.run",
             thread.id = %thread_id,
@@ -931,6 +948,7 @@ impl App {
                     cancel,
                     agent_id,
                     relay_client,
+                    langfuse_tracer,
                 )
                 .await;
             }
@@ -1044,6 +1062,26 @@ impl App {
                 }
                 // 通知渲染线程清除流式指示器
                 let _ = self.render_tx.send(RenderEvent::StreamingDone);
+                // Langfuse：结束 Trace，上报最终答案
+                if let Some(ref tracer) = self.langfuse_tracer {
+                    let final_answer = self.view_messages.iter().rev()
+                        .find_map(|m| {
+                            if let MessageViewModel::AssistantBubble { blocks, .. } = m {
+                                blocks.iter().find_map(|b| {
+                                    if let ContentBlockView::Text { raw, .. } = b {
+                                        Some(raw.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_default();
+                    tracer.lock().on_trace_end(&final_answer);
+                }
+                self.langfuse_tracer = None;
                 self.set_loading(false);
                 self.agent_rx = None;
                 if let Some(start) = self.task_start_time {
@@ -1854,6 +1892,7 @@ impl App {
             relay_event_rx: None,
             pending_hitl_items: None,
             pending_ask_user: None,
+            langfuse_tracer: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

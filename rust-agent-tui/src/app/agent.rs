@@ -26,6 +26,7 @@ pub async fn run_universal_agent(
     cancel: AgentCancellationToken,
     agent_id: Option<String>,
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
+    langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
 ) {
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
@@ -65,6 +66,7 @@ pub async fn run_universal_agent(
     let tx_event = tx.clone();
     let cwd_for_handler = cwd.clone();
     let relay_for_handler = relay_client.clone();
+    let langfuse_for_handler = langfuse_tracer.clone();
     let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
         // 转发到 Relay
         if let Some(ref relay) = relay_for_handler {
@@ -73,6 +75,22 @@ pub async fn run_universal_agent(
                 ExecutorEvent::MessageAdded(msg) => relay.send_message(msg),
                 // 其他事件走原有路径（兼容性保留）
                 _ => relay.send_agent_event(&event),
+            }
+        }
+
+        // Langfuse hook（在 TUI 事件映射前执行，使用原始 ExecutorEvent）
+        if let Some(ref tracer) = langfuse_for_handler {
+            let mut t = tracer.lock();
+            match &event {
+                ExecutorEvent::LlmCallStart { step, messages } =>
+                    t.on_llm_start(*step, messages),
+                ExecutorEvent::LlmCallEnd { step, model, output, usage } =>
+                    t.on_llm_end(*step, model, output, usage.as_ref()),
+                ExecutorEvent::ToolStart { tool_call_id, name, input } =>
+                    t.on_tool_start(tool_call_id, name, input),
+                ExecutorEvent::ToolEnd { is_error, output, .. } =>
+                    t.on_tool_end_by_name_order(output, *is_error),
+                _ => {}
             }
         }
 
@@ -112,10 +130,12 @@ pub async fn run_universal_agent(
                 name,
                 is_error: true,
             },
-            // 无需转发的内部事件
+            // 无需转发的内部事件（含新增的 LLM hook 事件，已在 Langfuse 分支处理）
             ExecutorEvent::ToolEnd { .. }
             | ExecutorEvent::StepDone { .. }
-            | ExecutorEvent::StateSnapshot(_) => return,
+            | ExecutorEvent::StateSnapshot(_)
+            | ExecutorEvent::LlmCallStart { .. }
+            | ExecutorEvent::LlmCallEnd { .. } => return,
         };
         let _ = tx_event.try_send(msg);
     }));
