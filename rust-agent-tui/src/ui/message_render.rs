@@ -82,10 +82,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                             ),
                         ]));
                     }
-                    ContentBlockView::ToolUse {
-                        name,
-                        input_preview: _,
-                    } => {
+                    ContentBlockView::ToolUse { name } => {
                         if !first_text_merged {
                             // 没有文本块，直接创建标题行
                             lines.push(Line::from(vec![Span::styled(

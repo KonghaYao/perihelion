@@ -256,7 +256,9 @@ pub fn parse_markdown(input: &str) -> Text<'static> {
     if input.is_empty() {
         return Text::raw("");
     }
-    let parser = Parser::new_ext(input, Options::all());
+    // 禁用智能引号，保持原始撇号字符
+    let options = Options::all() - Options::ENABLE_SMART_PUNCTUATION;
+    let parser = Parser::new_ext(input, options);
     let mut state = RenderState::default();
     for event in parser {
         state.handle_event(event);

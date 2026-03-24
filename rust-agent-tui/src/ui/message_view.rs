@@ -47,7 +47,7 @@ pub enum ContentBlockView {
     /// 推理/思考过程（仅显示字数摘要）
     Reasoning { char_count: usize },
     /// 工具使用请求（AI 发起的调用请求）
-    ToolUse { name: String, input_preview: String },
+    ToolUse { name: String },
 }
 
 impl MessageViewModel {
@@ -81,16 +81,10 @@ impl MessageViewModel {
                             char_count: text.chars().count(),
                         },
                         ContentBlock::ToolUse {
-                            name, input, id: _, ..
+                            name, ..
                         } => {
-                            let preview = serde_json::to_string(&input)
-                                .unwrap_or_default()
-                                .chars()
-                                .take(50)
-                                .collect();
                             ContentBlockView::ToolUse {
                                 name,
-                                input_preview: preview,
                             }
                         }
                         _ => ContentBlockView::Text {
