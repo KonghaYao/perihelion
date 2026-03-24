@@ -423,4 +423,47 @@ mod tests {
         let def = t.definition();
         assert_eq!(def.name, "launch_agent");
     }
+
+    /// 防递归：即使 agent.md tools 字段显式包含 launch_agent，也必须被排除
+    #[test]
+    fn test_launch_agent_excluded_even_when_explicitly_allowed() {
+        let parent_tools = vec![
+            make_tool("read_file"),
+            make_tool("launch_agent"), // 父工具集中有 launch_agent
+        ];
+        let t = make_subagent_tool(parent_tools);
+
+        // agent.md 中 tools: ["launch_agent", "read_file"]
+        let allowed = ToolsValue::List(vec![
+            "launch_agent".to_string(),
+            "read_file".to_string(),
+        ]);
+        let disallowed = ToolsValue::Empty;
+        let filtered = t.filter_tools(&allowed, &disallowed);
+        let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+        assert!(names.contains(&"read_file"), "read_file 应保留");
+        assert!(
+            !names.contains(&"launch_agent"),
+            "launch_agent 即使在显式 allowlist 中也必须排除（防递归）"
+        );
+    }
+
+    /// 防递归：launch_agent 在 disallowedTools 中是冗余但不应出错
+    #[test]
+    fn test_launch_agent_excluded_when_in_disallowed() {
+        let parent_tools = vec![
+            make_tool("read_file"),
+            make_tool("launch_agent"),
+        ];
+        let t = make_subagent_tool(parent_tools);
+
+        let allowed = ToolsValue::Empty;
+        let disallowed = ToolsValue::List(vec!["launch_agent".to_string()]);
+        let filtered = t.filter_tools(&allowed, &disallowed);
+        let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+        assert!(names.contains(&"read_file"));
+        assert!(!names.contains(&"launch_agent"), "launch_agent 不应出现");
+    }
 }
