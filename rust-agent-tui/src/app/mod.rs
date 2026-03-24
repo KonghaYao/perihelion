@@ -1084,6 +1084,11 @@ impl App {
                 self.langfuse_tracer = None;
                 self.set_loading(false);
                 self.agent_rx = None;
+                // Agent 异常退出时清理残留弹窗状态，避免 UI 卡在弹窗
+                self.hitl_prompt = None;
+                self.ask_user_prompt = None;
+                self.pending_hitl_items = None;
+                self.pending_ask_user = None;
                 if let Some(start) = self.task_start_time {
                     self.last_task_duration = Some(start.elapsed());
                 }
@@ -1116,6 +1121,11 @@ impl App {
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 self.set_loading(false);
                 self.agent_rx = None;
+                // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗
+                self.hitl_prompt = None;
+                self.ask_user_prompt = None;
+                self.pending_hitl_items = None;
+                self.pending_ask_user = None;
                 if let Some(start) = self.task_start_time {
                     self.last_task_duration = Some(start.elapsed());
                 }

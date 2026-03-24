@@ -17,8 +17,8 @@
   - [x] channel 满时的错误处理
   - [x] oneshot 发送端 drop 不阻塞
 - [ ] **TUI 事件流**
-  - [ ] 审批/AskUser 事件后 UI 阻塞等待
-  - [ ] Done/Error 后停止轮询
+  - [x] 审批/AskUser 事件后 UI 阻塞等待
+  - [x] Done/Error 后停止轮询
   - [ ] headless 测试通知顺序
 - [ ] **持久化与状态**
   - [ ] SQLite WAL + 事务写入
