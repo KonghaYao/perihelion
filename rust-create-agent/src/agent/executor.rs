@@ -101,7 +101,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         cancel: Option<CancellationToken>,
     ) -> AgentResult<AgentOutput> {
         // 若未提供 token，创建一个永不触发的占位符，简化后续逻辑
-        let cancel = cancel.unwrap_or_else(CancellationToken::new);
+        let cancel = cancel.unwrap_or_default();
 
         let human_msg = BaseMessage::human(input.content);
         state.add_message(human_msg.clone());

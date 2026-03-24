@@ -750,7 +750,7 @@ impl App {
             let candidates = self.command_registry.match_prefix(prefix);
             if let Some((name, _)) = candidates.get(cursor) {
                 self.textarea = build_textarea(false, 0);
-                self.textarea.insert_str(&format!("/{} ", name));
+                self.textarea.insert_str(format!("/{} ", name));
                 self.hint_cursor = None;
             }
         } else if first_line.starts_with('#') {
@@ -763,7 +763,7 @@ impl App {
                 .collect();
             if let Some(skill) = candidates.get(cursor) {
                 self.textarea = build_textarea(false, 0);
-                self.textarea.insert_str(&format!("#{} ", skill.name));
+                self.textarea.insert_str(format!("#{} ", skill.name));
                 self.hint_cursor = None;
             }
         }
@@ -892,7 +892,6 @@ impl App {
         }
 
         let cwd = self.cwd.clone();
-        let system_prompt = crate::prompt::default_system_prompt(&cwd);
 
         // 构建多模态 AgentInput（有附件时包含图片 blocks）
         let agent_input = if attachments.is_empty() {
@@ -939,12 +938,10 @@ impl App {
         let relay_client = self.relay_client.clone();
         tokio::spawn(
             async move {
-                agent::run_universal_agent(
+                agent::run_universal_agent(agent::AgentRunConfig {
                     provider,
-                    agent_input,
+                    input: agent_input,
                     cwd,
-                    system_prompt,
-                    thread_id,
                     history,
                     approval_tx,
                     tx,
@@ -952,7 +949,7 @@ impl App {
                     agent_id,
                     relay_client,
                     langfuse_tracer,
-                )
+                })
                 .await;
             }
             .instrument(span),
@@ -976,71 +973,68 @@ impl App {
             }
             AgentEvent::MessageAdded(msg) => {
                 // 只处理工具调用消息的渲染；纯文本 AI 消息由 AssistantChunk 处理
-                match msg {
-                    rust_create_agent::messages::BaseMessage::Ai {
+                if let rust_create_agent::messages::BaseMessage::Ai {
                         content,
                         tool_calls,
                         ..
-                    } => {
-                        // 工具调用消息需要同步到 UI（折叠状态、工具调用列表）
-                        if !tool_calls.is_empty() {
-                            let text = match &content {
-                                rust_create_agent::messages::MessageContent::Text(t) => t.clone(),
-                                rust_create_agent::messages::MessageContent::Blocks(blocks) => blocks
-                                    .iter()
-                                    .filter_map(|b| match b {
-                                        rust_create_agent::messages::ContentBlock::Text { text } => {
-                                            Some(text.clone())
-                                        }
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(""),
-                                _ => String::new(),
-                            };
+                    } = msg {
+                    // 工具调用消息需要同步到 UI（折叠状态、工具调用列表）
+                    if !tool_calls.is_empty() {
+                        let text = match &content {
+                            rust_create_agent::messages::MessageContent::Text(t) => t.clone(),
+                            rust_create_agent::messages::MessageContent::Blocks(blocks) => blocks
+                                .iter()
+                                .filter_map(|b| match b {
+                                    rust_create_agent::messages::ContentBlock::Text { text } => {
+                                        Some(text.clone())
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join(""),
+                            _ => String::new(),
+                        };
 
-                            match self.view_messages.last_mut() {
-                                Some(m) if m.is_assistant() => {
-                                    // 追加文本到现有的 assistant 消息
-                                    if !text.is_empty() {
-                                        if let MessageViewModel::AssistantBubble {
-                                            blocks, ..
-                                        } = m
-                                        {
-                                            blocks.push(ContentBlockView::Text {
-                                                raw: text.clone(),
-                                                rendered: parse_markdown(&text),
-                                                dirty: false,
-                                            });
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    // 创建新的 assistant 消息（折叠状态）
-                                    let mut vm = MessageViewModel::assistant();
+                        match self.view_messages.last_mut() {
+                            Some(m) if m.is_assistant() => {
+                                // 追加文本到现有的 assistant 消息
+                                if !text.is_empty() {
                                     if let MessageViewModel::AssistantBubble {
-                                        collapsed,
-                                        blocks,
-                                        ..
-                                    } = &mut vm
+                                        blocks, ..
+                                    } = m
                                     {
-                                        *collapsed = true;
-                                        if !text.is_empty() {
-                                            blocks.push(ContentBlockView::Text {
-                                                raw: text.clone(),
-                                                rendered: parse_markdown(&text),
-                                                dirty: false,
-                                            });
-                                        }
+                                        blocks.push(ContentBlockView::Text {
+                                            raw: text.clone(),
+                                            rendered: parse_markdown(&text),
+                                            dirty: false,
+                                        });
                                     }
-                                    self.view_messages.push(vm.clone());
-                                    let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                                 }
                             }
+                            _ => {
+                                // 创建新的 assistant 消息（折叠状态）
+                                let mut vm = MessageViewModel::assistant();
+                                if let MessageViewModel::AssistantBubble {
+                                    collapsed,
+                                    blocks,
+                                    ..
+                                } = &mut vm
+                                {
+                                    *collapsed = true;
+                                    if !text.is_empty() {
+                                        blocks.push(ContentBlockView::Text {
+                                            raw: text.clone(),
+                                            rendered: parse_markdown(&text),
+                                            dirty: false,
+                                        });
+                                    }
+                                }
+                                self.view_messages.push(vm.clone());
+                                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                            }
                         }
-                        // 纯文本 AI 消息由 AssistantChunk 事件处理，此处不重复渲染
                     }
-                    _ => {}
+                    // 纯文本 AI 消息由 AssistantChunk 事件处理，此处不重复渲染
                 }
                 (true, false, false)
             }
@@ -1536,7 +1530,7 @@ impl App {
                     .map(|tc| (tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
                     .collect();
             }
-            let vm = MessageViewModel::from_base_message(&msg, &prev_ai_tool_calls);
+            let vm = MessageViewModel::from_base_message(msg, &prev_ai_tool_calls);
             // 跳过空的 AssistantBubble（只有 ToolUse，无可显示内容）
             if let MessageViewModel::AssistantBubble { blocks, .. } = &vm {
                 if blocks

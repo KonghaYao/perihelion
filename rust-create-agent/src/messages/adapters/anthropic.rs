@@ -42,7 +42,7 @@ impl AnthropicAdapter {
             ContentBlock::ToolResult { tool_use_id, content, is_error } => {
                 let content_val: Vec<Value> = content
                     .iter()
-                    .filter_map(|b| Self::block_to_anthropic(b))
+                    .filter_map(Self::block_to_anthropic)
                     .collect();
                 Some(json!({
                     "type": "tool_result",
@@ -68,7 +68,7 @@ impl AnthropicAdapter {
             MessageContent::Blocks(blocks) => {
                 let parts: Vec<Value> = blocks
                     .iter()
-                    .filter_map(|b| Self::block_to_anthropic(b))
+                    .filter_map(Self::block_to_anthropic)
                     .collect();
                 Value::Array(parts)
             }

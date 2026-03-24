@@ -901,9 +901,7 @@ fn render_model_panel(f: &mut Frame, app: &App) {
                                 .join("  ")
                         } else if is_active {
                             format!("{}█", buf)
-                        } else {
-                            if *field == EditField::ApiKey { mask_api_key(buf) } else { buf.to_string() }
-                        };
+                        } else if *field == EditField::ApiKey { mask_api_key(buf) } else { buf.to_string() };
                         let (label_style, value_style) = if is_active {
                             (
                                 Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),

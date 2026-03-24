@@ -65,7 +65,7 @@ impl ChatOpenAI {
             MessageContent::Blocks(blocks) => {
                 let parts: Vec<Value> = blocks
                     .iter()
-                    .filter_map(|b| Self::block_to_openai_part(b))
+                    .filter_map(Self::block_to_openai_part)
                     .collect();
                 if parts.is_empty() {
                     json!("")

@@ -145,12 +145,10 @@ impl MessageViewModel {
             if *collapsed && !chunk.is_empty() {
                 *collapsed = false;
             }
-            if let Some(last) = blocks.last_mut() {
-                if let ContentBlockView::Text { raw, dirty, .. } = last {
-                    raw.push_str(chunk);
-                    *dirty = true;
-                    return;
-                }
+            if let Some(ContentBlockView::Text { raw, dirty, .. }) = blocks.last_mut() {
+                raw.push_str(chunk);
+                *dirty = true;
+                return;
             }
             // 没有 Text block，创建新的
             let mut raw = String::new();

@@ -12,6 +12,7 @@ use rust_create_agent::messages::BaseMessage;
 ///
 /// - Arc<LangfuseClient>：用于 Trace 和 Span 操作（builder 正常工作）
 /// - Arc<Batcher>：用于 Generation 操作（绕过 builder 的 usage bug，直接构造 IngestionEvent）
+///
 /// 生命周期：从 submit_message() 开始 → AgentEvent::Done 时结束。
 pub struct LangfuseTracer {
     client: Arc<LangfuseClient>,

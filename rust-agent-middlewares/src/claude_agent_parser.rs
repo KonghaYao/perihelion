@@ -136,7 +136,7 @@ pub struct ClaudeAgent {
 ///
 /// 例：`"code-reviewer"` → `"Code Reviewer"`，`"security_auditor"` → `"Security Auditor"`
 pub fn format_agent_id(id: &str) -> String {
-    id.split(|c: char| c == '-' || c == '_')
+    id.split(['-', '_'])
         .map(|part| {
             let mut chars = part.chars();
             match chars.next() {

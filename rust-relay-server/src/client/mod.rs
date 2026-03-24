@@ -54,13 +54,11 @@ impl RelayClient {
         let connected = Arc::new(AtomicBool::new(true));
 
         // Parse first message to get session_id
-        if let Some(Ok(msg)) = ws_read.next().await {
-            if let Message::Text(text) = msg {
-                if let Ok(relay_msg) = serde_json::from_str::<RelayMessage>(&text) {
-                    if let RelayMessage::SessionId { session_id: sid } = relay_msg {
-                        *session_id_clone.write().await = Some(sid.clone());
-                    }
-                }
+        if let Some(Ok(Message::Text(text))) = ws_read.next().await {
+            if let Ok(RelayMessage::SessionId { session_id: sid }) =
+                serde_json::from_str::<RelayMessage>(&text)
+            {
+                *session_id_clone.write().await = Some(sid.clone());
             }
         }
 

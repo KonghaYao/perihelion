@@ -103,7 +103,7 @@ impl ChatAnthropic {
             ContentBlock::ToolResult { tool_use_id, content, is_error } => {
                 let content_val: Vec<Value> = content
                     .iter()
-                    .filter_map(|b| Self::block_to_anthropic(b))
+                    .filter_map(Self::block_to_anthropic)
                     .collect();
                 Some(json!({
                     "type": "tool_result",
@@ -130,7 +130,7 @@ impl ChatAnthropic {
             MessageContent::Blocks(blocks) => {
                 let parts: Vec<Value> = blocks
                     .iter()
-                    .filter_map(|b| Self::block_to_anthropic(b))
+                    .filter_map(Self::block_to_anthropic)
                     .collect();
                 Value::Array(parts)
             }
@@ -236,7 +236,7 @@ impl ChatAnthropic {
     /// 对 messages 列表中最后一条消息的最后一个 content block 追加 cache_control
     ///
     /// Anthropic Prompt Caching 要求在需要缓存的边界位置加 `cache_control: { type: "ephemeral" }`。
-    fn apply_cache_to_messages(messages: &mut Vec<Value>) {
+    fn apply_cache_to_messages(messages: &mut [Value]) {
         // Anthropic 只允许在 user 消息上添加 cache_control，跳过 assistant 消息
         let last_msg = messages.iter_mut().rev().find(|m| m["role"] == "user");
         if let Some(last_msg) = last_msg {

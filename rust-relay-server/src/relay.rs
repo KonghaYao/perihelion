@@ -196,10 +196,7 @@ pub async fn handle_web_management_ws(
 
     // Read pong / keep alive
     while let Some(Ok(msg)) = ws_rx.next().await {
-        match msg {
-            Message::Close(_) => break,
-            _ => {}
-        }
+        if let Message::Close(_) = msg { break }
     }
 
     send_task.abort();

@@ -14,20 +14,33 @@ use rust_create_agent::llm::BaseModelReactLLM;
 
 // ─── 主入口 ───────────────────────────────────────────────────────────────────
 
-pub async fn run_universal_agent(
-    provider: LlmProvider,
-    input: AgentInput,
-    cwd: String,
-    _system_prompt: String,
-    _thread_id: String,
-    history: Vec<rust_create_agent::messages::BaseMessage>,
-    approval_tx: mpsc::Sender<ApprovalEvent>,
-    tx: mpsc::Sender<AgentEvent>,
-    cancel: AgentCancellationToken,
-    agent_id: Option<String>,
-    relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
-    langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
-) {
+/// run_universal_agent 的参数集合（避免超过 clippy 的参数数量限制）
+pub struct AgentRunConfig {
+    pub provider: LlmProvider,
+    pub input: AgentInput,
+    pub cwd: String,
+    pub history: Vec<rust_create_agent::messages::BaseMessage>,
+    pub approval_tx: mpsc::Sender<ApprovalEvent>,
+    pub tx: mpsc::Sender<AgentEvent>,
+    pub cancel: AgentCancellationToken,
+    pub agent_id: Option<String>,
+    pub relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
+    pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
+}
+
+pub async fn run_universal_agent(cfg: AgentRunConfig) {
+    let AgentRunConfig {
+        provider,
+        input,
+        cwd,
+        history,
+        approval_tx,
+        tx,
+        cancel,
+        agent_id,
+        relay_client,
+        langfuse_tracer,
+    } = cfg;
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
     // 使用 spawn_blocking 避免同步 I/O 阻塞 tokio 运行时。
