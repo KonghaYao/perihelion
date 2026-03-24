@@ -24,10 +24,10 @@
   - [ ] SQLite WAL + 事务写入
   - [ ] 消息幂等性
   - [ ] 用户消息立即持久化
-- [ ] **SubAgent 委派**
+- [x] **SubAgent 委派**
   - [x] 防递归（排除 launch_agent 自身）
-  - [ ] tools / disallowedTools 过滤
-  - [ ] LLM 工厂独立实例
+  - [x] tools / disallowedTools 过滤
+  - [x] LLM 工厂独立实例
 
 - [ ] 常规代码风格与架构维护
   - [ ] 模块化维护
