@@ -54,3 +54,12 @@
   - [x] Session 双重清理竞态：30 分钟延迟任务与 5 分钟周期清理可能同时 `sessions.remove`（延迟任务补充 elapsed 双重条件检查，与周期清理对齐）
   - [x] `handle_web_session_ws` 中同一 `text_str` 执行两次 `serde_json::from_str`（合并为一次解析，直接解构已有结果，复用 `forward_to_web` 辅助方法）
   - [x] Relay Server 无速率限制和连接数上限（添加 agent/web 并发连接计数与上限：MAX_AGENT_CONNECTIONS=50、MAX_WEB_CONNECTIONS=200、每 session 最多 10 个 web 连接；超限返回 429，日志可观测）
+
+- [ ] **日志质量与可观测性**
+  - [x] 日志级别滥用：relay.rs session 清理（5 分钟周期触发）、agent_ops.rs Langfuse session 诊断日志（每次 submit_message 可能触发）由 `info` 降为 `debug`；成功创建 session 保留 `info`
+  - [ ] `spawn_session_cleanup` 与 `handle_agent_ws` 延迟清理任务的 spawn 错误未传播（静默退出无感知）
+  - [ ] `agent.rs` Todo channel 和 HITL 审批转发 spawn 中 `let _ = ...` 静默忽略发送失败
+
+- [ ] **配置校验**
+  - [ ] `budget_tokens` 字段注释声明了 0/1-7999/≥8000 分级语义，但无实际边界校验代码（`config/types.rs`）
+  - [ ] `ANTHROPIC_MODEL` / `OPENAI_MODEL` 环境变量读取后无合法性校验，空字符串或非法值直接传给 API

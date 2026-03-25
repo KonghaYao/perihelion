@@ -191,7 +191,7 @@ pub async fn handle_agent_ws(
             if !connected && elapsed > std::time::Duration::from_secs(30 * 60) {
                 drop(entry);
                 state_cleanup.sessions.remove(&sid_cleanup);
-                tracing::info!("Session cleaned up after timeout: {}", sid_cleanup);
+                tracing::debug!("Session cleaned up after timeout: {}", sid_cleanup);
             }
         }
     });
@@ -356,7 +356,7 @@ pub fn spawn_session_cleanup(state: Arc<RelayState>) {
             }
             for sid in to_remove {
                 state.sessions.remove(&sid);
-                tracing::info!("Session expired and removed: {}", sid);
+                tracing::debug!("Session expired and removed: {}", sid);
             }
         }
     });

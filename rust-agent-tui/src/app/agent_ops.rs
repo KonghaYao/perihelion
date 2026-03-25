@@ -105,9 +105,9 @@ impl App {
 
         // 懒加载 Thread 级 LangfuseSession（首轮创建，后续复用；未配置环境变量时静默跳过）
         if self.langfuse_session.is_none() {
-            tracing::info!(thread_id = %thread_id, "langfuse: session is None, attempting to create");
+            tracing::debug!(thread_id = %thread_id, "langfuse: session is None, attempting to create");
             if let Some(cfg) = crate::langfuse::LangfuseConfig::from_env() {
-                tracing::info!(host = %cfg.host, "langfuse: config found, creating session");
+                tracing::debug!(host = %cfg.host, "langfuse: config found, creating session");
                 let session_id = thread_id.clone();
                 let session = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current()
@@ -120,7 +120,7 @@ impl App {
                 }
                 self.langfuse_session = session.map(Arc::new);
             } else {
-                tracing::info!("langfuse: no config found in env, skipping session creation");
+                tracing::debug!("langfuse: no config found in env, skipping session creation");
             }
         } else {
             tracing::debug!(thread_id = %thread_id, "langfuse: reusing existing session");
