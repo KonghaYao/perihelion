@@ -14,9 +14,22 @@ fn strip_cwd(path: &str, cwd: Option<&str>) -> String {
     path.rsplit('/').next().unwrap_or(path).to_string()
 }
 
-/// 返回 PascalCase 工具名
+/// 返回简短 display name，控制在 3-6 字符以保持 UI 对齐
 pub fn format_tool_name(tool: &str) -> String {
-    to_pascal(tool)
+    match tool {
+        "bash"               => "Shell",
+        "read_file"          => "Read",
+        "write_file"         => "Write",
+        "edit_file"          => "Edit",
+        "glob_files"         => "Glob",
+        "search_files_rg"    => "Search",
+        "folder_operations"  => "Folder",
+        "todo_write"         => "Todo",
+        "ask_user"           => "Ask",
+        "launch_agent"       => "Agent",
+        other                => return to_pascal(other),
+    }
+    .to_string()
 }
 
 /// 返回参数摘要（含路径缩短逻辑）
