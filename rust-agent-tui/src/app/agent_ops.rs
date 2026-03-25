@@ -544,8 +544,21 @@ impl App {
                     );
                     self.view_messages.push(vm.clone());
                     let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                    // Langfuse：channel 意外断开也需结束 Trace，与 Error 路径保持一致
+                    if let Some(ref tracer) = self.langfuse_tracer {
+                        tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly"));
+                    }
+                    self.langfuse_tracer = None;
                     self.set_loading(false);
                     self.agent_rx = None;
+                    // 清理残留弹窗状态，避免 UI 卡在弹窗
+                    self.hitl_prompt = None;
+                    self.ask_user_prompt = None;
+                    self.pending_hitl_items = None;
+                    self.pending_ask_user = None;
+                    if let Some(start) = self.task_start_time {
+                        self.last_task_duration = Some(start.elapsed());
+                    }
                     return true;
                 }
             }

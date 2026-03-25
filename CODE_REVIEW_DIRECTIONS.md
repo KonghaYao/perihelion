@@ -34,11 +34,12 @@
   - [x] 大文件扫描与拆分
   - [x] 风格 lint 问题修复
 
-- [ ] **错误处理质量**
+- [x] **错误处理质量**
   - [x] 生产路径 `unwrap()`/`expect()` 扫描：修复三处真实风险——anthropic 消息适配器 `as_array_mut().unwrap()`（改 `if let`）、LLM 响应解析 `as_text().unwrap()` × 2（改 slice pattern + `if let`）；event.rs 模型面板 mode 提取改为只读借用；其余 `unwrap()` 均在测试代码或逻辑安全路径中
   - [x] `tokio::spawn` 子任务中 `let _ = ...` 静默忽略错误（Langfuse 所有后台 spawn 改为 `tracing::warn` 可观测）
   - [x] SQLite 操作中 `unwrap` 是否覆盖所有写失败场景（sqlite_store.rs 生产路径全部使用 `?` 传播，thread_ops.rs 使用 `unwrap_or_else` 降级，已覆盖）
   - [x] relay.rs 生产路径 `serde_json::to_string().unwrap()` 三处改为 `if let Ok` 防 panic
+  - [x] `poll_agent` 的 `Disconnected` 通道断开路径缺少 Langfuse/弹窗/计时清理（与 Error 路径对齐）
 
 - [x] **Langfuse 追踪集成**
   - [x] FIFO span 配对正确性：HITL 拒绝路径导致批次 span 树断裂（改为延迟提交策略：批次 Span 在下轮 on_llm_start 或 on_trace_end 时统一提交，彻底解决分裂问题）
@@ -47,7 +48,7 @@
   - [x] `input_json` 序列化失败时降级为 `Null`（改为显式 `to_value()` + `tracing::warn`，失败时降级为描述性错误对象而非静默 null）
   - [x] final_answer 从 UI 截断视图提取（改为 TextChunk 事件累积，避免 60 字符截断）
 
-- [ ] **Relay Server 安全与健壮性**
+- [x] **Relay Server 安全与健壮性**
   - [x] `validate_token` 使用字符串直接比较，存在 timing attack 风险（改用 `subtle::ConstantTimeEq` 常量时间比较）
   - [x] `broadcast_txs` 为 `Vec<UnboundedSender>`，Web 客户端异常断开后仅靠 `is_closed()` retain 清理，高并发下是否有累积泄漏（广播时顺带 retain 清理）
   - [x] Session 双重清理竞态：30 分钟延迟任务与 5 分钟周期清理可能同时 `sessions.remove`（延迟任务补充 elapsed 双重条件检查，与周期清理对齐）
