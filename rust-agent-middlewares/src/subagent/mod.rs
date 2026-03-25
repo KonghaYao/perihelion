@@ -1,14 +1,19 @@
 mod tool;
 pub use tool::SubAgentTool;
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use rust_create_agent::agent::events::AgentEventHandler;
 use rust_create_agent::agent::react::ReactLLM;
 use rust_create_agent::agent::state::State;
+use rust_create_agent::error::AgentResult;
+use rust_create_agent::messages::BaseMessage;
 use rust_create_agent::middleware::r#trait::Middleware;
 use rust_create_agent::tools::BaseTool;
+
+use crate::parse_agent_file;
 
 /// SubAgentMiddleware - 向父 agent 注入 `launch_agent` 工具
 ///
@@ -59,6 +64,75 @@ impl SubAgentMiddleware {
     }
 }
 
+/// 扫描 `{cwd}/.claude/agents/` 目录，返回 `(agent_id, name, description)` 列表
+fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
+    let agents_dir = Path::new(cwd).join(".claude").join("agents");
+    if !agents_dir.is_dir() {
+        return vec![];
+    }
+
+    let entries = match std::fs::read_dir(&agents_dir) {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
+
+    let mut result = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        // 两种格式：`{agent_id}.md` 或 `{agent_id}/agent.md`
+        let (agent_id, file_path): (String, PathBuf) = if path.is_file() {
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+            (id, path)
+        } else if path.is_dir() {
+            let nested = path.join("agent.md");
+            if !nested.is_file() {
+                continue;
+            }
+            let id = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            (id, nested)
+        } else {
+            continue;
+        };
+
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        if let Some(agent) = parse_agent_file(&content) {
+            let name = if agent.frontmatter.name.is_empty() { agent_id.clone() } else { agent.frontmatter.name.clone() };
+            let description = agent.frontmatter.description.clone();
+            result.push((agent_id, name, description));
+        }
+    }
+
+    // 按 agent_id 排序保证稳定输出
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    result
+}
+
+/// 生成 agents 摘要系统消息
+fn build_agents_summary(agents: &[(String, String, String)]) -> String {
+    let mut lines = vec![
+        "你可以使用 `launch_agent` 工具委派子任务给以下专门 Agent：".to_string(),
+        String::new(),
+    ];
+
+    for (agent_id, name, description) in agents {
+        lines.push(format!("- **{}** (`{}`): {}", name, agent_id, description));
+    }
+
+    lines.push(String::new());
+    lines.push("调用时传入 `agent_id` 字段（括号内的标识符）和 `task` 字段（任务描述）。".to_string());
+
+    lines.join("\n")
+}
+
 #[async_trait]
 impl<S: State> Middleware<S> for SubAgentMiddleware {
     fn name(&self) -> &str {
@@ -67,6 +141,25 @@ impl<S: State> Middleware<S> for SubAgentMiddleware {
 
     fn collect_tools(&self, _cwd: &str) -> Vec<Box<dyn BaseTool>> {
         vec![Box::new(self.build_tool())]
+    }
+
+    async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
+        let cwd = state.cwd().to_string();
+        let agents = tokio::task::spawn_blocking(move || scan_agents(&cwd))
+            .await
+            .map_err(|e| rust_create_agent::error::AgentError::MiddlewareError {
+                middleware: "SubAgentMiddleware".to_string(),
+                reason: format!("spawn_blocking 失败: {e}"),
+            })?;
+
+        if agents.is_empty() {
+            return Ok(());
+        }
+
+        let summary = build_agents_summary(&agents);
+        state.prepend_message(BaseMessage::system(summary));
+
+        Ok(())
     }
 }
 
@@ -124,5 +217,85 @@ mod tests {
         );
         let tool = m.build_tool();
         assert_eq!(tool.name(), "launch_agent");
+    }
+
+    #[test]
+    fn test_scan_agents_no_dir() {
+        let result = scan_agents("/nonexistent/path");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_scan_agents_flat_md() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("code-reviewer.md"),
+            "---\nname: code-reviewer\ndescription: Reviews code quality\n---\n\nYou are a reviewer.\n",
+        ).unwrap();
+
+        let result = scan_agents(dir.path().to_str().unwrap());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "code-reviewer");
+        assert_eq!(result[0].1, "code-reviewer");
+        assert_eq!(result[0].2, "Reviews code quality");
+    }
+
+    #[test]
+    fn test_scan_agents_nested_dir() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let agent_dir = dir.path().join(".claude").join("agents").join("analyst");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::write(
+            agent_dir.join("agent.md"),
+            "---\nname: data-analyst\ndescription: Analyzes data\n---\n\nYou are an analyst.\n",
+        ).unwrap();
+
+        let result = scan_agents(dir.path().to_str().unwrap());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "analyst");
+        assert_eq!(result[0].1, "data-analyst");
+        assert_eq!(result[0].2, "Analyzes data");
+    }
+
+    #[tokio::test]
+    async fn test_before_agent_injects_summary() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("tester.md"),
+            "---\nname: tester\ndescription: Runs tests\n---\n\nYou run tests.\n",
+        ).unwrap();
+
+        let m = SubAgentMiddleware::new(
+            Arc::new(vec![]),
+            None,
+            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        );
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state).await.unwrap();
+
+        assert_eq!(state.messages().len(), 1);
+        let content = state.messages()[0].content();
+        assert!(content.contains("tester"));
+        assert!(content.contains("Runs tests"));
+        assert!(content.contains("launch_agent"));
+    }
+
+    #[tokio::test]
+    async fn test_before_agent_no_agents_no_op() {
+        let m = SubAgentMiddleware::new(
+            Arc::new(vec![]),
+            None,
+            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        );
+        let mut state = AgentState::new("/nonexistent");
+        <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state).await.unwrap();
+        assert_eq!(state.messages().len(), 0);
     }
 }

@@ -20,6 +20,7 @@
 - [ ] 系统提示词中需要添加更多的 cli 的信息, 比如现在的模型,等
 - [ ] Subagent 的 Skill 预加载功能
 - [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
+- [ ] 写一个 Explorer Agent
 
 **第三层：用户界面**
 
@@ -32,9 +33,11 @@
 - [x] TODOWrite 只显示占位, TODO 的状态由全数据计算出来,然后显示到输入框的上面
 - [x] 弹窗面板里面的内容超长会有问题
 - [x] 输入框粘贴图片功能
+- [x] 接入 langfuse
+  - [ ] Langfuse Client 有问题, 现在发送不了 tool 观测暂时无法解决
 - [ ] 多 Agent 并发面板（同时跑多个任务）
 - [ ] 添加一个会话内的数据统计 status bar
 - [ ] Web UI（浏览器端对话界面）
 - [ ] Tarui 整合
-- [ ] 接入 langfuse
-- [ ] i18n 文件整合替换能力
+- [ ] i18n 文件整合替换能力; 默认中文, 但是检测到 ./i18n/ 里面的 json 时, 会进行替换. /i18n 会进入选择面板, 即文件, 选中即可替换.
+- [ ] /loop 命令 和 /cron cron 可以看到定时任务, loop 是一个 command 指示 ai 如何添加 cron , cron 只存储在内存中; cron 会定时 新建会话, 然后把用户的提示词作为用户输入开始执行
