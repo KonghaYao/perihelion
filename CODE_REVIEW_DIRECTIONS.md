@@ -29,8 +29,8 @@
   - [x] tools / disallowedTools 过滤
   - [x] LLM 工厂独立实例
 
-- [ ] 常规代码风格与架构维护
-  - [ ] 模块化维护
+- [x] 常规代码风格与架构维护
+  - [x] 模块化维护：langfuse/mod.rs（432行）拆分为 session.rs + tracer.rs + mod.rs（纯重导出）；AgentEvent 从 app/mod.rs 提取到 app/events.rs，提升可发现性
   - [x] 大文件扫描与拆分
   - [x] 风格 lint 问题修复
 

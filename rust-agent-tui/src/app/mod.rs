@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod agent_panel;
+pub mod events;
 pub mod hitl;
 pub mod model_panel;
 mod provider;
@@ -15,12 +16,12 @@ mod agent_ops;
 mod relay_ops;
 mod hint_ops;
 
+pub use events::AgentEvent;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
 pub use ask_user_prompt::AskUserBatchPrompt;
 
 use ratatui::style::{Color, Style};
 use ratatui_textarea::TextArea;
-use rust_agent_middlewares::ask_user::AskUserBatchRequest;
 use rust_agent_middlewares::prelude::{HitlDecision, SkillMetadata, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::AgentCancellationToken;
@@ -44,37 +45,6 @@ use tokio::sync::Notify;
 use tracing::Instrument;
 
 use crate::ui::render_thread::{RenderCache, RenderEvent};
-
-// ─── AgentEvent (保留在此，被 agent_ops 和 TUI 事件循环大量使用) ─────────────
-
-pub enum AgentEvent {
-    ToolCall {
-        tool_call_id: String,
-        name: String,
-        display: String,
-        args: Option<String>,
-        is_error: bool,
-    },
-    AssistantChunk(String),
-    /// 新消息添加到状态（包括最终 AI 回答）
-    MessageAdded(rust_create_agent::messages::BaseMessage),
-    Done,
-    Error(String),
-    /// 用户中断（Ctrl+C），工具已以 error 结尾，消息已持久化
-    Interrupted,
-    /// HITL 批量审批请求
-    ApprovalNeeded(BatchApprovalRequest),
-    /// AskUser 批量提问请求
-    AskUserBatch(AskUserBatchRequest),
-    /// Todo 列表更新
-    TodoUpdate(Vec<TodoItem>),
-    /// Agent 执行结束后的消息快照（用于多轮对话续接）
-    StateSnapshot(Vec<rust_create_agent::messages::BaseMessage>),
-    /// 上下文压缩成功，携带摘要文本
-    CompactDone(String),
-    /// 上下文压缩失败，携带错误信息
-    CompactError(String),
-}
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
