@@ -139,6 +139,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             self.emit(AgentEvent::LlmCallStart {
                 step,
                 messages: state.messages().to_vec(),
+                tools: tool_refs.iter().map(|t| t.definition()).collect(),
             });
             let reasoning = tokio::select! {
                 biased;

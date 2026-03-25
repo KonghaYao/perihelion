@@ -97,8 +97,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         if let Some(ref tracer) = langfuse_for_handler {
             let mut t = tracer.lock();
             match &event {
-                ExecutorEvent::LlmCallStart { step, messages } =>
-                    t.on_llm_start(*step, messages),
+                ExecutorEvent::LlmCallStart { step, messages, tools } =>
+                    t.on_llm_start(*step, messages, tools),
                 ExecutorEvent::LlmCallEnd { step, model, output, usage } =>
                     t.on_llm_end(*step, model, &provider_name_for_handler, output, usage.as_ref()),
                 ExecutorEvent::ToolStart { tool_call_id, name, input } =>

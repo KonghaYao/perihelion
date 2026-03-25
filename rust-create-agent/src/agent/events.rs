@@ -16,10 +16,11 @@ pub enum AgentEvent {
     StateSnapshot(Vec<crate::messages::BaseMessage>),
     /// 增量消息（BaseMessage），relay 传输的最小数据单元
     MessageAdded(crate::messages::BaseMessage),
-    /// LLM 调用开始（携带完整 input messages 快照，用于 Langfuse Generation）
+    /// LLM 调用开始（携带完整 input messages 快照 + 工具定义，用于 Langfuse Generation）
     LlmCallStart {
         step: usize,
         messages: Vec<crate::messages::BaseMessage>,
+        tools: Vec<crate::tools::ToolDefinition>,
     },
     /// LLM 调用结束（携带模型名、输出文本、token 使用量）
     LlmCallEnd {

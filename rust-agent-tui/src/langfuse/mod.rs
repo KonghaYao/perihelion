@@ -16,6 +16,7 @@ use langfuse_client_base::models::{
 use langfuse_ergonomic::{BackpressurePolicy, Batcher, ClientBuilder, LangfuseClient};
 use rust_create_agent::llm::types::TokenUsage;
 use rust_create_agent::messages::BaseMessage;
+use rust_create_agent::tools::ToolDefinition;
 
 /// Langfuse Thread 级别会话，持有跨多轮复用的共享连接状态。
 ///
@@ -77,8 +78,8 @@ pub struct LangfuseTracer {
     trace_id: String,
     /// Agent Observation 的 ID，所有子观测通过 parent_observation_id 挂在此下
     agent_span_id: String,
-    /// step → (generation_id, input_messages, start_time_rfc3339)
-    generation_data: HashMap<usize, (String, Vec<BaseMessage>, String)>,
+    /// step → (generation_id, input_messages, tools, start_time_rfc3339)
+    generation_data: HashMap<usize, (String, Vec<BaseMessage>, Vec<ToolDefinition>, String)>,
     /// 工具调用缓冲数据：tool_call_id → PendingTool（start 时写入，end 时取出合并上报）
     pending_tools: HashMap<String, PendingTool>,
     /// 当前批次工具组 Span ID（第一个 ToolStart 时生成，最后一个 ToolEnd 时随批次 Span 一起提交）
@@ -145,12 +146,12 @@ impl LangfuseTracer {
         });
     }
 
-    /// LLM 调用开始：缓存 input messages 和开始时间戳，等 on_llm_end 时一并上报 Generation
-    pub fn on_llm_start(&mut self, step: usize, messages: &[BaseMessage]) {
+    /// LLM 调用开始：缓存 input messages、工具定义和开始时间戳，等 on_llm_end 时一并上报 Generation
+    pub fn on_llm_start(&mut self, step: usize, messages: &[BaseMessage], tools: &[ToolDefinition]) {
         let gen_id = uuid::Uuid::now_v7().to_string();
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         self.generation_data
-            .insert(step, (gen_id, messages.to_vec(), start_time));
+            .insert(step, (gen_id, messages.to_vec(), tools.to_vec(), start_time));
     }
 
     /// LLM 调用结束：通过 Batcher 直接构造 IngestionEvent，绕过 builder 的 usage bug
@@ -162,7 +163,7 @@ impl LangfuseTracer {
         output: &str,
         usage: Option<&TokenUsage>,
     ) {
-        let Some((gen_id, messages, start_time)) = self.generation_data.remove(&step) else {
+        let Some((gen_id, messages, tools, start_time)) = self.generation_data.remove(&step) else {
             return;
         };
         let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -172,7 +173,10 @@ impl LangfuseTracer {
         let model = model.to_string();
         let provider_name = provider.to_string();
         let output = output.to_string();
-        let input_json = serde_json::to_value(&messages).unwrap_or(serde_json::Value::Null);
+        let input_json = serde_json::json!({
+            "messages": messages,
+            "tools": tools,
+        });
 
         // 构造 IngestionUsage：使用 langfuse_client_base 的原生类型
         let langfuse_usage = usage.map(|u| {
