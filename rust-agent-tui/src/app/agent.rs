@@ -57,6 +57,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     };
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
     let provider_for_factory = provider.clone();
+    let provider_name = provider.display_name().to_string();
     let model = BaseModelReactLLM::new(provider.into_model()).with_system(system_prompt);
 
     // Todo channel：TodoMiddleware → TUI
@@ -80,6 +81,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let cwd_for_handler = cwd.clone();
     let relay_for_handler = relay_client.clone();
     let langfuse_for_handler = langfuse_tracer.clone();
+    let provider_name_for_handler = provider_name.clone();
     let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
         // 转发到 Relay
         if let Some(ref relay) = relay_for_handler {
@@ -98,11 +100,11 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                 ExecutorEvent::LlmCallStart { step, messages } =>
                     t.on_llm_start(*step, messages),
                 ExecutorEvent::LlmCallEnd { step, model, output, usage } =>
-                    t.on_llm_end(*step, model, output, usage.as_ref()),
+                    t.on_llm_end(*step, model, &provider_name_for_handler, output, usage.as_ref()),
                 ExecutorEvent::ToolStart { tool_call_id, name, input } =>
                     t.on_tool_start(tool_call_id, name, input),
-                ExecutorEvent::ToolEnd { is_error, output, .. } =>
-                    t.on_tool_end_by_name_order(output, *is_error),
+                ExecutorEvent::ToolEnd { tool_call_id, is_error, output, .. } =>
+                    t.on_tool_end(tool_call_id, output, *is_error),
                 _ => {}
             }
         }
@@ -124,6 +126,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                 name,
                 output,
                 is_error: false,
+                ..
             } if name == "ask_user" => AgentEvent::ToolCall {
                 tool_call_id: String::new(),
                 display: "AskUser".to_string(),
@@ -136,6 +139,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                 name,
                 output,
                 is_error: true,
+                ..
             } => AgentEvent::ToolCall {
                 tool_call_id: String::new(),
                 display: format_tool_name(&name),

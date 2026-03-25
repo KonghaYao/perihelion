@@ -130,7 +130,7 @@ impl SkillsMiddleware {
         }
 
         lines.push(String::new());
-        lines.push("如需加载某 skill 的完整内容，在消息中提及其 name 即可。".to_string());
+        lines.push("如需加载某 skill 的完整内容，在消息中提及其 name 即可。用户一般会使用 '#skill_name' 的形式。".to_string());
 
         lines.join("\n")
     }

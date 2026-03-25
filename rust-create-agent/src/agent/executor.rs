@@ -210,6 +210,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                                     input: tool_call.input.clone(),
                                 });
                                 self.emit(AgentEvent::ToolEnd {
+                                    tool_call_id: tool_call.id.clone(),
                                     name: tool_call.name.clone(),
                                     output: rejection_result.output.clone(),
                                     is_error: true,
@@ -313,6 +314,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         "tool call completed"
                     );
                     self.emit(AgentEvent::ToolEnd {
+                        tool_call_id: modified_call.id.clone(),
                         name: modified_call.name.clone(),
                         output: result.output.clone(),
                         is_error: result.is_error,
