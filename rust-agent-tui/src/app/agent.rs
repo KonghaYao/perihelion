@@ -58,7 +58,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
     let provider_for_factory = provider.clone();
     let provider_name = provider.display_name().to_string();
-    let model = BaseModelReactLLM::new(provider.into_model()).with_system(system_prompt);
+    // 不使用 .with_system()，改由 PrependSystemMiddleware 注入到 state，使 Langfuse 可见
+    let model = BaseModelReactLLM::new(provider.into_model());
 
     // Todo channel：TodoMiddleware → TUI
     let (todo_tx, mut todo_rx) = mpsc::channel::<Vec<TodoItem>>(8);
@@ -170,21 +171,24 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         Arc::new(tools)
     };
 
-    // LLM 工厂：每次为子 agent 创建独立实例
+    // LLM 工厂：每次为子 agent 创建裸 LLM（不设 system）
+    // 系统提示词由 system_builder + PrependSystemMiddleware 注入，使其在 Langfuse 中可见
     let provider_clone = provider_for_factory;
-    let cwd_clone = cwd.clone();
     let llm_factory: Arc<dyn Fn() -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync> = Arc::new(move || {
-        let overrides = rust_agent_middlewares::AgentDefineMiddleware::load_overrides(&cwd_clone, "");
-        let system = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd_clone);
-        Box::new(BaseModelReactLLM::new(provider_clone.clone().into_model()).with_system(system))
+        Box::new(BaseModelReactLLM::new(provider_clone.clone().into_model()))
     });
+
+    // 系统提示构建器：根据 agent overrides 构建包含 tone/proactiveness 的完整系统提示
+    let system_builder: Arc<dyn Fn(Option<&rust_agent_middlewares::AgentOverrides>, &str) -> String + Send + Sync> =
+        Arc::new(|overrides, cwd| crate::prompt::build_system_prompt(overrides, cwd));
 
     // SubAgent 中间件
     let subagent = SubAgentMiddleware::new(
         Arc::clone(&parent_tools),
         Some(Arc::clone(&handler) as Arc<dyn rust_create_agent::agent::events::AgentEventHandler>),
         llm_factory,
-    );
+    )
+    .with_system_builder(system_builder);
 
     // 构建 ReActAgent
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具
@@ -198,6 +202,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         .add_middleware(Box::new(TodoMiddleware::new(todo_tx)))
         .add_middleware(Box::new(hitl))
         .add_middleware(Box::new(subagent))
+        // 最后注册 → before_agent 最后执行 → prepend_message 最后写入 → 位于消息列表最前
+        .add_middleware(Box::new(rust_agent_middlewares::PrependSystemMiddleware::new(system_prompt)))
         .with_event_handler(Arc::clone(&handler))
         .register_tool(Box::new(ask_user_tool));
 

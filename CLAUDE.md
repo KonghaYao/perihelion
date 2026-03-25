@@ -34,8 +34,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p rust-agent-tui
 AgentInput
   └─ state.add_message(Human)
   └─ chain.collect_tools(cwd)        # ToolProvider + 中间件工具合并，手动注册的优先级最高
-  └─ chain.before_agent(state)       # 按注册顺序：AgentsMd→Skills→Filesystem→Terminal→Todo→HITL
-                                     #   AgentsMd/Skills 在 state 头部 prepend_message(System)
+  └─ chain.before_agent(state)       # 按注册顺序：AgentsMd→AgentDefine→Skills→Filesystem→Terminal→Todo→HITL→SubAgent→PrependSystem
+                                     #   AgentsMd/Skills/SubAgent 在 state 头部 prepend_message(System)
+                                     #   PrependSystem 最后注册、最后 prepend → 系统提示词位于消息列表最前
   └─ loop(max_iterations=50):
       └─ llm.generate_reasoning(state.messages, tools)
       │    └─ BaseModel.invoke(LlmRequest{messages, tools, system})
@@ -166,6 +167,13 @@ tool result 消息：Anthropic 要求合并到前一条 user 消息的 content b
 - 无工具调用：直接返回最终回答文本
 - 有工具调用：`[子 agent 执行了 N 个工具调用: tool1, tool2]\n\n最终回答`（中间结果舍弃，避免 token 膨胀）
 
+**系统提示词注入：**
+
+`SubAgentMiddleware` 支持 `.with_system_builder(builder)` 设置系统提示构建器，签名为 `Fn(Option<&AgentOverrides>, &str) -> String`。调用 `launch_agent` 时，工具自动：
+1. `AgentDefineMiddleware::load_overrides(cwd, agent_id)` 加载 agent 的 persona/tone/proactiveness
+2. 调用 builder 构建完整系统提示（含 tone 等）
+3. 通过 `PrependSystemMiddleware` 注入到子 agent 的 state 消息中（Langfuse 可见）
+
 ## TUI 命令
 
 输入 `/` 前缀触发，支持前缀唯一匹配（如 `/m` 匹配 `/model`）：
@@ -227,11 +235,12 @@ cargo test -p rust-agent-tui <test_name> -- --nocapture  # 单个测试
 ## 关键模式
 
 ```rust
-// 组装 agent
-ReActAgent::new(BaseModelReactLLM::new(model).with_system(prompt))
+// 组装 agent（系统提示词通过 PrependSystemMiddleware 注入，使 Langfuse 可见）
+ReActAgent::new(BaseModelReactLLM::new(model))
     .max_iterations(50)
-    .add_middleware(Box::new(FilesystemMiddleware::new()))  // collect_tools 自动提供工具
-    .register_tool(Box::new(AskUserTool::new(invoker)))    // 手动注册，优先级最高
+    .add_middleware(Box::new(FilesystemMiddleware::new()))       // collect_tools 自动提供工具
+    .add_middleware(Box::new(PrependSystemMiddleware::new(prompt))) // 最后注册 → 提示词位于消息列表最前
+    .register_tool(Box::new(AskUserTool::new(invoker)))         // 手动注册，优先级最高
     .with_event_handler(Arc::new(FnEventHandler(move |ev| { tx.try_send(ev); })))
     .execute(AgentInput::text(input), &mut AgentState::new(cwd))
 ```
@@ -250,18 +259,25 @@ let parent_tools: Arc<Vec<Arc<dyn BaseTool>>> = Arc::new(
         .map(|t| Arc::new(BoxToolWrapper(t)) as Arc<dyn BaseTool>)
         .collect()
 );
-// LLM 工厂：每次为子 agent 创建独立实例
+// LLM 工厂：每次为子 agent 创建裸 LLM（不设 system，由 PrependSystemMiddleware 注入）
 let llm_factory = Arc::new(move || {
     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 });
+// 系统提示构建器：根据 agent overrides 构建完整系统提示（含 tone/proactiveness）
+let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str| {
+    build_system_prompt(overrides, cwd)
+});
 // 挂载中间件，LLM 即可调用 launch_agent 工具
 ReActAgent::new(llm)
-    .add_middleware(Box::new(SubAgentMiddleware::new(parent_tools, Some(event_handler), llm_factory)))
+    .add_middleware(Box::new(
+        SubAgentMiddleware::new(parent_tools, Some(event_handler), llm_factory)
+            .with_system_builder(system_builder)  // 子 agent 系统提示 Langfuse 可见
+    ))
 ```
 
 agent 定义文件放在 `.claude/agents/{agent_id}.md`，YAML frontmatter 支持 `tools`、`disallowedTools`、`maxTurns`、`description`。
 
-**System prompt**：模板在 `rust-agent-tui/prompts/system.md`，`{{cwd}}` 占位符在运行时替换。
+**System prompt**：模板在 `rust-agent-tui/prompts/system.md`，`{{cwd}}` 占位符在运行时替换。系统提示通过 `PrependSystemMiddleware`（注册在链尾）注入 state，确保位于所有其他 System 消息之前，且在 Langfuse 等追踪工具中可见。
 
 **Thread 持久化**：`SqliteThreadStore` 实现 `ThreadStore` trait，数据库路径 `~/.zen-core/threads/threads.db`（WAL 模式）。持久化由 `StateSnapshot` 事件驱动增量写入，用户消息在发送时立即持久化。`parking_lot::Mutex<Connection>` 串行化写操作，`append_messages` 在事务内执行保证 crash-safe。
 

@@ -24,6 +24,7 @@ pub mod tools;
 
 pub use agents_md::AgentsMdMiddleware;
 pub use agent_define::{AgentDefineMiddleware, AgentOverrides};
+pub use middleware::PrependSystemMiddleware;
 pub use ask_user::{
     ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserOption,
     AskUserQuestionData,
@@ -51,7 +52,7 @@ pub mod prelude {
         default_requires_approval, is_yolo_mode, BatchItem, HitlDecision, HitlHandler,
         HumanInTheLoopMiddleware,
     };
-    pub use crate::middleware::{FilesystemMiddleware, TerminalMiddleware, TodoMiddleware};
+    pub use crate::middleware::{FilesystemMiddleware, PrependSystemMiddleware, TerminalMiddleware, TodoMiddleware};
     pub use rust_create_agent::tools::ToolProvider;
     pub use crate::skills::{SkillMetadata, SkillsMiddleware};
     pub use crate::tools::{

@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rust_create_agent::agent::events::AgentEventHandler;
-use rust_create_agent::agent::react::{AgentInput, ReactLLM, Reasoning};
+use rust_create_agent::agent::react::{AgentInput, ReactLLM};
 use rust_create_agent::agent::state::AgentState;
 use rust_create_agent::agent::ReActAgent;
-use rust_create_agent::messages::BaseMessage;
 use rust_create_agent::tools::BaseTool;
 
-use crate::agent_define::AgentDefineMiddleware;
+use crate::agent_define::{AgentDefineMiddleware, AgentOverrides};
 use crate::claude_agent_parser::{parse_agent_file, ToolsValue};
+use crate::middleware::PrependSystemMiddleware;
 use crate::tools::ArcToolWrapper;
 
 /// SubAgentTool - 实现 `launch_agent` 工具，允许 LLM 将子任务委派给专门的子 agent 执行
@@ -22,8 +22,13 @@ pub struct SubAgentTool {
     parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
     /// 父 agent 事件处理器（透传子 agent 事件）
     event_handler: Option<Arc<dyn AgentEventHandler>>,
-    /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例
+    /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例（不设 system，由 PrependSystemMiddleware 注入）
     llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+    /// 系统提示词构建器：(agent overrides, cwd) → system prompt 字符串
+    ///
+    /// 返回的内容会通过 `PrependSystemMiddleware` 注入到子 agent 的 state 消息中，
+    /// 使其在 Langfuse 等追踪工具中可见。为 None 时不注入系统提示词。
+    system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
 }
 
 impl SubAgentTool {
@@ -36,7 +41,17 @@ impl SubAgentTool {
             parent_tools,
             event_handler,
             llm_factory,
+            system_builder: None,
         }
+    }
+
+    /// 设置系统提示词构建器，用于向子 agent 注入包含 tone/proactiveness 的完整系统提示
+    pub fn with_system_builder(
+        mut self,
+        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
+    ) -> Self {
+        self.system_builder = Some(builder);
+        self
     }
 
     /// 根据 agent 定义的 tools/disallowedTools 字段，从父工具集中过滤出子 agent 可用的工具
@@ -170,19 +185,18 @@ impl BaseTool for SubAgentTool {
 
         // 4. 组装子 ReActAgent
         let llm = (self.llm_factory)();
-        // 若 system_prompt 非空，用其覆盖默认 system
-        let llm: Box<dyn ReactLLM + Send + Sync> = if !agent_def.system_prompt.is_empty() {
-            Box::new(WithSystemLlm {
-                inner: llm,
-                system: agent_def.system_prompt.clone(),
-            })
-        } else {
-            llm
-        };
-
         let max_iterations = agent_def.frontmatter.max_turns.unwrap_or(20) as usize;
 
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
+
+        // 5. 通过 PrependSystemMiddleware 将系统提示词注入 state（使其对 Langfuse 等追踪可见）
+        //    系统提示词 = build_system_prompt(agent overrides, cwd)，包含 tone/proactiveness
+        if let Some(ref builder) = self.system_builder {
+            let overrides = AgentDefineMiddleware::load_overrides(&cwd, &agent_id);
+            let system_content = builder(overrides.as_ref(), &cwd);
+            agent_builder = agent_builder
+                .add_middleware(Box::new(PrependSystemMiddleware::new(system_content)));
+        }
 
         // 注册过滤后的工具
         for tool in filtered_tools {
@@ -194,7 +208,7 @@ impl BaseTool for SubAgentTool {
             agent_builder = agent_builder.with_event_handler(Arc::clone(handler));
         }
 
-        // 5. 执行子 agent
+        // 6. 执行子 agent
         let mut state = AgentState::new(cwd.clone());
         match agent_builder
             .execute(AgentInput::text(task), &mut state, None)
@@ -231,33 +245,11 @@ fn format_subagent_result(output: &rust_create_agent::agent::react::AgentOutput)
     )
 }
 
-/// WithSystemLlm - 为子 agent 注入 system prompt 的 LLM 包装
-struct WithSystemLlm {
-    inner: Box<dyn ReactLLM + Send + Sync>,
-    system: String,
-}
-
-#[async_trait]
-impl ReactLLM for WithSystemLlm {
-    async fn generate_reasoning(
-        &self,
-        messages: &[BaseMessage],
-        tools: &[&dyn BaseTool],
-    ) -> rust_create_agent::error::AgentResult<Reasoning> {
-        // 在消息开头注入 system 消息（如果还没有）
-        let mut msgs = messages.to_vec();
-        let has_system = msgs.iter().any(|m| matches!(m, BaseMessage::System { .. }));
-        if !has_system {
-            msgs.insert(0, BaseMessage::system(self.system.as_str()));
-        }
-        self.inner.generate_reasoning(&msgs, tools).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use rust_create_agent::agent::react::Reasoning;
+    use rust_create_agent::messages::BaseMessage;
     use tempfile::tempdir;
 
     // Mock LLM：直接返回最终答案
@@ -504,5 +496,54 @@ mod tests {
 
         assert!(names.contains(&"read_file"));
         assert!(!names.contains(&"launch_agent"), "launch_agent 不应出现");
+    }
+
+    /// 验证 with_system_builder 能正确注入系统提示词
+    #[tokio::test]
+    async fn test_system_builder_injects_system_message() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("tone-test.md"),
+            "---\nname: tone-test\ndescription: Test tone injection\n---\n\nYou are a tone tester.\n",
+        )
+        .unwrap();
+
+        // LLM 回显 system 消息内容
+        struct SystemEchoLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for SystemEchoLLM {
+            async fn generate_reasoning(
+                &self,
+                messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> rust_create_agent::error::AgentResult<Reasoning> {
+                // 找到 system 消息并返回其内容
+                let system_content = messages
+                    .iter()
+                    .find(|m| matches!(m, BaseMessage::System { .. }))
+                    .map(|m| m.content())
+                    .unwrap_or_else(|| "no-system".to_string());
+                Ok(Reasoning::with_answer("", format!("system={system_content}")))
+            }
+        }
+
+        let t = SubAgentTool::new(
+            Arc::new(vec![]),
+            None,
+            Arc::new(|| Box::new(SystemEchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        )
+        .with_system_builder(Arc::new(|_overrides, _cwd| "tone: be concise".to_string()));
+
+        let result = t
+            .invoke(serde_json::json!({
+                "agent_id": "tone-test",
+                "task": "hello",
+                "cwd": dir.path().to_str().unwrap()
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("tone: be concise"), "系统提示应被注入: {}", result);
     }
 }

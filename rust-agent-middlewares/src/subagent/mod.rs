@@ -13,6 +13,7 @@ use rust_create_agent::messages::BaseMessage;
 use rust_create_agent::middleware::r#trait::Middleware;
 use rust_create_agent::tools::BaseTool;
 
+use crate::agent_define::AgentOverrides;
 use crate::parse_agent_file;
 
 /// SubAgentMiddleware - 向父 agent 注入 `launch_agent` 工具
@@ -29,7 +30,12 @@ use crate::parse_agent_file;
 /// let llm_factory = Arc::new(move || {
 ///     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 /// });
-/// let middleware = SubAgentMiddleware::new(parent_tools, Some(event_handler), llm_factory);
+/// // 可选：系统提示构建器，使子 agent 的 tone/proactiveness 在 Langfuse 中可见
+/// let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str| {
+///     build_system_prompt(overrides, cwd)
+/// });
+/// let middleware = SubAgentMiddleware::new(parent_tools, Some(event_handler), llm_factory)
+///     .with_system_builder(system_builder);
 /// let agent = ReActAgent::new(llm).add_middleware(Box::new(middleware));
 /// ```
 pub struct SubAgentMiddleware {
@@ -39,6 +45,9 @@ pub struct SubAgentMiddleware {
     event_handler: Option<Arc<dyn AgentEventHandler>>,
     /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例
     llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+    /// 系统提示构建器：(agent overrides, cwd) → system prompt 字符串
+    /// 设置后，子 agent 通过 PrependSystemMiddleware 注入系统提示（Langfuse 可见）
+    system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
 }
 
 impl SubAgentMiddleware {
@@ -51,16 +60,30 @@ impl SubAgentMiddleware {
             parent_tools,
             event_handler,
             llm_factory,
+            system_builder: None,
         }
+    }
+
+    /// 设置系统提示构建器，子 agent 执行时通过 `PrependSystemMiddleware` 注入系统提示词
+    pub fn with_system_builder(
+        mut self,
+        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
+    ) -> Self {
+        self.system_builder = Some(builder);
+        self
     }
 
     /// 构建 SubAgentTool 实例（克隆 Arc 字段，不转移所有权）
     pub fn build_tool(&self) -> SubAgentTool {
-        SubAgentTool::new(
+        let mut tool = SubAgentTool::new(
             Arc::clone(&self.parent_tools),
             self.event_handler.clone(),
             Arc::clone(&self.llm_factory),
-        )
+        );
+        if let Some(ref builder) = self.system_builder {
+            tool = tool.with_system_builder(Arc::clone(builder));
+        }
+        tool
     }
 }
 
