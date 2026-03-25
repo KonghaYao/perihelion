@@ -41,6 +41,15 @@ async fn agent_ws_handler(
     if let Err(code) = auth::validate_token(params.token.as_deref(), &state.token) {
         return code.into_response();
     }
+    // 软检查连接数上限（在 handle_agent_ws 中还有精确计数）
+    use std::sync::atomic::Ordering;
+    if state.active_agent_conns.load(Ordering::Relaxed) >= state.max_agent_conns {
+        tracing::warn!(
+            limit = state.max_agent_conns,
+            "Relay: agent 连接数已达上限，返回 429"
+        );
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
     ws.on_upgrade(move |socket| relay::handle_agent_ws(socket, state, params.name))
 }
 
@@ -51,6 +60,15 @@ async fn web_ws_handler(
 ) -> impl IntoResponse {
     if let Err(code) = auth::validate_token(params.token.as_deref(), &state.token) {
         return code.into_response();
+    }
+    // 软检查 web 连接数上限
+    use std::sync::atomic::Ordering;
+    if state.active_web_conns.load(Ordering::Relaxed) >= state.max_web_conns {
+        tracing::warn!(
+            limit = state.max_web_conns,
+            "Relay: web 连接数已达上限，返回 429"
+        );
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     match params.session {
         Some(session_id) => ws
@@ -89,7 +107,24 @@ async fn main() {
         .parse()
         .expect("RELAY_PORT must be a valid port number");
 
-    let state = RelayState::new(token);
+    // 连接数限制（可通过环境变量调整，保守默认值适合单机部署场景）
+    let max_agent_conns: usize = env::var("MAX_AGENT_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
+    let max_web_conns: usize = env::var("MAX_WEB_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(200);
+
+    tracing::info!(
+        max_agent_conns,
+        max_web_conns,
+        max_web_conns_per_session = relay::MAX_WEB_CONNS_PER_SESSION,
+        "Relay 连接限制配置"
+    );
+
+    let state = RelayState::new_with_limits(token, max_agent_conns, max_web_conns);
 
     // Start session cleanup task
     relay::spawn_session_cleanup(state.clone());

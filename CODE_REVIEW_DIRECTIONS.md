@@ -52,4 +52,4 @@
   - [x] `broadcast_txs` 为 `Vec<UnboundedSender>`，Web 客户端异常断开后仅靠 `is_closed()` retain 清理，高并发下是否有累积泄漏（广播时顺带 retain 清理）
   - [x] Session 双重清理竞态：30 分钟延迟任务与 5 分钟周期清理可能同时 `sessions.remove`（延迟任务补充 elapsed 双重条件检查，与周期清理对齐）
   - [x] `handle_web_session_ws` 中同一 `text_str` 执行两次 `serde_json::from_str`（合并为一次解析，直接解构已有结果，复用 `forward_to_web` 辅助方法）
-  - [ ] Relay Server 无速率限制和连接数上限，需评估 DoS 风险
+  - [x] Relay Server 无速率限制和连接数上限（添加 agent/web 并发连接计数与上限：MAX_AGENT_CONNECTIONS=50、MAX_WEB_CONNECTIONS=200、每 session 最多 10 个 web 连接；超限返回 429，日志可观测）

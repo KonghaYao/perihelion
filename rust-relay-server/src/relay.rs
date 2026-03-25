@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -7,6 +8,9 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
 use crate::protocol::{AgentInfo, BroadcastMessage, RelayMessage};
+
+/// 每个 session 允许的最大同时 Web 连接数（前端多标签场景）
+pub const MAX_WEB_CONNS_PER_SESSION: usize = 10;
 
 pub struct SessionEntry {
     pub agent_tx: mpsc::UnboundedSender<String>,
@@ -21,14 +25,31 @@ pub struct RelayState {
     pub sessions: DashMap<String, Arc<SessionEntry>>,
     pub broadcast_txs: RwLock<Vec<mpsc::UnboundedSender<String>>>,
     pub token: String,
+    /// 当前活跃 agent WebSocket 连接数
+    pub active_agent_conns: AtomicUsize,
+    /// 当前活跃 web WebSocket 连接数（管理端 + 会话端总计）
+    pub active_web_conns: AtomicUsize,
+    /// Agent 并发连接数上限（对应 session 数量上限，默认 50）
+    pub max_agent_conns: usize,
+    /// Web 并发连接数上限（默认 200）
+    pub max_web_conns: usize,
 }
 
 impl RelayState {
     pub fn new(token: String) -> Arc<Self> {
+        Self::new_with_limits(token, 50, 200)
+    }
+
+    /// 使用自定义连接限制构造（从环境变量读取时使用）
+    pub fn new_with_limits(token: String, max_agent_conns: usize, max_web_conns: usize) -> Arc<Self> {
         Arc::new(Self {
             sessions: DashMap::new(),
             broadcast_txs: RwLock::new(Vec::new()),
             token,
+            active_agent_conns: AtomicUsize::new(0),
+            active_web_conns: AtomicUsize::new(0),
+            max_agent_conns,
+            max_web_conns,
         })
     }
 
@@ -72,6 +93,13 @@ pub async fn handle_agent_ws(
     name: Option<String>,
 ) {
     use futures_util::{SinkExt, StreamExt};
+
+    // 占用连接槽（在 main.rs 软检查后再做一次精确计数）
+    state.active_agent_conns.fetch_add(1, Ordering::Relaxed);
+    tracing::debug!(
+        active = state.active_agent_conns.load(Ordering::Relaxed),
+        "agent ws connected"
+    );
 
     let (mut ws_tx, mut ws_rx) = ws.split();
 
@@ -148,6 +176,9 @@ pub async fn handle_agent_ws(
         })
         .await;
 
+    // 释放连接槽
+    state2.active_agent_conns.fetch_sub(1, Ordering::Relaxed);
+
     // Schedule delayed cleanup (30 minutes)
     // 与 spawn_session_cleanup 对齐：双重条件（未连接 + 超时）防止误删活跃 session
     let state_cleanup = state2.clone();
@@ -172,6 +203,7 @@ pub async fn handle_web_management_ws(
 ) {
     use futures_util::{SinkExt, StreamExt};
 
+    state.active_web_conns.fetch_add(1, Ordering::Relaxed);
     let (mut ws_tx, mut ws_rx) = ws.split();
 
     // Send current agents list
@@ -204,6 +236,7 @@ pub async fn handle_web_management_ws(
     }
 
     send_task.abort();
+    state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
 
     // Remove from broadcast_txs
     let mut txs = state.broadcast_txs.write().await;
@@ -232,12 +265,32 @@ pub async fn handle_web_session_ws(
         }
     };
 
+    state.active_web_conns.fetch_add(1, Ordering::Relaxed);
     let (mut ws_tx, mut ws_rx) = ws.split();
 
-    // Register web_tx for this session
+    // Register web_tx for this session，同时检查每 session 连接上限
     let (web_tx, mut web_rx) = mpsc::unbounded_channel::<String>();
     {
         let mut txs = entry.web_txs.write().await;
+        if txs.len() >= MAX_WEB_CONNS_PER_SESSION {
+            state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
+            tracing::warn!(
+                session = %session_id,
+                limit = MAX_WEB_CONNS_PER_SESSION,
+                "Relay: session web 连接数已达上限，拒绝新连接"
+            );
+            let err = crate::protocol::RelayError::Error {
+                code: "too_many_web_connections".into(),
+                message: format!(
+                    "Session has reached maximum web connection limit ({})",
+                    MAX_WEB_CONNS_PER_SESSION
+                ),
+            };
+            if let Ok(json) = serde_json::to_string(&err) {
+                let _ = ws_tx.send(Message::Text(json.into())).await;
+            }
+            return;
+        }
         txs.push(web_tx.clone());
     }
 
@@ -282,6 +335,7 @@ pub async fn handle_web_session_ws(
     }
 
     send_task.abort();
+    state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
 
     // Remove from web_txs
     let mut txs = entry.web_txs.write().await;
