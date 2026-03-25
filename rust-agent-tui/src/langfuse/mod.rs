@@ -82,10 +82,12 @@ pub struct LangfuseTracer {
     generation_data: HashMap<usize, (String, Vec<BaseMessage>, Vec<ToolDefinition>, String)>,
     /// 工具调用缓冲数据：tool_call_id → PendingTool（start 时写入，end 时取出合并上报）
     pending_tools: HashMap<String, PendingTool>,
-    /// 当前批次工具组 Span ID（第一个 ToolStart 时生成，最后一个 ToolEnd 时随批次 Span 一起提交）
+    /// 当前批次工具组 Span ID（第一个 ToolStart 时生成，下轮 LLM 开始或 trace 结束时提交）
     tools_batch_span_id: Option<String>,
     /// 当前批次工具组开始时间
     tools_batch_start_time: Option<String>,
+    /// 当前批次工具组最后一次 ToolEnd 时间（延迟到 flush 时使用）
+    tools_batch_end_time: Option<String>,
     /// 所有后台 spawn 的 JoinHandle；on_trace_end 统一 join 后再 flush，
     /// 消除 sleep(200ms) 竞态：确保所有 batcher.add 完成后才 flush。
     pending_handles: Vec<tokio::task::JoinHandle<()>>,
@@ -104,6 +106,7 @@ impl LangfuseTracer {
             pending_tools: HashMap::new(),
             tools_batch_span_id: None,
             tools_batch_start_time: None,
+            tools_batch_end_time: None,
             pending_handles: Vec::new(),
             final_answer: String::new(),
         }
@@ -112,6 +115,52 @@ impl LangfuseTracer {
     /// TextChunk 事件：累积最终回答（on_trace_end 时作为 Trace output 上报）
     pub fn on_text_chunk(&mut self, chunk: &str) {
         self.final_answer.push_str(chunk);
+    }
+
+    /// 提交当前批次 Tools Span（如果存在）。
+    ///
+    /// 延迟提交策略：批次 Span 不在最后一个 ToolEnd 时立即提交，而是在
+    /// 下一轮 LLM 调用开始（on_llm_start）或 trace 结束（on_trace_end）时提交。
+    /// 这样可以正确处理 HITL 拒绝场景：拒绝的工具会立即发出 ToolStart+ToolEnd，
+    /// 导致 pending_tools 暂时为空，若立即提交批次则会错误地分裂同一 LLM 轮次的工具组。
+    fn flush_tools_batch(&mut self) {
+        if let (Some(batch_id), Some(batch_start), Some(batch_end)) = (
+            self.tools_batch_span_id.take(),
+            self.tools_batch_start_time.take(),
+            self.tools_batch_end_time.take(),
+        ) {
+            let batcher = Arc::clone(&self.session.batcher);
+            let trace_id = self.trace_id.clone();
+            let agent_span_id = self.agent_span_id.clone();
+            let handle = tokio::spawn(async move {
+                let body = CreateSpanBody {
+                    id: Some(Some(batch_id)),
+                    trace_id: Some(Some(trace_id.clone())),
+                    name: Some(Some("Tools".to_string())),
+                    start_time: Some(Some(batch_start)),
+                    end_time: Some(Some(batch_end.clone())),
+                    parent_observation_id: Some(Some(agent_span_id)),
+                    input: None,
+                    output: None,
+                    status_message: None,
+                    metadata: None,
+                    level: None,
+                    version: None,
+                    environment: None,
+                };
+                let event = IngestionEventOneOf2 {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    timestamp: batch_end,
+                    body: Box::new(body),
+                    r#type: ingestion_event_one_of_2::Type::SpanCreate,
+                    metadata: None,
+                };
+                if let Err(e) = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await {
+                    tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: tools batch span 入队失败（背压丢弃）");
+                }
+            });
+            self.pending_handles.push(handle);
+        }
     }
 
     /// 对话轮次开始：创建 Trace + Agent Observation（session_id 从共享 Session 读取）
@@ -165,8 +214,11 @@ impl LangfuseTracer {
         self.pending_handles.push(handle);
     }
 
-    /// LLM 调用开始：缓存 input messages、工具定义和开始时间戳，等 on_llm_end 时一并上报 Generation
+    /// LLM 调用开始：提交上一轮工具批次 Span，缓存本轮 input messages/tools/start_time
     pub fn on_llm_start(&mut self, step: usize, messages: &[BaseMessage], tools: &[ToolDefinition]) {
+        // 上一轮工具批次在此时已全部执行完毕，可以安全提交批次 Span
+        // （延迟策略：避免 HITL 拒绝导致 pending_tools 提前清空而分裂批次）
+        self.flush_tools_batch();
         let gen_id = uuid::Uuid::now_v7().to_string();
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         self.generation_data
@@ -192,9 +244,18 @@ impl LangfuseTracer {
         let model = model.to_string();
         let provider_name = provider.to_string();
         let output = output.to_string();
+        // 显式序列化，失败时降级为描述性错误对象并记录 warn，而不是静默降级为 null
+        let messages_val = serde_json::to_value(&messages).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: messages 序列化失败，降级为错误占位");
+            serde_json::json!({ "error": "serialization failed", "detail": e.to_string() })
+        });
+        let tools_val = serde_json::to_value(&tools).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: tools 序列化失败，降级为错误占位");
+            serde_json::json!({ "error": "serialization failed", "detail": e.to_string() })
+        });
         let input_json = serde_json::json!({
-            "messages": messages,
-            "tools": tools,
+            "messages": messages_val,
+            "tools": tools_val,
         });
 
         // 构造 UsageDetails HashMap（新 API，支持缓存 token）
@@ -320,44 +381,11 @@ impl LangfuseTracer {
             self.pending_handles.push(handle);
         }
 
-        // 最后一个工具结束时，提交批次 Tools Span（parent = agent_span_id）
-        if self.pending_tools.is_empty() {
-            if let (Some(batch_id), Some(batch_start)) = (
-                self.tools_batch_span_id.take(),
-                self.tools_batch_start_time.take(),
-            ) {
-                let agent_span_id = self.agent_span_id.clone();
-                let trace_id_log = trace_id.clone();
-                let handle = tokio::spawn(async move {
-                    let body = CreateSpanBody {
-                        id: Some(Some(batch_id)),
-                        trace_id: Some(Some(trace_id_log.clone())),
-                        name: Some(Some("Tools".to_string())),
-                        start_time: Some(Some(batch_start)),
-                        end_time: Some(Some(end_time.clone())),
-                        parent_observation_id: Some(Some(agent_span_id)),
-                        input: None,
-                        output: None,
-                        status_message: None,
-                        metadata: None,
-                        level: None,
-                        version: None,
-                        environment: None,
-                    };
-                    let event = IngestionEventOneOf2 {
-                        id: uuid::Uuid::now_v7().to_string(),
-                        timestamp: end_time,
-                        body: Box::new(body),
-                        r#type: ingestion_event_one_of_2::Type::SpanCreate,
-                        metadata: None,
-                    };
-                    if let Err(e) = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await {
-                        tracing::warn!(error = %e, trace_id = %trace_id_log, "langfuse: tools batch span 入队失败（背压丢弃）");
-                    }
-                });
-                self.pending_handles.push(handle);
-            }
-        }
+        // 更新批次最后结束时间（延迟提交策略：批次 Span 在下轮 LLM 开始或 trace 结束时提交）
+        // 不在此处判断 pending_tools.is_empty() 来提交，避免 HITL 拒绝路径导致批次分裂：
+        // 拒绝的工具会立即发出 ToolStart+ToolEnd，使 pending_tools 瞬间清空，
+        // 若立即提交批次，后续正常执行的工具将开启第二个批次，造成 Langfuse span 树断裂。
+        self.tools_batch_end_time = Some(end_time);
     }
 
     /// 对话轮次结束：更新 Trace 的最终输出，并强制 flush
@@ -365,6 +393,10 @@ impl LangfuseTracer {
     /// 使用 pending_handles join 模式替代固定 sleep，确保所有 batcher.add 完成后才 flush。
     /// `error_output` 非 None 时表示以错误结束，优先使用错误信息作为输出。
     pub fn on_trace_end(&mut self, error_output: Option<&str>) {
+        // 提交最后一轮的工具批次 Span（若 Agent 以最终回答结束而非再次调用 LLM，
+        // 则上一轮工具批次不会被 on_llm_start 触发，需在此处兜底提交）
+        self.flush_tools_batch();
+
         let client = Arc::clone(&self.session.client);
         let batcher = Arc::clone(&self.session.batcher);
         let trace_id = self.trace_id.clone();
@@ -373,7 +405,7 @@ impl LangfuseTracer {
         } else {
             std::mem::take(&mut self.final_answer)
         };
-        // 取出所有待 join 的 handle，避免 on_trace_end 的 spawn 持有 &mut self
+        // 取出所有待 join 的 handle（含 flush_tools_batch 新增的），避免 on_trace_end 的 spawn 持有 &mut self
         let handles = std::mem::take(&mut self.pending_handles);
 
         tokio::spawn(async move {

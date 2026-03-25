@@ -40,11 +40,11 @@
   - [x] SQLite 操作中 `unwrap` 是否覆盖所有写失败场景（sqlite_store.rs 生产路径全部使用 `?` 传播，thread_ops.rs 使用 `unwrap_or_else` 降级，已覆盖）
   - [x] relay.rs 生产路径 `serde_json::to_string().unwrap()` 三处改为 `if let Ok` 防 panic
 
-- [ ] **Langfuse 追踪集成**
-  - [ ] FIFO span 配对正确性：`on_tool_start` / `on_tool_end_by_name_order` 在并行工具调用时是否错位（HITL 拒绝路径导致批次 span 树断裂，待修复）
+- [x] **Langfuse 追踪集成**
+  - [x] FIFO span 配对正确性：HITL 拒绝路径导致批次 span 树断裂（改为延迟提交策略：批次 Span 在下轮 on_llm_start 或 on_trace_end 时统一提交，彻底解决分裂问题）
   - [x] Batcher flush 时机：Agent 结束时若 `flush_interval=10s` 未到，最后一批事件是否丢失（改用 JoinHandle 等待，移除 sleep(200ms) 竞态）
   - [x] `LangfuseSession` 与 `LangfuseTracer` 生命周期是否与 Thread/Turn 严格对齐（Error 路径补调 on_trace_end，清理 langfuse_tracer）
-  - [ ] `input_json` 序列化失败时降级为 `Null`，是否影响 Langfuse 侧数据质量
+  - [x] `input_json` 序列化失败时降级为 `Null`（改为显式 `to_value()` + `tracing::warn`，失败时降级为描述性错误对象而非静默 null）
   - [x] final_answer 从 UI 截断视图提取（改为 TextChunk 事件累积，避免 60 字符截断）
 
 - [ ] **Relay Server 安全与健壮性**
