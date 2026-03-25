@@ -36,8 +36,9 @@
 
 - [ ] **错误处理质量**
   - [ ] 生产路径 `unwrap()`/`expect()` 扫描（rust-create-agent 71 处，rust-agent-middlewares 73 处，rust-agent-tui 55 处）
-  - [ ] `tokio::spawn` 子任务中 `let _ = ...` 静默忽略错误（Langfuse 上报失败无感知）
-  - [ ] SQLite 操作中 `unwrap` 是否覆盖所有写失败场景
+  - [x] `tokio::spawn` 子任务中 `let _ = ...` 静默忽略错误（Langfuse 所有后台 spawn 改为 `tracing::warn` 可观测）
+  - [x] SQLite 操作中 `unwrap` 是否覆盖所有写失败场景（sqlite_store.rs 生产路径全部使用 `?` 传播，thread_ops.rs 使用 `unwrap_or_else` 降级，已覆盖）
+  - [x] relay.rs 生产路径 `serde_json::to_string().unwrap()` 三处改为 `if let Ok` 防 panic
 
 - [ ] **Langfuse 追踪集成**
   - [ ] FIFO span 配对正确性：`on_tool_start` / `on_tool_end_by_name_order` 在并行工具调用时是否错位（HITL 拒绝路径导致批次 span 树断裂，待修复）

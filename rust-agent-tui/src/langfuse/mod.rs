@@ -126,19 +126,22 @@ impl LangfuseTracer {
 
         let handle = tokio::spawn(async move {
             // 创建 Trace
-            let _ = client
+            if let Err(e) = client
                 .trace()
                 .id(trace_id.clone())
                 .name("agent-run")
                 .input(serde_json::json!(input.clone()))
                 .session_id(session_id)
                 .call()
-                .await;
+                .await
+            {
+                tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: trace 创建失败");
+            }
 
             // 创建 Agent Observation（包裹整个 ReAct 循环）
             let body = ObservationBody {
                 id: Some(Some(agent_span_id)),
-                trace_id: Some(Some(trace_id)),
+                trace_id: Some(Some(trace_id.clone())),
                 r#type: ObservationType::Agent,
                 name: Some(Some("Agent".to_string())),
                 input: Some(Some(serde_json::json!(input))),
@@ -152,9 +155,12 @@ impl LangfuseTracer {
                 r#type: ingestion_event_one_of_8::Type::ObservationCreate,
                 metadata: None,
             };
-            let _ = batcher
+            if let Err(e) = batcher
                 .add(IngestionEvent::IngestionEventOneOf8(Box::new(event)))
-                .await;
+                .await
+            {
+                tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: agent observation 入队失败（背压丢弃）");
+            }
         });
         self.pending_handles.push(handle);
     }
@@ -213,7 +219,7 @@ impl LangfuseTracer {
             let timestamp = end_time.clone();
             let body = CreateGenerationBody {
                 id: Some(Some(gen_id.clone())),
-                trace_id: Some(Some(trace_id)),
+                trace_id: Some(Some(trace_id.clone())),
                 name: Some(Some(format!("Chat{}", provider_name))),
                 input: Some(Some(input_json)),
                 output: Some(Some(serde_json::json!(output))),
@@ -225,15 +231,18 @@ impl LangfuseTracer {
                 ..Default::default()
             };
             let event = IngestionEventOneOf4 {
-                id: gen_id,
+                id: gen_id.clone(),
                 timestamp,
                 body: Box::new(body),
                 r#type: GenType::GenerationCreate,
                 metadata: None,
             };
-            let _ = batcher
+            if let Err(e) = batcher
                 .add(IngestionEvent::IngestionEventOneOf4(Box::new(event)))
-                .await;
+                .await
+            {
+                tracing::warn!(error = %e, trace_id = %trace_id, gen_id = %gen_id, "langfuse: generation 入队失败（背压丢弃）");
+            }
         });
         self.pending_handles.push(handle);
     }
@@ -277,13 +286,14 @@ impl LangfuseTracer {
         // 提交单个工具 Span（parent = 所属 Tools batch span）
         {
             let batcher = Arc::clone(&batcher);
-            let trace_id = trace_id.clone();
+            let trace_id_log = trace_id.clone();
+            let tool_name_log = tool.name.clone();
             let end_time = end_time.clone();
             let handle = tokio::spawn(async move {
                 let status_msg = if is_error { Some(Some("error".to_string())) } else { None };
                 let body = CreateSpanBody {
                     id: Some(Some(tool.span_id)),
-                    trace_id: Some(Some(trace_id)),
+                    trace_id: Some(Some(trace_id_log.clone())),
                     name: Some(Some(tool.name)),
                     input: Some(Some(tool.input)),
                     output: Some(Some(serde_json::json!(output))),
@@ -303,7 +313,9 @@ impl LangfuseTracer {
                     r#type: ingestion_event_one_of_2::Type::SpanCreate,
                     metadata: None,
                 };
-                let _ = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await;
+                if let Err(e) = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await {
+                    tracing::warn!(error = %e, trace_id = %trace_id_log, tool = %tool_name_log, "langfuse: tool span 入队失败（背压丢弃）");
+                }
             });
             self.pending_handles.push(handle);
         }
@@ -315,10 +327,11 @@ impl LangfuseTracer {
                 self.tools_batch_start_time.take(),
             ) {
                 let agent_span_id = self.agent_span_id.clone();
+                let trace_id_log = trace_id.clone();
                 let handle = tokio::spawn(async move {
                     let body = CreateSpanBody {
                         id: Some(Some(batch_id)),
-                        trace_id: Some(Some(trace_id)),
+                        trace_id: Some(Some(trace_id_log.clone())),
                         name: Some(Some("Tools".to_string())),
                         start_time: Some(Some(batch_start)),
                         end_time: Some(Some(end_time.clone())),
@@ -338,7 +351,9 @@ impl LangfuseTracer {
                         r#type: ingestion_event_one_of_2::Type::SpanCreate,
                         metadata: None,
                     };
-                    let _ = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await;
+                    if let Err(e) = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await {
+                        tracing::warn!(error = %e, trace_id = %trace_id_log, "langfuse: tools batch span 入队失败（背压丢弃）");
+                    }
                 });
                 self.pending_handles.push(handle);
             }
@@ -367,14 +382,19 @@ impl LangfuseTracer {
                 let _ = h.await;
             }
             // 更新 Trace 输出
-            let _ = client
+            if let Err(e) = client
                 .trace()
-                .id(trace_id)
+                .id(trace_id.clone())
                 .name("agent-run")
                 .output(serde_json::json!(output))
                 .call()
-                .await;
-            let _ = batcher.flush().await;
+                .await
+            {
+                tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: trace 输出更新失败");
+            }
+            if let Err(e) = batcher.flush().await {
+                tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: batcher flush 失败");
+            }
         });
     }
 }

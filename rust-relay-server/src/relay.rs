@@ -93,9 +93,9 @@ pub async fn handle_agent_ws(
     let session_msg = RelayMessage::SessionId {
         session_id: session_id.clone(),
     };
-    let _ = ws_tx
-        .send(Message::Text(serde_json::to_string(&session_msg).unwrap().into()))
-        .await;
+    if let Ok(json) = serde_json::to_string(&session_msg) {
+        let _ = ws_tx.send(Message::Text(json.into())).await;
+    }
 
     // Broadcast agent_online
     state
@@ -178,11 +178,9 @@ pub async fn handle_web_management_ws(
     let agents_msg = BroadcastMessage::AgentsList {
         agents: state.agents_list(),
     };
-    let _ = ws_tx
-        .send(Message::Text(
-            serde_json::to_string(&agents_msg).unwrap().into(),
-        ))
-        .await;
+    if let Ok(json) = serde_json::to_string(&agents_msg) {
+        let _ = ws_tx.send(Message::Text(json.into())).await;
+    }
 
     // Register broadcast channel
     let (broadcast_tx, mut broadcast_rx) = mpsc::unbounded_channel::<String>();
@@ -227,9 +225,9 @@ pub async fn handle_web_session_ws(
                 code: "session_not_found".into(),
                 message: format!("Session {} not found", session_id),
             };
-            let _ = ws_tx
-                .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
-                .await;
+            if let Ok(json) = serde_json::to_string(&err) {
+                let _ = ws_tx.send(Message::Text(json.into())).await;
+            }
             return;
         }
     };
