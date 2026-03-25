@@ -14,19 +14,33 @@ use rust_create_agent::llm::BaseModelReactLLM;
 
 // ─── 主入口 ───────────────────────────────────────────────────────────────────
 
-pub async fn run_universal_agent(
-    provider: LlmProvider,
-    input: AgentInput,
-    cwd: String,
-    _system_prompt: String,
-    _thread_id: String,
-    history: Vec<rust_create_agent::messages::BaseMessage>,
-    approval_tx: mpsc::Sender<ApprovalEvent>,
-    tx: mpsc::Sender<AgentEvent>,
-    cancel: AgentCancellationToken,
-    agent_id: Option<String>,
-    relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
-) {
+/// run_universal_agent 的参数集合（避免超过 clippy 的参数数量限制）
+pub struct AgentRunConfig {
+    pub provider: LlmProvider,
+    pub input: AgentInput,
+    pub cwd: String,
+    pub history: Vec<rust_create_agent::messages::BaseMessage>,
+    pub approval_tx: mpsc::Sender<ApprovalEvent>,
+    pub tx: mpsc::Sender<AgentEvent>,
+    pub cancel: AgentCancellationToken,
+    pub agent_id: Option<String>,
+    pub relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
+    pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
+}
+
+pub async fn run_universal_agent(cfg: AgentRunConfig) {
+    let AgentRunConfig {
+        provider,
+        input,
+        cwd,
+        history,
+        approval_tx,
+        tx,
+        cancel,
+        agent_id,
+        relay_client,
+        langfuse_tracer,
+    } = cfg;
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
     // 使用 spawn_blocking 避免同步 I/O 阻塞 tokio 运行时。
@@ -43,6 +57,7 @@ pub async fn run_universal_agent(
     };
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
     let provider_for_factory = provider.clone();
+    let provider_name = provider.display_name().to_string();
     let model = BaseModelReactLLM::new(provider.into_model()).with_system(system_prompt);
 
     // Todo channel：TodoMiddleware → TUI
@@ -65,6 +80,8 @@ pub async fn run_universal_agent(
     let tx_event = tx.clone();
     let cwd_for_handler = cwd.clone();
     let relay_for_handler = relay_client.clone();
+    let langfuse_for_handler = langfuse_tracer.clone();
+    let provider_name_for_handler = provider_name.clone();
     let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
         // 转发到 Relay
         if let Some(ref relay) = relay_for_handler {
@@ -73,6 +90,22 @@ pub async fn run_universal_agent(
                 ExecutorEvent::MessageAdded(msg) => relay.send_message(msg),
                 // 其他事件走原有路径（兼容性保留）
                 _ => relay.send_agent_event(&event),
+            }
+        }
+
+        // Langfuse hook（在 TUI 事件映射前执行，使用原始 ExecutorEvent）
+        if let Some(ref tracer) = langfuse_for_handler {
+            let mut t = tracer.lock();
+            match &event {
+                ExecutorEvent::LlmCallStart { step, messages, tools } =>
+                    t.on_llm_start(*step, messages, tools),
+                ExecutorEvent::LlmCallEnd { step, model, output, usage } =>
+                    t.on_llm_end(*step, model, &provider_name_for_handler, output, usage.as_ref()),
+                ExecutorEvent::ToolStart { tool_call_id, name, input } =>
+                    t.on_tool_start(tool_call_id, name, input),
+                ExecutorEvent::ToolEnd { tool_call_id, is_error, output, .. } =>
+                    t.on_tool_end(tool_call_id, output, *is_error),
+                _ => {}
             }
         }
 
@@ -93,6 +126,7 @@ pub async fn run_universal_agent(
                 name,
                 output,
                 is_error: false,
+                ..
             } if name == "ask_user" => AgentEvent::ToolCall {
                 tool_call_id: String::new(),
                 display: "AskUser".to_string(),
@@ -105,6 +139,7 @@ pub async fn run_universal_agent(
                 name,
                 output,
                 is_error: true,
+                ..
             } => AgentEvent::ToolCall {
                 tool_call_id: String::new(),
                 display: format_tool_name(&name),
@@ -112,10 +147,12 @@ pub async fn run_universal_agent(
                 name,
                 is_error: true,
             },
-            // 无需转发的内部事件
+            // 无需转发的内部事件（含新增的 LLM hook 事件，已在 Langfuse 分支处理）
             ExecutorEvent::ToolEnd { .. }
             | ExecutorEvent::StepDone { .. }
-            | ExecutorEvent::StateSnapshot(_) => return,
+            | ExecutorEvent::StateSnapshot(_)
+            | ExecutorEvent::LlmCallStart { .. }
+            | ExecutorEvent::LlmCallEnd { .. } => return,
         };
         let _ = tx_event.try_send(msg);
     }));

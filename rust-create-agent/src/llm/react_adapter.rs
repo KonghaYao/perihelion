@@ -39,7 +39,9 @@ impl ReactLLM for BaseModelReactLLM {
             request = request.with_system(system.clone());
         }
 
+        let model_name = self.model.model_id().to_string();
         let response = self.model.invoke(request).await?;
+        let usage = response.usage.clone();
 
         if response.stop_reason == StopReason::ToolUse {
             // 从 content_blocks() 提取 ToolUse blocks（跨 provider 兼容）
@@ -62,7 +64,11 @@ impl ReactLLM for BaseModelReactLLM {
                 .collect();
 
             if !calls.is_empty() {
-                return Ok(Reasoning::with_tools(thought, calls));
+                let mut r = Reasoning::with_tools(thought, calls);
+                r.source_message = Some(response.message);
+                r.usage = usage;
+                r.model = model_name;
+                return Ok(r);
             }
 
             // fallback：从 tool_calls() 读（兼容旧路径）
@@ -72,11 +78,23 @@ impl ReactLLM for BaseModelReactLLM {
                 .iter()
                 .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
                 .collect();
-            Ok(Reasoning::with_tools(thought, calls))
+            let mut r = Reasoning::with_tools(thought, calls);
+            r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
+            Ok(r)
         } else {
             // 最终答案：text_content() 提取所有文字（跳过 reasoning block）
             let text = response.message.content();
-            Ok(Reasoning::with_answer("", text))
+            let mut r = Reasoning::with_answer("", text);
+            r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
+            Ok(r)
         }
+    }
+
+    fn model_name(&self) -> String {
+        self.model.model_id().to_string()
     }
 }

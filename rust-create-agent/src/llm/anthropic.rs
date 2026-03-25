@@ -103,7 +103,7 @@ impl ChatAnthropic {
             ContentBlock::ToolResult { tool_use_id, content, is_error } => {
                 let content_val: Vec<Value> = content
                     .iter()
-                    .filter_map(|b| Self::block_to_anthropic(b))
+                    .filter_map(Self::block_to_anthropic)
                     .collect();
                 Some(json!({
                     "type": "tool_result",
@@ -130,7 +130,7 @@ impl ChatAnthropic {
             MessageContent::Blocks(blocks) => {
                 let parts: Vec<Value> = blocks
                     .iter()
-                    .filter_map(|b| Self::block_to_anthropic(b))
+                    .filter_map(Self::block_to_anthropic)
                     .collect();
                 Value::Array(parts)
             }
@@ -200,15 +200,22 @@ impl ChatAnthropic {
                         "is_error": is_error
                     });
 
-                    let should_append = result.last().map(|last| {
-                        last["role"] == "user" && last["content"].is_array()
-                    }).unwrap_or(false);
-
-                    if should_append {
-                        if let Some(last) = result.last_mut() {
-                            last["content"].as_array_mut().unwrap().push(tool_result_block);
+                    let appended = if let Some(last) = result.last_mut() {
+                        if last["role"] == "user" {
+                            if let Some(arr) = last["content"].as_array_mut() {
+                                arr.push(tool_result_block.clone());
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
                         }
                     } else {
+                        false
+                    };
+
+                    if !appended {
                         result.push(json!({
                             "role": "user",
                             "content": [tool_result_block]
@@ -229,8 +236,10 @@ impl ChatAnthropic {
     /// 对 messages 列表中最后一条消息的最后一个 content block 追加 cache_control
     ///
     /// Anthropic Prompt Caching 要求在需要缓存的边界位置加 `cache_control: { type: "ephemeral" }`。
-    fn apply_cache_to_messages(messages: &mut Vec<Value>) {
-        if let Some(last_msg) = messages.last_mut() {
+    fn apply_cache_to_messages(messages: &mut [Value]) {
+        // Anthropic 只允许在 user 消息上添加 cache_control，跳过 assistant 消息
+        let last_msg = messages.iter_mut().rev().find(|m| m["role"] == "user");
+        if let Some(last_msg) = last_msg {
             if let Some(content) = last_msg.get_mut("content") {
                 match content {
                     Value::Array(blocks) => {
@@ -428,7 +437,22 @@ impl BaseModel for ChatAnthropic {
             BaseMessage::ai(MessageContent::Blocks(blocks))
         };
 
-        Ok(LlmResponse { message, stop_reason })
+        let usage = {
+            let input = resp_json["usage"]["input_tokens"].as_u64().map(|v| v as u32);
+            let output = resp_json["usage"]["output_tokens"].as_u64().map(|v| v as u32);
+            let cache_creation = resp_json["usage"]["cache_creation_input_tokens"].as_u64().map(|v| v as u32);
+            let cache_read = resp_json["usage"]["cache_read_input_tokens"].as_u64().map(|v| v as u32);
+            match (input, output) {
+                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
+                    input_tokens: i,
+                    output_tokens: o,
+                    cache_creation_input_tokens: cache_creation,
+                    cache_read_input_tokens: cache_read,
+                }),
+                _ => None,
+            }
+        };
+        Ok(LlmResponse { message, stop_reason, usage })
     }
 
     fn provider_name(&self) -> &str {
@@ -453,6 +477,8 @@ impl ReactLLM for ChatAnthropic {
         // system 消息由 messages_to_anthropic 从消息列表提取，无需单独处理
 
         let response = self.invoke(request).await?;
+        let usage = response.usage.clone();
+        let model_name = self.model.clone();
 
         if response.stop_reason == StopReason::ToolUse {
             let blocks = response.message.content_blocks();
@@ -476,6 +502,8 @@ impl ReactLLM for ChatAnthropic {
             if !calls.is_empty() {
                 let mut r = Reasoning::with_tools(thought, calls);
                 r.source_message = Some(response.message);
+                r.usage = usage;
+                r.model = model_name;
                 return Ok(r);
             }
 
@@ -487,12 +515,20 @@ impl ReactLLM for ChatAnthropic {
                 .collect();
             let mut r = Reasoning::with_tools(thought, calls);
             r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
             Ok(r)
         } else {
             let text = response.message.content();
             let mut r = Reasoning::with_answer("", text);
             r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
             Ok(r)
         }
+    }
+
+    fn model_name(&self) -> String {
+        self.model.clone()
     }
 }

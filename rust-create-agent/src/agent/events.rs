@@ -9,13 +9,26 @@ pub enum AgentEvent {
     /// 工具调用开始（工具名 + 参数）
     ToolStart { tool_call_id: String, name: String, input: serde_json::Value },
     /// 工具调用结束（结果或错误）
-    ToolEnd { name: String, output: String, is_error: bool },
+    ToolEnd { tool_call_id: String, name: String, output: String, is_error: bool },
     /// 一轮 ReAct 步骤完成
     StepDone { step: usize },
     /// 状态快照（含完整的消息历史），用于持久化和断点续跑
     StateSnapshot(Vec<crate::messages::BaseMessage>),
     /// 增量消息（BaseMessage），relay 传输的最小数据单元
     MessageAdded(crate::messages::BaseMessage),
+    /// LLM 调用开始（携带完整 input messages 快照 + 工具定义，用于 Langfuse Generation）
+    LlmCallStart {
+        step: usize,
+        messages: Vec<crate::messages::BaseMessage>,
+        tools: Vec<crate::tools::ToolDefinition>,
+    },
+    /// LLM 调用结束（携带模型名、输出文本、token 使用量）
+    LlmCallEnd {
+        step: usize,
+        model: String,
+        output: String,
+        usage: Option<crate::llm::types::TokenUsage>,
+    },
 }
 
 /// 事件回调 trait（应用层实现）

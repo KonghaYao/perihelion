@@ -72,12 +72,18 @@ mod tests {
     #[tokio::test]
     async fn test_assistant_chunk_renders() {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        // 先注册监听，再发送事件，确保不错过通知
-        let notified = handle.render_notify.notified();
+        // AssistantChunk → AddMessage + AppendChunk (2 个 RenderEvent)
+        // Done          → StreamingDone              (1 个 RenderEvent)
+        // 合计 3 个通知：必须在发送事件前预注册所有 waiter，否则通知可能被忽略
+        let notify = Arc::clone(&handle.render_notify);
+        let n1 = notify.notified();
+        let n2 = notify.notified();
+        let n3 = notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("Hello world".into()));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
-        notified.await;
+        // 用 join! 并发等待，确保 3 个 waiter 同时活跃，每次 notify_one 唤醒其中一个
+        tokio::join!(n1, n2, n3);
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
         assert!(handle.contains("Agent"), "应显示 Agent 标头，实际:\n{}", snap.join("\n"));
@@ -122,14 +128,18 @@ mod tests {
     #[tokio::test]
     async fn test_clear_empties_render_cache() {
         let (mut app, mut handle) = App::new_headless(120, 30);
+        let notify = Arc::clone(&handle.render_notify);
 
-        // 先发内容，等待所有渲染事件（AddMessage + AppendChunk = 2 次通知）处理完
-        for _ in 0..2 {
-            let notified = handle.render_notify.notified();
-            app.push_agent_event(AgentEvent::AssistantChunk("SomeUniqueContent".into()));
-            app.process_pending_events();
-            notified.await;
-        }
+        // 第 1 个 AssistantChunk（无已有气泡）→ AddMessage + AppendChunk = 2 个通知
+        // 第 2 个 AssistantChunk（已有气泡）  → AppendChunk 只           = 1 个通知
+        // 合计 3 个通知，必须在发送事件前预注册所有 waiter
+        let n1 = notify.notified();
+        let n2 = notify.notified();
+        let n3 = notify.notified();
+        app.push_agent_event(AgentEvent::AssistantChunk("SomeUniqueContent".into()));
+        app.push_agent_event(AgentEvent::AssistantChunk("SomeUniqueContent".into()));
+        app.process_pending_events();
+        tokio::join!(n1, n2, n3);
 
         // 验证 RenderCache 有内容
         let lines_before = app.render_cache.read().total_lines;

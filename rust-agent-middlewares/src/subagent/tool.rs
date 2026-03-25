@@ -57,16 +57,24 @@ impl SubAgentTool {
             .iter()
             .filter(|tool| {
                 let name = tool.name();
+                let name_lower = name.to_lowercase();
                 // 始终排除 launch_agent，防止递归
                 if name == "launch_agent" {
                     return false;
                 }
-                // 若 allowed_list 非空，则仅保留列表中的工具
-                if !allowed_list.is_empty() && !allowed_list.iter().any(|n| n == name) {
+                // 若 allowed_list 非空，则仅保留列表中的工具（大小写不敏感）
+                if !allowed_list.is_empty()
+                    && !allowed_list
+                        .iter()
+                        .any(|n| n.to_lowercase() == name_lower)
+                {
                     return false;
                 }
-                // 排除 disallowed 列表中的工具
-                if disallowed_list.iter().any(|n| n == name) {
+                // 排除 disallowed 列表中的工具（大小写不敏感）
+                if disallowed_list
+                    .iter()
+                    .any(|n| n.to_lowercase() == name_lower)
+                {
                     return false;
                 }
                 true
@@ -447,6 +455,37 @@ mod tests {
             !names.contains(&"launch_agent"),
             "launch_agent 即使在显式 allowlist 中也必须排除（防递归）"
         );
+    }
+
+    /// tools/disallowedTools 过滤：大小写不敏感（用户常写 PascalCase）
+    #[test]
+    fn test_tool_filter_case_insensitive() {
+        let parent_tools = vec![
+            make_tool("read_file"),
+            make_tool("write_file"),
+            make_tool("glob_files"),
+        ];
+        let t = make_subagent_tool(parent_tools);
+
+        // 用户在 agent.md 中写 PascalCase：tools: Read_File, Glob_Files
+        let allowed = ToolsValue::List(vec!["Read_File".to_string(), "Glob_Files".to_string()]);
+        let disallowed = ToolsValue::Empty;
+        let filtered = t.filter_tools(&allowed, &disallowed);
+        let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+        assert!(names.contains(&"read_file"), "大小写不敏感：Read_File 应匹配 read_file");
+        assert!(names.contains(&"glob_files"), "大小写不敏感：Glob_Files 应匹配 glob_files");
+        assert!(!names.contains(&"write_file"), "write_file 不在 allowlist 中应被排除");
+
+        // disallowedTools 大小写不敏感
+        let allowed2 = ToolsValue::Empty;
+        let disallowed2 = ToolsValue::List(vec!["Write_File".to_string()]);
+        let filtered2 = t.filter_tools(&allowed2, &disallowed2);
+        let names2: Vec<&str> = filtered2.iter().map(|t| t.name()).collect();
+
+        assert!(names2.contains(&"read_file"));
+        assert!(names2.contains(&"glob_files"));
+        assert!(!names2.contains(&"write_file"), "Write_File 应大小写不敏感地排除 write_file");
     }
 
     /// 防递归：launch_agent 在 disallowedTools 中是冗余但不应出错

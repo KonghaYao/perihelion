@@ -17,7 +17,7 @@ impl SearchFilesRgTool {
     }
 }
 
-fn resolve_last_path_arg(args: &mut Vec<String>, cwd: &str) {
+fn resolve_last_path_arg(args: &mut [String], cwd: &str) {
     if let Some(last) = args.last_mut() {
         if !last.starts_with('-') {
             let p = Path::new(last.as_str());
@@ -75,7 +75,7 @@ impl BaseTool for SearchFilesRgTool {
 
         let output = timeout(
             Duration::from_secs(15),
-            Command::new(&rg_bin)
+            Command::new(rg_bin)
                 .args(&args)
                 .current_dir(&self.cwd)
                 .stdout(Stdio::piped())
@@ -120,7 +120,7 @@ impl BaseTool for SearchFilesRgTool {
 
 fn which_rg() -> &'static str {
     static RG_PATH: OnceLock<&'static str> = OnceLock::new();
-    *RG_PATH.get_or_init(|| {
+    RG_PATH.get_or_init(|| {
         for candidate in &[
             "rg",
             "/usr/local/bin/rg",

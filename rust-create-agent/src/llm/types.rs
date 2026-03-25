@@ -38,11 +38,24 @@ impl LlmRequest {
     }
 }
 
+/// Token 使用量（来自 LLM API 响应，用于 Langfuse Generation 追踪）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TokenUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    /// Anthropic Prompt Cache：写入缓存的 token 数（首次缓存）
+    pub cache_creation_input_tokens: Option<u32>,
+    /// Anthropic Prompt Cache：命中缓存读取的 token 数
+    pub cache_read_input_tokens: Option<u32>,
+}
+
 /// LLM 响应
 pub struct LlmResponse {
     /// Ai 变体消息
     pub message: BaseMessage,
     pub stop_reason: StopReason,
+    /// Token 使用量（可选，不支持的 LLM 为 None）
+    pub usage: Option<TokenUsage>,
 }
 
 /// 停止原因

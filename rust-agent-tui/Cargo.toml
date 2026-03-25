@@ -36,3 +36,5 @@ arboard = "3"
 png = "0.18"
 base64 = { version = "0.22", features = ["alloc"] }
 pulldown-cmark = "0.12"
+langfuse-ergonomic = "0.6.3"
+langfuse-client-base = "0.7.1"

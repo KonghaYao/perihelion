@@ -15,8 +15,8 @@
 
 - [x] AgentDefineMiddleware
 - [x] SubAgents
+- [x] /compact 指令
 - [ ] MCP Server 接入（Model Context Protocol）
-- [ ] /compact 指令
 - [ ] 系统提示词中需要添加更多的 cli 的信息, 比如现在的模型,等
 - [ ] Subagent 的 Skill 预加载功能
 - [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
@@ -31,9 +31,9 @@
 - [x] 工具内的描述文本需要 replace 掉 pwd 的路径,保证足够短小(Bash 和 search 不需要,仅仅显示层)
 - [x] TODOWrite 只显示占位, TODO 的状态由全数据计算出来,然后显示到输入框的上面
 - [x] 弹窗面板里面的内容超长会有问题
+- [x] 输入框粘贴图片功能
 - [ ] 多 Agent 并发面板（同时跑多个任务）
 - [ ] 添加一个会话内的数据统计 status bar
-- [ ] 输入框粘贴图片功能
 - [ ] Web UI（浏览器端对话界面）
 - [ ] Tarui 整合
 - [ ] 接入 langfuse

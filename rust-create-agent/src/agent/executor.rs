@@ -101,7 +101,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         cancel: Option<CancellationToken>,
     ) -> AgentResult<AgentOutput> {
         // 若未提供 token，创建一个永不触发的占位符，简化后续逻辑
-        let cancel = cancel.unwrap_or_else(CancellationToken::new);
+        let cancel = cancel.unwrap_or_default();
 
         let human_msg = BaseMessage::human(input.content);
         state.add_message(human_msg.clone());
@@ -136,6 +136,11 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             state.set_current_step(step);
 
             // ── LLM 推理（与 cancel 竞争）────────────────────────────────────
+            self.emit(AgentEvent::LlmCallStart {
+                step,
+                messages: state.messages().to_vec(),
+                tools: tool_refs.iter().map(|t| t.definition()).collect(),
+            });
             let reasoning = tokio::select! {
                 biased;
                 _ = cancel.cancelled() => {
@@ -151,6 +156,17 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     }
                 }
             };
+            {
+                let llm_output = reasoning.final_answer.as_deref()
+                    .unwrap_or(&reasoning.thought)
+                    .to_string();
+                self.emit(AgentEvent::LlmCallEnd {
+                    step,
+                    model: self.llm.model_name(),
+                    output: llm_output,
+                    usage: reasoning.usage.clone(),
+                });
+            }
 
             if reasoning.needs_tool_call() {
                 {
@@ -195,6 +211,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                                     input: tool_call.input.clone(),
                                 });
                                 self.emit(AgentEvent::ToolEnd {
+                                    tool_call_id: tool_call.id.clone(),
                                     name: tool_call.name.clone(),
                                     output: rejection_result.output.clone(),
                                     is_error: true,
@@ -298,6 +315,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         "tool call completed"
                     );
                     self.emit(AgentEvent::ToolEnd {
+                        tool_call_id: modified_call.id.clone(),
                         name: modified_call.name.clone(),
                         output: result.output.clone(),
                         is_error: result.is_error,

@@ -161,3 +161,4 @@ target
 .DS_Store
 
 .claude/*.lock
+*.png

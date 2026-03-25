@@ -28,11 +28,6 @@ impl PromptEnv {
     }
 }
 
-/// 用默认值构建系统提示词（无 agent 时使用）
-pub fn default_system_prompt(cwd: &str) -> String {
-    build_system_prompt(None, cwd)
-}
-
 /// 构建系统提示词。
 ///
 /// `overrides` 存在时，将 agent.md 中定义的角色/风格/主动性拼成一个覆盖块，

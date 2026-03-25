@@ -65,7 +65,7 @@ impl ChatOpenAI {
             MessageContent::Blocks(blocks) => {
                 let parts: Vec<Value> = blocks
                     .iter()
-                    .filter_map(|b| Self::block_to_openai_part(b))
+                    .filter_map(Self::block_to_openai_part)
                     .collect();
                 if parts.is_empty() {
                     json!("")
@@ -310,7 +310,21 @@ impl BaseModel for ChatOpenAI {
 
         let message = Self::parse_assistant_message(assistant_msg, &stop_reason);
 
-        Ok(LlmResponse { message, stop_reason })
+        let usage = {
+            let input = resp_json["usage"]["prompt_tokens"].as_u64().map(|v| v as u32);
+            let output = resp_json["usage"]["completion_tokens"].as_u64().map(|v| v as u32);
+            let cache_read = resp_json["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64().map(|v| v as u32);
+            match (input, output) {
+                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
+                    input_tokens: i,
+                    output_tokens: o,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: cache_read,
+                }),
+                _ => None,
+            }
+        };
+        Ok(LlmResponse { message, stop_reason, usage })
     }
 
     fn provider_name(&self) -> &str {
@@ -333,6 +347,8 @@ impl ReactLLM for ChatOpenAI {
         let request = LlmRequest::new(messages.to_vec()).with_tools(tool_defs);
 
         let response = self.invoke(request).await?;
+        let usage = response.usage.clone();
+        let model_name = self.model.clone();
 
         if response.stop_reason == StopReason::ToolUse {
             let blocks = response.message.content_blocks();
@@ -356,6 +372,8 @@ impl ReactLLM for ChatOpenAI {
             if !calls.is_empty() {
                 let mut r = Reasoning::with_tools(thought, calls);
                 r.source_message = Some(response.message);
+                r.usage = usage;
+                r.model = model_name;
                 return Ok(r);
             }
 
@@ -367,12 +385,20 @@ impl ReactLLM for ChatOpenAI {
                 .collect();
             let mut r = Reasoning::with_tools(thought, calls);
             r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
             Ok(r)
         } else {
             let text = response.message.content();
             let mut r = Reasoning::with_answer("", text);
             r.source_message = Some(response.message);
+            r.usage = usage;
+            r.model = model_name;
             Ok(r)
         }
+    }
+
+    fn model_name(&self) -> String {
+        self.model.clone()
     }
 }
