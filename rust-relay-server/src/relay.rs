@@ -48,10 +48,12 @@ impl RelayState {
             Ok(j) => j,
             Err(_) => return,
         };
-        let txs = self.broadcast_txs.read().await;
+        let mut txs = self.broadcast_txs.write().await;
         for tx in txs.iter() {
             let _ = tx.send(json.clone());
         }
+        // 顺带清理已断开的 Web 管理端连接，避免高并发下累积已关闭的 sender
+        txs.retain(|tx| !tx.is_closed());
     }
 
     pub async fn forward_to_web(&self, session_id: &str, msg: &str) {
@@ -147,12 +149,16 @@ pub async fn handle_agent_ws(
         .await;
 
     // Schedule delayed cleanup (30 minutes)
+    // 与 spawn_session_cleanup 对齐：双重条件（未连接 + 超时）防止误删活跃 session
     let state_cleanup = state2.clone();
     let sid_cleanup = sid.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
         if let Some(entry) = state_cleanup.sessions.get(&sid_cleanup) {
-            if !*entry.agent_connected.read().await {
+            let connected = *entry.agent_connected.read().await;
+            let elapsed = entry.last_active.read().await.elapsed();
+            if !connected && elapsed > std::time::Duration::from_secs(30 * 60) {
+                drop(entry);
                 state_cleanup.sessions.remove(&sid_cleanup);
                 tracing::info!("Session cleaned up after timeout: {}", sid_cleanup);
             }
@@ -252,36 +258,21 @@ pub async fn handle_web_session_ws(
             Message::Text(text) => {
                 let text_str = text.to_string();
 
-                // 检测 hitl_decision，广播 approval_resolved 给所有 Web 客户端
+                // 解析一次，按类型处理；HitlDecision 直接解构已有结果，避免二次 from_str
                 if let Ok(web_msg) = serde_json::from_str::<crate::protocol::WebMessage>(&text_str) {
-                    if matches!(web_msg, crate::protocol::WebMessage::HitlDecision { .. }) {
-                        if let Ok(crate::protocol::WebMessage::HitlDecision { decisions }) =
-                            serde_json::from_str(&text_str)
-                        {
+                    match web_msg {
+                        crate::protocol::WebMessage::HitlDecision { decisions } => {
                             let resolved_json = serde_json::json!({
                                 "type": "approval_resolved",
                                 "items": decisions.iter().map(|d| d.tool_call_id.clone()).collect::<Vec<_>>(),
                             });
-                            // 广播给所有 Web 客户端
-                            if let Some(entry) = state.sessions.get(&session_id) {
-                                let txs = entry.web_txs.read().await;
-                                for tx in txs.iter() {
-                                    let _ = tx.send(resolved_json.to_string());
-                                }
-                            }
+                            state.forward_to_web(&session_id, &resolved_json.to_string()).await;
                         }
-                    }
-                    // 检测 ask_user_response，广播 ask_user_resolved 给所有 Web 客户端
-                    if matches!(web_msg, crate::protocol::WebMessage::AskUserResponse { .. }) {
-                        let resolved_json = serde_json::json!({
-                            "type": "ask_user_resolved"
-                        });
-                        if let Some(entry) = state.sessions.get(&session_id) {
-                            let txs = entry.web_txs.read().await;
-                            for tx in txs.iter() {
-                                let _ = tx.send(resolved_json.to_string());
-                            }
+                        crate::protocol::WebMessage::AskUserResponse { .. } => {
+                            let resolved_json = serde_json::json!({ "type": "ask_user_resolved" });
+                            state.forward_to_web(&session_id, &resolved_json.to_string()).await;
                         }
+                        _ => {}
                     }
                 }
 

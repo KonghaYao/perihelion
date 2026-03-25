@@ -47,8 +47,8 @@
   - [x] final_answer 从 UI 截断视图提取（改为 TextChunk 事件累积，避免 60 字符截断）
 
 - [ ] **Relay Server 安全与健壮性**
-  - [ ] `validate_token` 使用字符串直接比较，存在 timing attack 风险（应换用 `constant_time_eq`）
-  - [ ] `broadcast_txs` 为 `Vec<UnboundedSender>`，Web 客户端异常断开后仅靠 `is_closed()` retain 清理，高并发下是否有累积泄漏
-  - [ ] Session 双重清理竞态：30 分钟延迟任务与 5 分钟周期清理可能同时 `sessions.remove`（DashMap 安全但语义重复）
-  - [ ] `handle_web_session_ws` 中同一 `text_str` 执行两次 `serde_json::from_str`（检测 hitl_decision 和 ask_user_response 各一次），可合并为一次解析
+  - [x] `validate_token` 使用字符串直接比较，存在 timing attack 风险（改用 `subtle::ConstantTimeEq` 常量时间比较）
+  - [x] `broadcast_txs` 为 `Vec<UnboundedSender>`，Web 客户端异常断开后仅靠 `is_closed()` retain 清理，高并发下是否有累积泄漏（广播时顺带 retain 清理）
+  - [x] Session 双重清理竞态：30 分钟延迟任务与 5 分钟周期清理可能同时 `sessions.remove`（延迟任务补充 elapsed 双重条件检查，与周期清理对齐）
+  - [x] `handle_web_session_ws` 中同一 `text_str` 执行两次 `serde_json::from_str`（合并为一次解析，直接解构已有结果，复用 `forward_to_web` 辅助方法）
   - [ ] Relay Server 无速率限制和连接数上限，需评估 DoS 风险

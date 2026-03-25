@@ -2823,6 +2823,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
+ "subtle",
  "tokio",
  "tokio-tungstenite 0.29.0",
  "tower-http",
