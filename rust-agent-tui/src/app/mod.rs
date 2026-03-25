@@ -380,6 +380,8 @@ pub struct App {
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     /// Relay 事件接收端（来自 Web 端的控制消息）
     relay_event_rx: Option<rust_relay_server::client::RelayEventRx>,
+    /// Thread 级别的 Langfuse Session（Thread 创建/打开时懒加载，new_thread/open_thread 时重置）
+    langfuse_session: Option<Arc<crate::langfuse::LangfuseSession>>,
     /// 当前轮次的 Langfuse Tracer（submit_message 时创建，Done 时结束，未配置时为 None）
     langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
 }
@@ -489,6 +491,7 @@ impl App {
             relay_event_rx: None,
             pending_hitl_items: None,
             pending_ask_user: None,
+            langfuse_session: None,
             langfuse_tracer: None,
         };
 
@@ -914,18 +917,35 @@ impl App {
         // 用户消息已追加到 self.view_messages，更新已持久化计数
         self.persisted_count = self.view_messages.len();
 
-        // 构造 Langfuse Tracer（未配置环境变量时静默跳过）
-        let langfuse_tracer = crate::langfuse::LangfuseConfig::from_env()
-            .and_then(|cfg| {
-                tokio::task::block_in_place(|| {
+        // 懒加载 Thread 级 LangfuseSession（首轮创建，后续复用；未配置环境变量时静默跳过）
+        if self.langfuse_session.is_none() {
+            tracing::info!(thread_id = %thread_id, "langfuse: session is None, attempting to create");
+            if let Some(cfg) = crate::langfuse::LangfuseConfig::from_env() {
+                tracing::info!(host = %cfg.host, "langfuse: config found, creating session");
+                let session_id = thread_id.clone();
+                let session = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current()
-                        .block_on(crate::langfuse::LangfuseTracer::new(cfg))
-                })
-            })
-            .map(|mut t| {
-                t.on_trace_start(input.trim(), self.current_thread_id.as_deref());
-                Arc::new(parking_lot::Mutex::new(t))
-            });
+                        .block_on(crate::langfuse::LangfuseSession::new(cfg, session_id))
+                });
+                if session.is_some() {
+                    tracing::info!(thread_id = %thread_id, "langfuse: session created successfully");
+                } else {
+                    tracing::warn!(thread_id = %thread_id, "langfuse: session creation failed (None)");
+                }
+                self.langfuse_session = session.map(Arc::new);
+            } else {
+                tracing::info!("langfuse: no config found in env, skipping session creation");
+            }
+        } else {
+            tracing::debug!(thread_id = %thread_id, "langfuse: reusing existing session");
+        }
+
+        // 构造当前轮次的 Langfuse Tracer（同步，复用共享 Session）
+        let langfuse_tracer = self.langfuse_session.clone().map(|session| {
+            let mut t = crate::langfuse::LangfuseTracer::new(session);
+            t.on_trace_start(input.trim());
+            Arc::new(parking_lot::Mutex::new(t))
+        });
         self.langfuse_tracer = langfuse_tracer.clone();
 
         let span = tracing::info_span!(
@@ -1545,6 +1565,7 @@ impl App {
         self.persisted_count = self.view_messages.len();
         self.current_thread_id = Some(thread_id);
         self.thread_browser = None;
+        self.langfuse_session = None;
 
         // 通知渲染线程加载历史消息
         let _ = self
@@ -1561,6 +1582,7 @@ impl App {
         self.todo_items.clear();
         self.pending_attachments.clear();
         self.thread_browser = None;
+        self.langfuse_session = None;
         let _ = self.render_tx.send(RenderEvent::Clear);
     }
 
@@ -1906,6 +1928,7 @@ impl App {
             relay_event_rx: None,
             pending_hitl_items: None,
             pending_ask_user: None,
+            langfuse_session: None,
             langfuse_tracer: None,
         };
 

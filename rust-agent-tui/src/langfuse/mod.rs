@@ -6,35 +6,27 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use langfuse_client_base::models::{
-    CreateGenerationBody, IngestionEvent, IngestionEventOneOf4,
-    ingestion_event_one_of_4::Type as GenType,
+    ingestion_event_one_of_4::Type as GenType, CreateGenerationBody, IngestionEvent,
+    IngestionEventOneOf4,
 };
 use langfuse_ergonomic::{BackpressurePolicy, Batcher, ClientBuilder, LangfuseClient};
 use rust_create_agent::llm::types::TokenUsage;
 use rust_create_agent::messages::BaseMessage;
 
-/// Langfuse 全链路追踪器
+/// Langfuse Thread 级别会话，持有跨多轮复用的共享连接状态。
 ///
-/// - Arc<LangfuseClient>：用于 Trace 和 Span 操作（直接调用 call/update）
-/// - Arc<Batcher>：用于 Generation 操作（Batcher::new 直接传参，batch 上报 Generation）
-///
-/// 生命周期：从 submit_message() 开始 → AgentEvent::Done 时结束。
-pub struct LangfuseTracer {
-    client: Arc<LangfuseClient>,
-    batcher: Arc<Batcher>,
-    /// 当前对话轮次的 Trace ID（提前生成，所有观测对象共享）
-    trace_id: String,
-    /// 当前会话的 session_id（= thread_id）
-    session_id: Option<String>,
-    /// step → (generation_id, input_messages)
-    generation_data: HashMap<usize, (String, Vec<BaseMessage>)>,
-    /// FIFO 队列：工具调用 span_id
-    pending_spans: VecDeque<String>,
+/// 生命周期：Thread 创建/打开时构造，new_thread()/open_thread() 时重置（= None）。
+/// 同一 Thread 内所有 `LangfuseTracer` 共享同一个 client + batcher + session_id。
+pub struct LangfuseSession {
+    pub client: Arc<LangfuseClient>,
+    pub batcher: Arc<Batcher>,
+    /// session_id = thread_id，Thread 内所有 Trace 共享
+    pub session_id: String,
 }
 
-impl LangfuseTracer {
-    /// 从配置构造 Tracer，失败时返回 None（静默降级）
-    pub async fn new(config: LangfuseConfig) -> Option<Self> {
+impl LangfuseSession {
+    /// 从配置和 session_id 构造 Session，失败时返回 None（静默降级）
+    pub async fn new(config: LangfuseConfig, session_id: String) -> Option<Self> {
         let client = ClientBuilder::new()
             .public_key(config.public_key)
             .secret_key(config.secret_key)
@@ -42,7 +34,6 @@ impl LangfuseTracer {
             .build()
             .ok()?;
 
-        // 使用 Batcher 进行 Generation 上报（绕过 langfuse-ergonomic builder 的 usage bug）
         // max_events=50: 每批最多 50 个事件
         // flush_interval=10s: 10 秒自动 flush 一次
         // backpressure_policy=DropNew: 队列满时丢弃新事件，避免 OOM
@@ -57,27 +48,49 @@ impl LangfuseTracer {
         Some(Self {
             client: Arc::new(client),
             batcher: Arc::new(batcher),
-            trace_id: uuid::Uuid::now_v7().to_string(),
-            session_id: None,
-            generation_data: HashMap::new(),
-            pending_spans: VecDeque::new(),
+            session_id,
         })
     }
+}
 
-    /// 对话轮次开始：创建 Trace
-    pub fn on_trace_start(&mut self, input: &str, thread_id: Option<&str>) {
-        self.session_id = thread_id.map(|s| s.to_string());
-        let client = Arc::clone(&self.client);
+/// Langfuse 单轮追踪器（per-turn）
+///
+/// 持有对 `LangfuseSession` 的引用，复用 client/batcher/session_id。
+/// 生命周期：从 submit_message() 开始 → AgentEvent::Done 时结束。
+pub struct LangfuseTracer {
+    session: Arc<LangfuseSession>,
+    /// 当前对话轮次的 Trace ID（提前生成，所有观测对象共享）
+    trace_id: String,
+    /// step → (generation_id, input_messages)
+    generation_data: HashMap<usize, (String, Vec<BaseMessage>)>,
+    /// FIFO 队列：工具调用 span_id
+    pending_spans: VecDeque<String>,
+}
+
+impl LangfuseTracer {
+    /// 从共享 Session 构造 per-turn Tracer（同步）
+    pub fn new(session: Arc<LangfuseSession>) -> Self {
+        Self {
+            session,
+            trace_id: uuid::Uuid::now_v7().to_string(),
+            generation_data: HashMap::new(),
+            pending_spans: VecDeque::new(),
+        }
+    }
+
+    /// 对话轮次开始：创建 Trace（session_id 从共享 Session 读取）
+    pub fn on_trace_start(&mut self, input: &str) {
+        let client = Arc::clone(&self.session.client);
         let trace_id = self.trace_id.clone();
         let input = input.to_string();
-        let session_id = self.session_id.clone();
+        let session_id = self.session.session_id.clone();
         tokio::spawn(async move {
             let _ = client
                 .trace()
                 .id(trace_id)
                 .name("agent-run")
                 .input(serde_json::json!(input))
-                .maybe_session_id(session_id)
+                .session_id(session_id)
                 .call()
                 .await;
         });
@@ -86,15 +99,22 @@ impl LangfuseTracer {
     /// LLM 调用开始：缓存 input messages，等 on_llm_end 时一并上报 Generation
     pub fn on_llm_start(&mut self, step: usize, messages: &[BaseMessage]) {
         let gen_id = uuid::Uuid::now_v7().to_string();
-        self.generation_data.insert(step, (gen_id, messages.to_vec()));
+        self.generation_data
+            .insert(step, (gen_id, messages.to_vec()));
     }
 
     /// LLM 调用结束：通过 Batcher 直接构造 IngestionEvent，绕过 builder 的 usage bug
-    pub fn on_llm_end(&mut self, step: usize, model: &str, output: &str, usage: Option<&TokenUsage>) {
+    pub fn on_llm_end(
+        &mut self,
+        step: usize,
+        model: &str,
+        output: &str,
+        usage: Option<&TokenUsage>,
+    ) {
         let Some((gen_id, messages)) = self.generation_data.remove(&step) else {
             return;
         };
-        let batcher = Arc::clone(&self.batcher);
+        let batcher = Arc::clone(&self.session.batcher);
         let trace_id = self.trace_id.clone();
         let model = model.to_string();
         let output = output.to_string();
@@ -134,7 +154,9 @@ impl LangfuseTracer {
                 r#type: GenType::GenerationCreate,
                 metadata: None,
             };
-            let _ = batcher.add(IngestionEvent::IngestionEventOneOf4(Box::new(event))).await;
+            let _ = batcher
+                .add(IngestionEvent::IngestionEventOneOf4(Box::new(event)))
+                .await;
         });
     }
 
@@ -142,7 +164,7 @@ impl LangfuseTracer {
     pub fn on_tool_start(&mut self, tool_call_id: &str, name: &str, input: &serde_json::Value) {
         let span_id = uuid::Uuid::now_v7().to_string();
         self.pending_spans.push_back(span_id.clone());
-        let client = Arc::clone(&self.client);
+        let client = Arc::clone(&self.session.client);
         let trace_id = self.trace_id.clone();
         let name = name.to_string();
         let input = input.clone();
@@ -164,10 +186,14 @@ impl LangfuseTracer {
         let Some(span_id) = self.pending_spans.pop_front() else {
             return;
         };
-        let client = Arc::clone(&self.client);
+        let client = Arc::clone(&self.session.client);
         let trace_id = self.trace_id.clone();
         let output = output.to_string();
-        let status_msg = if is_error { Some("error".to_string()) } else { None };
+        let status_msg = if is_error {
+            Some("error".to_string())
+        } else {
+            None
+        };
         tokio::spawn(async move {
             let _ = client
                 .update_span()
@@ -182,7 +208,7 @@ impl LangfuseTracer {
 
     /// 对话轮次结束：更新 Trace 的最终输出（Langfuse 支持同 ID upsert）
     pub fn on_trace_end(&mut self, final_answer: &str) {
-        let client = Arc::clone(&self.client);
+        let client = Arc::clone(&self.session.client);
         let trace_id = self.trace_id.clone();
         let output = final_answer.to_string();
         tokio::spawn(async move {
