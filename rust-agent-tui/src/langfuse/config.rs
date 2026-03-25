@@ -11,7 +11,7 @@ impl LangfuseConfig {
     /// 环境变量：
     ///   LANGFUSE_PUBLIC_KEY  - 必填
     ///   LANGFUSE_SECRET_KEY  - 必填
-    ///   LANGFUSE_HOST        - 可选，默认 https://cloud.langfuse.com
+    ///   LANGFUSE_BASE_URL    - 可选，默认 https://cloud.langfuse.com
     pub fn from_env() -> Option<Self> {
         let public_key = std::env::var("LANGFUSE_PUBLIC_KEY").ok()?;
         let secret_key = std::env::var("LANGFUSE_SECRET_KEY").ok()?;

@@ -3,15 +3,20 @@ pub use config::LangfuseConfig;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
+use langfuse_client_base::models::{
+    CreateGenerationBody, IngestionEvent, IngestionEventOneOf4,
+    ingestion_event_one_of_4::Type as GenType,
+};
 use langfuse_ergonomic::{BackpressurePolicy, Batcher, ClientBuilder, LangfuseClient};
 use rust_create_agent::llm::types::TokenUsage;
 use rust_create_agent::messages::BaseMessage;
 
 /// Langfuse 全链路追踪器
 ///
-/// - Arc<LangfuseClient>：用于 Trace 和 Span 操作（builder 正常工作）
-/// - Arc<Batcher>：用于 Generation 操作（绕过 builder 的 usage bug，直接构造 IngestionEvent）
+/// - Arc<LangfuseClient>：用于 Trace 和 Span 操作（直接调用 call/update）
+/// - Arc<Batcher>：用于 Generation 操作（Batcher::new 直接传参，batch 上报 Generation）
 ///
 /// 生命周期：从 submit_message() 开始 → AgentEvent::Done 时结束。
 pub struct LangfuseTracer {
@@ -36,12 +41,19 @@ impl LangfuseTracer {
             .base_url(config.host)
             .build()
             .ok()?;
+
         // 使用 Batcher 进行 Generation 上报（绕过 langfuse-ergonomic builder 的 usage bug）
+        // max_events=50: 每批最多 50 个事件
+        // flush_interval=10s: 10 秒自动 flush 一次
+        // backpressure_policy=DropNew: 队列满时丢弃新事件，避免 OOM
         let batcher = Batcher::builder()
             .client(client.clone())
+            .max_events(50)
+            .flush_interval(Duration::from_secs(10))
             .backpressure_policy(BackpressurePolicy::DropNew)
             .build()
             .await;
+
         Some(Self {
             client: Arc::new(client),
             batcher: Arc::new(batcher),
@@ -86,6 +98,7 @@ impl LangfuseTracer {
         let trace_id = self.trace_id.clone();
         let model = model.to_string();
         let output = output.to_string();
+        let step_for_closure = step;
         let input_json = serde_json::to_value(&messages).unwrap_or(serde_json::Value::Null);
 
         // 构造 IngestionUsage：使用 langfuse_client_base 的原生类型
@@ -103,18 +116,11 @@ impl LangfuseTracer {
         });
 
         tokio::spawn(async move {
-            use langfuse_client_base::models::{
-                CreateGenerationBody,
-                IngestionEvent,
-                IngestionEventOneOf4,
-                ingestion_event_one_of_4::Type as GenType,
-            };
-
             let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             let body = CreateGenerationBody {
                 id: Some(Some(gen_id.clone())),
                 trace_id: Some(Some(trace_id)),
-                name: Some(Some(format!("llm-call-step-{}", step))),
+                name: Some(Some(format!("llm-call-step-{}", step_for_closure))),
                 input: Some(Some(input_json)),
                 output: Some(Some(serde_json::json!(output))),
                 model: Some(Some(model)),
