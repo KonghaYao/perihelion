@@ -8,9 +8,13 @@ use rust_create_agent::agent::ReActAgent;
 use rust_create_agent::tools::BaseTool;
 
 use crate::agent_define::{AgentDefineMiddleware, AgentOverrides};
+use crate::agents_md::AgentsMdMiddleware;
 use crate::claude_agent_parser::{parse_agent_file, ToolsValue};
 use crate::middleware::PrependSystemMiddleware;
+use crate::middleware::todo::TodoMiddleware;
+use crate::skills::SkillsMiddleware;
 use crate::tools::ArcToolWrapper;
+use tokio::sync::mpsc;
 
 /// SubAgentTool - 实现 `launch_agent` 工具，允许 LLM 将子任务委派给专门的子 agent 执行
 ///
@@ -189,7 +193,18 @@ impl BaseTool for SubAgentTool {
 
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
 
-        // 5. 通过 PrependSystemMiddleware 将系统提示词注入 state（使其对 Langfuse 等追踪可见）
+        // 5. 补全缺失的上下文中间件（与父 agent 对齐）
+        //    注册顺序：AgentsMdMiddleware → SkillsMiddleware → TodoMiddleware → PrependSystemMiddleware（最后）
+        //    TodoMiddleware 的 _rx 立即丢弃，send 失败静默忽略，不向 TUI 透传
+        agent_builder = agent_builder
+            .add_middleware(Box::new(AgentsMdMiddleware::new()))
+            .add_middleware(Box::new(SkillsMiddleware::new().with_global_config()))
+            .add_middleware(Box::new(TodoMiddleware::new({
+                let (tx, _rx) = mpsc::channel(8);
+                tx
+            })));
+
+        // 6. 通过 PrependSystemMiddleware 将系统提示词注入 state（使其对 Langfuse 等追踪可见）
         //    系统提示词 = build_system_prompt(agent overrides, cwd)，包含 tone/proactiveness
         if let Some(ref builder) = self.system_builder {
             let overrides = AgentDefineMiddleware::load_overrides(&cwd, &agent_id);
@@ -208,7 +223,7 @@ impl BaseTool for SubAgentTool {
             agent_builder = agent_builder.with_event_handler(Arc::clone(handler));
         }
 
-        // 6. 执行子 agent
+        // 7. 执行子 agent
         let mut state = AgentState::new(cwd.clone());
         match agent_builder
             .execute(AgentInput::text(task), &mut state, None)
