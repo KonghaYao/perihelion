@@ -265,24 +265,9 @@ impl App {
                 }
                 // 通知渲染线程清除流式指示器
                 let _ = self.render_tx.send(RenderEvent::StreamingDone);
-                // Langfuse：结束 Trace，上报最终答案
+                // Langfuse：结束 Trace，上报最终答案（通过 TextChunk 事件累积，避免 UI 截断）
                 if let Some(ref tracer) = self.langfuse_tracer {
-                    let final_answer = self.view_messages.iter().rev()
-                        .find_map(|m| {
-                            if let MessageViewModel::AssistantBubble { blocks, .. } = m {
-                                blocks.iter().find_map(|b| {
-                                    if let ContentBlockView::Text { raw, .. } = b {
-                                        Some(raw.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or_default();
-                    tracer.lock().on_trace_end(&final_answer);
+                    tracer.lock().on_trace_end(None);
                 }
                 self.langfuse_tracer = None;
                 self.set_loading(false);
@@ -313,7 +298,7 @@ impl App {
                 // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
                 (true, false, false)
             }
-            AgentEvent::Error(_e) => {
+            AgentEvent::Error(ref _e) => {
                 let vm = MessageViewModel::tool_block(
                     "error".to_string(),
                     "agent-error".to_string(),
@@ -322,6 +307,11 @@ impl App {
                 );
                 self.view_messages.push(vm.clone());
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                // Langfuse：错误路径也需结束 Trace，避免 Trace 在 Langfuse 侧永远显示为运行中
+                if let Some(ref tracer) = self.langfuse_tracer {
+                    tracer.lock().on_trace_end(Some(&format!("ERROR: {}", _e)));
+                }
+                self.langfuse_tracer = None;
                 self.set_loading(false);
                 self.agent_rx = None;
                 // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗

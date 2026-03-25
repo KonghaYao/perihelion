@@ -40,10 +40,11 @@
   - [ ] SQLite 操作中 `unwrap` 是否覆盖所有写失败场景
 
 - [ ] **Langfuse 追踪集成**
-  - [ ] FIFO span 配对正确性：`on_tool_start` / `on_tool_end_by_name_order` 在并行工具调用时是否错位
-  - [ ] Batcher flush 时机：Agent 结束时若 `flush_interval=10s` 未到，最后一批事件是否丢失
-  - [ ] `LangfuseSession` 与 `LangfuseTracer` 生命周期是否与 Thread/Turn 严格对齐
+  - [ ] FIFO span 配对正确性：`on_tool_start` / `on_tool_end_by_name_order` 在并行工具调用时是否错位（HITL 拒绝路径导致批次 span 树断裂，待修复）
+  - [x] Batcher flush 时机：Agent 结束时若 `flush_interval=10s` 未到，最后一批事件是否丢失（改用 JoinHandle 等待，移除 sleep(200ms) 竞态）
+  - [x] `LangfuseSession` 与 `LangfuseTracer` 生命周期是否与 Thread/Turn 严格对齐（Error 路径补调 on_trace_end，清理 langfuse_tracer）
   - [ ] `input_json` 序列化失败时降级为 `Null`，是否影响 Langfuse 侧数据质量
+  - [x] final_answer 从 UI 截断视图提取（改为 TextChunk 事件累积，避免 60 字符截断）
 
 - [ ] **Relay Server 安全与健壮性**
   - [ ] `validate_token` 使用字符串直接比较，存在 timing attack 风险（应换用 `constant_time_eq`）

@@ -71,7 +71,7 @@ struct PendingTool {
 /// Langfuse 单轮追踪器（per-turn）
 ///
 /// 持有对 `LangfuseSession` 的引用，复用 client/batcher/session_id。
-/// 生命周期：从 submit_message() 开始 → AgentEvent::Done 时结束。
+/// 生命周期：从 submit_message() 开始 → AgentEvent::Done/Error 时结束。
 pub struct LangfuseTracer {
     session: Arc<LangfuseSession>,
     /// 当前对话轮次的 Trace ID（提前生成，所有观测对象共享）
@@ -86,6 +86,11 @@ pub struct LangfuseTracer {
     tools_batch_span_id: Option<String>,
     /// 当前批次工具组开始时间
     tools_batch_start_time: Option<String>,
+    /// 所有后台 spawn 的 JoinHandle；on_trace_end 统一 join 后再 flush，
+    /// 消除 sleep(200ms) 竞态：确保所有 batcher.add 完成后才 flush。
+    pending_handles: Vec<tokio::task::JoinHandle<()>>,
+    /// 累积的最终回答（通过 on_text_chunk 逐块追加，on_trace_end 时上报）
+    final_answer: String,
 }
 
 impl LangfuseTracer {
@@ -99,7 +104,14 @@ impl LangfuseTracer {
             pending_tools: HashMap::new(),
             tools_batch_span_id: None,
             tools_batch_start_time: None,
+            pending_handles: Vec::new(),
+            final_answer: String::new(),
         }
+    }
+
+    /// TextChunk 事件：累积最终回答（on_trace_end 时作为 Trace output 上报）
+    pub fn on_text_chunk(&mut self, chunk: &str) {
+        self.final_answer.push_str(chunk);
     }
 
     /// 对话轮次开始：创建 Trace + Agent Observation（session_id 从共享 Session 读取）
@@ -112,7 +124,7 @@ impl LangfuseTracer {
         let session_id = self.session.session_id.clone();
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             // 创建 Trace
             let _ = client
                 .trace()
@@ -144,6 +156,7 @@ impl LangfuseTracer {
                 .add(IngestionEvent::IngestionEventOneOf8(Box::new(event)))
                 .await;
         });
+        self.pending_handles.push(handle);
     }
 
     /// LLM 调用开始：缓存 input messages、工具定义和开始时间戳，等 on_llm_end 时一并上报 Generation
@@ -196,7 +209,7 @@ impl LangfuseTracer {
             Box::new(UsageDetails::Object(map))
         });
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let timestamp = end_time.clone();
             let body = CreateGenerationBody {
                 id: Some(Some(gen_id.clone())),
@@ -222,6 +235,7 @@ impl LangfuseTracer {
                 .add(IngestionEvent::IngestionEventOneOf4(Box::new(event)))
                 .await;
         });
+        self.pending_handles.push(handle);
     }
 
     /// 工具调用开始：缓存数据，等 on_tool_end 时合并成完整 span-create
@@ -265,7 +279,7 @@ impl LangfuseTracer {
             let batcher = Arc::clone(&batcher);
             let trace_id = trace_id.clone();
             let end_time = end_time.clone();
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 let status_msg = if is_error { Some(Some("error".to_string())) } else { None };
                 let body = CreateSpanBody {
                     id: Some(Some(tool.span_id)),
@@ -291,6 +305,7 @@ impl LangfuseTracer {
                 };
                 let _ = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await;
             });
+            self.pending_handles.push(handle);
         }
 
         // 最后一个工具结束时，提交批次 Tools Span（parent = agent_span_id）
@@ -300,7 +315,7 @@ impl LangfuseTracer {
                 self.tools_batch_start_time.take(),
             ) {
                 let agent_span_id = self.agent_span_id.clone();
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let body = CreateSpanBody {
                         id: Some(Some(batch_id)),
                         trace_id: Some(Some(trace_id)),
@@ -325,18 +340,32 @@ impl LangfuseTracer {
                     };
                     let _ = batcher.add(IngestionEvent::IngestionEventOneOf2(Box::new(event))).await;
                 });
+                self.pending_handles.push(handle);
             }
         }
     }
 
     /// 对话轮次结束：更新 Trace 的最终输出，并强制 flush
-    pub fn on_trace_end(&mut self, final_answer: &str) {
+    ///
+    /// 使用 pending_handles join 模式替代固定 sleep，确保所有 batcher.add 完成后才 flush。
+    /// `error_output` 非 None 时表示以错误结束，优先使用错误信息作为输出。
+    pub fn on_trace_end(&mut self, error_output: Option<&str>) {
         let client = Arc::clone(&self.session.client);
         let batcher = Arc::clone(&self.session.batcher);
         let trace_id = self.trace_id.clone();
-        let output = final_answer.to_string();
+        let output = if let Some(err) = error_output {
+            err.to_string()
+        } else {
+            std::mem::take(&mut self.final_answer)
+        };
+        // 取出所有待 join 的 handle，避免 on_trace_end 的 spawn 持有 &mut self
+        let handles = std::mem::take(&mut self.pending_handles);
 
         tokio::spawn(async move {
+            // 等待所有后台 spawn（on_trace_start/on_llm_end/on_tool_end）完成 batcher.add
+            for h in handles {
+                let _ = h.await;
+            }
             // 更新 Trace 输出
             let _ = client
                 .trace()
@@ -345,9 +374,6 @@ impl LangfuseTracer {
                 .output(serde_json::json!(output))
                 .call()
                 .await;
-
-            // 等待所有并发 spawn（on_llm_end/on_tool_end）完成 batcher.add，再 flush
-            tokio::time::sleep(Duration::from_millis(200)).await;
             let _ = batcher.flush().await;
         });
     }

@@ -106,6 +106,9 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                     t.on_tool_start(tool_call_id, name, input),
                 ExecutorEvent::ToolEnd { tool_call_id, is_error, output, .. } =>
                     t.on_tool_end(tool_call_id, output, *is_error),
+                // 累积最终回答（避免从 UI 截断视图提取）
+                ExecutorEvent::TextChunk(text) =>
+                    t.on_text_chunk(text),
                 _ => {}
             }
         }
