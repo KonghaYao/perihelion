@@ -35,7 +35,7 @@
   - [x] 风格 lint 问题修复
 
 - [ ] **错误处理质量**
-  - [ ] 生产路径 `unwrap()`/`expect()` 扫描（rust-create-agent 71 处，rust-agent-middlewares 73 处，rust-agent-tui 55 处）
+  - [x] 生产路径 `unwrap()`/`expect()` 扫描：修复三处真实风险——anthropic 消息适配器 `as_array_mut().unwrap()`（改 `if let`）、LLM 响应解析 `as_text().unwrap()` × 2（改 slice pattern + `if let`）；event.rs 模型面板 mode 提取改为只读借用；其余 `unwrap()` 均在测试代码或逻辑安全路径中
   - [x] `tokio::spawn` 子任务中 `let _ = ...` 静默忽略错误（Langfuse 所有后台 spawn 改为 `tracing::warn` 可观测）
   - [x] SQLite 操作中 `unwrap` 是否覆盖所有写失败场景（sqlite_store.rs 生产路径全部使用 `?` 传播，thread_ops.rs 使用 `unwrap_or_else` 降级，已覆盖）
   - [x] relay.rs 生产路径 `serde_json::to_string().unwrap()` 三处改为 `if let Ok` 防 panic

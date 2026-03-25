@@ -422,14 +422,22 @@ impl BaseModel for ChatAnthropic {
         // - 只有单个纯文本且无工具调用 → 简单 Text（向后兼容）
         // - 含 thinking / tool_use / 多 block → Blocks
         let message = if !tool_calls.is_empty() {
-            let content = if blocks.len() == 1 && blocks[0].as_text().is_some() {
-                MessageContent::text(blocks[0].as_text().unwrap())
+            let content = if let [single] = blocks.as_slice() {
+                if let Some(text) = single.as_text() {
+                    MessageContent::text(text)
+                } else {
+                    MessageContent::Blocks(blocks)
+                }
             } else {
                 MessageContent::Blocks(blocks)
             };
             BaseMessage::ai_with_tool_calls(content, tool_calls)
-        } else if blocks.len() == 1 && blocks[0].as_text().is_some() {
-            BaseMessage::ai(blocks[0].as_text().unwrap())
+        } else if let [single] = blocks.as_slice() {
+            if let Some(text) = single.as_text() {
+                BaseMessage::ai(text)
+            } else {
+                BaseMessage::ai(MessageContent::Blocks(blocks))
+            }
         } else if blocks.is_empty() {
             BaseMessage::ai("")
         } else {

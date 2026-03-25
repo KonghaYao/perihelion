@@ -433,11 +433,13 @@ fn handle_agent_panel(app: &mut App, input: Input) {
 fn handle_model_panel(app: &mut App, input: Input) {
     use crate::app::model_panel::{AliasEditField, EditField};
 
-    let Some(panel) = app.model_panel.as_mut() else {
-        return;
+    // 用只读借用提前获取 mode（借用立即释放），后续各分支可自由重借 app.model_panel
+    let mode = match app.model_panel.as_ref() {
+        Some(p) => p.mode.clone(),
+        None => return,
     };
 
-    match panel.mode.clone() {
+    match mode {
         // ── 别名配置主界面 ────────────────────────────────────────────────────
         ModelPanelMode::AliasConfig => match input {
             Input { key: Key::Esc, .. } => {

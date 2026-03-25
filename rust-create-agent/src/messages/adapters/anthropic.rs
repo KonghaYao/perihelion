@@ -230,7 +230,10 @@ impl AnthropicAdapter {
 
                     if should_append {
                         if let Some(last) = result.last_mut() {
-                            last["content"].as_array_mut().unwrap().push(tool_result_block);
+                            // 安全：should_append 为 true 时已确认 content 是数组
+                            if let Some(arr) = last["content"].as_array_mut() {
+                                arr.push(tool_result_block);
+                            }
                         }
                     } else {
                         result.push(json!({
