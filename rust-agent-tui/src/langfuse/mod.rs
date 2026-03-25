@@ -11,7 +11,7 @@ use langfuse_client_base::models::{
     ingestion_event_one_of_8,
     CreateGenerationBody, CreateSpanBody, IngestionEvent,
     IngestionEventOneOf2, IngestionEventOneOf4, IngestionEventOneOf8,
-    ObservationBody, ObservationType,
+    ObservationBody, ObservationType, UsageDetails,
 };
 use langfuse_ergonomic::{BackpressurePolicy, Batcher, ClientBuilder, LangfuseClient};
 use rust_create_agent::llm::types::TokenUsage;
@@ -178,18 +178,22 @@ impl LangfuseTracer {
             "tools": tools,
         });
 
-        // 构造 IngestionUsage：使用 langfuse_client_base 的原生类型
-        let langfuse_usage = usage.map(|u| {
-            use langfuse_client_base::models::{IngestionUsage, Usage};
-            Box::new(IngestionUsage::Usage(Box::new(Usage {
-                input: Some(Some(u.input_tokens as i32)),
-                output: Some(Some(u.output_tokens as i32)),
-                total: Some(Some((u.input_tokens + u.output_tokens) as i32)),
-                unit: None,
-                input_cost: None,
-                output_cost: None,
-                total_cost: None,
-            })))
+        // 构造 UsageDetails HashMap（新 API，支持缓存 token）
+        let langfuse_usage_details = usage.map(|u| {
+            let mut map = std::collections::HashMap::new();
+            let cache_creation = u.cache_creation_input_tokens.unwrap_or(0);
+            let cache_read = u.cache_read_input_tokens.unwrap_or(0);
+            let total = u.input_tokens + u.output_tokens + cache_creation + cache_read;
+            map.insert("input".to_string(), u.input_tokens as i32);
+            map.insert("output".to_string(), u.output_tokens as i32);
+            map.insert("total".to_string(), total as i32);
+            if cache_creation > 0 {
+                map.insert("cache_creation_input_tokens".to_string(), cache_creation as i32);
+            }
+            if cache_read > 0 {
+                map.insert("cache_read_input_tokens".to_string(), cache_read as i32);
+            }
+            Box::new(UsageDetails::Object(map))
         });
 
         tokio::spawn(async move {
@@ -201,7 +205,7 @@ impl LangfuseTracer {
                 input: Some(Some(input_json)),
                 output: Some(Some(serde_json::json!(output))),
                 model: Some(Some(model)),
-                usage: langfuse_usage,
+                usage_details: langfuse_usage_details,
                 parent_observation_id: Some(Some(agent_span_id)),
                 start_time: Some(Some(start_time)),
                 end_time: Some(Some(end_time)),

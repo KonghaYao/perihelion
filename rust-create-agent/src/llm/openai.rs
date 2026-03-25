@@ -313,8 +313,14 @@ impl BaseModel for ChatOpenAI {
         let usage = {
             let input = resp_json["usage"]["prompt_tokens"].as_u64().map(|v| v as u32);
             let output = resp_json["usage"]["completion_tokens"].as_u64().map(|v| v as u32);
+            let cache_read = resp_json["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64().map(|v| v as u32);
             match (input, output) {
-                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage { input_tokens: i, output_tokens: o }),
+                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
+                    input_tokens: i,
+                    output_tokens: o,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: cache_read,
+                }),
                 _ => None,
             }
         };

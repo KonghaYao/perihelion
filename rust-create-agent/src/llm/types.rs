@@ -43,6 +43,10 @@ impl LlmRequest {
 pub struct TokenUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    /// Anthropic Prompt Cache：写入缓存的 token 数（首次缓存）
+    pub cache_creation_input_tokens: Option<u32>,
+    /// Anthropic Prompt Cache：命中缓存读取的 token 数
+    pub cache_read_input_tokens: Option<u32>,
 }
 
 /// LLM 响应

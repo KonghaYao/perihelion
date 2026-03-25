@@ -440,8 +440,15 @@ impl BaseModel for ChatAnthropic {
         let usage = {
             let input = resp_json["usage"]["input_tokens"].as_u64().map(|v| v as u32);
             let output = resp_json["usage"]["output_tokens"].as_u64().map(|v| v as u32);
+            let cache_creation = resp_json["usage"]["cache_creation_input_tokens"].as_u64().map(|v| v as u32);
+            let cache_read = resp_json["usage"]["cache_read_input_tokens"].as_u64().map(|v| v as u32);
             match (input, output) {
-                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage { input_tokens: i, output_tokens: o }),
+                (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
+                    input_tokens: i,
+                    output_tokens: o,
+                    cache_creation_input_tokens: cache_creation,
+                    cache_read_input_tokens: cache_read,
+                }),
                 _ => None,
             }
         };
