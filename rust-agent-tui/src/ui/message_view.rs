@@ -33,6 +33,21 @@ pub enum MessageViewModel {
     },
     /// 系统消息
     SystemNote { content: String },
+    /// SubAgent 执行块（可折叠，含滑动窗口消息）
+    SubAgentGroup {
+        agent_id: String,
+        task_preview: String,
+        /// 总步数（工具调用 + AI 回复），不受滑动窗口截断影响
+        total_steps: usize,
+        /// 滑动窗口，最多 4 条最近消息
+        recent_messages: Vec<MessageViewModel>,
+        /// 子 agent 执行中为 true
+        is_running: bool,
+        /// 默认展开，完成后用户可折叠
+        collapsed: bool,
+        /// SubAgentEnd 携带的结果摘要（工具返回值）
+        final_result: Option<String>,
+    },
 }
 
 /// ContentBlock 的视图化表示
@@ -114,6 +129,28 @@ impl MessageViewModel {
                     .map(|(_, name, input)| (name.clone(), input.clone()))
                     .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
                 let raw_content = content.text_content();
+                // launch_agent 工具恢复为 SubAgentGroup（完成状态，折叠）
+                if tool_name == "launch_agent" {
+                    let agent_id = input["agent_id"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let task_preview = input["task"]
+                        .as_str()
+                        .unwrap_or("")
+                        .chars()
+                        .take(40)
+                        .collect::<String>();
+                    return MessageViewModel::SubAgentGroup {
+                        agent_id,
+                        task_preview,
+                        total_steps: 0, // 历史恢复时无法得知总步数
+                        recent_messages: Vec::new(), // 子 agent 内部消息不持久化
+                        is_running: false,
+                        collapsed: true,
+                        final_result: Some(raw_content),
+                    };
+                }
                 // 使用统一格式化函数生成 display_name（与实时流式一致）
                 let display_name = crate::app::tool_display::format_tool_name(&tool_name);
                 let args_display = crate::app::tool_display::format_tool_args(&tool_name, &input, None);
@@ -161,7 +198,7 @@ impl MessageViewModel {
         }
     }
 
-    /// 切换折叠状态（仅对 ToolBlock 和 AssistantBubble 生效）
+    /// 切换折叠状态（对 ToolBlock、AssistantBubble、SubAgentGroup 生效）
     #[allow(dead_code)]
     pub fn toggle_collapse(&mut self) {
         match self {
@@ -169,6 +206,9 @@ impl MessageViewModel {
                 *collapsed = !*collapsed;
             }
             MessageViewModel::AssistantBubble { collapsed, .. } => {
+                *collapsed = !*collapsed;
+            }
+            MessageViewModel::SubAgentGroup { collapsed, .. } => {
                 *collapsed = !*collapsed;
             }
             _ => {}
@@ -216,6 +256,24 @@ impl MessageViewModel {
     /// 创建系统消息
     pub fn system(content: String) -> Self {
         MessageViewModel::SystemNote { content }
+    }
+
+    /// 创建 SubAgentGroup（初始状态：运行中、展开、0 步）
+    pub fn subagent_group(agent_id: String, task_preview: String) -> Self {
+        MessageViewModel::SubAgentGroup {
+            agent_id,
+            task_preview,
+            total_steps: 0,
+            recent_messages: Vec::new(),
+            is_running: true,
+            collapsed: false,
+            final_result: None,
+        }
+    }
+
+    /// 判断是否为 SubAgentGroup
+    pub fn is_subagent_group(&self) -> bool {
+        matches!(self, MessageViewModel::SubAgentGroup { .. })
     }
 
 }

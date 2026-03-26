@@ -237,6 +237,7 @@ impl App {
             pending_messages: Vec::new(),
             pending_attachments: Vec::new(),
             show_tool_messages: false,
+            subagent_group_idx: None,
             relay_client: None,
             relay_event_rx: None,
             pending_hitl_items: None,

@@ -119,6 +119,8 @@ pub struct App {
     pub pending_attachments: Vec<PendingAttachment>,
     /// 是否显示工具调用消息（默认 false，完全隐藏）
     pub show_tool_messages: bool,
+    /// 当前活跃 SubAgentGroup 在 view_messages 中的下标（子 agent 执行中时有值）
+    subagent_group_idx: Option<usize>,
     /// Relay 客户端（远程控制，可选）
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     /// Relay 事件接收端（来自 Web 端的控制消息）
@@ -230,6 +232,7 @@ impl App {
             pending_messages: Vec::new(),
             pending_attachments: Vec::new(),
             show_tool_messages: false,
+            subagent_group_idx: None,
             relay_client: None,
             relay_event_rx: None,
             pending_hitl_items: None,

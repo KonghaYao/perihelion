@@ -332,6 +332,143 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_subagent_group_basic() {
+        // SubAgentStart → 2×ToolCall → SubAgentEnd → 渲染验证
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        let notify = Arc::clone(&handle.render_notify);
+
+        // 事件数：SubAgentStart(1) + ToolCall×2(2) + SubAgentEnd(1) = 4 个 RenderEvent
+        let n1 = notify.notified();
+        let n2 = notify.notified();
+        let n3 = notify.notified();
+        let n4 = notify.notified();
+
+        app.push_agent_event(AgentEvent::SubAgentStart {
+            agent_id: "code-reviewer".into(),
+            task_preview: "review the code".into(),
+        });
+        app.push_agent_event(AgentEvent::ToolCall {
+            tool_call_id: "t1".into(),
+            name: "read_file".into(),
+            display: "ReadFile".into(),
+            args: Some("src/main.rs".into()),
+            is_error: false,
+        });
+        app.push_agent_event(AgentEvent::ToolCall {
+            tool_call_id: "t2".into(),
+            name: "bash".into(),
+            display: "Bash".into(),
+            args: Some("cargo test".into()),
+            is_error: false,
+        });
+        app.push_agent_event(AgentEvent::SubAgentEnd {
+            result: "All tests passed, no issues found".into(),
+            is_error: false,
+        });
+        app.process_pending_events();
+        tokio::join!(n1, n2, n3, n4);
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+
+        // 验证 SubAgentGroup 头行存在（code-reviewer 名称）
+        let has_agent = snap.iter().any(|l| l.contains("code-reviewer"));
+        assert!(has_agent, "应显示 SubAgentGroup 头行含 agent_id，实际:\n{}", snap.join("\n"));
+
+        // 验证 total_steps 步数显示（2 步）
+        let has_steps = snap.iter().any(|l| l.contains("2"));
+        assert!(has_steps, "应显示步数计数，实际:\n{}", snap.join("\n"));
+
+        // 验证 SubAgentGroup 已完成（is_running=false）
+        if let Some(vm) = app.view_messages.last() {
+            assert!(vm.is_subagent_group(), "最后一条消息应为 SubAgentGroup");
+            if let crate::app::MessageViewModel::SubAgentGroup { is_running, total_steps, .. } = vm {
+                assert!(!is_running, "SubAgentEnd 后 is_running 应为 false");
+                assert_eq!(*total_steps, 2, "total_steps 应为 2");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_subagent_group_sliding_window() {
+        // SubAgentStart → 6×ToolCall → SubAgentEnd → 只保留 4 条，总步数为 6
+        let (mut app, _handle) = App::new_headless(120, 30);
+
+        app.push_agent_event(AgentEvent::SubAgentStart {
+            agent_id: "analyzer".into(),
+            task_preview: "analyze codebase".into(),
+        });
+        for i in 1..=6 {
+            app.push_agent_event(AgentEvent::ToolCall {
+                tool_call_id: format!("t{}", i),
+                name: "read_file".into(),
+                display: "ReadFile".into(),
+                args: Some(format!("file{}.rs", i)),
+                is_error: false,
+            });
+        }
+        app.push_agent_event(AgentEvent::SubAgentEnd {
+            result: "analysis complete".into(),
+            is_error: false,
+        });
+        app.process_pending_events();
+
+        // 验证 SubAgentGroup 状态
+        if let Some(crate::app::MessageViewModel::SubAgentGroup {
+            total_steps,
+            recent_messages,
+            is_running,
+            ..
+        }) = app.view_messages.last()
+        {
+            assert_eq!(*total_steps, 6, "total_steps 应为 6，实际: {}", total_steps);
+            assert!(
+                recent_messages.len() <= 4,
+                "recent_messages 最多 4 条，实际: {}",
+                recent_messages.len()
+            );
+            assert!(!is_running, "SubAgentEnd 后 is_running 应为 false");
+        } else {
+            panic!("最后一条消息应为 SubAgentGroup");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_subagent_group_assistant_chunk() {
+        // SubAgentStart → AssistantChunk → SubAgentEnd → AssistantBubble 在 recent_messages 中
+        let (mut app, _handle) = App::new_headless(120, 30);
+
+        app.push_agent_event(AgentEvent::SubAgentStart {
+            agent_id: "writer".into(),
+            task_preview: "write summary".into(),
+        });
+        app.push_agent_event(AgentEvent::AssistantChunk("summary text here".into()));
+        app.push_agent_event(AgentEvent::SubAgentEnd {
+            result: "Done writing".into(),
+            is_error: false,
+        });
+        app.process_pending_events();
+
+        // 验证 SubAgentGroup 包含 AssistantBubble
+        if let Some(crate::app::MessageViewModel::SubAgentGroup {
+            recent_messages,
+            final_result,
+            ..
+        }) = app.view_messages.last()
+        {
+            let has_assistant = recent_messages.iter().any(|m| m.is_assistant());
+            assert!(has_assistant, "recent_messages 应包含 AssistantBubble");
+            assert_eq!(
+                final_result.as_deref(),
+                Some("Done writing"),
+                "final_result 应为工具返回值"
+            );
+        } else {
+            panic!("最后一条消息应为 SubAgentGroup");
+        }
+    }
+
+    #[tokio::test]
     async fn test_tool_call_message_visible_when_toggled() {
         let (mut app, mut handle) = App::new_headless(120, 30);
 

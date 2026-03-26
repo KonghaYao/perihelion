@@ -47,6 +47,8 @@ pub enum RenderEvent {
     LoadHistory(Vec<MessageViewModel>),
     /// 切换工具调用消息的显示状态
     ToggleToolMessages(bool),
+    /// 替换最后一条消息并重新渲染（SubAgentGroup 更新专用）
+    UpdateLastMessage(MessageViewModel),
 }
 
 /// 渲染线程，持有消息数据的私有副本，在后台执行渲染计算
@@ -205,6 +207,32 @@ impl RenderTask {
                 RenderEvent::ToggleToolMessages(show) => {
                     self.show_tool_messages = show;
                     self.rebuild_all(self.show_tool_messages);
+                }
+                RenderEvent::UpdateLastMessage(vm) => {
+                    // 替换最后一条消息（SubAgentGroup 更新专用）
+                    if let Some(last) = self.messages.last_mut() {
+                        *last = vm;
+                    } else {
+                        self.messages.push(vm);
+                    }
+                    // 重新渲染最后一条消息，替换缓存中对应区间的行
+                    let width = self.width.saturating_sub(1) as usize;
+                    if !self.messages.is_empty() {
+                        let last_idx = self.messages.len() - 1;
+                        let new_lines = Self::render_one(
+                            &mut self.messages[last_idx],
+                            last_idx + 1,
+                            width,
+                            self.show_tool_messages,
+                        );
+                        let mut cache = self.cache.write();
+                        if let Some(&start) = cache.message_offsets.last() {
+                            cache.lines.truncate(start);
+                            cache.lines.extend(new_lines);
+                            cache.total_lines = cache.lines.len();
+                            cache.version += 1;
+                        }
+                    }
                 }
             }
 

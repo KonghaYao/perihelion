@@ -118,6 +118,12 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
             ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::TextChunk(text) => AgentEvent::AssistantChunk(text),
             ExecutorEvent::MessageAdded(msg) => AgentEvent::MessageAdded(msg),
+            // launch_agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
+            ExecutorEvent::ToolStart { name, input, .. } if name == "launch_agent" => {
+                let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
+                let task_preview = input["task"].as_str().unwrap_or("").chars().take(40).collect();
+                AgentEvent::SubAgentStart { agent_id, task_preview }
+            }
             ExecutorEvent::ToolStart { tool_call_id, name, input } => AgentEvent::ToolCall {
                 tool_call_id,
                 args: format_tool_args(&name, &input, Some(cwd_for_handler.as_str())),
@@ -125,6 +131,10 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                 name,
                 is_error: false,
             },
+            // launch_agent ToolEnd（成功或失败）→ SubAgentEnd（在通用 ToolEnd 分支之前）
+            ExecutorEvent::ToolEnd { name, output, is_error, .. } if name == "launch_agent" => {
+                AgentEvent::SubAgentEnd { result: output, is_error }
+            }
             // ask_user 成功：显示用户的回答
             ExecutorEvent::ToolEnd {
                 name,

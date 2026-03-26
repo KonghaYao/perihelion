@@ -165,6 +165,33 @@ impl App {
     /// 处理单个 AgentEvent，返回 `(updated, should_break, should_return)`
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         match event {
+            AgentEvent::SubAgentStart { agent_id, task_preview } => {
+                let vm = MessageViewModel::subagent_group(agent_id, task_preview);
+                self.view_messages.push(vm.clone());
+                self.subagent_group_idx = Some(self.view_messages.len() - 1);
+                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                (true, false, false)
+            }
+            AgentEvent::SubAgentEnd { result, is_error } => {
+                if let Some(idx) = self.subagent_group_idx {
+                    if let Some(MessageViewModel::SubAgentGroup {
+                        is_running,
+                        final_result,
+                        ..
+                    }) = self.view_messages.get_mut(idx)
+                    {
+                        *is_running = false;
+                        *final_result = Some(result);
+                        let _ = is_error; // 错误时颜色由渲染层通过 is_error 体现
+                    }
+                    // 发送更新事件重绘
+                    if let Some(vm) = self.view_messages.get(idx).cloned() {
+                        let _ = self.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                    }
+                    self.subagent_group_idx = None;
+                }
+                (true, false, false)
+            }
             AgentEvent::ToolCall {
                 tool_call_id: _tool_call_id,
                 name,
@@ -172,12 +199,39 @@ impl App {
                 args,
                 is_error,
             } => {
-                let vm = MessageViewModel::tool_block(name, display, args, is_error);
-                self.view_messages.push(vm.clone());
-                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                if let Some(idx) = self.subagent_group_idx {
+                    // 路由进 SubAgentGroup.recent_messages（滑动窗口 max 4）
+                    if let Some(MessageViewModel::SubAgentGroup {
+                        total_steps,
+                        recent_messages,
+                        ..
+                    }) = self.view_messages.get_mut(idx)
+                    {
+                        *total_steps += 1;
+                        if recent_messages.len() >= 4 {
+                            recent_messages.remove(0);
+                        }
+                        recent_messages.push(MessageViewModel::tool_block(
+                            name, display, args, is_error,
+                        ));
+                    }
+                    // 发送更新事件重绘最后一条消息（SubAgentGroup）
+                    if let Some(vm) = self.view_messages.get(idx).cloned() {
+                        let _ = self.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                    }
+                } else {
+                    // 父 Agent 层：正常创建 ToolBlock
+                    let vm = MessageViewModel::tool_block(name, display, args, is_error);
+                    self.view_messages.push(vm.clone());
+                    let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                }
                 (true, false, false)
             }
             AgentEvent::MessageAdded(msg) => {
+                // SubAgent 执行期间忽略 MessageAdded（不影响父 Agent 消息历史）
+                if self.subagent_group_idx.is_some() {
+                    return (false, false, false);
+                }
                 // 只处理工具调用消息的渲染；纯文本 AI 消息由 AssistantChunk 处理
                 if let rust_create_agent::messages::BaseMessage::Ai {
                         content,
@@ -245,15 +299,44 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
-                match self.view_messages.last_mut() {
-                    Some(m) if m.is_assistant() => m.append_chunk(&chunk),
-                    _ => {
-                        let vm = MessageViewModel::assistant();
-                        self.view_messages.push(vm.clone());
-                        let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                if let Some(idx) = self.subagent_group_idx {
+                    // 路由进 SubAgentGroup.recent_messages 的最后一个 AssistantBubble
+                    if let Some(MessageViewModel::SubAgentGroup {
+                        recent_messages,
+                        total_steps,
+                        ..
+                    }) = self.view_messages.get_mut(idx)
+                    {
+                        match recent_messages.last_mut() {
+                            Some(m) if m.is_assistant() => m.append_chunk(&chunk),
+                            _ => {
+                                // 新建 AssistantBubble，先维护滑动窗口
+                                if recent_messages.len() >= 4 {
+                                    recent_messages.remove(0);
+                                } else {
+                                    *total_steps += 1;
+                                }
+                                let mut bubble = MessageViewModel::assistant();
+                                bubble.append_chunk(&chunk);
+                                recent_messages.push(bubble);
+                            }
+                        }
                     }
+                    // 发送更新事件重绘
+                    if let Some(vm) = self.view_messages.get(idx).cloned() {
+                        let _ = self.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                    }
+                } else {
+                    match self.view_messages.last_mut() {
+                        Some(m) if m.is_assistant() => m.append_chunk(&chunk),
+                        _ => {
+                            let vm = MessageViewModel::assistant();
+                            self.view_messages.push(vm.clone());
+                            let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                        }
+                    }
+                    let _ = self.render_tx.send(RenderEvent::AppendChunk(chunk));
                 }
-                let _ = self.render_tx.send(RenderEvent::AppendChunk(chunk));
                 (true, false, false)
             }
             AgentEvent::Done => {
@@ -272,6 +355,8 @@ impl App {
                 self.langfuse_tracer = None;
                 self.set_loading(false);
                 self.agent_rx = None;
+                // 异常退出时兜底清空 subagent 状态
+                self.subagent_group_idx = None;
                 // Agent 异常退出时清理残留弹窗状态，避免 UI 卡在弹窗
                 self.hitl_prompt = None;
                 self.ask_user_prompt = None;
@@ -314,6 +399,8 @@ impl App {
                 self.langfuse_tracer = None;
                 self.set_loading(false);
                 self.agent_rx = None;
+                // 兜底清空 subagent 状态
+                self.subagent_group_idx = None;
                 // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗
                 self.hitl_prompt = None;
                 self.ask_user_prompt = None;
@@ -551,6 +638,8 @@ impl App {
                     self.langfuse_tracer = None;
                     self.set_loading(false);
                     self.agent_rx = None;
+                    // 兜底清空 subagent 状态
+                    self.subagent_group_idx = None;
                     // 清理残留弹窗状态，避免 UI 卡在弹窗
                     self.hitl_prompt = None;
                     self.ask_user_prompt = None;
