@@ -70,9 +70,9 @@
   - [ ] 客户端 `connect_async` 无连接超时
   - [ ] 接收消息缺乏字段合法性校验
 
-- [ ] **内存无界增长**
-  - [ ] `AgentState.messages` 无数量/大小上限
-  - [ ] Relay `history` 仅限条目数，未限制单条字节数
+- [x] **内存无界增长**
+  - [x] `AgentState.messages` 无数量/大小上限：`add_message` 在消息数超过 100 条后每 100 条打 `tracing::warn!`，提示使用 /compact 降低内存占用
+  - [x] Relay `history` 仅限条目数，未限制单条字节数：`send_with_seq` 添加单条 512KB 字节上限，超限条目跳过历史缓存但仍正常发送，并记录 `tracing::debug!`
 
 - [ ] **生产路径 panic! 调用**
   - [ ] `protocol.rs` 存在非测试 `panic!`

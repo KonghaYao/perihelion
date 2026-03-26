@@ -128,12 +128,22 @@ impl RelayClient {
             Ok(j) => j,
             Err(_) => return,
         };
-        // 缓存（最多 1000 条）
+        // 缓存（最多 1000 条，单条限 512KB，超大条目跳过缓存但仍发送）
+        const MAX_HISTORY_ENTRY_BYTES: usize = 512 * 1024;
         if let Ok(mut hist) = self.history.lock() {
-            if hist.len() >= 1000 {
-                hist.pop_front();
+            if json.len() <= MAX_HISTORY_ENTRY_BYTES {
+                if hist.len() >= 1000 {
+                    hist.pop_front();
+                }
+                hist.push_back((seq, json.clone()));
+            } else {
+                tracing::debug!(
+                    seq,
+                    bytes = json.len(),
+                    limit = MAX_HISTORY_ENTRY_BYTES,
+                    "relay history: entry exceeds size limit, skipping cache (message still sent)"
+                );
             }
-            hist.push_back((seq, json.clone()));
         }
         let _ = self.tx.send(json);
     }
