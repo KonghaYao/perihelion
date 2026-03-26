@@ -109,7 +109,7 @@ impl EditField {
     pub fn next(&self) -> Self {
         match self {
             Self::Name => Self::ProviderType,
-            Self::ProviderType => Self::ModelId,
+            Self::ProviderType => Self::ApiKey,
             Self::ModelId => Self::ApiKey,
             Self::ApiKey => Self::BaseUrl,
             Self::BaseUrl => Self::ThinkingBudget,
@@ -121,7 +121,7 @@ impl EditField {
             Self::Name => Self::ThinkingBudget,
             Self::ProviderType => Self::Name,
             Self::ModelId => Self::ProviderType,
-            Self::ApiKey => Self::ModelId,
+            Self::ApiKey => Self::ProviderType,
             Self::BaseUrl => Self::ApiKey,
             Self::ThinkingBudget => Self::BaseUrl,
         }
@@ -383,6 +383,34 @@ impl ModelPanel {
             EditField::ApiKey => { self.buf_api_key.pop(); }
             EditField::BaseUrl => { self.buf_base_url.pop(); }
             EditField::ThinkingBudget => { self.buf_thinking_budget.pop(); }
+        }
+    }
+
+    /// 粘贴文本到当前活动字段（Edit/New 模式追加到当前字段；AliasConfig 模式追加到 model_id）
+    pub fn paste_text(&mut self, text: &str) {
+        // 过滤换行符，字段均为单行
+        let text: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
+        match self.mode {
+            ModelPanelMode::AliasConfig => {
+                if self.alias_edit_field == AliasEditField::ModelId {
+                    let idx = self.active_tab.index();
+                    self.buf_alias_model[idx].push_str(&text);
+                }
+            }
+            ModelPanelMode::Edit | ModelPanelMode::New => {
+                match self.edit_field {
+                    EditField::Name => self.buf_name.push_str(&text),
+                    EditField::ProviderType => {}
+                    EditField::ModelId => self.buf_model.push_str(&text),
+                    EditField::ApiKey => self.buf_api_key.push_str(&text),
+                    EditField::BaseUrl => self.buf_base_url.push_str(&text),
+                    EditField::ThinkingBudget => {
+                        let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+                        self.buf_thinking_budget.push_str(&digits);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

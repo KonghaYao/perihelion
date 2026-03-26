@@ -330,6 +330,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             // 某些终端（如 VSCode）在 bracketed paste 中使用 \r 而非 \n 作为换行符
             let text = text.replace('\r', "\n");
 
+            // model_panel 打开时粘贴到面板当前字段
+            if app.model_panel.is_some() {
+                app.model_panel.as_mut().unwrap().paste_text(&text);
+                return Ok(Some(Action::Redraw));
+            }
+
             // relay_panel 编辑模式下粘贴到面板
             if let Some(panel) = app.relay_panel.as_mut() {
                 if panel.mode == crate::app::relay_panel::RelayPanelMode::Edit {
@@ -461,6 +467,13 @@ fn handle_model_panel(app: &mut App, input: Input) {
             Input { key: Key::Esc, .. } => {
                 app.close_model_panel();
             }
+            Input { key: Key::Char('v'), ctrl: true, .. } => {
+                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                    if let Ok(text) = clipboard.get_text() {
+                        app.model_panel.as_mut().unwrap().paste_text(&text);
+                    }
+                }
+            }
             // Tab / Shift+Tab：切换 Alias Tab（Opus / Sonnet / Haiku）
             Input { key: Key::Tab, shift: false, .. } => {
                 app.model_panel.as_mut().unwrap().tab_next();
@@ -537,6 +550,13 @@ fn handle_model_panel(app: &mut App, input: Input) {
         ModelPanelMode::Edit | ModelPanelMode::New => match input {
             Input { key: Key::Esc, .. } => {
                 app.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
+            }
+            Input { key: Key::Char('v'), ctrl: true, .. } => {
+                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                    if let Ok(text) = clipboard.get_text() {
+                        app.model_panel.as_mut().unwrap().paste_text(&text);
+                    }
+                }
             }
             Input { key: Key::Tab, shift: false, .. } => {
                 app.model_panel.as_mut().unwrap().field_next();
