@@ -110,7 +110,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cl
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
 
-    loop {
+    'event_loop: loop {
         // 轮询后台 agent 结果
         let agent_updated = app.poll_agent();
         // 轮询 Relay 事件（Web 端控制消息）
@@ -118,7 +118,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cl
 
         match event::next_event(&mut app).await? {
             Some(action) => match action {
-                event::Action::Quit => break,
+                event::Action::Quit => break 'event_loop,
                 event::Action::Submit(input) => {
                     app.submit_message(input);
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
@@ -138,6 +138,11 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cl
                 }
             }
         }
+    }
+
+    // 等待最后一次 Langfuse flush 完成，防止 runtime drop 前 batcher 数据丢失
+    if let Some(handle) = app.langfuse_flush_handle.take() {
+        let _ = handle.await;
     }
 
     Ok(())

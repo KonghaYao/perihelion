@@ -80,5 +80,5 @@
 - [x] **spawn 任务错误可观测性（续）**
   - [x] relay.rs 多处 `tokio::spawn` 未 await 也未记录错误：client/mod.rs Ping 响应路径 `to_string().unwrap()` 改为 `if let Ok`；handle_web_session_ws `agent_tx.send()` 失败从静默 `let _ =` 改为 `tracing::debug! + break`，agent 断开时正确终止 web session 循环
 
-- [ ] **LangfuseTracer JoinHandle 泄漏**
-  - [ ] `pending_handles` 依赖 `on_trace_end` 清空，异常退出时 handles 未被等待
+- [x] **LangfuseTracer JoinHandle 泄漏**
+  - [x] `pending_handles` 依赖 `on_trace_end` 清空，异常退出时 handles 未被等待：`on_trace_end` 改为返回 `JoinHandle<()>`；App 新增 `langfuse_flush_handle` 字段存储该 handle；`run_app` 事件循环退出后 await flush handle 确保 batcher flush 在 runtime drop 前完成；为 `LangfuseTracer` 实现 `Drop` 在 `pending_handles` 非空时打 warn

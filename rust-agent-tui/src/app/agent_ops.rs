@@ -292,7 +292,7 @@ impl App {
                 let _ = self.render_tx.send(RenderEvent::StreamingDone);
                 // Langfuse：结束 Trace，上报最终答案（通过 TextChunk 事件累积，避免 UI 截断）
                 if let Some(ref tracer) = self.langfuse_tracer {
-                    tracer.lock().on_trace_end(None);
+                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
                 }
                 self.langfuse_tracer = None;
                 self.set_loading(false);
@@ -336,7 +336,7 @@ impl App {
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 // Langfuse：错误路径也需结束 Trace，避免 Trace 在 Langfuse 侧永远显示为运行中
                 if let Some(ref tracer) = self.langfuse_tracer {
-                    tracer.lock().on_trace_end(Some(&format!("ERROR: {}", _e)));
+                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", _e))));
                 }
                 self.langfuse_tracer = None;
                 self.set_loading(false);
@@ -576,7 +576,7 @@ impl App {
                     let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                     // Langfuse：channel 意外断开也需结束 Trace，与 Error 路径保持一致
                     if let Some(ref tracer) = self.langfuse_tracer {
-                        tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly"));
+                        self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly")));
                     }
                     self.langfuse_tracer = None;
                     self.set_loading(false);

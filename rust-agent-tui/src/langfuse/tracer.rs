@@ -344,11 +344,14 @@ impl LangfuseTracer {
         self.tools_batch_end_time = Some(end_time);
     }
 
-    /// 对话轮次结束：更新 Trace 的最终输出，并强制 flush
+    /// 对话轮次结束：更新 Trace 的最终输出，并强制 flush。
+    ///
+    /// 返回 flush 任务的 `JoinHandle`，调用方应保存该 handle 并在进程退出前 await，
+    /// 确保 batcher flush 在 tokio runtime 关闭前完成。
     ///
     /// 使用 pending_handles join 模式替代固定 sleep，确保所有 batcher.add 完成后才 flush。
     /// `error_output` 非 None 时表示以错误结束，优先使用错误信息作为输出。
-    pub fn on_trace_end(&mut self, error_output: Option<&str>) {
+    pub fn on_trace_end(&mut self, error_output: Option<&str>) -> tokio::task::JoinHandle<()> {
         // 提交最后一轮的工具批次 Span（若 Agent 以最终回答结束而非再次调用 LLM，
         // 则上一轮工具批次不会被 on_llm_start 触发，需在此处兜底提交）
         self.flush_tools_batch();
@@ -383,6 +386,18 @@ impl LangfuseTracer {
             if let Err(e) = batcher.flush().await {
                 tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: batcher flush 失败");
             }
-        });
+        })
+    }
+}
+
+impl Drop for LangfuseTracer {
+    fn drop(&mut self) {
+        if !self.pending_handles.is_empty() {
+            tracing::warn!(
+                trace_id = %self.trace_id,
+                count = self.pending_handles.len(),
+                "LangfuseTracer dropped with pending handles — on_trace_end was not called, Langfuse data may be incomplete"
+            );
+        }
     }
 }
