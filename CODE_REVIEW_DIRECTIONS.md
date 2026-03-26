@@ -74,8 +74,8 @@
   - [x] `AgentState.messages` 无数量/大小上限：`add_message` 在消息数超过 100 条后每 100 条打 `tracing::warn!`，提示使用 /compact 降低内存占用
   - [x] Relay `history` 仅限条目数，未限制单条字节数：`send_with_seq` 添加单条 512KB 字节上限，超限条目跳过历史缓存但仍正常发送，并记录 `tracing::debug!`
 
-- [ ] **生产路径 panic! 调用**
-  - [ ] `protocol.rs` 存在非测试 `panic!`
+- [x] **生产路径 panic! 调用**
+  - [x] `protocol.rs` 存在非测试 `panic!`：全面审查确认所有 `panic!` 均在 `#[cfg(test)]` 内，无生产路径风险；将 6 处测试 match 穷举臂从 `panic!` 改为语义更准确的 `unreachable!`（protocol.rs ×2、hitl/mod.rs、skill_preload.rs、message.rs、openai.rs 各 ×1）
 
 - [x] **spawn 任务错误可观测性（续）**
   - [x] relay.rs 多处 `tokio::spawn` 未 await 也未记录错误：client/mod.rs Ping 响应路径 `to_string().unwrap()` 改为 `if let Ok`；handle_web_session_ws `agent_tx.send()` 失败从静默 `let _ =` 改为 `tracing::debug! + break`，agent 断开时正确终止 web session 循环

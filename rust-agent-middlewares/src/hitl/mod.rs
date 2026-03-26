@@ -320,7 +320,7 @@ mod tests {
             Err(AgentError::ToolRejected { reason, .. }) => {
                 assert_eq!(reason, "请改用 echo 命令");
             }
-            other => panic!("期望 ToolRejected，实际: {:?}", other),
+            other => unreachable!("期望 ToolRejected，实际: {:?}", other),
         }
     }
 }
