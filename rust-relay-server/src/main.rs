@@ -134,8 +134,13 @@ async fn main() {
 
     let state = RelayState::new_with_limits(token, max_agent_conns, max_web_conns);
 
-    // Start session cleanup task
-    relay::spawn_session_cleanup(state.clone());
+    // Start session cleanup task，并监控异常退出
+    let cleanup_handle = relay::spawn_session_cleanup(state.clone());
+    tokio::spawn(async move {
+        if let Err(e) = cleanup_handle.await {
+            tracing::error!(error = %e, "session cleanup task exited unexpectedly — no further cleanup will occur");
+        }
+    });
 
     let app = Router::new()
         .route("/agent/ws", get(agent_ws_handler))

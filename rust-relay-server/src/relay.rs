@@ -184,7 +184,7 @@ pub async fn handle_agent_ws(
     // 与 spawn_session_cleanup 对齐：双重条件（未连接 + 超时）防止误删活跃 session
     let state_cleanup = state2.clone();
     let sid_cleanup = sid.clone();
-    tokio::spawn(async move {
+    let delayed_cleanup = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
         if let Some(entry) = state_cleanup.sessions.get(&sid_cleanup) {
             let connected = *entry.agent_connected.read().await;
@@ -194,6 +194,11 @@ pub async fn handle_agent_ws(
                 state_cleanup.sessions.remove(&sid_cleanup);
                 tracing::debug!("Session cleaned up after timeout: {}", sid_cleanup);
             }
+        }
+    });
+    tokio::spawn(async move {
+        if let Err(e) = delayed_cleanup.await {
+            tracing::error!(error = %e, session = %sid, "handle_agent_ws delayed cleanup task exited unexpectedly");
         }
     });
 }
@@ -358,8 +363,9 @@ pub async fn handle_web_session_ws(
     txs.retain(|tx| !tx.is_closed());
 }
 
-pub fn spawn_session_cleanup(state: Arc<RelayState>) {
+pub fn spawn_session_cleanup(state: Arc<RelayState>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        tracing::debug!("session cleanup task started");
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5 * 60)).await;
             let mut to_remove = Vec::new();
@@ -375,5 +381,5 @@ pub fn spawn_session_cleanup(state: Arc<RelayState>) {
                 tracing::debug!("Session expired and removed: {}", sid);
             }
         }
-    });
+    })
 }

@@ -68,12 +68,16 @@ impl App {
                                 // YOLO 模式：跳过弹窗，直接全部批准
                                 let decisions = vec![HitlDecision::Approve; req.items.len()];
                                 let _ = req.response_tx.send(decisions);
-                            } else {
-                                let _ = tx_hitl.send(AgentEvent::ApprovalNeeded(req)).await;
+                            } else if tx_hitl.send(AgentEvent::ApprovalNeeded(req)).await.is_err() {
+                                tracing::warn!("HITL approval forwarding: TUI channel closed");
+                                break;
                             }
                         }
                         ApprovalEvent::AskUserBatch(req) => {
-                            let _ = tx_hitl.send(AgentEvent::AskUserBatch(req)).await;
+                            if tx_hitl.send(AgentEvent::AskUserBatch(req)).await.is_err() {
+                                tracing::warn!("AskUser forwarding: TUI channel closed");
+                                break;
+                            }
                         }
                     }
                 }

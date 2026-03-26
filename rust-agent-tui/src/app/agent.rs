@@ -66,7 +66,10 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let tx_todo = tx.clone();
     tokio::spawn(async move {
         while let Some(todos) = todo_rx.recv().await {
-            let _ = tx_todo.send(AgentEvent::TodoUpdate(todos)).await;
+            if tx_todo.send(AgentEvent::TodoUpdate(todos)).await.is_err() {
+                tracing::warn!("todo forwarding: TUI channel closed, stopping");
+                break;
+            }
         }
     });
 
