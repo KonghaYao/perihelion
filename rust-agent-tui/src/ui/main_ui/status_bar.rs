@@ -61,6 +61,13 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
+    // 消息计数
+    left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+    left_spans.push(Span::styled(
+        format!("🗨 {} 条", app.view_messages.len()),
+        Style::default().fg(Color::DarkGray),
+    ));
+
     // Agent 面板选中信息
     if let Some(panel) = &app.agent_panel {
         left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));

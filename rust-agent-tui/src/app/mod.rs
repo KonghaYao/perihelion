@@ -318,39 +318,8 @@ impl App {
                 (c.url.clone(), token, c.name.clone())
             }
         } else {
-            // 无 CLI 参数：从配置读取（新字段优先，fallback 到 extra）
-            let config = self.zen_config
-                .as_ref()
-                .and_then(|cfg| cfg.config.remote_control.as_ref())
-                .filter(|rc| rc.is_complete());
-
-            match config {
-                Some(rc) => (rc.url.clone(), rc.token.clone(), rc.name.clone()),
-                None => {
-                    // 回退到旧 extra 字段
-                    let url = self.zen_config
-                        .as_ref()
-                        .and_then(|cfg| cfg.config.extra.get("relay_url"))
-                        .and_then(|v| v.as_str());
-                    match url {
-                        Some(u) => {
-                            let token = self.zen_config
-                                .as_ref()
-                                .and_then(|cfg| cfg.config.extra.get("relay_token"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let name = self.zen_config
-                                .as_ref()
-                                .and_then(|cfg| cfg.config.extra.get("relay_name"))
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                            (u.to_string(), token, name)
-                        }
-                        None => return,
-                    }
-                }
-            }
+            // 无 --remote-control 参数：不尝试连接
+            return;
         };
 
         match rust_relay_server::client::RelayClient::connect(
