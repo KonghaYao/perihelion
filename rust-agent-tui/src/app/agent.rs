@@ -102,12 +102,12 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                     t.on_llm_start(*step, messages, tools),
                 ExecutorEvent::LlmCallEnd { step, model, output, usage } =>
                     t.on_llm_end(*step, model, &provider_name_for_handler, output, usage.as_ref()),
-                ExecutorEvent::ToolStart { tool_call_id, name, input } =>
+                ExecutorEvent::ToolStart { tool_call_id, name, input, .. } =>
                     t.on_tool_start(tool_call_id, name, input),
                 ExecutorEvent::ToolEnd { tool_call_id, is_error, output, .. } =>
                     t.on_tool_end(tool_call_id, output, *is_error),
                 // 累积最终回答（避免从 UI 截断视图提取）
-                ExecutorEvent::TextChunk(text) =>
+                ExecutorEvent::TextChunk { chunk: text, .. } =>
                     t.on_text_chunk(text),
                 _ => {}
             }
@@ -116,7 +116,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         // 映射为 TUI AgentEvent
         let msg = match event {
             ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
-            ExecutorEvent::TextChunk(text) => AgentEvent::AssistantChunk(text),
+            ExecutorEvent::TextChunk { chunk: text, .. } => AgentEvent::AssistantChunk(text),
             ExecutorEvent::MessageAdded(msg) => AgentEvent::MessageAdded(msg),
             // launch_agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
             ExecutorEvent::ToolStart { name, input, .. } if name == "launch_agent" => {
@@ -124,7 +124,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                 let task_preview = input["task"].as_str().unwrap_or("").chars().take(40).collect();
                 AgentEvent::SubAgentStart { agent_id, task_preview }
             }
-            ExecutorEvent::ToolStart { tool_call_id, name, input } => AgentEvent::ToolCall {
+            ExecutorEvent::ToolStart { tool_call_id, name, input, .. } => AgentEvent::ToolCall {
                 tool_call_id,
                 args: format_tool_args(&name, &input, Some(cwd_for_handler.as_str())),
                 display: format_tool_name(&name),

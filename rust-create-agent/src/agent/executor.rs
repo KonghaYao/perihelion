@@ -169,22 +169,21 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             }
 
             if reasoning.needs_tool_call() {
-                {
-                    let tc_reqs: Vec<ToolCallRequest> = reasoning
-                        .tool_calls
-                        .iter()
-                        .map(|tc| {
-                            ToolCallRequest::new(tc.id.clone(), tc.name.clone(), tc.input.clone())
-                        })
-                        .collect();
-                    // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
-                    // source_message 的 tool_calls 字段在 LLM 解析阶段已填好
-                    let ai_msg = reasoning.source_message.clone()
-                        .unwrap_or_else(|| BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs));
-                    let ai_msg_clone = ai_msg.clone();
-                    state.add_message(ai_msg);
-                    self.emit(AgentEvent::MessageAdded(ai_msg_clone));
-                }
+                let tc_reqs: Vec<ToolCallRequest> = reasoning
+                    .tool_calls
+                    .iter()
+                    .map(|tc| {
+                        ToolCallRequest::new(tc.id.clone(), tc.name.clone(), tc.input.clone())
+                    })
+                    .collect();
+                // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
+                // source_message 的 tool_calls 字段在 LLM 解析阶段已填好
+                let ai_msg = reasoning.source_message.clone()
+                    .unwrap_or_else(|| BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs));
+                let ai_msg_id = ai_msg.id();  // 捕获 message_id（Copy，供后续 ToolStart/ToolEnd 使用）
+                let ai_msg_clone = ai_msg.clone();
+                state.add_message(ai_msg);
+                self.emit(AgentEvent::MessageAdded(ai_msg_clone));
                 // emit AI 推理内容到 Relay
                 self.emit(AgentEvent::AiReasoning(reasoning.thought.clone()));
 
@@ -206,11 +205,13 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                                     reason.clone(),
                                 );
                                 self.emit(AgentEvent::ToolStart {
+                                    message_id: ai_msg_id,
                                     tool_call_id: tool_call.id.clone(),
                                     name: tool_call.name.clone(),
                                     input: tool_call.input.clone(),
                                 });
                                 self.emit(AgentEvent::ToolEnd {
+                                    message_id: ai_msg_id,
                                     tool_call_id: tool_call.id.clone(),
                                     name: tool_call.name.clone(),
                                     output: rejection_result.output.clone(),
@@ -232,6 +233,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                             }
                         };
                     self.emit(AgentEvent::ToolStart {
+                        message_id: ai_msg_id,
                         tool_call_id: modified_call.id.clone(),
                         name: modified_call.name.clone(),
                         input: modified_call.input.clone(),
@@ -315,6 +317,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         "tool call completed"
                     );
                     self.emit(AgentEvent::ToolEnd {
+                        message_id: ai_msg_id,
                         tool_call_id: modified_call.id.clone(),
                         name: modified_call.name.clone(),
                         output: result.output.clone(),
@@ -378,11 +381,12 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
                 let ai_msg = reasoning.source_message
                     .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
+                let ai_msg_id = ai_msg.id();  // 捕获 message_id（Copy，供 TextChunk 使用）
                 let ai_msg_clone = ai_msg.clone();
                 state.add_message(ai_msg);
                 self.emit(AgentEvent::MessageAdded(ai_msg_clone));
 
-                self.emit(AgentEvent::TextChunk(answer.clone()));
+                self.emit(AgentEvent::TextChunk { message_id: ai_msg_id, chunk: answer.clone() });
 
                 let output = AgentOutput {
                     text: answer,
@@ -606,6 +610,180 @@ mod tests {
         assert!(has_rejection, "拒绝结果应写入 state");
         // Agent 总工具调用记录中应有 1 条（被拒绝的）
         assert_eq!(output.tool_calls.len(), 1);
+    }
+
+    /// 验证 TextChunk 携带的 message_id 与前一条 MessageAdded(Ai) 的 id 一致
+    #[tokio::test]
+    async fn test_text_chunk_message_id() {
+        use crate::agent::events::{AgentEvent, FnEventHandler};
+        use std::sync::{Arc, Mutex};
+
+        struct FinalAnswerLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for FinalAnswerLLM {
+            async fn generate_reasoning(
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                Ok(Reasoning::with_answer("thinking", "final answer"))
+            }
+        }
+
+        let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+
+        let agent = ReActAgent::new(FinalAnswerLLM)
+            .max_iterations(3)
+            .with_event_handler(Arc::new(FnEventHandler(move |event| {
+                events_clone.lock().unwrap().push(event);
+            })));
+
+        let mut state = AgentState::new("/tmp");
+        agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+
+        let evs = events.lock().unwrap();
+
+        // 找到 MessageAdded(Ai) 的 id（最终答案那条）
+        let ai_msg_id = evs.iter().find_map(|e| {
+            if let AgentEvent::MessageAdded(BaseMessage::Ai { id, tool_calls, .. }) = e {
+                if tool_calls.is_empty() { Some(*id) } else { None }
+            } else {
+                None
+            }
+        });
+
+        // 找到 TextChunk 的 message_id
+        let chunk_msg_id = evs.iter().find_map(|e| {
+            if let AgentEvent::TextChunk { message_id, .. } = e {
+                Some(*message_id)
+            } else {
+                None
+            }
+        });
+
+        assert!(ai_msg_id.is_some(), "应有 MessageAdded(Ai) 事件");
+        assert!(chunk_msg_id.is_some(), "应有 TextChunk 事件");
+        assert_eq!(
+            ai_msg_id.unwrap(),
+            chunk_msg_id.unwrap(),
+            "TextChunk.message_id 应与 MessageAdded(Ai).id 相同"
+        );
+    }
+
+    /// 验证 ToolStart/ToolEnd 携带的 message_id 与同轮次 MessageAdded(Ai) 的 id 一致
+    #[tokio::test]
+    async fn test_tool_message_id() {
+        use crate::agent::events::{AgentEvent, FnEventHandler};
+        use std::sync::{Arc, Mutex};
+
+        struct OneToolLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for OneToolLLM {
+            async fn generate_reasoning(
+                &self,
+                messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                if messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. })) {
+                    Ok(Reasoning::with_answer("done", "ok"))
+                } else {
+                    Ok(Reasoning::with_tools(
+                        "call tool",
+                        vec![ToolCall::new("tc1", "echo_tool", serde_json::json!({}))],
+                    ))
+                }
+            }
+        }
+
+        struct EchoTool;
+        #[async_trait::async_trait]
+        impl BaseTool for EchoTool {
+            fn name(&self) -> &str { "echo_tool" }
+            fn description(&self) -> &str { "echoes" }
+            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
+            async fn invoke(
+                &self,
+                _: serde_json::Value,
+            ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+                Ok("echo".to_string())
+            }
+        }
+
+        let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+
+        let agent = ReActAgent::new(OneToolLLM)
+            .max_iterations(5)
+            .register_tool(Box::new(EchoTool))
+            .with_event_handler(Arc::new(FnEventHandler(move |event| {
+                events_clone.lock().unwrap().push(event);
+            })));
+
+        let mut state = AgentState::new("/tmp");
+        agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+
+        let evs = events.lock().unwrap();
+
+        // 找到第一个带工具调用的 MessageAdded(Ai) 的 id
+        let ai_msg_id = evs.iter().find_map(|e| {
+            if let AgentEvent::MessageAdded(BaseMessage::Ai { id, tool_calls, .. }) = e {
+                if !tool_calls.is_empty() { Some(*id) } else { None }
+            } else {
+                None
+            }
+        });
+        let tool_start_msg_id = evs.iter().find_map(|e| {
+            if let AgentEvent::ToolStart { message_id, .. } = e { Some(*message_id) } else { None }
+        });
+        let tool_end_msg_id = evs.iter().find_map(|e| {
+            if let AgentEvent::ToolEnd { message_id, .. } = e { Some(*message_id) } else { None }
+        });
+
+        assert!(ai_msg_id.is_some(), "应有带工具调用的 MessageAdded(Ai) 事件");
+        assert!(tool_start_msg_id.is_some(), "应有 ToolStart 事件");
+        assert!(tool_end_msg_id.is_some(), "应有 ToolEnd 事件");
+        assert_eq!(
+            ai_msg_id.unwrap(), tool_start_msg_id.unwrap(),
+            "ToolStart.message_id 应与 MessageAdded(Ai).id 相同"
+        );
+        assert_eq!(
+            ai_msg_id.unwrap(), tool_end_msg_id.unwrap(),
+            "ToolEnd.message_id 应与 MessageAdded(Ai).id 相同"
+        );
+    }
+
+    /// 验证 TextChunk/ToolStart/ToolEnd 序列化后含 message_id 字段
+    #[test]
+    fn test_agent_event_message_id_serialization() {
+        use crate::agent::events::AgentEvent;
+        use crate::messages::MessageId;
+
+        let mid = MessageId::new();
+
+        let ev = AgentEvent::TextChunk { message_id: mid, chunk: "hello".to_string() };
+        let json = serde_json::to_value(&ev).unwrap();
+        assert!(json["message_id"].is_string(), "TextChunk JSON 应含 message_id 字段");
+        assert_eq!(json["chunk"].as_str().unwrap(), "hello");
+
+        let ev = AgentEvent::ToolStart {
+            message_id: mid,
+            tool_call_id: "tc1".to_string(),
+            name: "bash".to_string(),
+            input: serde_json::json!({}),
+        };
+        let json = serde_json::to_value(&ev).unwrap();
+        assert!(json["message_id"].is_string(), "ToolStart JSON 应含 message_id 字段");
+
+        let ev = AgentEvent::ToolEnd {
+            message_id: mid,
+            tool_call_id: "tc1".to_string(),
+            name: "bash".to_string(),
+            output: "ok".to_string(),
+            is_error: false,
+        };
+        let json = serde_json::to_value(&ev).unwrap();
+        assert!(json["message_id"].is_string(), "ToolEnd JSON 应含 message_id 字段");
     }
 
 }

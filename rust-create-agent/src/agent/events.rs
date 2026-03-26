@@ -4,12 +4,12 @@
 pub enum AgentEvent {
     /// AI 推理内容（reasoning/思考过程）
     AiReasoning(String),
-    /// LLM 输出最终文字（非流式，整段答案）
-    TextChunk(String),
-    /// 工具调用开始（工具名 + 参数）
-    ToolStart { tool_call_id: String, name: String, input: serde_json::Value },
-    /// 工具调用结束（结果或错误）
-    ToolEnd { tool_call_id: String, name: String, output: String, is_error: bool },
+    /// LLM 输出最终文字（非流式，整段答案），携带所属 AI 消息的 message_id
+    TextChunk { message_id: crate::messages::MessageId, chunk: String },
+    /// 工具调用开始（工具名 + 参数），携带所属 AI 消息的 message_id
+    ToolStart { message_id: crate::messages::MessageId, tool_call_id: String, name: String, input: serde_json::Value },
+    /// 工具调用结束（结果或错误），携带所属 AI 消息的 message_id
+    ToolEnd { message_id: crate::messages::MessageId, tool_call_id: String, name: String, output: String, is_error: bool },
     /// 一轮 ReAct 步骤完成
     StepDone { step: usize },
     /// 状态快照（含完整的消息历史），用于持久化和断点续跑

@@ -1,5 +1,6 @@
 // dialog.js — 弹窗管理
 import { sendMessage } from './connection.js';
+import { state } from './state.js';
 
 // ─── 工具 ─────────────────────────────────────────────────
 
