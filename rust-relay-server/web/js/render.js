@@ -212,6 +212,18 @@ export function renderMessages(paneId, agent) {
     container.appendChild(renderSingleMessage(msg, paneId));
   });
 
+  // Loading 态：追加到消息列表末尾
+  if (agent.isRunning) {
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'message msg-loading';
+    loadingEl.innerHTML = `
+      <div class="loading-dots">
+        <span></span><span></span><span></span>
+      </div>
+    `;
+    container.appendChild(loadingEl);
+  }
+
   if (wasAtBottom) {
     container.scrollTop = container.scrollHeight;
   }
@@ -248,13 +260,10 @@ export function renderTodoPanel(paneId, todos) {
   });
 }
 
-// ─── 渲染状态文字 ─────────────────────────────────────────────
+// ─── 渲染状态文字（loading 已移至消息列表末尾，此函数保留供兼容调用）─────
 
-export function renderStatus(paneId, agent) {
-  const el = document.getElementById(`status-${paneId}`);
-  if (!el) return;
-  el.textContent = agent.isRunning ? '正在思考…' : '';
-  el.classList.toggle('visible', !!agent.isRunning);
+export function renderStatus(_paneId, _agent) {
+  // no-op：loading 态由 renderMessages 内的 msg-loading 气泡承担
 }
 
 // ─── 渲染单个面板 ─────────────────────────────────────────────
@@ -307,7 +316,6 @@ export function renderPane(paneId, sessionId) {
   const inputBar = document.createElement('div');
   inputBar.className = 'pane-input';
   inputBar.innerHTML = `
-    <span id="status-${paneId}" class="agent-status"></span>
     <input type="text" id="input-${paneId}" placeholder="输入消息..." autocomplete="off" />
     <button class="send-btn" data-pane="${paneId}">发送</button>
   `;
