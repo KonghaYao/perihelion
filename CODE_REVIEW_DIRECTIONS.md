@@ -60,6 +60,6 @@
   - [ ] `spawn_session_cleanup` 与 `handle_agent_ws` 延迟清理任务的 spawn 错误未传播（静默退出无感知）
   - [ ] `agent.rs` Todo channel 和 HITL 审批转发 spawn 中 `let _ = ...` 静默忽略发送失败
 
-- [ ] **配置校验**
-  - [ ] `budget_tokens` 字段注释声明了 0/1-7999/≥8000 分级语义，但无实际边界校验代码（`config/types.rs`）
-  - [ ] `ANTHROPIC_MODEL` / `OPENAI_MODEL` 环境变量读取后无合法性校验，空字符串或非法值直接传给 API
+- [x] **配置校验**
+  - [x] `budget_tokens` Anthropic 最小值 1024：`with_extended_thinking` 补充 `.max(1024)` 守卫，config/types.rs 注释补充 Anthropic 语义说明
+  - [x] `ANTHROPIC_MODEL` / `OPENAI_MODEL` 空字符串 fallback：`from_env()` 改为 `.ok().filter(!empty).unwrap_or(default)`，避免空模型名送到 API

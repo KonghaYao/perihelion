@@ -43,7 +43,8 @@ pub struct ThinkingConfig {
     #[serde(default)]
     pub enabled: bool,
     /// 推理 token 预算（Anthropic 直接使用；OpenAI 按区段转换为 effort 等级）
-    /// 0 = "low", 1-7999 = "medium", ≥8000 = "high"
+    /// - OpenAI 映射：0 = "low", 1-7999 = "medium", ≥8000 = "high"
+    /// - Anthropic：直接传给 extended_thinking.budget_tokens，最小值 1024（由 with_extended_thinking 保证）
     #[serde(default = "default_budget_tokens")]
     pub budget_tokens: u32,
 }

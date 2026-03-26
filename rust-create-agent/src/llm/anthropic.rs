@@ -42,9 +42,12 @@ impl ChatAnthropic {
     }
 
     /// 开启 Extended Thinking（claude-3-7-sonnet 及以上）
+    ///
+    /// `budget_tokens` 最小值为 1024（Anthropic API 要求）；传入更小的值会被静默提升到 1024。
     pub fn with_extended_thinking(mut self, budget_tokens: u32) -> Self {
         self.extended_thinking = true;
-        self.thinking_budget = budget_tokens;
+        // Anthropic extended thinking API 要求 budget_tokens >= 1024
+        self.thinking_budget = budget_tokens.max(1024);
         self
     }
 
@@ -57,7 +60,9 @@ impl ChatAnthropic {
     pub fn from_env() -> Option<Self> {
         let api_key = std::env::var("ANTHROPIC_API_KEY").ok()?;
         let model = std::env::var("ANTHROPIC_MODEL")
-            .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+            .ok()
+            .filter(|m| !m.trim().is_empty())
+            .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
         let mut s = Self::new(api_key, model);
         if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
             s = s.with_base_url(url);

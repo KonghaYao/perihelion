@@ -48,7 +48,9 @@ impl ChatOpenAI {
             .or_else(|_| std::env::var("OPENAI_BASE_URL"))
             .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
         let model = std::env::var("OPENAI_MODEL")
-            .unwrap_or_else(|_| "gpt-4o".to_string());
+            .ok()
+            .filter(|m| !m.trim().is_empty())
+            .unwrap_or_else(|| "gpt-4o".to_string());
         Some(Self::new(api_key, model).with_base_url(base_url))
     }
 
