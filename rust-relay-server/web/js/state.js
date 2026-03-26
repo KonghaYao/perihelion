@@ -41,6 +41,7 @@ export function upsertAgent(sessionId, data) {
       pendingHitl: data.pendingHitl || null,
       pendingAskUser: data.pendingAskUser || null,
       maxSeq: data.maxSeq || 0,
+      isRunning: data.isRunning ?? false,
     });
   }
 }

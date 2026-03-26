@@ -228,6 +228,10 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     }
     let agent_input = input;
 
+    if let Some(ref relay) = relay_client {
+        relay.send_value(serde_json::json!({ "type": "agent_running" }));
+    }
+
     let result = executor
         .execute(agent_input, &mut state, Some(cancel))
         .await;
@@ -254,6 +258,10 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
             let _ = tx.send(AgentEvent::Error(e.to_string())).await;
             let _ = tx.send(AgentEvent::Done).await;
         }
+    }
+
+    if let Some(ref relay) = relay_client {
+        relay.send_value(serde_json::json!({ "type": "agent_done" }));
     }
 }
 

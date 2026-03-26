@@ -206,15 +206,22 @@ export function handleLegacyEvent(agent, event) {
       break;
     }
 
-    case 'tool_start':
-      agent.messages.push({
-        type: 'tool',
-        name: event.name,
-        input: event.input,
-        output: null,
-        streaming: false,
-      });
+    case 'tool_start': {
+      // BaseMessage 路径已经从 tool_calls 创建了条目，避免重复
+      const alreadyExists = agent.messages.some(
+        m => m.type === 'tool' && m.name === event.name && m.output === null
+      );
+      if (!alreadyExists) {
+        agent.messages.push({
+          type: 'tool',
+          name: event.name,
+          input: event.input,
+          output: null,
+          streaming: false,
+        });
+      }
       break;
+    }
 
     case 'tool_end':
       for (let i = agent.messages.length - 1; i >= 0; i--) {
@@ -262,7 +269,16 @@ export function handleLegacyEvent(agent, event) {
       // 内部调试事件，不展示
       break;
 
+    case 'agent_running':
+      agent.isRunning = true;
+      break;
+
+    case 'agent_done':
+      agent.isRunning = false;
+      break;
+
     case 'error':
+      agent.isRunning = false;
       agent.messages.push({ type: 'error', text: event['0'] || 'Error' });
       break;
 
@@ -327,7 +343,15 @@ export function handleAgentEvent(sessionId, msg) {
 
 // ─── 辅助 ───────────────────────────────────────────────────
 
+// 只更新消息/todo/status 内容，不重建 pane 结构（保持滚动位置）
 async function renderPaneForAllPanes() {
-  const { renderLayout } = await import('./render.js');
-  renderLayout();
+  const { renderMessages, renderTodoPanel, renderStatus } = await import('./render.js');
+  state.layout.panes.forEach((sessionId, paneIdx) => {
+    if (!sessionId) return;
+    const agent = getAgent(sessionId);
+    if (!agent) return;
+    renderMessages(paneIdx, agent);
+    renderTodoPanel(paneIdx, agent.todos);
+    renderStatus(paneIdx, agent);
+  });
 }

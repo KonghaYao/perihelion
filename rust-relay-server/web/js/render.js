@@ -203,12 +203,18 @@ export function renderMessages(paneId, agent) {
   const container = document.getElementById(`messages-${paneId}`);
   if (!container) return;
 
+  // 记录是否在底部（50px 容差），以便更新后决定是否自动滚动
+  const wasAtBottom =
+    container.scrollTop + container.clientHeight >= container.scrollHeight - 50;
+
   container.innerHTML = '';
   agent.messages.forEach(msg => {
     container.appendChild(renderSingleMessage(msg, paneId));
   });
 
-  container.scrollTop = container.scrollHeight;
+  if (wasAtBottom) {
+    container.scrollTop = container.scrollHeight;
+  }
 }
 
 // ─── 渲染 TODO 面板 ───────────────────────────────────────────
@@ -240,6 +246,15 @@ export function renderTodoPanel(paneId, todos) {
     }
     list.appendChild(li);
   });
+}
+
+// ─── 渲染状态文字 ─────────────────────────────────────────────
+
+export function renderStatus(paneId, agent) {
+  const el = document.getElementById(`status-${paneId}`);
+  if (!el) return;
+  el.textContent = agent.isRunning ? '正在思考…' : '';
+  el.classList.toggle('visible', !!agent.isRunning);
 }
 
 // ─── 渲染单个面板 ─────────────────────────────────────────────
@@ -292,6 +307,7 @@ export function renderPane(paneId, sessionId) {
   const inputBar = document.createElement('div');
   inputBar.className = 'pane-input';
   inputBar.innerHTML = `
+    <span id="status-${paneId}" class="agent-status"></span>
     <input type="text" id="input-${paneId}" placeholder="输入消息..." autocomplete="off" />
     <button class="send-btn" data-pane="${paneId}">发送</button>
   `;
@@ -302,14 +318,14 @@ export function renderPane(paneId, sessionId) {
   const doSend = () => {
     const text = inputEl.value.trim();
     if (!text) return;
-    sendMessage(sessionId, { type: 'user_input', text });
     if (text === '/clear') {
+      sendMessage(sessionId, { type: 'clear_thread' });
       agent.messages = [];
       agent.todos = [];
+      renderMessages(paneId, agent);
     } else {
-      agent.messages.push({ type: 'user', text });
+      sendMessage(sessionId, { type: 'user_input', text });
     }
-    renderMessages(paneId, agent);
     inputEl.value = '';
   };
 
