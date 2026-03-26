@@ -63,3 +63,22 @@
 - [x] **配置校验**
   - [x] `budget_tokens` Anthropic 最小值 1024：`with_extended_thinking` 补充 `.max(1024)` 守卫，config/types.rs 注释补充 Anthropic 语义说明
   - [x] `ANTHROPIC_MODEL` / `OPENAI_MODEL` 空字符串 fallback：`from_env()` 改为 `.ok().filter(!empty).unwrap_or(default)`，避免空模型名送到 API
+
+- [ ] **WebSocket 安全与健壮性**
+  - [ ] 反序列化缺少消息大小限制
+  - [ ] 服务端无主动心跳探测
+  - [ ] 客户端 `connect_async` 无连接超时
+  - [ ] 接收消息缺乏字段合法性校验
+
+- [ ] **内存无界增长**
+  - [ ] `AgentState.messages` 无数量/大小上限
+  - [ ] Relay `history` 仅限条目数，未限制单条字节数
+
+- [ ] **生产路径 panic! 调用**
+  - [ ] `protocol.rs` 存在非测试 `panic!`
+
+- [ ] **spawn 任务错误可观测性（续）**
+  - [ ] relay.rs 多处 `tokio::spawn` 未 await 也未记录错误
+
+- [ ] **LangfuseTracer JoinHandle 泄漏**
+  - [ ] `pending_handles` 依赖 `on_trace_end` 清空，异常退出时 handles 未被等待
