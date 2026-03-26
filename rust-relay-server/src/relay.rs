@@ -347,7 +347,10 @@ pub async fn handle_web_session_ws(
                 }
 
                 tracing::trace!(session = %session_id, bytes = text_str.len(), "Web→Agent 消息转发");
-                let _ = entry.agent_tx.send(text_str);
+                if entry.agent_tx.send(text_str).is_err() {
+                    tracing::debug!(session = %session_id, "Web→Agent 转发失败：agent channel 已关闭（agent 已断开）");
+                    break;
+                }
             }
             Message::Close(_) => break,
             _ => {}

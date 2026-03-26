@@ -77,8 +77,8 @@
 - [ ] **生产路径 panic! 调用**
   - [ ] `protocol.rs` 存在非测试 `panic!`
 
-- [ ] **spawn 任务错误可观测性（续）**
-  - [ ] relay.rs 多处 `tokio::spawn` 未 await 也未记录错误
+- [x] **spawn 任务错误可观测性（续）**
+  - [x] relay.rs 多处 `tokio::spawn` 未 await 也未记录错误：client/mod.rs Ping 响应路径 `to_string().unwrap()` 改为 `if let Ok`；handle_web_session_ws `agent_tx.send()` 失败从静默 `let _ =` 改为 `tracing::debug! + break`，agent 断开时正确终止 web session 循环
 
 - [ ] **LangfuseTracer JoinHandle 泄漏**
   - [ ] `pending_handles` 依赖 `on_trace_end` 清空，异常退出时 handles 未被等待

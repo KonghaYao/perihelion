@@ -87,8 +87,9 @@ impl RelayClient {
                         let text_str = text.to_string();
                         if let Ok(relay_msg) = serde_json::from_str::<RelayMessage>(&text_str) {
                             if matches!(relay_msg, RelayMessage::Ping) {
-                                let pong = serde_json::to_string(&WebMessage::Pong).unwrap();
-                                let _ = write_tx_pong.send(pong);
+                                if let Ok(pong) = serde_json::to_string(&WebMessage::Pong) {
+                                    let _ = write_tx_pong.send(pong);
+                                }
                                 continue;
                             }
                         }
