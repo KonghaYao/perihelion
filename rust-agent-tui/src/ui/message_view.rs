@@ -71,7 +71,7 @@ impl MessageViewModel {
     /// `prev_ai_tool_calls` 用于为 Tool 消息提供工具名和参数（BaseMessage::Tool 只存储 tool_use_id）
     pub fn from_base_message(msg: &BaseMessage, prev_ai_tool_calls: &[(String, String, serde_json::Value)]) -> Self {
         match msg {
-            BaseMessage::Human { content } => {
+            BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
                 let rendered = parse_markdown(&raw);
                 MessageViewModel::UserBubble {
@@ -169,7 +169,7 @@ impl MessageViewModel {
                     color,
                 }
             }
-            BaseMessage::System { content } => MessageViewModel::SystemNote {
+            BaseMessage::System { content, .. } => MessageViewModel::SystemNote {
                 content: content.text_content(),
             },
         }

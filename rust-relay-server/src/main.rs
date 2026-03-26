@@ -39,6 +39,7 @@ async fn agent_ws_handler(
     Query(params): Query<AgentWsQuery>,
 ) -> impl IntoResponse {
     if let Err(code) = auth::validate_token(params.token.as_deref(), &state.token) {
+        tracing::warn!(endpoint = "/agent/ws", "认证失败，返回 {}", code);
         return code.into_response();
     }
     // 软检查连接数上限（在 handle_agent_ws 中还有精确计数）
@@ -59,6 +60,7 @@ async fn web_ws_handler(
     Query(params): Query<WebWsQuery>,
 ) -> impl IntoResponse {
     if let Err(code) = auth::validate_token(params.token.as_deref(), &state.token) {
+        tracing::warn!(endpoint = "/web/ws", "认证失败，返回 {}", code);
         return code.into_response();
     }
     // 软检查 web 连接数上限
@@ -87,6 +89,7 @@ async fn agents_handler(
     Query(params): Query<TokenQuery>,
 ) -> impl IntoResponse {
     if let Err(code) = auth::validate_token(params.token.as_deref(), &state.token) {
+        tracing::warn!(endpoint = "/agents", "认证失败，返回 {}", code);
         return code.into_response();
     }
     let agents = state.agents_list();
@@ -99,7 +102,12 @@ async fn health_handler() -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
 
     let token = env::var("RELAY_TOKEN").expect("RELAY_TOKEN environment variable is required");
     let port: u16 = env::var("RELAY_PORT")

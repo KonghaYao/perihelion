@@ -61,16 +61,15 @@ impl SqliteThreadStore {
             );
 
             CREATE TABLE IF NOT EXISTS messages (
+                message_id  TEXT PRIMARY KEY,
                 thread_id   TEXT NOT NULL,
-                seq         INTEGER NOT NULL,
                 role        TEXT NOT NULL,
                 content     TEXT NOT NULL,
-                PRIMARY KEY (thread_id, seq),
                 FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
             );
 
-            CREATE INDEX IF NOT EXISTS idx_messages_thread_seq
-                ON messages (thread_id, seq ASC);
+            CREATE INDEX IF NOT EXISTS idx_messages_thread_id
+                ON messages (thread_id ASC);
             ",
         )?;
         Ok(())
@@ -110,7 +109,7 @@ fn meta_from_row(
 fn extract_title(msgs: &[BaseMessage]) -> Option<String> {
     use crate::messages::{ContentBlock, MessageContent};
     for msg in msgs {
-        if let BaseMessage::Human { content } = msg {
+        if let BaseMessage::Human { content, .. } = msg {
             let text = match content {
                 MessageContent::Text(t) => t.clone(),
                 MessageContent::Blocks(blocks) => blocks
@@ -172,21 +171,14 @@ impl ThreadStore for SqliteThreadStore {
         tokio::task::spawn_blocking(move || -> Result<()> {
             let mut conn = conn.lock();
             let tx = conn.transaction()?;
-            // 获取当前最大 seq
-            let max_seq: i64 = tx.query_row(
-                "SELECT COALESCE(MAX(seq), 0) FROM messages WHERE thread_id = ?1",
-                params![id],
-                |row| row.get(0),
-            )?;
-            let mut seq = max_seq;
             for msg in &msgs {
-                seq += 1;
+                let message_id = msg.id().as_uuid().to_string();
                 let role = role_of(msg);
                 let content = serde_json::to_string(msg)?;
                 tx.execute(
-                    "INSERT OR IGNORE INTO messages (thread_id, seq, role, content)
+                    "INSERT OR IGNORE INTO messages (message_id, thread_id, role, content)
                      VALUES (?1, ?2, ?3, ?4)",
-                    params![id, seq, role, content],
+                    params![message_id, id, role, content],
                 )?;
             }
             // 更新 threads 表的 updated_at 和 message_count
@@ -217,7 +209,7 @@ impl ThreadStore for SqliteThreadStore {
         let msgs = tokio::task::spawn_blocking(move || -> Result<Vec<BaseMessage>> {
             let conn = conn.lock();
             let mut stmt = conn.prepare(
-                "SELECT content FROM messages WHERE thread_id = ?1 ORDER BY seq ASC",
+                "SELECT content FROM messages WHERE thread_id = ?1",
             )?;
             let msgs: Result<Vec<BaseMessage>> = stmt
                 .query_map(params![id], |row| row.get::<_, String>(0))?

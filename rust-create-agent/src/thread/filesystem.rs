@@ -188,7 +188,7 @@ fn extract_title(msgs: &[BaseMessage]) -> Option<String> {
     use crate::messages::{ContentBlock, MessageContent};
 
     for msg in msgs {
-        if let BaseMessage::Human { content } = msg {
+        if let BaseMessage::Human { content, .. } = msg {
             let text = match content {
                 MessageContent::Text(t) => t.clone(),
                 MessageContent::Blocks(blocks) => blocks

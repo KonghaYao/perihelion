@@ -111,16 +111,16 @@ impl ChatOpenAI {
 
         for m in messages {
             match m {
-                BaseMessage::System { content } => {
+                BaseMessage::System { content, .. } => {
                     let t = content.text_content();
                     if !t.trim().is_empty() {
                         system_parts.push(t);
                     }
                 }
-                BaseMessage::Human { content } => {
+                BaseMessage::Human { content, .. } => {
                     result.push(json!({ "role": "user", "content": Self::content_to_openai(content) }));
                 }
-                BaseMessage::Ai { content, tool_calls } => {
+                BaseMessage::Ai { content, tool_calls, .. } => {
                     if tool_calls.is_empty() {
                         result.push(json!({ "role": "assistant", "content": Self::content_to_openai(content) }));
                     } else {

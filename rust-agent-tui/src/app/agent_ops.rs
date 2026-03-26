@@ -422,6 +422,7 @@ impl App {
                         BaseMessage::Ai {
                             content: _,
                             tool_calls,
+                            ..
                         } => {
                             tracing::debug!(
                                 has_tc = !tool_calls.is_empty(),

@@ -153,19 +153,19 @@ impl ChatAnthropic {
 
         for msg in messages {
             match msg {
-                BaseMessage::System { content } => {
+                BaseMessage::System { content, .. } => {
                     let text = content.text_content();
                     if !text.trim().is_empty() {
                         system_parts.push(text);
                     }
                 }
-                BaseMessage::Human { content } => {
+                BaseMessage::Human { content, .. } => {
                     result.push(json!({
                         "role": "user",
                         "content": Self::content_to_anthropic(content)
                     }));
                 }
-                BaseMessage::Ai { content, tool_calls } => {
+                BaseMessage::Ai { content, tool_calls, .. } => {
                     if tool_calls.is_empty() {
                         result.push(json!({
                             "role": "assistant",
@@ -197,7 +197,7 @@ impl ChatAnthropic {
                         result.push(json!({ "role": "assistant", "content": content_val }));
                     }
                 }
-                BaseMessage::Tool { tool_call_id, content, is_error } => {
+                BaseMessage::Tool { tool_call_id, content, is_error, .. } => {
                     let tool_result_block = json!({
                         "type": "tool_result",
                         "tool_use_id": tool_call_id,

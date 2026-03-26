@@ -1,5 +1,25 @@
 use serde::{Deserialize, Serialize};
 
+/// 消息唯一标识符 — UUID v7（时间有序，跨进程安全）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MessageId(uuid::Uuid);
+
+impl MessageId {
+    pub fn new() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+
+    pub fn as_uuid(&self) -> uuid::Uuid {
+        self.0
+    }
+}
+
+impl Default for MessageId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 use super::content::{ContentBlock, MessageContent};
 
 // ─── ToolCallRequest ──────────────────────────────────────────────────────────
@@ -40,20 +60,22 @@ impl ToolCallRequest {
 #[serde(tag = "role")]
 pub enum BaseMessage {
     #[serde(rename = "user")]
-    Human { content: MessageContent },
+    Human { id: MessageId, content: MessageContent },
 
     #[serde(rename = "assistant")]
     Ai {
+        id: MessageId,
         content: MessageContent,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tool_calls: Vec<ToolCallRequest>,
     },
 
     #[serde(rename = "system")]
-    System { content: MessageContent },
+    System { id: MessageId, content: MessageContent },
 
     #[serde(rename = "tool")]
     Tool {
+        id: MessageId,
         tool_call_id: String,
         content: MessageContent,
         #[serde(default)]
@@ -65,11 +87,12 @@ impl BaseMessage {
     // ── 构造器 ────────────────────────────────────────────────────────────────
 
     pub fn human(content: impl Into<MessageContent>) -> Self {
-        Self::Human { content: content.into() }
+        Self::Human { id: MessageId::new(), content: content.into() }
     }
 
     pub fn ai(content: impl Into<MessageContent>) -> Self {
         Self::Ai {
+            id: MessageId::new(),
             content: content.into(),
             tool_calls: Vec::new(),
         }
@@ -80,6 +103,7 @@ impl BaseMessage {
         tool_calls: Vec<ToolCallRequest>,
     ) -> Self {
         Self::Ai {
+            id: MessageId::new(),
             content: content.into(),
             tool_calls,
         }
@@ -100,17 +124,19 @@ impl BaseMessage {
             })
             .collect();
         Self::Ai {
+            id: MessageId::new(),
             content: MessageContent::Blocks(blocks),
             tool_calls,
         }
     }
 
     pub fn system(content: impl Into<MessageContent>) -> Self {
-        Self::System { content: content.into() }
+        Self::System { id: MessageId::new(), content: content.into() }
     }
 
     pub fn tool_result(id: impl Into<String>, content: impl Into<MessageContent>) -> Self {
         Self::Tool {
+            id: MessageId::new(),
             tool_call_id: id.into(),
             content: content.into(),
             is_error: false,
@@ -119,6 +145,7 @@ impl BaseMessage {
 
     pub fn tool_error(id: impl Into<String>, error: impl Into<MessageContent>) -> Self {
         Self::Tool {
+            id: MessageId::new(),
             tool_call_id: id.into(),
             content: error.into(),
             is_error: true,
@@ -127,12 +154,22 @@ impl BaseMessage {
 
     // ── 访问器 ────────────────────────────────────────────────────────────────
 
+    /// 获取消息 ID
+    pub fn id(&self) -> MessageId {
+        match self {
+            Self::Human { id, .. } => *id,
+            Self::Ai { id, .. } => *id,
+            Self::System { id, .. } => *id,
+            Self::Tool { id, .. } => *id,
+        }
+    }
+
     /// 获取消息 `MessageContent` 引用
     pub fn message_content(&self) -> &MessageContent {
         match self {
-            Self::Human { content } => content,
+            Self::Human { content, .. } => content,
             Self::Ai { content, .. } => content,
-            Self::System { content } => content,
+            Self::System { content, .. } => content,
             Self::Tool { content, .. } => content,
         }
     }
@@ -210,6 +247,19 @@ mod tests {
         let blocks = msg.content_blocks();
         assert_eq!(blocks.len(), 2);
         assert!(matches!(blocks[1], ContentBlock::Image { .. }));
+    }
+
+    #[test]
+    fn test_message_id_generated() {
+        // 不同消息的 id 应不同
+        let m1 = BaseMessage::human("hello");
+        let m2 = BaseMessage::human("hello");
+        assert_ne!(m1.id(), m2.id(), "两条消息 id 应不同");
+
+        // 序列化/反序列化后 id 保持一致
+        let json = serde_json::to_string(&m1).unwrap();
+        let restored: BaseMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.id(), m1.id(), "反序列化后 id 应保持不变");
     }
 
     #[test]

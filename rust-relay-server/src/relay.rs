@@ -156,6 +156,7 @@ pub async fn handle_agent_ws(
             Message::Text(text) => {
                 // Update last_active
                 *entry.last_active.write().await = Instant::now();
+                tracing::trace!(session = %sid2, bytes = text.len(), "Agent→Web 消息转发");
                 // Forward agent messages to all web clients for this session
                 state3.forward_to_web(&sid2, &text).await;
             }
@@ -204,6 +205,10 @@ pub async fn handle_web_management_ws(
     use futures_util::{SinkExt, StreamExt};
 
     state.active_web_conns.fetch_add(1, Ordering::Relaxed);
+    tracing::info!(
+        active_web = state.active_web_conns.load(Ordering::Relaxed),
+        "Web 管理端已连接"
+    );
     let (mut ws_tx, mut ws_rx) = ws.split();
 
     // Send current agents list
@@ -237,6 +242,10 @@ pub async fn handle_web_management_ws(
 
     send_task.abort();
     state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
+    tracing::info!(
+        active_web = state.active_web_conns.load(Ordering::Relaxed),
+        "Web 管理端已断开"
+    );
 
     // Remove from broadcast_txs
     let mut txs = state.broadcast_txs.write().await;
@@ -293,6 +302,11 @@ pub async fn handle_web_session_ws(
         }
         txs.push(web_tx.clone());
     }
+    tracing::info!(
+        session = %session_id,
+        active_web = state.active_web_conns.load(Ordering::Relaxed),
+        "Web 会话端已连接"
+    );
 
     // Forward agent events to this web client
     let send_task = tokio::spawn(async move {
@@ -327,6 +341,7 @@ pub async fn handle_web_session_ws(
                     }
                 }
 
+                tracing::trace!(session = %session_id, bytes = text_str.len(), "Web→Agent 消息转发");
                 let _ = entry.agent_tx.send(text_str);
             }
             Message::Close(_) => break,
@@ -336,6 +351,7 @@ pub async fn handle_web_session_ws(
 
     send_task.abort();
     state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
+    tracing::info!(session = %session_id, "Web 会话端已断开");
 
     // Remove from web_txs
     let mut txs = entry.web_txs.write().await;
