@@ -43,7 +43,13 @@ impl RelayClient {
             ws_url.push_str(&format!("&name={}", n));
         }
 
-        let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await?;
+        const CONNECT_TIMEOUT_SECS: u64 = 10;
+        let (ws_stream, _) = tokio::time::timeout(
+            std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS),
+            tokio_tungstenite::connect_async(&ws_url),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("WebSocket 连接超时（{}s）：{}", CONNECT_TIMEOUT_SECS, url))??;
         let (ws_write, mut ws_read) = ws_stream.split();
 
         let (write_tx, mut write_rx) = mpsc::unbounded_channel::<String>();

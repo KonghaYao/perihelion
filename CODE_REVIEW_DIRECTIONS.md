@@ -64,11 +64,11 @@
   - [x] `budget_tokens` Anthropic 最小值 1024：`with_extended_thinking` 补充 `.max(1024)` 守卫，config/types.rs 注释补充 Anthropic 语义说明
   - [x] `ANTHROPIC_MODEL` / `OPENAI_MODEL` 空字符串 fallback：`from_env()` 改为 `.ok().filter(!empty).unwrap_or(default)`，避免空模型名送到 API
 
-- [ ] **WebSocket 安全与健壮性**
-  - [ ] 反序列化缺少消息大小限制
-  - [ ] 服务端无主动心跳探测
-  - [ ] 客户端 `connect_async` 无连接超时
-  - [ ] 接收消息缺乏字段合法性校验
+- [x] **WebSocket 安全与健壮性**
+  - [x] 反序列化缺少消息大小限制：Agent→Relay 限 16MB，Web→Relay 限 1MB，超限记 warn 并 continue 丢弃
+  - [x] 服务端无主动心跳探测：web management 与 web session send task 改用 tokio::select! 每 30s 发送 RelayMessage::Ping JSON，写失败时自动退出并触发连接清理
+  - [x] 客户端 `connect_async` 无连接超时：添加 tokio::time::timeout(10s) 包装，超时返回可观测错误
+  - [x] 接收消息缺乏字段合法性校验：handle_web_session_ws 对 UserInput（空文本拦截）和 HitlDecision（空 decisions、空 tool_call_id 拦截）添加前置校验，非法消息记 debug 并 continue
 
 - [x] **内存无界增长**
   - [x] `AgentState.messages` 无数量/大小上限：`add_message` 在消息数超过 100 条后每 100 条打 `tracing::warn!`，提示使用 /compact 降低内存占用

@@ -12,6 +12,13 @@ use crate::protocol::{AgentInfo, BroadcastMessage, RelayMessage};
 /// 每个 session 允许的最大同时 Web 连接数（前端多标签场景）
 pub const MAX_WEB_CONNS_PER_SESSION: usize = 10;
 
+/// Agent→Relay 方向单条消息字节上限（16MB，防止超大工具结果耗尽内存）
+const MAX_AGENT_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+/// Web→Relay 方向单条消息字节上限（1MB，来自不可信客户端，限制更严）
+const MAX_WEB_MESSAGE_BYTES: usize = 1024 * 1024;
+/// 服务端向 Web 客户端发送心跳 Ping 的间隔（秒）
+const SERVER_PING_INTERVAL_SECS: u64 = 30;
+
 pub struct SessionEntry {
     pub agent_tx: mpsc::UnboundedSender<String>,
     pub web_txs: RwLock<Vec<mpsc::UnboundedSender<String>>>,
@@ -154,6 +161,16 @@ pub async fn handle_agent_ws(
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
+                // 消息大小限制：防止超大消息耗尽转发缓冲区
+                if text.len() > MAX_AGENT_MESSAGE_BYTES {
+                    tracing::warn!(
+                        session = %sid2,
+                        bytes = text.len(),
+                        limit = MAX_AGENT_MESSAGE_BYTES,
+                        "Agent→Web: 消息超过大小限制，丢弃"
+                    );
+                    continue;
+                }
                 // Update last_active
                 *entry.last_active.write().await = Instant::now();
                 tracing::trace!(session = %sid2, bytes = text.len(), "Agent→Web 消息转发");
@@ -231,11 +248,33 @@ pub async fn handle_web_management_ws(
         txs.push(broadcast_tx.clone());
     }
 
-    // Forward broadcasts to this web client
+    // Forward broadcasts + 周期性心跳 Ping 到此 Web 客户端
     let send_task = tokio::spawn(async move {
-        while let Some(msg) = broadcast_rx.recv().await {
-            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
-                break;
+        let mut ping_interval = tokio::time::interval(
+            std::time::Duration::from_secs(SERVER_PING_INTERVAL_SECS)
+        );
+        ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // 首次 tick 立即触发，跳过以避免连接后立即发 ping
+        ping_interval.tick().await;
+        loop {
+            tokio::select! {
+                msg = broadcast_rx.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if let Ok(ping_json) = serde_json::to_string(&RelayMessage::Ping) {
+                        if ws_tx.send(Message::Text(ping_json.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
             }
         }
     });
@@ -313,11 +352,33 @@ pub async fn handle_web_session_ws(
         "Web 会话端已连接"
     );
 
-    // Forward agent events to this web client
+    // Forward agent events + 周期性心跳 Ping 到此 Web 客户端
     let send_task = tokio::spawn(async move {
-        while let Some(msg) = web_rx.recv().await {
-            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
-                break;
+        let mut ping_interval = tokio::time::interval(
+            std::time::Duration::from_secs(SERVER_PING_INTERVAL_SECS)
+        );
+        ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // 首次 tick 立即触发，跳过以避免连接后立即发 ping
+        ping_interval.tick().await;
+        loop {
+            tokio::select! {
+                msg = web_rx.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if let Ok(ping_json) = serde_json::to_string(&RelayMessage::Ping) {
+                        if ws_tx.send(Message::Text(ping_json.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
             }
         }
     });
@@ -326,10 +387,46 @@ pub async fn handle_web_session_ws(
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
+                // Web 来源消息大小限制（来自不可信客户端）
+                if text.len() > MAX_WEB_MESSAGE_BYTES {
+                    tracing::warn!(
+                        session = %session_id,
+                        bytes = text.len(),
+                        limit = MAX_WEB_MESSAGE_BYTES,
+                        "Web→Agent: 消息超过大小限制，丢弃"
+                    );
+                    continue;
+                }
                 let text_str = text.to_string();
 
                 // 解析一次，按类型处理；HitlDecision 直接解构已有结果，避免二次 from_str
                 if let Ok(web_msg) = serde_json::from_str::<crate::protocol::WebMessage>(&text_str) {
+                    // 字段合法性校验：拦截无效消息，防止无效数据流入 agent
+                    let valid = match &web_msg {
+                        crate::protocol::WebMessage::UserInput { text } => {
+                            if text.trim().is_empty() {
+                                tracing::debug!(session = %session_id, "UserInput: 空文本，丢弃");
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        crate::protocol::WebMessage::HitlDecision { decisions } => {
+                            if decisions.is_empty() {
+                                tracing::debug!(session = %session_id, "HitlDecision: decisions 为空，丢弃");
+                                false
+                            } else if decisions.iter().any(|d| d.tool_call_id.is_empty()) {
+                                tracing::debug!(session = %session_id, "HitlDecision: 含空 tool_call_id，丢弃");
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        _ => true,
+                    };
+                    if !valid {
+                        continue;
+                    }
                     match web_msg {
                         crate::protocol::WebMessage::HitlDecision { decisions } => {
                             let resolved_json = serde_json::json!({
