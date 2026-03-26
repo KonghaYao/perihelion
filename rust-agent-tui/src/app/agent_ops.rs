@@ -232,70 +232,8 @@ impl App {
                 if self.subagent_group_idx.is_some() {
                     return (false, false, false);
                 }
-                // 只处理工具调用消息的渲染；纯文本 AI 消息由 AssistantChunk 处理
-                if let rust_create_agent::messages::BaseMessage::Ai {
-                        content,
-                        tool_calls,
-                        ..
-                    } = msg {
-                    // 工具调用消息需要同步到 UI（折叠状态、工具调用列表）
-                    if !tool_calls.is_empty() {
-                        let text = match &content {
-                            rust_create_agent::messages::MessageContent::Text(t) => t.clone(),
-                            rust_create_agent::messages::MessageContent::Blocks(blocks) => blocks
-                                .iter()
-                                .filter_map(|b| match b {
-                                    rust_create_agent::messages::ContentBlock::Text { text } => {
-                                        Some(text.clone())
-                                    }
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>()
-                                .join(""),
-                            _ => String::new(),
-                        };
-
-                        match self.view_messages.last_mut() {
-                            Some(m) if m.is_assistant() => {
-                                // 追加文本到现有的 assistant 消息
-                                if !text.is_empty() {
-                                    if let MessageViewModel::AssistantBubble {
-                                        blocks, ..
-                                    } = m
-                                    {
-                                        blocks.push(ContentBlockView::Text {
-                                            raw: text.clone(),
-                                            rendered: parse_markdown(&text),
-                                            dirty: false,
-                                        });
-                                    }
-                                }
-                            }
-                            _ => {
-                                // 创建新的 assistant 消息（折叠状态）
-                                let mut vm = MessageViewModel::assistant();
-                                if let MessageViewModel::AssistantBubble {
-                                    collapsed,
-                                    blocks,
-                                    ..
-                                } = &mut vm
-                                {
-                                    *collapsed = true;
-                                    if !text.is_empty() {
-                                        blocks.push(ContentBlockView::Text {
-                                            raw: text.clone(),
-                                            rendered: parse_markdown(&text),
-                                            dirty: false,
-                                        });
-                                    }
-                                }
-                                self.view_messages.push(vm.clone());
-                                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
-                            }
-                        }
-                    }
-                    // 纯文本 AI 消息由 AssistantChunk 事件处理，此处不重复渲染
-                }
+                // AI 消息文本由紧随其后的 AiReasoning→AssistantChunk 事件处理，此处不处理
+                let _ = msg;
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {

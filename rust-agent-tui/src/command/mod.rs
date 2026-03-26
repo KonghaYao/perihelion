@@ -4,6 +4,7 @@ pub mod compact;
 pub mod help;
 pub mod history;
 pub mod model;
+pub mod relay;
 
 /// 注册所有内置命令，返回配置好的 CommandRegistry
 pub fn default_registry() -> CommandRegistry {
@@ -14,6 +15,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(compact::CompactCommand));
     r.register(Box::new(help::HelpCommand));
     r.register(Box::new(history::HistoryCommand));
+    r.register(Box::new(relay::RelayCommand));
     r
 }
 

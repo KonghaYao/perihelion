@@ -75,7 +75,12 @@ pub fn render(f: &mut Frame, app: &mut App) {
         panels::agent::render_agent_panel(f, app);
     }
 
-    // Thread 浏览面板（覆盖层，最高优先级）
+    // /relay 面板（覆盖层）
+    if app.relay_panel.is_some() {
+        panels::relay::render_relay_panel(f, app);
+    }
+
+    // /history 面板（覆盖层）
     if app.thread_browser.is_some() {
         panels::thread_browser::render_thread_browser(f, app);
     }
@@ -119,7 +124,8 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     // 更新 UI 线程记录的版本
     app.last_render_version = cache_version;
 
-    let visual_total = total_lines as u16;
+    // +10 确保末尾始终可滚动到底（避免最后几行被卡在可见区域外）
+    let visual_total = (total_lines as u16).saturating_add(10);
     let max_scroll = visual_total.saturating_sub(visible_height);
 
     // 计算本帧实际偏移，并写回 scroll_offset 保持同步

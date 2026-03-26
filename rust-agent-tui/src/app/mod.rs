@@ -3,6 +3,7 @@ pub mod agent_panel;
 pub mod events;
 pub mod hitl;
 pub mod model_panel;
+pub mod relay_panel;
 mod provider;
 pub mod tool_display;
 
@@ -34,11 +35,11 @@ use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, Thre
 
 // Re-export MessageViewModel from ui::message_view
 use crate::command::agents::AgentItem;
-use crate::ui::markdown::parse_markdown;
 pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
 pub use agent_panel::AgentPanel;
 pub use hitl::{ApprovalEvent, BatchApprovalRequest};
 pub use model_panel::ModelPanel;
+pub use relay_panel::RelayPanel;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -74,6 +75,8 @@ pub struct App {
     pub model_panel: Option<ModelPanel>,
     /// /agents 面板状态
     pub agent_panel: Option<AgentPanel>,
+    /// /relay 面板状态
+    pub relay_panel: Option<RelayPanel>,
     /// 命令注册表
     pub command_registry: CommandRegistry,
     /// 命令帮助文本缓存（启动时预计算，/help 直接读取，不受 std::mem::take 影响）
@@ -196,6 +199,7 @@ impl App {
             zen_config,
             model_panel: None,
             agent_panel: None,
+            relay_panel: None,
             command_registry,
             command_help_list,
             hint_cursor: None,
@@ -249,40 +253,104 @@ impl App {
     }
 
     /// 尝试连接 Relay Server
-    /// CLI 参数（--remote-control）优先，其次从 zen_config extra 中读取配置
+    /// CLI 参数（--remote-control）优先，其次从 zen_config 读取配置
+    /// 支持三层优先级：
+    /// 1. CLI 参数完整指定（URL 非空）→ 使用 CLI 参数
+    /// 2. CLI 参数 `--remote-control` 无 URL → 从 `remote_control` 字段读取
+    /// 3. `remote_control` 字段不存在 → fallback 到 `extra.relay_*`（向后兼容）
     pub async fn try_connect_relay(&mut self, cli: Option<&crate::RelayCli>) {
-        // CLI 参数优先
         let (relay_url, relay_token, relay_name) = if let Some(c) = cli {
-            let token = c.token.clone().unwrap_or_else(|| {
-                // token 回退到 settings.json
-                self.zen_config
+            if c.url.is_empty() {
+                // --remote-control 无参数：从配置读取
+                let config = self.zen_config
                     .as_ref()
-                    .and_then(|cfg| cfg.config.extra.get("relay_token"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            });
-            (c.url.clone(), token, c.name.clone())
+                    .and_then(|cfg| cfg.config.remote_control.as_ref())
+                    .filter(|rc| rc.is_complete());
+
+                match config {
+                    Some(rc) => (rc.url.clone(), rc.token.clone(), rc.name.clone()),
+                    None => {
+                        // 回退到旧 extra 字段（向后兼容）
+                        let extra_config = self.zen_config
+                            .as_ref()
+                            .and_then(|cfg| cfg.config.extra.get("relay_url"))
+                            .and_then(|v| v.as_str());
+                        if extra_config.is_none() {
+                            let msg = MessageViewModel::from_base_message(
+                                &BaseMessage::system("未配置远程控制，请使用 /relay 命令配置".to_string()),
+                                &[],
+                            );
+                            let _ = self.render_tx.send(RenderEvent::AddMessage(msg));
+                            return;
+                        }
+                        let url = extra_config.unwrap().to_string();
+                        let token = self.zen_config
+                            .as_ref()
+                            .and_then(|cfg| cfg.config.extra.get("relay_token"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let name = self.zen_config
+                            .as_ref()
+                            .and_then(|cfg| cfg.config.extra.get("relay_name"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        (url, token, name)
+                    }
+                }
+            } else {
+                // --remote-control <url>：使用 CLI 参数（token 可从配置 fallback）
+                let token = c.token.clone().unwrap_or_else(|| {
+                    // 优先从新字段读取，fallback 到 extra 字段
+                    self.zen_config
+                        .as_ref()
+                        .and_then(|cfg| cfg.config.remote_control.as_ref())
+                        .map(|rc| rc.token.clone())
+                        .unwrap_or_else(|| {
+                            self.zen_config
+                                .as_ref()
+                                .and_then(|cfg| cfg.config.extra.get("relay_token"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string()
+                        })
+                });
+                (c.url.clone(), token, c.name.clone())
+            }
         } else {
-            // 无 CLI 参数时从 settings.json 读取
-            let config = match &self.zen_config {
-                Some(c) => &c.config.extra,
-                None => return,
-            };
-            let url = match config.get("relay_url").and_then(|v| v.as_str()) {
-                Some(u) => u.to_string(),
-                None => return,
-            };
-            let token = config
-                .get("relay_token")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let name = config
-                .get("relay_name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            (url, token, name)
+            // 无 CLI 参数：从配置读取（新字段优先，fallback 到 extra）
+            let config = self.zen_config
+                .as_ref()
+                .and_then(|cfg| cfg.config.remote_control.as_ref())
+                .filter(|rc| rc.is_complete());
+
+            match config {
+                Some(rc) => (rc.url.clone(), rc.token.clone(), rc.name.clone()),
+                None => {
+                    // 回退到旧 extra 字段
+                    let url = self.zen_config
+                        .as_ref()
+                        .and_then(|cfg| cfg.config.extra.get("relay_url"))
+                        .and_then(|v| v.as_str());
+                    match url {
+                        Some(u) => {
+                            let token = self.zen_config
+                                .as_ref()
+                                .and_then(|cfg| cfg.config.extra.get("relay_token"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let name = self.zen_config
+                                .as_ref()
+                                .and_then(|cfg| cfg.config.extra.get("relay_name"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            (u.to_string(), token, name)
+                        }
+                        None => return,
+                    }
+                }
+            }
         };
 
         match rust_relay_server::client::RelayClient::connect(

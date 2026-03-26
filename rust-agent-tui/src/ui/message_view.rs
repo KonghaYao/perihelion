@@ -81,7 +81,7 @@ impl MessageViewModel {
             }
             BaseMessage::Ai {
                 content,
-                tool_calls,
+                ..
             } => {
                 let blocks: Vec<ContentBlockView> = content
                     .content_blocks()
@@ -113,7 +113,7 @@ impl MessageViewModel {
                 MessageViewModel::AssistantBubble {
                     blocks,
                     is_streaming: false,
-                    collapsed: !tool_calls.is_empty(),
+                    collapsed: false,
                 }
             }
             BaseMessage::Tool {

@@ -70,7 +70,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// CLI 参数解析结果：--remote-control <url> [--relay-token <token>] [--relay-name <name>]
+/// CLI 参数解析结果：--remote-control [url] [--relay-token <token>] [--relay-name <name>]
+/// url 为空字符串表示 `--remote-control` 无参数模式（从配置读取）
 pub struct RelayCli {
     pub url: String,
     pub token: Option<String>,
@@ -78,15 +79,25 @@ pub struct RelayCli {
 }
 
 fn parse_relay_args(args: &[String]) -> Option<RelayCli> {
-    let url = args.windows(2)
-        .find(|w| w[0] == "--remote-control")
-        .map(|w| w[1].clone())?;
+    // 查找 --remote-control 参数位置
+    let remote_idx = args.iter().position(|a| a == "--remote-control")?;
+
+    // 检查是否有值（即 --remote-control <url> 格式）
+    // 有值条件：下一个参数存在且不以 -- 开头
+    let url = if remote_idx + 1 < args.len() && !args[remote_idx + 1].starts_with("--") {
+        args[remote_idx + 1].clone()
+    } else {
+        // --remote-control 无参数，返回空字符串标记"从配置读取"
+        String::new()
+    };
+
     let token = args.windows(2)
         .find(|w| w[0] == "--relay-token")
         .map(|w| w[1].clone());
     let name = args.windows(2)
         .find(|w| w[0] == "--relay-name")
         .map(|w| w[1].clone());
+
     Some(RelayCli { url, token, name })
 }
 
@@ -132,4 +143,79 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cl
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_relay_args_no_url() {
+        // --remote-control 无参数
+        let args = vec!["agent-tui".to_string(), "--remote-control".to_string()];
+        let result = parse_relay_args(&args);
+        assert!(result.is_some());
+        let relay = result.unwrap();
+        assert_eq!(relay.url, "");
+        assert!(relay.token.is_none());
+        assert!(relay.name.is_none());
+    }
+
+    #[test]
+    fn test_parse_relay_args_with_url() {
+        // --remote-control ws://localhost:8080
+        let args = vec![
+            "agent-tui".to_string(),
+            "--remote-control".to_string(),
+            "ws://localhost:8080".to_string(),
+        ];
+        let result = parse_relay_args(&args);
+        assert!(result.is_some());
+        let relay = result.unwrap();
+        assert_eq!(relay.url, "ws://localhost:8080");
+        assert!(relay.token.is_none());
+        assert!(relay.name.is_none());
+    }
+
+    #[test]
+    fn test_parse_relay_args_with_all_params() {
+        // --remote-control ws://localhost:8080 --relay-token abc123 --relay-name test
+        let args = vec![
+            "agent-tui".to_string(),
+            "--remote-control".to_string(),
+            "ws://localhost:8080".to_string(),
+            "--relay-token".to_string(),
+            "abc123".to_string(),
+            "--relay-name".to_string(),
+            "test".to_string(),
+        ];
+        let result = parse_relay_args(&args);
+        assert!(result.is_some());
+        let relay = result.unwrap();
+        assert_eq!(relay.url, "ws://localhost:8080");
+        assert_eq!(relay.token, Some("abc123".to_string()));
+        assert_eq!(relay.name, Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_parse_relay_args_url_starts_with_dash() {
+        // --remote-control 后的值如果以 -- 开头，应视为无参数模式
+        let args = vec![
+            "agent-tui".to_string(),
+            "--remote-control".to_string(),
+            "--other-flag".to_string(),
+        ];
+        let result = parse_relay_args(&args);
+        assert!(result.is_some());
+        let relay = result.unwrap();
+        assert_eq!(relay.url, "");
+    }
+
+    #[test]
+    fn test_parse_relay_args_none() {
+        // 无 --remote-control 参数
+        let args = vec!["agent-tui".to_string()];
+        let result = parse_relay_args(&args);
+        assert!(result.is_none());
+    }
 }

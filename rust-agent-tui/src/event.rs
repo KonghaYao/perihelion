@@ -59,6 +59,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // /relay 面板优先处理
+            if app.relay_panel.is_some() {
+                handle_relay_panel(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
             // /model 面板优先处理
             if app.model_panel.is_some() {
                 handle_model_panel(app, input);
@@ -320,9 +326,19 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
         }
         Event::Paste(text) => {
-            // 粘贴文本直接插入 textarea（保留换行），不触发 Submit
+            // 粘贴文本处理
             // 某些终端（如 VSCode）在 bracketed paste 中使用 \r 而非 \n 作为换行符
             let text = text.replace('\r', "\n");
+
+            // relay_panel 编辑模式下粘贴到面板
+            if let Some(panel) = app.relay_panel.as_mut() {
+                if panel.mode == crate::app::relay_panel::RelayPanelMode::Edit {
+                    panel.paste_text(&text);
+                    return Ok(Some(Action::Redraw));
+                }
+            }
+
+            // 其他情况粘贴到 textarea
             app.textarea.insert_str(&text);
         }
         Event::Mouse(mouse) => match mouse.kind {
@@ -557,6 +573,66 @@ fn handle_model_panel(app: &mut App, input: Input) {
             Input { key: Key::Char('n'), .. }
             | Input { key: Key::Esc, .. } => {
                 app.model_panel.as_mut().unwrap().cancel_delete();
+            }
+            _ => {}
+        },
+    }
+}
+
+// ─── /relay 面板键盘处理 ──────────────────────────────────────────────────────
+
+fn handle_relay_panel(app: &mut App, input: Input) {
+    use crate::app::relay_panel::RelayPanelMode;
+
+    let mode = match app.relay_panel.as_ref() {
+        Some(p) => p.mode.clone(),
+        None => return,
+    };
+
+    match mode {
+        RelayPanelMode::View => match input {
+            Input { key: Key::Esc, .. } => {
+                app.close_relay_panel();
+            }
+            Input { key: Key::Char('e'), ctrl: false, alt: false, .. } => {
+                app.relay_panel.as_mut().unwrap().enter_edit();
+            }
+            _ => {}
+        },
+        RelayPanelMode::Edit => match input {
+            Input { key: Key::Esc, .. } => {
+                app.relay_panel_cancel_edit();
+                app.relay_panel.as_mut().unwrap().mode = RelayPanelMode::View;
+            }
+            Input { key: Key::Tab, shift: false, .. } => {
+                app.relay_panel.as_mut().unwrap().field_next();
+            }
+            Input { key: Key::Tab, shift: true, .. } => {
+                app.relay_panel.as_mut().unwrap().field_prev();
+            }
+            Input { key: Key::Enter, .. } => {
+                app.relay_panel_apply_edit();
+            }
+            Input { key: Key::Backspace, .. } => {
+                app.relay_panel.as_mut().unwrap().pop_char();
+            }
+            Input { key: Key::Delete, .. } => {
+                app.relay_panel.as_mut().unwrap().delete_char();
+            }
+            Input { key: Key::Left, .. } => {
+                app.relay_panel.as_mut().unwrap().cursor_left();
+            }
+            Input { key: Key::Right, .. } => {
+                app.relay_panel.as_mut().unwrap().cursor_right();
+            }
+            Input { key: Key::Home, .. } => {
+                app.relay_panel.as_mut().unwrap().cursor_home();
+            }
+            Input { key: Key::End, .. } => {
+                app.relay_panel.as_mut().unwrap().cursor_end();
+            }
+            Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
+                app.relay_panel.as_mut().unwrap().push_char(c);
             }
             _ => {}
         },

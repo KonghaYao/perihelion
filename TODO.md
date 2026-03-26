@@ -43,3 +43,5 @@
 - [ ] i18n 文件整合替换能力; 默认中文, 但是检测到 ./i18n/ 里面的 json 时, 会进行替换. /i18n 会进入选择面板, 即文件, 选中即可替换.
 - [ ] /loop 命令 和 /cron, cron 可以看到定时任务, loop 是一个 command 指示 ai 如何添加 cron , cron 只存储在内存中; cron 会定时 新建会话, 然后把用户的提示词作为用户输入开始执行
 - [ ] remote control panel: 能够配置远程地址和密钥,然后存储到 settings.json, 命令只需要 --remote-control 即可
+- [x] AIMessage 输出时, 会显示两遍文本信息
+- [x] 滚动区域有时候到不了底部, 我们加 10 行空行到末尾

@@ -159,6 +159,43 @@ impl App {
             self.model_name = p.model_name().to_string();
         }
     }
+
+    // ─── Relay 面板操作 ───────────────────────────────────────────────────────
+
+    /// 打开 /relay 面板
+    pub fn open_relay_panel(&mut self) {
+        let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
+        self.relay_panel = Some(RelayPanel::from_config(cfg));
+    }
+
+    /// 关闭 /relay 面板（不保存）
+    pub fn close_relay_panel(&mut self) {
+        self.relay_panel = None;
+    }
+
+    /// 保存 relay 配置
+    pub fn relay_panel_apply_edit(&mut self) {
+        let Some(panel) = self.relay_panel.as_mut() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
+        if panel.apply_edit(cfg) {
+            let _ = crate::config::save(cfg);
+        }
+    }
+
+    /// 取消 relay 编辑（恢复原始值）
+    pub fn relay_panel_cancel_edit(&mut self) {
+        let Some(panel) = self.relay_panel.as_mut() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_ref() else {
+            return;
+        };
+        panel.cancel_edit(cfg);
+    }
 }
 
 // ─── 测试辅助方法（仅在 cfg(any(test, feature = "headless")) 下编译）──────────
@@ -244,6 +281,7 @@ impl App {
             pending_ask_user: None,
             langfuse_session: None,
             langfuse_tracer: None,
+            relay_panel: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

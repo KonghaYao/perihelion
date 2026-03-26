@@ -72,12 +72,14 @@ impl App {
                     .collect();
             }
             let vm = MessageViewModel::from_base_message(msg, &prev_ai_tool_calls);
-            // 跳过空的 AssistantBubble（只有 ToolUse，无可显示内容）
+            // 跳过没有可见文本内容的 AssistantBubble（纯 ToolUse 或空文本 + ToolUse）
             if let MessageViewModel::AssistantBubble { blocks, .. } = &vm {
-                if blocks
-                    .iter()
-                    .all(|b| matches!(b, ContentBlockView::ToolUse { .. }))
-                {
+                let has_visible = blocks.iter().any(|b| match b {
+                    ContentBlockView::Text { raw, .. } => !raw.trim().is_empty(),
+                    ContentBlockView::Reasoning { char_count } => *char_count > 0,
+                    ContentBlockView::ToolUse { .. } => false,
+                });
+                if !has_visible {
                     continue;
                 }
             }
