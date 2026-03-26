@@ -116,29 +116,27 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cl
         // 轮询 Relay 事件（Web 端控制消息）
         let relay_updated = app.poll_relay();
 
-        // 检查渲染缓存是否有新内容（version 变化）
-        let cache_version = app.render_cache.read().version;
-        let cache_updated = cache_version != app.last_render_version;
-
-        if let Some(action) = event::next_event(&mut app).await? {
-            match action {
+        match event::next_event(&mut app).await? {
+            Some(action) => match action {
                 event::Action::Quit => break,
                 event::Action::Submit(input) => {
                     app.submit_message(input);
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
-                    continue;
                 }
                 event::Action::Redraw => {
                     // 有用户交互（键盘/鼠标/resize）→ 始终重绘
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
-                    continue;
+                }
+            },
+            None => {
+                // 无用户事件（poll 超时）：在阻塞结束后重新读取缓存版本
+                // 这样能捕获渲染线程在等待期间发出的更新
+                let cache_version = app.render_cache.read().version;
+                let cache_updated = cache_version != app.last_render_version;
+                if cache_updated || agent_updated || relay_updated {
+                    terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
                 }
             }
-        }
-
-        // 无用户事件时：仅在缓存版本变化或 agent/relay 状态更新时重绘
-        if cache_updated || agent_updated || relay_updated {
-            terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
         }
     }
 

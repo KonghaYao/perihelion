@@ -116,23 +116,22 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = area;
     let visible_height = inner.height;
 
-    // 从 RenderCache 读取已渲染好的行（读锁，持锁时间极短）
-    let (all_lines, total_lines, cache_version) = {
+    // 从 RenderCache 读取已渲染好的行（浅克隆 Vec 头，开销极小）
+    let (all_lines, total_lines, max_scroll, offset) = {
         let cache = app.render_cache.read();
-        (cache.lines.clone(), cache.total_lines, cache.version)
-    };
-    // 更新 UI 线程记录的版本
-    app.last_render_version = cache_version;
+        app.last_render_version = cache.version;
 
-    // +10 确保末尾始终可滚动到底（避免最后几行被卡在可见区域外）
-    let visual_total = (total_lines as u16).saturating_add(10);
-    let max_scroll = visual_total.saturating_sub(visible_height);
+        let total_lines = cache.total_lines;
+        let visual_total = (total_lines as u16).saturating_add(10);
+        let max_scroll = visual_total.saturating_sub(visible_height);
+        let offset = if app.scroll_follow {
+            max_scroll
+        } else {
+            app.scroll_offset.min(max_scroll)
+        };
 
-    // 计算本帧实际偏移，并写回 scroll_offset 保持同步
-    let offset = if app.scroll_follow {
-        max_scroll
-    } else {
-        app.scroll_offset.min(max_scroll)
+        // Vec::clone() 是浅克隆，只复制指针+容量+长度头（3个 usize），不复制 Line 内容
+        (cache.lines.clone(), total_lines, max_scroll, offset)
     };
     app.scroll_offset = offset;
 
@@ -147,6 +146,7 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(paragraph, text_area);
 
     // 滚动条
+    let visual_total = (total_lines as u16).saturating_add(10);
     if visual_total > visible_height {
         let mut scrollbar_state = ScrollbarState::new(max_scroll as usize)
             .position(offset as usize);

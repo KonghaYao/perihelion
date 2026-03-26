@@ -9,20 +9,20 @@ use super::message_view::{ContentBlockView, MessageViewModel};
 pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> Vec<Line<'static>> {
     match vm {
         MessageViewModel::UserBubble { rendered, .. } => {
-            let mut lines = Vec::new();
-            let mut first_line = true;
-            for line in rendered.lines.iter() {
-                if first_line {
+            let mut lines = Vec::with_capacity(rendered.lines.len() + 1);
+            for (i, line) in rendered.lines.iter().enumerate() {
+                if i == 0 {
+                    // 第一行：前缀 + 原始 spans
                     let mut spans = vec![Span::styled(
                         format!("{} ", index),
                         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                     )];
-                    spans.extend(line.spans.iter().cloned());
+                    spans.extend(line.spans.clone());
                     lines.push(Line::from(spans));
-                    first_line = false;
                 } else {
+                    // 后续行：填充 + 原始 spans
                     let mut spans = vec![Span::raw("  ")];
-                    spans.extend(line.spans.iter().cloned());
+                    spans.extend(line.spans.clone());
                     lines.push(Line::from(spans));
                 }
             }
@@ -53,12 +53,13 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                                     ),
                                     Span::raw(" "),
                                 ];
-                                spans.extend(line.spans.iter().cloned());
+                                spans.extend(line.spans.clone());
                                 lines.push(Line::from(spans));
                                 first_text_merged = true;
                             } else {
+                                // 复用 spans Vec 内存，避免 iter().cloned() 的中间 Vec 分配
                                 let mut spans = vec![Span::raw("  ")];
-                                spans.extend(line.spans.iter().cloned());
+                                spans.extend(line.spans.clone());
                                 lines.push(Line::from(spans));
                             }
                         }

@@ -31,7 +31,7 @@ pub enum Action {
 
 pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     if !event::poll(Duration::from_millis(50))? {
-        return Ok(Some(Action::Redraw));
+        return Ok(None);
     }
 
     let ev = event::read()?;
