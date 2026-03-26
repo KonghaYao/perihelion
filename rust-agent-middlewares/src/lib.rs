@@ -38,7 +38,7 @@ pub use rust_create_agent::ask_user::AskUserInvoker;
 pub use rust_create_agent::ask_user::AskUserInvoker as AskUserHandler;
 pub use skills::{load_global_skills_dir, list_skills, load_skill_metadata, SkillsMiddleware, SkillMetadata};
 pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
-pub use subagent::{SubAgentMiddleware, SubAgentTool};
+pub use subagent::{SubAgentMiddleware, SubAgentTool, SkillPreloadMiddleware};
 
 /// Prelude - 常用类型一次性导入
 pub mod prelude {
@@ -60,7 +60,7 @@ pub mod prelude {
         GlobFilesTool, ReadFileTool, SearchFilesRgTool, TodoItem, TodoStatus, TodoWriteTool,
         WriteFileTool,
     };
-    pub use crate::subagent::{SubAgentMiddleware, SubAgentTool};
+    pub use crate::subagent::{SubAgentMiddleware, SubAgentTool, SkillPreloadMiddleware};
 
     // 重导出 rust-create-agent 核心类型
     pub use rust_create_agent::prelude::*;

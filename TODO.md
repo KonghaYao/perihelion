@@ -18,10 +18,10 @@
 - [x] /compact 指令
 - [ ] MCP Server 接入（Model Context Protocol）
 - [ ] 系统提示词中需要添加更多的 cli 的信息, 比如现在的模型,等
-- [ ] Subagent 的 Skill 预加载功能
+- [x] Subagent 的 Skill 预加载功能
 - [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
-- [ ] 写一个 Explorer Agent
-- [ ] 写一个 Web Research Agent
+- [x] 写一个 Explorer Agent
+- [x] 写一个 Web Research Agent
 
 **第三层：用户界面**
 
@@ -37,11 +37,11 @@
 - [x] 接入 langfuse
   - [ ] Langfuse Client 有问题, 现在发送不了 tool 观测暂时无法解决
 - [ ] 多 Agent 并发面板（同时跑多个任务）
-- [ ] 添加一个会话内的数据统计 status bar
 - [ ] Web UI（浏览器端对话界面）
 - [ ] Tarui 整合
 - [ ] i18n 文件整合替换能力; 默认中文, 但是检测到 ./i18n/ 里面的 json 时, 会进行替换. /i18n 会进入选择面板, 即文件, 选中即可替换.
 - [ ] /loop 命令 和 /cron, cron 可以看到定时任务, loop 是一个 command 指示 ai 如何添加 cron , cron 只存储在内存中; cron 会定时 新建会话, 然后把用户的提示词作为用户输入开始执行
-- [ ] remote control panel: 能够配置远程地址和密钥,然后存储到 settings.json, 命令只需要 --remote-control 即可
+- [x] remote control panel: 能够配置远程地址和密钥,然后存储到 settings.json, 命令只需要 --remote-control 即可
 - [x] AIMessage 输出时, 会显示两遍文本信息
 - [x] 滚动区域有时候到不了底部, 我们加 10 行空行到末尾
+- [ ] status bar 增加现有消息数,与消息窗口同步

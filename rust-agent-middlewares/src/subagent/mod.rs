@@ -1,5 +1,7 @@
 mod tool;
+mod skill_preload;
 pub use tool::SubAgentTool;
+pub use skill_preload::SkillPreloadMiddleware;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

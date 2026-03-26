@@ -13,6 +13,7 @@ use crate::claude_agent_parser::{parse_agent_file, ToolsValue};
 use crate::middleware::PrependSystemMiddleware;
 use crate::middleware::todo::TodoMiddleware;
 use crate::skills::SkillsMiddleware;
+use crate::subagent::skill_preload::SkillPreloadMiddleware;
 use crate::tools::ArcToolWrapper;
 use tokio::sync::mpsc;
 
@@ -198,11 +199,19 @@ impl BaseTool for SubAgentTool {
         //    TodoMiddleware 的 _rx 立即丢弃，send 失败静默忽略，不向 TUI 透传
         agent_builder = agent_builder
             .add_middleware(Box::new(AgentsMdMiddleware::new()))
-            .add_middleware(Box::new(SkillsMiddleware::new().with_global_config()))
-            .add_middleware(Box::new(TodoMiddleware::new({
-                let (tx, _rx) = mpsc::channel(8);
-                tx
-            })));
+            .add_middleware(Box::new(SkillsMiddleware::new().with_global_config()));
+
+        // 若 agent def 声明了 skills，注入 SkillPreloadMiddleware（全文预加载）
+        if !agent_def.frontmatter.skills.is_empty() {
+            agent_builder = agent_builder.add_middleware(Box::new(
+                SkillPreloadMiddleware::new(agent_def.frontmatter.skills.clone(), &cwd),
+            ));
+        }
+
+        agent_builder = agent_builder.add_middleware(Box::new(TodoMiddleware::new({
+            let (tx, _rx) = mpsc::channel(8);
+            tx
+        })));
 
         // 6. 通过 PrependSystemMiddleware 将系统提示词注入 state（使其对 Langfuse 等追踪可见）
         //    系统提示词 = build_system_prompt(agent overrides, cwd)，包含 tone/proactiveness
@@ -560,5 +569,68 @@ mod tests {
             .await
             .unwrap();
         assert!(result.contains("tone: be concise"), "系统提示应被注入: {}", result);
+    }
+
+    /// 验证当 agent.md 包含 skills 字段时，SkillPreloadMiddleware 被正确注册
+    /// LLM 收到的消息中应包含 "（系统：预加载 skill 文件）"
+    #[tokio::test]
+    async fn test_skill_preload_registered() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        let skills_dir = dir.path().join(".claude").join("skills").join("test-skill");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::create_dir_all(&skills_dir).unwrap();
+
+        // agent.md 含 skills 字段
+        std::fs::write(
+            agents_dir.join("skill-user.md"),
+            "---\nname: skill-user\ndescription: Uses skills\nskills:\n  - test-skill\n---\n\nYou use skills.\n",
+        )
+        .unwrap();
+
+        // SKILL.md 内容
+        std::fs::write(
+            skills_dir.join("SKILL.md"),
+            "---\nname: 'test-skill'\ndescription: 'A test skill'\n---\n\n# Test Skill\n\nThis is the test skill content.\n",
+        )
+        .unwrap();
+
+        // LLM 搜索所有消息，找 "预加载 skill 文件" 关键字
+        struct SkillPreloadCheckLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for SkillPreloadCheckLLM {
+            async fn generate_reasoning(
+                &self,
+                messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> rust_create_agent::error::AgentResult<Reasoning> {
+                let found = messages.iter().any(|m| m.content().contains("预加载 skill 文件"));
+                Ok(Reasoning::with_answer(
+                    "",
+                    if found { "skill_preload_found" } else { "skill_preload_not_found" },
+                ))
+            }
+        }
+
+        let t = SubAgentTool::new(
+            Arc::new(vec![]),
+            None,
+            Arc::new(|| Box::new(SkillPreloadCheckLLM) as Box<dyn ReactLLM + Send + Sync>),
+        );
+
+        let result = t
+            .invoke(serde_json::json!({
+                "agent_id": "skill-user",
+                "task": "test task",
+                "cwd": dir.path().to_str().unwrap()
+            }))
+            .await
+            .unwrap();
+
+        assert!(
+            result.contains("skill_preload_found"),
+            "LLM 应收到包含 '预加载 skill 文件' 的消息，实际结果: {}",
+            result
+        );
     }
 }
