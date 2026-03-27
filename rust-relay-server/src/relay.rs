@@ -85,12 +85,17 @@ impl RelayState {
     }
 
     pub async fn forward_to_web(&self, session_id: &str, msg: &str) {
-        if let Some(entry) = self.sessions.get(session_id) {
-            let txs = entry.web_txs.read().await;
-            for tx in txs.iter() {
-                let _ = tx.send(msg.to_string());
-            }
+        // 立即 clone Arc 以释放 DashMap shard lock，避免跨 .await 持有锁
+        let entry = match self.sessions.get(session_id) {
+            Some(e) => e.clone(),
+            None => return,
+        };
+        let mut txs = entry.web_txs.write().await;
+        for tx in txs.iter() {
+            let _ = tx.send(msg.to_string());
         }
+        // 顺带清理已断开的 Web 连接，与 broadcast 保持一致
+        txs.retain(|tx| !tx.is_closed());
     }
 }
 

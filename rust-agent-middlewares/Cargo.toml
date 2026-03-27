@@ -19,6 +19,7 @@ ignore = "0.4"
 gray_matter = "0.2"
 dirs-next = "2"
 serde_yaml = "0.9"
+tracing = "0.1"
 
 [dev-dependencies]
 tokio-test = "0.4"

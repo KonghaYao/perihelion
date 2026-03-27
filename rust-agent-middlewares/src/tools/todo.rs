@@ -94,9 +94,11 @@ impl BaseTool for TodoWriteTool {
             *guard = items.clone();
         }
 
-        // 通知 TUI
+        // 通知 TUI；channel 关闭时说明 TUI 已退出，记录 warn 后继续（不影响工具返回值）
         if let Some(tx) = &self.notify_tx {
-            let _ = tx.send(items).await;
+            if tx.send(items).await.is_err() {
+                tracing::warn!("todo_write: notify channel closed, TUI may have disconnected");
+            }
         }
 
         Ok("todo saved successfully".to_string())
