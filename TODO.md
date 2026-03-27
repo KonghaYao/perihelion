@@ -48,5 +48,5 @@
 - [x] 没有 --remote-control 参数时, 就算有配置也不进行远程链接
 - [x] Relay server 添加日志打印
 - [x] /clear relay serve 的前端没有进行清理
-- [ ] 架构更改到 prereact
+- [ ] 架构更改到 preact
 - [x] 前端拼音模式直接enter提交了

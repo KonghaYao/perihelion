@@ -20,7 +20,7 @@ cargo run -p rust-agent-tui          # 运行 TUI
 cargo run -p rust-agent-tui -- -y    # YOLO 模式（跳过 HITL 审批）
 cargo test                           # 全量测试
 cargo test -p rust-create-agent --lib -- test_name  # 运行单个测试
-cargo run -p rust-relay-server --features server  # 启动 Relay Server
+RELAY_TOKEN=your-token cargo run -p rust-relay-server --features server  # 启动 Relay Server
 
 # OpenTelemetry（可选）
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p rust-agent-tui
@@ -140,10 +140,38 @@ submit_message()
 - 自动重连延迟：3 秒
 
 **前端（`rust-relay-server/web/`）：**
-- 纯 JavaScript ES Modules，无需构建工具
-- Markdown 渲染：`marked.js` + `highlight.js`
-- XSS 防护：`DOMPurify`
+- 纯 JavaScript ES Modules，无需构建工具；Preact + htm + @preact/signals 全部从 esm.sh CDN 加载
+- Markdown 渲染：`marked.js` + `highlight.js`；XSS 防护：`DOMPurify`
 - 支持 1/2/3 分屏布局，每个面板可绑定不同 session
+
+**前端文件结构：**
+```
+web/
+├── index.html          # 挂载点，引入所有 CSS
+├── app.js              # Preact render 入口
+├── state.js            # 全局 Signals（agents/layout/activePane/connectionStatus 等）
+├── connection.js       # WebSocket 连接管理
+├── events.js           # 服务端消息处理，更新 Signals
+├── base.css            # CSS 变量、reset、#app、shared 动画
+├── App.css             # 移动端 topbar/overlay、响应式媒体查询
+├── components/
+│   ├── App.js
+│   ├── Sidebar.js / Sidebar.css
+│   ├── PaneContainer.js / PaneContainer.css  # 含 mobile tabs
+│   ├── Pane.js / Pane.css                    # 输入栏、空面板占位
+│   ├── TodoPanel.js / TodoPanel.css
+│   ├── MessageList.js / MessageList.css      # 消息气泡、工具卡片、loading
+│   ├── HitlDialog.js / HitlDialog.css        # 含共享 modal 基础样式
+│   └── AskUserDialog.js / AskUserDialog.css  # radio/checkbox/text 问答表单
+└── utils/
+    ├── html.js         # htm tag template helper
+    └── hooks.js        # useSignalValue(signal) — 显式 Signal 订阅 hook
+```
+
+**Signal 订阅规则：**
+- esm.sh CDN 多版本场景下 `@preact/signals` 的自动 auto-tracking 可能失效（`options.__r` patch 跨模块实例不生效）
+- **所有组件必须通过 `useSignalValue(signal)` 订阅**，禁止在 render 函数中直接读取 `signal.value` 作为响应式依赖
+- 直接写 `signal.value = newVal` 赋值仍然正确；`useSignalValue` 仅用于读取订阅
 
 **Session 清理：** 30 分钟无活动自动清理，后台每 5 分钟检查。
 
@@ -379,4 +407,7 @@ ReActAgent::new(llm)
 
 - **新增弹窗面板**：`Event::Paste` 独立于 key event 链，必须在该分支单独拦截；`Ctrl+V` 需在 `handle_xxx_panel` 内单独处理。
 - **EditField 导航**：`next()/prev()` 链必须与表单实际渲染字段一致。
-- **relay-server 前端**：`rust-relay-server/web/` 下是纯静态文件，修改后需重新编译 `relay-server`（`include_bytes!` 打包）。
+- **relay-server 前端**：`rust-relay-server/web/` 下是纯静态文件，修改后需 `touch rust-relay-server/src/static_files.rs` 再重新编译 `relay-server`（`include_bytes!` 打包）。
+- **relay-server 启动**：必须设置 `RELAY_TOKEN` 环境变量，否则 panic。示例：`RELAY_TOKEN=test-token cargo run -p rust-relay-server --features server`。
+- **前端 Signal 订阅**：组件内读取 Signal 值必须用 `useSignalValue(signal)`（来自 `utils/hooks.js`），不可直接用 `signal.value` 作为响应式依赖，否则在 esm.sh 多版本环境下不会触发重渲染。
+- **前端 CSS**：每个组件的样式文件与 JS 文件同名同目录（如 `Sidebar.css` 在 `components/`），`index.html` 中逐一 `<link>` 引入；不使用 Tailwind，不使用任何 CSS-in-JS。

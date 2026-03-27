@@ -7,7 +7,7 @@
 | `rust-create-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
 | `rust-agent-middlewares` | 中间件库 | 文件系统、终端、HITL、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、PrependSystem、AskUser 等具体实现 |
 | `rust-agent-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板、Langfuse 追踪、Relay 集成 |
-| `rust-relay-server` | 可执行文件 + 客户端库 | axum WebSocket 中继服务（server feature），支持远程控制本地 Agent；client feature 供 TUI 集成；前端为纯 ES Modules |
+| `rust-relay-server` | 可执行文件 + 客户端库 | axum WebSocket 中继服务（server feature），支持远程控制本地 Agent；client feature 供 TUI 集成；前端为 Preact + Signals + htm（esm.sh CDN，无打包工具） |
 
 ## Workspace 依赖关系
 
@@ -179,18 +179,35 @@ src/
 └── client/
     └── mod.rs            — RelayClient：WebSocket 连接 + 序列号 + 历史缓存(1000) + 心跳
 
-web/                       — 纯前端（ES Modules，无构建工具）
-├── index.html            — 入口 HTML
+web/                       — 纯前端（Preact + Signals + htm，无构建工具，依赖通过 esm.sh CDN 加载）
+├── index.html            — 入口 HTML（仅含 <div id="app"> 挂载点）
 ├── style.css             — 样式
-├── app.js                — 应用入口
-└── js/
-    ├── main.js           — 主逻辑
-    ├── connection.js     — WebSocket 连接管理
-    ├── state.js          — 应用状态管理
-    ├── events.js         — 事件处理
-    ├── render.js         — 消息渲染（marked.js + highlight.js + DOMPurify）
-    ├── layout.js         — 1/2/3 分屏布局
-    └── dialog.js         — 弹窗（HITL/AskUser）
+├── app.js                — 应用入口（Preact render + CDN 动态加载 marked/hljs/DOMPurify）
+├── state.js              — 全局状态（@preact/signals：agents/layout/activePane/connectionStatus/markedReady）
+├── connection.js         — WebSocket 连接管理（操作 signals 替代直接 DOM）
+├── events.js             — 消息事件处理（更新 signals 触发 Preact 重渲染）
+├── utils/
+│   └── html.js           — htm.bind(h) 统一导出 html 标签函数
+└── components/
+    ├── App.js            — 根组件（Sidebar + PaneContainer + HitlDialog + AskUserDialog）
+    ├── Sidebar.js        — 左侧边栏（Agent 列表 + 连接状态）
+    ├── PaneContainer.js  — 1/2/3 分屏容器 + 布局切换
+    ├── Pane.js           — 单面板（TodoPanel + MessageList + 输入栏）
+    ├── MessageList.js    — 消息列表（user/assistant/tool/error 四类消息气泡）
+    ├── TodoPanel.js      — TODO 状态面板（折叠/展开）
+    ├── HitlDialog.js     — HITL 审批弹窗（全局唯一）
+    └── AskUserDialog.js  — AskUser 问答弹窗（全局唯一）
+
+前端 CDN 依赖（esm.sh，ES Module 格式）：
+- `https://esm.sh/preact` — 轻量 VDOM 框架
+- `https://esm.sh/preact/hooks` — Preact hooks
+- `https://esm.sh/htm` — tagged template literal → h() 绑定
+- `https://esm.sh/@preact/signals` — 细粒度响应式状态
+
+UMD CDN 依赖（动态 <script> 注入，全局变量）：
+- marked.js — Markdown 解析
+- highlight.js — 代码高亮
+- DOMPurify — XSS 防护
 ```
 
 ## 事件系统
