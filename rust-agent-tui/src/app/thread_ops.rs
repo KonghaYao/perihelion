@@ -92,7 +92,6 @@ impl App {
 
         // 通知 Relay Web 前端：thread 已切换，推送完整历史消息
         if let Some(ref relay) = self.relay_client {
-            relay.clear_history();
             relay.send_thread_reset(&base_msgs);
         }
 

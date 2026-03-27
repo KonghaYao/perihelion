@@ -87,11 +87,12 @@ export function connectSession(sessionId) {
   ws.onclose = () => {
     agent.ws = null;
     agent.status = 'offline';
-    upsertAgent(sessionId, { status: 'offline' });
-    renderSidebar();
-    renderLayout();
-    // 重连
+    // 只在 session 仍存在于 map 时才更新状态，避免重建已被 addAgent 迁移删除的旧 session
     if (state.agents.has(sessionId)) {
+      upsertAgent(sessionId, { status: 'offline' });
+      renderSidebar();
+      renderLayout();
+      // 重连
       setTimeout(() => connectSession(sessionId), RECONNECT_DELAY);
     }
   };

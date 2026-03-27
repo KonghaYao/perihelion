@@ -407,6 +407,7 @@ pub async fn handle_web_session_ws(
                 let text_str = text.to_string();
 
                 // 解析一次，按类型处理；HitlDecision 直接解构已有结果，避免二次 from_str
+                let mut is_sync_request = false;
                 if let Ok(web_msg) = serde_json::from_str::<crate::protocol::WebMessage>(&text_str) {
                     // 字段合法性校验：拦截无效消息，防止无效数据流入 agent
                     let valid = match &web_msg {
@@ -446,8 +447,18 @@ pub async fn handle_web_session_ws(
                             let resolved_json = serde_json::json!({ "type": "ask_user_resolved" });
                             state.forward_to_web(&session_id, &resolved_json.to_string()).await;
                         }
+                        crate::protocol::WebMessage::SyncRequest { .. } => {
+                            is_sync_request = true;
+                        }
                         _ => {}
                     }
+                }
+
+                // SyncRequest 且 agent 离线：直接返回空历史，不转发给 agent，不关闭 WS
+                if is_sync_request && !*entry.agent_connected.read().await {
+                    tracing::debug!(session = %session_id, "Agent 离线，SyncRequest 返回空 sync_response");
+                    let _ = web_tx.send(r#"{"type":"sync_response","events":[]}"#.to_string());
+                    continue;
                 }
 
                 tracing::trace!(session = %session_id, bytes = text_str.len(), "Web→Agent 消息转发");

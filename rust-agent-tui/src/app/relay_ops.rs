@@ -92,7 +92,6 @@ impl App {
                 }
                 WebMessage::ClearThread => {
                     if let Some(ref relay) = self.relay_client {
-                        relay.clear_history();
                         relay.send_thread_reset(&[]);
                     }
                     self.new_thread();

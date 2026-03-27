@@ -212,18 +212,18 @@ impl RelayClient {
     }
 
     /// 发送 ThreadReset 到 Web 前端（携带当前 thread 所有 BaseMessage）
-    /// 使用 send_raw：不注入 seq，不进历史缓存（控制消息，不参与 SyncRequest 回放）
+    /// 先清空历史缓存，再用 send_with_seq 发送并缓存——保证重连后 SyncRequest 能恢复正确状态
     pub fn send_thread_reset(&self, messages: &[rust_create_agent::messages::BaseMessage]) {
         if !self.connected.load(Ordering::Relaxed) {
             return;
         }
+        // 先清空旧历史，避免重连后回放已作废的消息
+        self.clear_history();
         let msgs: Vec<serde_json::Value> = messages
             .iter()
             .filter_map(|m| serde_json::to_value(m).ok())
             .collect();
         let json = serde_json::json!({ "type": "thread_reset", "messages": msgs });
-        if let Ok(s) = serde_json::to_string(&json) {
-            self.send_raw(&s);
-        }
+        self.send_with_seq(json);
     }
 }

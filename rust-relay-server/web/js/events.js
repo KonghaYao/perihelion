@@ -325,8 +325,8 @@ export function handleLegacyEvent(agent, event) {
 
     case 'thread_reset': {
       // Agent 侧 thread 状态重置（/clear、/history 切换、compact 完成）
+      // maxSeq 已由 handleSingleEvent 顶部根据 event.seq 更新，无需手动归零
       agent.messages = [];
-      agent.maxSeq = 0;   // ThreadReset 不带 seq，重置追踪
       (event.messages || []).forEach(m => handleBaseMessage(agent, m));
       break;
     }

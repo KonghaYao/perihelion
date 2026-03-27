@@ -49,3 +49,4 @@
 - [x] Relay server 添加日志打印
 - [ ] /clear relay serve 的前端没有进行清理
 - [ ] 架构更改到 prereact
+- [ ] 前端拼音模式直接enter提交了

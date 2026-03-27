@@ -2,8 +2,6 @@ name: Publish Relay Server
 
 on:
     push:
-        branches:
-            - main
         tags:
             - "relay-v*"
 

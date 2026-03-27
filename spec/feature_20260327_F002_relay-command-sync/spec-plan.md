@@ -174,32 +174,32 @@
 
 **端到端验证:**
 
-1. 全量构建无错误
+1. [x] 全量构建无错误
    - `cargo build --workspace 2>&1 | grep -E "^error" | wc -l`
    - Expected: 输出 `0`（无 error 行）
    - On failure: 检查 Task 1-4 各文件编译
 
-2. 协议序列化测试全部通过
+2. [x] 协议序列化测试全部通过
    - `cargo test -p rust-relay-server --lib 2>&1 | tail -5`
    - Expected: `test result: ok. N passed; 0 failed`
    - On failure: 检查 Task 1（protocol.rs 测试用例）
 
-3. WebMessage::CompactThread 能正确反序列化
+3. [x] WebMessage::CompactThread 能正确反序列化
    - `cargo test -p rust-relay-server --lib -- test_compact_thread 2>&1 | tail -3`
    - Expected: `test protocol::tests::test_compact_thread_serialization ... ok`
    - On failure: 检查 Task 1（CompactThread 变体定义）
 
-4. ThreadReset 能正确序列化
+4. [x] ThreadReset 能正确序列化
    - `cargo test -p rust-relay-server --lib -- test_thread_reset 2>&1 | tail -3`
    - Expected: `test protocol::tests::test_thread_reset_serialization ... ok`
    - On failure: 检查 Task 1（ThreadReset 变体定义）
 
-5. 前端命令处理代码完整性检查
+5. [x] 前端命令处理代码完整性检查
    - `grep -c "compact_thread\|clear_thread\|thread_reset" rust-relay-server/web/js/render.js rust-relay-server/web/js/events.js`
    - Expected: 每个文件至少有 1 行匹配（render.js ≥2，events.js ≥1）
    - On failure: 检查 Task 5（前端文件）
 
-6. Agent 侧 ThreadReset 发送点覆盖检查
+6. [x] Agent 侧 ThreadReset 发送点覆盖检查
    - `grep -rn "send_thread_reset" rust-agent-tui/src/app/`
    - Expected: 至少 4 行匹配（relay_ops.rs×1，thread_ops.rs×2，agent_ops.rs×1）
    - On failure: 检查 Task 3-4 对应文件
