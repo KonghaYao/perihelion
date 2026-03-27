@@ -510,6 +510,11 @@ impl App {
                 self.set_loading(false);
                 self.agent_rx = None;
 
+                // 通知 Relay Web 前端：compact 完成，推送压缩后的 LLM 上下文
+                if let Some(ref relay) = self.relay_client {
+                    relay.send_thread_reset(&self.agent_state_messages);
+                }
+
                 // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）
                 if !self.pending_messages.is_empty() {
                     let combined = self.pending_messages.join("\n\n");

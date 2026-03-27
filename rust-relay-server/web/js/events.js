@@ -1,5 +1,5 @@
 // events.js — 事件解析层
-import { state, upsertAgent, getAgent, setPaneAgent } from './state.js';
+import { state, upsertAgent, getAgent, setPaneAgent, upsertMessage } from './state.js';
 import {
   renderSidebar,
   renderMessages,
@@ -148,7 +148,7 @@ export function handleBaseMessage(agent, event) {
 
   switch (event.role) {
     case 'user':
-      agent.messages.push({ type: 'user', text, seq: event.seq });
+      upsertMessage(agent, { type: 'user', text, id: event.id, seq: event.seq });
       break;
 
     case 'assistant':
@@ -165,7 +165,7 @@ export function handleBaseMessage(agent, event) {
         });
       }
       if (text || !agent.messages.length) {
-        agent.messages.push({ type: 'assistant', text, streaming: false, id: event.id });
+        upsertMessage(agent, { type: 'assistant', text, streaming: false, id: event.id });
       }
       break;
 
@@ -322,6 +322,14 @@ export function handleLegacyEvent(agent, event) {
         renderPaneForAllPanes();
       }
       break;
+
+    case 'thread_reset': {
+      // Agent 侧 thread 状态重置（/clear、/history 切换、compact 完成）
+      agent.messages = [];
+      agent.maxSeq = 0;   // ThreadReset 不带 seq，重置追踪
+      (event.messages || []).forEach(m => handleBaseMessage(agent, m));
+      break;
+    }
   }
 }
 

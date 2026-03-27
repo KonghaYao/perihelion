@@ -39,6 +39,11 @@ pub enum RelayMessage {
     MessageBatch {
         messages: Vec<serde_json::Value>,
     },
+    /// Thread 状态重置（清空或切换历史），携带当前 thread 的所有消息
+    /// 使用 send_raw 发送，不注入 seq，不进历史缓存
+    ThreadReset {
+        messages: Vec<serde_json::Value>,
+    },
 }
 
 /// HITL 审批项
@@ -81,6 +86,7 @@ pub enum WebMessage {
     SyncRequest {
         since_seq: u64,
     },
+    CompactThread,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,5 +229,32 @@ mod tests {
         let msg = RelayMessage::AskUserResolved;
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"ask_user_resolved\""), "json: {}", json);
+    }
+
+    #[test]
+    fn test_compact_thread_serialization() {
+        let msg = WebMessage::CompactThread;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"compact_thread\""), "json: {}", json);
+
+        // 验证反序列化
+        let deserialized: WebMessage = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, WebMessage::CompactThread));
+    }
+
+    #[test]
+    fn test_thread_reset_serialization() {
+        let msg = RelayMessage::ThreadReset { messages: vec![] };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"thread_reset\""), "json: {}", json);
+        assert!(json.contains("\"messages\":[]"), "json: {}", json);
+
+        // 验证带消息的序列化
+        let msg_with_data = RelayMessage::ThreadReset {
+            messages: vec![serde_json::json!({"role": "user", "content": "hello"})],
+        };
+        let json2 = serde_json::to_string(&msg_with_data).unwrap();
+        assert!(json2.contains("\"type\":\"thread_reset\""), "json: {}", json2);
+        assert!(json2.contains("hello"), "json: {}", json2);
     }
 }

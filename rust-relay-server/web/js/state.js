@@ -66,3 +66,21 @@ export function clearPane(paneIdx) {
     state.layout.panes[paneIdx] = null;
   }
 }
+
+/**
+ * 按 id 去重地将消息写入 agent.messages。
+ * - 有 id 且已存在：合并更新（保留已有 output/streaming 等状态）
+ * - 其他情况：追加
+ * @param {object} agent
+ * @param {object} msg
+ */
+export function upsertMessage(agent, msg) {
+  if (msg.id) {
+    const idx = agent.messages.findIndex(m => m.id === msg.id);
+    if (idx !== -1) {
+      agent.messages[idx] = { ...agent.messages[idx], ...msg };
+      return;
+    }
+  }
+  agent.messages.push(msg);
+}

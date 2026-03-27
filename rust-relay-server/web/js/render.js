@@ -339,7 +339,10 @@ export function renderPane(paneId, sessionId) {
       sendMessage(sessionId, { type: 'clear_thread' });
       agent.messages = [];
       agent.todos = [];
+      agent.maxSeq = 0;
       renderMessages(paneId, agent);
+    } else if (text === '/compact') {
+      sendMessage(sessionId, { type: 'compact_thread' });
     } else {
       sendMessage(sessionId, { type: 'user_input', text });
     }

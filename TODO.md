@@ -44,8 +44,8 @@
 - [x] remote control panel: 能够配置远程地址和密钥,然后存储到 settings.json, 命令只需要 --remote-control 即可
 - [x] AIMessage 输出时, 会显示两遍文本信息
 - [x] 滚动区域有时候到不了底部, 我们加 10 行空行到末尾
-- [ ] status bar 增加现有消息数,与消息窗口同步
-- [ ] 没有 --remote-control 参数时, 就算有配置也不进行远程链接
+- [x] status bar 增加现有消息数,与消息窗口同步
+- [x] 没有 --remote-control 参数时, 就算有配置也不进行远程链接
 - [x] Relay server 添加日志打印
-- [ ] /clear 前端没有进行清理
+- [ ] /clear relay serve 的前端没有进行清理
 - [ ] 架构更改到 prereact

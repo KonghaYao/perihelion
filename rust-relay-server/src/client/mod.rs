@@ -192,6 +192,13 @@ impl RelayClient {
         let _ = self.tx.send(msg.to_string());
     }
 
+    /// 清空历史缓存（ClearThread 时调用）
+    pub fn clear_history(&self) {
+        if let Ok(mut hist) = self.history.lock() {
+            hist.clear();
+        }
+    }
+
     /// 获取 seq > since_seq 的历史事件 JSON 列表
     pub fn get_history_since(&self, since_seq: u64) -> Vec<String> {
         match self.history.lock() {
@@ -201,6 +208,22 @@ impl RelayClient {
                 .map(|(_, json)| json.clone())
                 .collect(),
             Err(_) => vec![],
+        }
+    }
+
+    /// 发送 ThreadReset 到 Web 前端（携带当前 thread 所有 BaseMessage）
+    /// 使用 send_raw：不注入 seq，不进历史缓存（控制消息，不参与 SyncRequest 回放）
+    pub fn send_thread_reset(&self, messages: &[rust_create_agent::messages::BaseMessage]) {
+        if !self.connected.load(Ordering::Relaxed) {
+            return;
+        }
+        let msgs: Vec<serde_json::Value> = messages
+            .iter()
+            .filter_map(|m| serde_json::to_value(m).ok())
+            .collect();
+        let json = serde_json::json!({ "type": "thread_reset", "messages": msgs });
+        if let Ok(s) = serde_json::to_string(&json) {
+            self.send_raw(&s);
         }
     }
 }

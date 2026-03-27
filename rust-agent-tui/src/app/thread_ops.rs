@@ -90,6 +90,12 @@ impl App {
         self.thread_browser = None;
         self.langfuse_session = None;
 
+        // 通知 Relay Web 前端：thread 已切换，推送完整历史消息
+        if let Some(ref relay) = self.relay_client {
+            relay.clear_history();
+            relay.send_thread_reset(&base_msgs);
+        }
+
         // 通知渲染线程加载历史消息
         let _ = self
             .render_tx
@@ -107,6 +113,9 @@ impl App {
         self.thread_browser = None;
         self.langfuse_session = None;
         let _ = self.render_tx.send(RenderEvent::Clear);
+        if let Some(ref relay) = self.relay_client {
+            relay.send_thread_reset(&[]);
+        }
     }
 
     /// 压缩当前对话上下文：调用 LLM 生成摘要，替换 agent_state_messages
