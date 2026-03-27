@@ -132,6 +132,8 @@ pub struct App {
     langfuse_session: Option<Arc<crate::langfuse::LangfuseSession>>,
     /// 当前轮次的 Langfuse Tracer（submit_message 时创建，Done 时结束，未配置时为 None）
     langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
+    /// on_trace_end 返回的 flush JoinHandle，进程退出前应 await 确保 batcher flush 完成
+    pub langfuse_flush_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl App {
@@ -243,6 +245,7 @@ impl App {
             pending_ask_user: None,
             langfuse_session: None,
             langfuse_tracer: None,
+            langfuse_flush_handle: None,
         };
 
         let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));

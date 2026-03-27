@@ -305,7 +305,7 @@ mod tests {
         if let BaseMessage::Tool { tool_call_id, .. } = &msgs[2] {
             assert_eq!(tool_call_id, ai_id, "Tool 消息的 tool_call_id 应与 Ai 消息的 id 一致");
         } else {
-            panic!("messages[2] 应为 Tool");
+            unreachable!("messages[2] 应为 Tool");
         }
     }
 }

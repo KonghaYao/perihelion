@@ -68,12 +68,16 @@ impl App {
                                 // YOLO 模式：跳过弹窗，直接全部批准
                                 let decisions = vec![HitlDecision::Approve; req.items.len()];
                                 let _ = req.response_tx.send(decisions);
-                            } else {
-                                let _ = tx_hitl.send(AgentEvent::ApprovalNeeded(req)).await;
+                            } else if tx_hitl.send(AgentEvent::ApprovalNeeded(req)).await.is_err() {
+                                tracing::warn!("HITL approval forwarding: TUI channel closed");
+                                break;
                             }
                         }
                         ApprovalEvent::AskUserBatch(req) => {
-                            let _ = tx_hitl.send(AgentEvent::AskUserBatch(req)).await;
+                            if tx_hitl.send(AgentEvent::AskUserBatch(req)).await.is_err() {
+                                tracing::warn!("AskUser forwarding: TUI channel closed");
+                                break;
+                            }
                         }
                     }
                 }
@@ -288,7 +292,7 @@ impl App {
                 let _ = self.render_tx.send(RenderEvent::StreamingDone);
                 // Langfuse：结束 Trace，上报最终答案（通过 TextChunk 事件累积，避免 UI 截断）
                 if let Some(ref tracer) = self.langfuse_tracer {
-                    tracer.lock().on_trace_end(None);
+                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
                 }
                 self.langfuse_tracer = None;
                 self.set_loading(false);
@@ -332,7 +336,7 @@ impl App {
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 // Langfuse：错误路径也需结束 Trace，避免 Trace 在 Langfuse 侧永远显示为运行中
                 if let Some(ref tracer) = self.langfuse_tracer {
-                    tracer.lock().on_trace_end(Some(&format!("ERROR: {}", _e)));
+                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", _e))));
                 }
                 self.langfuse_tracer = None;
                 self.set_loading(false);
@@ -572,7 +576,7 @@ impl App {
                     let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                     // Langfuse：channel 意外断开也需结束 Trace，与 Error 路径保持一致
                     if let Some(ref tracer) = self.langfuse_tracer {
-                        tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly"));
+                        self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly")));
                     }
                     self.langfuse_tracer = None;
                     self.set_loading(false);

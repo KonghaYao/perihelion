@@ -281,6 +281,7 @@ impl App {
             pending_ask_user: None,
             langfuse_session: None,
             langfuse_tracer: None,
+            langfuse_flush_handle: None,
             relay_panel: None,
         };
 

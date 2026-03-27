@@ -12,6 +12,13 @@ use crate::protocol::{AgentInfo, BroadcastMessage, RelayMessage};
 /// 每个 session 允许的最大同时 Web 连接数（前端多标签场景）
 pub const MAX_WEB_CONNS_PER_SESSION: usize = 10;
 
+/// Agent→Relay 方向单条消息字节上限（16MB，防止超大工具结果耗尽内存）
+const MAX_AGENT_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+/// Web→Relay 方向单条消息字节上限（1MB，来自不可信客户端，限制更严）
+const MAX_WEB_MESSAGE_BYTES: usize = 1024 * 1024;
+/// 服务端向 Web 客户端发送心跳 Ping 的间隔（秒）
+const SERVER_PING_INTERVAL_SECS: u64 = 30;
+
 pub struct SessionEntry {
     pub agent_tx: mpsc::UnboundedSender<String>,
     pub web_txs: RwLock<Vec<mpsc::UnboundedSender<String>>>,
@@ -78,12 +85,17 @@ impl RelayState {
     }
 
     pub async fn forward_to_web(&self, session_id: &str, msg: &str) {
-        if let Some(entry) = self.sessions.get(session_id) {
-            let txs = entry.web_txs.read().await;
-            for tx in txs.iter() {
-                let _ = tx.send(msg.to_string());
-            }
+        // 立即 clone Arc 以释放 DashMap shard lock，避免跨 .await 持有锁
+        let entry = match self.sessions.get(session_id) {
+            Some(e) => e.clone(),
+            None => return,
+        };
+        let mut txs = entry.web_txs.write().await;
+        for tx in txs.iter() {
+            let _ = tx.send(msg.to_string());
         }
+        // 顺带清理已断开的 Web 连接，与 broadcast 保持一致
+        txs.retain(|tx| !tx.is_closed());
     }
 }
 
@@ -154,6 +166,16 @@ pub async fn handle_agent_ws(
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
+                // 消息大小限制：防止超大消息耗尽转发缓冲区
+                if text.len() > MAX_AGENT_MESSAGE_BYTES {
+                    tracing::warn!(
+                        session = %sid2,
+                        bytes = text.len(),
+                        limit = MAX_AGENT_MESSAGE_BYTES,
+                        "Agent→Web: 消息超过大小限制，丢弃"
+                    );
+                    continue;
+                }
                 // Update last_active
                 *entry.last_active.write().await = Instant::now();
                 tracing::trace!(session = %sid2, bytes = text.len(), "Agent→Web 消息转发");
@@ -184,16 +206,23 @@ pub async fn handle_agent_ws(
     // 与 spawn_session_cleanup 对齐：双重条件（未连接 + 超时）防止误删活跃 session
     let state_cleanup = state2.clone();
     let sid_cleanup = sid.clone();
-    tokio::spawn(async move {
+    let delayed_cleanup = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
-        if let Some(entry) = state_cleanup.sessions.get(&sid_cleanup) {
-            let connected = *entry.agent_connected.read().await;
-            let elapsed = entry.last_active.read().await.elapsed();
-            if !connected && elapsed > std::time::Duration::from_secs(30 * 60) {
-                drop(entry);
-                state_cleanup.sessions.remove(&sid_cleanup);
-                tracing::debug!("Session cleaned up after timeout: {}", sid_cleanup);
-            }
+        // 立即 clone Arc 释放 DashMap shard lock，避免跨 .await 持有锁
+        let entry = match state_cleanup.sessions.get(&sid_cleanup) {
+            Some(e) => e.clone(),
+            None => return,
+        };
+        let connected = *entry.agent_connected.read().await;
+        let elapsed = entry.last_active.read().await.elapsed();
+        if !connected && elapsed > std::time::Duration::from_secs(30 * 60) {
+            state_cleanup.sessions.remove(&sid_cleanup);
+            tracing::debug!("Session cleaned up after timeout: {}", sid_cleanup);
+        }
+    });
+    tokio::spawn(async move {
+        if let Err(e) = delayed_cleanup.await {
+            tracing::error!(error = %e, session = %sid, "handle_agent_ws delayed cleanup task exited unexpectedly");
         }
     });
 }
@@ -226,11 +255,33 @@ pub async fn handle_web_management_ws(
         txs.push(broadcast_tx.clone());
     }
 
-    // Forward broadcasts to this web client
+    // Forward broadcasts + 周期性心跳 Ping 到此 Web 客户端
     let send_task = tokio::spawn(async move {
-        while let Some(msg) = broadcast_rx.recv().await {
-            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
-                break;
+        let mut ping_interval = tokio::time::interval(
+            std::time::Duration::from_secs(SERVER_PING_INTERVAL_SECS)
+        );
+        ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // 首次 tick 立即触发，跳过以避免连接后立即发 ping
+        ping_interval.tick().await;
+        loop {
+            tokio::select! {
+                msg = broadcast_rx.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if let Ok(ping_json) = serde_json::to_string(&RelayMessage::Ping) {
+                        if ws_tx.send(Message::Text(ping_json.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
             }
         }
     });
@@ -308,11 +359,33 @@ pub async fn handle_web_session_ws(
         "Web 会话端已连接"
     );
 
-    // Forward agent events to this web client
+    // Forward agent events + 周期性心跳 Ping 到此 Web 客户端
     let send_task = tokio::spawn(async move {
-        while let Some(msg) = web_rx.recv().await {
-            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
-                break;
+        let mut ping_interval = tokio::time::interval(
+            std::time::Duration::from_secs(SERVER_PING_INTERVAL_SECS)
+        );
+        ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // 首次 tick 立即触发，跳过以避免连接后立即发 ping
+        ping_interval.tick().await;
+        loop {
+            tokio::select! {
+                msg = web_rx.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if let Ok(ping_json) = serde_json::to_string(&RelayMessage::Ping) {
+                        if ws_tx.send(Message::Text(ping_json.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
             }
         }
     });
@@ -321,10 +394,46 @@ pub async fn handle_web_session_ws(
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
+                // Web 来源消息大小限制（来自不可信客户端）
+                if text.len() > MAX_WEB_MESSAGE_BYTES {
+                    tracing::warn!(
+                        session = %session_id,
+                        bytes = text.len(),
+                        limit = MAX_WEB_MESSAGE_BYTES,
+                        "Web→Agent: 消息超过大小限制，丢弃"
+                    );
+                    continue;
+                }
                 let text_str = text.to_string();
 
                 // 解析一次，按类型处理；HitlDecision 直接解构已有结果，避免二次 from_str
                 if let Ok(web_msg) = serde_json::from_str::<crate::protocol::WebMessage>(&text_str) {
+                    // 字段合法性校验：拦截无效消息，防止无效数据流入 agent
+                    let valid = match &web_msg {
+                        crate::protocol::WebMessage::UserInput { text } => {
+                            if text.trim().is_empty() {
+                                tracing::debug!(session = %session_id, "UserInput: 空文本，丢弃");
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        crate::protocol::WebMessage::HitlDecision { decisions } => {
+                            if decisions.is_empty() {
+                                tracing::debug!(session = %session_id, "HitlDecision: decisions 为空，丢弃");
+                                false
+                            } else if decisions.iter().any(|d| d.tool_call_id.is_empty()) {
+                                tracing::debug!(session = %session_id, "HitlDecision: 含空 tool_call_id，丢弃");
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        _ => true,
+                    };
+                    if !valid {
+                        continue;
+                    }
                     match web_msg {
                         crate::protocol::WebMessage::HitlDecision { decisions } => {
                             let resolved_json = serde_json::json!({
@@ -342,7 +451,10 @@ pub async fn handle_web_session_ws(
                 }
 
                 tracing::trace!(session = %session_id, bytes = text_str.len(), "Web→Agent 消息转发");
-                let _ = entry.agent_tx.send(text_str);
+                if entry.agent_tx.send(text_str).is_err() {
+                    tracing::debug!(session = %session_id, "Web→Agent 转发失败：agent channel 已关闭（agent 已断开）");
+                    break;
+                }
             }
             Message::Close(_) => break,
             _ => {}
@@ -358,16 +470,24 @@ pub async fn handle_web_session_ws(
     txs.retain(|tx| !tx.is_closed());
 }
 
-pub fn spawn_session_cleanup(state: Arc<RelayState>) {
+pub fn spawn_session_cleanup(state: Arc<RelayState>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        tracing::debug!("session cleanup task started");
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5 * 60)).await;
+            // 先同步收集所有 (key, Arc) 以立即释放 DashMap shard locks，
+            // 再对每个 Arc 做 async read，避免跨 .await 持有 shard 锁
+            let entries: Vec<(String, Arc<SessionEntry>)> = state
+                .sessions
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect();
             let mut to_remove = Vec::new();
-            for entry in state.sessions.iter() {
-                let connected = *entry.value().agent_connected.read().await;
-                let last_active = *entry.value().last_active.read().await;
+            for (sid, entry) in entries {
+                let connected = *entry.agent_connected.read().await;
+                let last_active = *entry.last_active.read().await;
                 if !connected && last_active.elapsed() > std::time::Duration::from_secs(30 * 60) {
-                    to_remove.push(entry.key().clone());
+                    to_remove.push(sid);
                 }
             }
             for sid in to_remove {
@@ -375,5 +495,5 @@ pub fn spawn_session_cleanup(state: Arc<RelayState>) {
                 tracing::debug!("Session expired and removed: {}", sid);
             }
         }
-    });
+    })
 }

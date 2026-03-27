@@ -279,7 +279,7 @@ mod tests {
         if let BaseMessage::Tool { tool_call_id, .. } = msg {
             assert_eq!(tool_call_id, "tc1");
         } else {
-            panic!("期望 Tool 消息");
+            unreachable!("期望 Tool 消息");
         }
     }
 

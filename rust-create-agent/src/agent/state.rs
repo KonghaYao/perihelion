@@ -82,6 +82,15 @@ impl State for AgentState {
 
     fn add_message(&mut self, message: BaseMessage) {
         self.messages.push(message);
+        // 消息数量超过阈值时发出警告，提示使用 /compact 压缩上下文以降低内存占用
+        let count = self.messages.len();
+        if count > 100 && count % 100 == 0 {
+            tracing::warn!(
+                count,
+                "AgentState: message history is large ({} messages); consider using /compact to reduce memory usage",
+                count
+            );
+        }
     }
 
     fn prepend_message(&mut self, message: BaseMessage) {

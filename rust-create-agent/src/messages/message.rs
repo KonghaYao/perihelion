@@ -299,7 +299,7 @@ mod tests {
         if let BaseMessage::Tool { tool_call_id, .. } = restored_tool {
             assert_eq!(tool_call_id, "toolu_123");
         } else {
-            panic!("Tool 消息反序列化失败");
+            unreachable!("Tool 消息反序列化失败");
         }
     }
 }

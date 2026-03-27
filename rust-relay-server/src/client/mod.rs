@@ -43,7 +43,13 @@ impl RelayClient {
             ws_url.push_str(&format!("&name={}", n));
         }
 
-        let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await?;
+        const CONNECT_TIMEOUT_SECS: u64 = 10;
+        let (ws_stream, _) = tokio::time::timeout(
+            std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS),
+            tokio_tungstenite::connect_async(&ws_url),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("WebSocket 连接超时（{}s）：{}", CONNECT_TIMEOUT_SECS, url))??;
         let (ws_write, mut ws_read) = ws_stream.split();
 
         let (write_tx, mut write_rx) = mpsc::unbounded_channel::<String>();
@@ -87,8 +93,9 @@ impl RelayClient {
                         let text_str = text.to_string();
                         if let Ok(relay_msg) = serde_json::from_str::<RelayMessage>(&text_str) {
                             if matches!(relay_msg, RelayMessage::Ping) {
-                                let pong = serde_json::to_string(&WebMessage::Pong).unwrap();
-                                let _ = write_tx_pong.send(pong);
+                                if let Ok(pong) = serde_json::to_string(&WebMessage::Pong) {
+                                    let _ = write_tx_pong.send(pong);
+                                }
                                 continue;
                             }
                         }
@@ -127,12 +134,22 @@ impl RelayClient {
             Ok(j) => j,
             Err(_) => return,
         };
-        // 缓存（最多 1000 条）
+        // 缓存（最多 1000 条，单条限 512KB，超大条目跳过缓存但仍发送）
+        const MAX_HISTORY_ENTRY_BYTES: usize = 512 * 1024;
         if let Ok(mut hist) = self.history.lock() {
-            if hist.len() >= 1000 {
-                hist.pop_front();
+            if json.len() <= MAX_HISTORY_ENTRY_BYTES {
+                if hist.len() >= 1000 {
+                    hist.pop_front();
+                }
+                hist.push_back((seq, json.clone()));
+            } else {
+                tracing::debug!(
+                    seq,
+                    bytes = json.len(),
+                    limit = MAX_HISTORY_ENTRY_BYTES,
+                    "relay history: entry exceeds size limit, skipping cache (message still sent)"
+                );
             }
-            hist.push_back((seq, json.clone()));
         }
         let _ = self.tx.send(json);
     }

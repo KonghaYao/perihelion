@@ -172,7 +172,7 @@ mod tests {
         let msg: WebMessage = serde_json::from_str(json).unwrap();
         match msg {
             WebMessage::UserInput { text } => assert_eq!(text, "hello world"),
-            _ => panic!("Expected UserInput"),
+            _ => unreachable!("Expected UserInput"),
         }
     }
 
@@ -190,7 +190,7 @@ mod tests {
         let msg: WebMessage = serde_json::from_str(json).unwrap();
         match msg {
             WebMessage::SyncRequest { since_seq } => assert_eq!(since_seq, 100),
-            _ => panic!("Expected SyncRequest"),
+            _ => unreachable!("Expected SyncRequest"),
         }
     }
 

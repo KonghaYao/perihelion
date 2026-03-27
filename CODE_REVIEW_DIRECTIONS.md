@@ -55,30 +55,39 @@
   - [x] `handle_web_session_ws` 中同一 `text_str` 执行两次 `serde_json::from_str`（合并为一次解析，直接解构已有结果，复用 `forward_to_web` 辅助方法）
   - [x] Relay Server 无速率限制和连接数上限（添加 agent/web 并发连接计数与上限：MAX_AGENT_CONNECTIONS=50、MAX_WEB_CONNECTIONS=200、每 session 最多 10 个 web 连接；超限返回 429，日志可观测）
 
-- [ ] **日志质量与可观测性**
+- [x] **日志质量与可观测性**
   - [x] 日志级别滥用：relay.rs session 清理（5 分钟周期触发）、agent_ops.rs Langfuse session 诊断日志（每次 submit_message 可能触发）由 `info` 降为 `debug`；成功创建 session 保留 `info`
-  - [ ] `spawn_session_cleanup` 与 `handle_agent_ws` 延迟清理任务的 spawn 错误未传播（静默退出无感知）
-  - [ ] `agent.rs` Todo channel 和 HITL 审批转发 spawn 中 `let _ = ...` 静默忽略发送失败
+  - [x] `spawn_session_cleanup` 与 `handle_agent_ws` 延迟清理任务的 spawn 错误未传播：`spawn_session_cleanup` 改为返回 JoinHandle，main.rs 添加监控 task；`handle_agent_ws` 延迟清理添加 watcher spawn 感知 panic
+  - [x] `agent.rs` Todo channel 和 HITL 审批转发 spawn 中 `let _ = ...` 静默忽略发送失败：改为 `is_err()` + `tracing::warn!` + `break`，channel 关闭时可观测且正确退出
 
 - [x] **配置校验**
   - [x] `budget_tokens` Anthropic 最小值 1024：`with_extended_thinking` 补充 `.max(1024)` 守卫，config/types.rs 注释补充 Anthropic 语义说明
   - [x] `ANTHROPIC_MODEL` / `OPENAI_MODEL` 空字符串 fallback：`from_env()` 改为 `.ok().filter(!empty).unwrap_or(default)`，避免空模型名送到 API
 
-- [ ] **WebSocket 安全与健壮性**
-  - [ ] 反序列化缺少消息大小限制
-  - [ ] 服务端无主动心跳探测
-  - [ ] 客户端 `connect_async` 无连接超时
-  - [ ] 接收消息缺乏字段合法性校验
+- [x] **WebSocket 安全与健壮性**
+  - [x] 反序列化缺少消息大小限制：Agent→Relay 限 16MB，Web→Relay 限 1MB，超限记 warn 并 continue 丢弃
+  - [x] 服务端无主动心跳探测：web management 与 web session send task 改用 tokio::select! 每 30s 发送 RelayMessage::Ping JSON，写失败时自动退出并触发连接清理
+  - [x] 客户端 `connect_async` 无连接超时：添加 tokio::time::timeout(10s) 包装，超时返回可观测错误
+  - [x] 接收消息缺乏字段合法性校验：handle_web_session_ws 对 UserInput（空文本拦截）和 HitlDecision（空 decisions、空 tool_call_id 拦截）添加前置校验，非法消息记 debug 并 continue
 
-- [ ] **内存无界增长**
-  - [ ] `AgentState.messages` 无数量/大小上限
-  - [ ] Relay `history` 仅限条目数，未限制单条字节数
+- [x] **内存无界增长**
+  - [x] `AgentState.messages` 无数量/大小上限：`add_message` 在消息数超过 100 条后每 100 条打 `tracing::warn!`，提示使用 /compact 降低内存占用
+  - [x] Relay `history` 仅限条目数，未限制单条字节数：`send_with_seq` 添加单条 512KB 字节上限，超限条目跳过历史缓存但仍正常发送，并记录 `tracing::debug!`
 
-- [ ] **生产路径 panic! 调用**
-  - [ ] `protocol.rs` 存在非测试 `panic!`
+- [x] **生产路径 panic! 调用**
+  - [x] `protocol.rs` 存在非测试 `panic!`：全面审查确认所有 `panic!` 均在 `#[cfg(test)]` 内，无生产路径风险；将 6 处测试 match 穷举臂从 `panic!` 改为语义更准确的 `unreachable!`（protocol.rs ×2、hitl/mod.rs、skill_preload.rs、message.rs、openai.rs 各 ×1）
 
-- [ ] **spawn 任务错误可观测性（续）**
-  - [ ] relay.rs 多处 `tokio::spawn` 未 await 也未记录错误
+- [x] **spawn 任务错误可观测性（续）**
+  - [x] relay.rs 多处 `tokio::spawn` 未 await 也未记录错误：client/mod.rs Ping 响应路径 `to_string().unwrap()` 改为 `if let Ok`；handle_web_session_ws `agent_tx.send()` 失败从静默 `let _ =` 改为 `tracing::debug! + break`，agent 断开时正确终止 web session 循环
 
-- [ ] **LangfuseTracer JoinHandle 泄漏**
-  - [ ] `pending_handles` 依赖 `on_trace_end` 清空，异常退出时 handles 未被等待
+- [x] **LangfuseTracer JoinHandle 泄漏**
+  - [x] `pending_handles` 依赖 `on_trace_end` 清空，异常退出时 handles 未被等待：`on_trace_end` 改为返回 `JoinHandle<()>`；App 新增 `langfuse_flush_handle` 字段存储该 handle；`run_app` 事件循环退出后 await flush handle 确保 batcher flush 在 runtime drop 前完成；为 `LangfuseTracer` 实现 `Drop` 在 `pending_handles` 非空时打 warn
+
+- [x] **forward_to_web 锁与清理**
+  - [x] `forward_to_web` 持有 DashMap shard Ref 跨 `.await` 点（反模式，可能死锁）：改为在 match 时立即 clone `Arc<SessionEntry>` 释放 shard lock，再做异步操作
+  - [x] `forward_to_web` 缺少 retain 清理（与 `broadcast` 不一致）：改用 write lock + `retain(|tx| !tx.is_closed())`，避免 Web 客户端异常断开后 stale sender 持续积累
+  - [x] `handle_agent_ws` 延迟清理任务同样持有 DashMap Ref 跨两次 `.await`：改为 match 时立即 clone Arc，移除不再必要的手动 `drop(entry)`
+  - [x] `spawn_session_cleanup` 循环中 `iter()` Ref 跨两次 `.await`：改为先同步收集所有 `(key, Arc<SessionEntry>)` 再做异步 read，彻底释放所有 shard lock
+
+- [x] **TodoTool notify 可观测性**
+  - [x] `TodoWriteTool.invoke` 通知 TUI 时 `let _ = tx.send(...).await` 静默忽略失败：改为 `is_err()` + `tracing::warn!`，channel 关闭时可感知；rust-agent-middlewares 添加 tracing 依赖
