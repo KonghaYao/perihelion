@@ -386,9 +386,12 @@ impl App {
                 if let Some(ref relay) = self.relay_client {
                     let questions: Vec<serde_json::Value> = req.questions.iter().map(|q| {
                         serde_json::json!({
-                            "question": q.description,
-                            "options": q.options.iter().map(|o| o.label.clone()).collect::<Vec<_>>(),
+                            "tool_call_id": q.tool_call_id,
+                            "description": q.description,
                             "multi_select": q.multi_select,
+                            "options": q.options.iter().map(|o| serde_json::json!({"label": o.label, "description": null})).collect::<Vec<_>>(),
+                            "allow_custom_input": q.allow_custom_input,
+                            "placeholder": q.placeholder,
                         })
                     }).collect();
                     relay.send_value(serde_json::json!({

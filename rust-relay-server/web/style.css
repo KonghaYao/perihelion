@@ -971,6 +971,25 @@ body {
     border: 1px solid var(--border);
     border-radius: 4px 16px 16px 16px;
     max-width: fit-content;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.stop-btn {
+    padding: 3px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.stop-btn:hover {
+    border-color: #e05c5c;
+    color: #e05c5c;
 }
 
 .loading-dots {

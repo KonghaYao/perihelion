@@ -489,7 +489,7 @@
       const div = document.createElement('div');
       div.style.marginBottom = '12px';
       const label = document.createElement('label');
-      label.textContent = q.question || q.text || `问题 ${i + 1}`;
+      label.textContent = q.description || q.question || q.text || `问题 ${i + 1}`;
       label.style.display = 'block';
       label.style.marginBottom = '4px';
       div.appendChild(label);
@@ -503,11 +503,14 @@
           radio.value = opt.label || opt;
           const optLabel = document.createElement('span');
           optLabel.textContent = ` ${opt.label || opt}`;
-          if (opt.description) {
-            optLabel.textContent += ` - ${opt.description}`;
-          }
           optDiv.appendChild(radio);
           optDiv.appendChild(optLabel);
+          if (opt.description) {
+            const desc = document.createElement('div');
+            desc.textContent = opt.description;
+            desc.style.cssText = 'margin-left:22px; font-size:11px; color:#888; line-height:1.4;';
+            optDiv.appendChild(desc);
+          }
           div.appendChild(optDiv);
         });
       } else {
@@ -516,6 +519,15 @@
         input.name = `askuser_${i}`;
         input.style.cssText = 'width:100%;padding:6px;background:#222;border:1px solid #444;color:#e0e0e0;border-radius:4px;';
         div.appendChild(input);
+      }
+
+      if (q.allow_custom_input) {
+        const customInput = document.createElement('input');
+        customInput.type = 'text';
+        customInput.name = `askuser_custom_${i}`;
+        customInput.placeholder = q.placeholder || '';
+        customInput.style.cssText = 'width:100%;margin-top:6px;padding:6px;background:#222;border:1px solid #444;color:#e0e0e0;border-radius:4px;';
+        div.appendChild(customInput);
       }
 
       askuserItems.appendChild(div);
@@ -532,14 +544,19 @@
     const answers = {};
 
     (Array.isArray(questions) ? questions : [questions]).forEach((q, i) => {
-      const qText = q.question || q.text || `q${i}`;
+      const key = q.tool_call_id || q.description || q.question || q.text || `q${i}`;
       const inputs = askuserItems.querySelectorAll(`[name="askuser_${i}"]`);
+      let selected = [];
       if (inputs.length === 1 && inputs[0].type === 'text') {
-        answers[qText] = inputs[0].value;
+        selected = [inputs[0].value];
       } else {
-        const selected = Array.from(inputs).filter(el => el.checked).map(el => el.value);
-        answers[qText] = selected.join(', ');
+        selected = Array.from(inputs).filter(el => el.checked).map(el => el.value);
       }
+      const customInputEl = askuserItems.querySelector(`[name="askuser_custom_${i}"]`);
+      if (customInputEl && customInputEl.value.trim()) {
+        selected.push(customInputEl.value.trim());
+      }
+      answers[key] = selected.join(', ');
     });
 
     agent.ws.send(JSON.stringify({ type: 'ask_user_response', answers }));

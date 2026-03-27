@@ -116,13 +116,33 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = area;
     let visible_height = inner.height;
 
+    // 计算 loading spinner 帧（基于当前时间，200ms 切换一帧）
+    let spinner_line: Option<Line<'static>> = if app.loading {
+        const FRAMES: &[&str] = &["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"];
+        let frame_idx = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            / 200) as usize
+            % FRAMES.len();
+        Some(Line::from(ratatui::text::Span::styled(
+            format!(" {} 思考中…", FRAMES[frame_idx]),
+            ratatui::style::Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )))
+    } else {
+        None
+    };
+
     // 从 RenderCache 读取已渲染好的行（浅克隆 Vec 头，开销极小）
-    let (all_lines, total_lines, max_scroll, offset) = {
+    let (mut all_lines, total_lines, max_scroll, offset) = {
         let cache = app.render_cache.read();
         app.last_render_version = cache.version;
 
         let total_lines = cache.total_lines;
-        let visual_total = (total_lines as u16).saturating_add(10);
+        let spinner_extra = if spinner_line.is_some() { 1u16 } else { 0 };
+        let visual_total = (total_lines as u16).saturating_add(10).saturating_add(spinner_extra);
         let max_scroll = visual_total.saturating_sub(visible_height);
         let offset = if app.scroll_follow {
             max_scroll
@@ -133,6 +153,9 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
         // Vec::clone() 是浅克隆，只复制指针+容量+长度头（3个 usize），不复制 Line 内容
         (cache.lines.clone(), total_lines, max_scroll, offset)
     };
+    if let Some(line) = spinner_line {
+        all_lines.push(line);
+    }
     app.scroll_offset = offset;
 
     // 文字区域（留出右侧 1 列给滚动条）

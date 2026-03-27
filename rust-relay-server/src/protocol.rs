@@ -53,12 +53,25 @@ pub struct ApprovalItem {
     pub input: serde_json::Value,
 }
 
+/// AskUser 选项项
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AskUserOption {
+    pub label: String,
+    pub description: Option<String>,
+}
+
 /// AskUser 问题项
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AskUserQuestion {
-    pub question: String,
+    pub tool_call_id: String,
+    pub description: String,
     #[serde(default)]
-    pub options: Vec<String>,
+    pub multi_select: bool,
+    #[serde(default)]
+    pub options: Vec<AskUserOption>,
+    #[serde(default)]
+    pub allow_custom_input: bool,
+    pub placeholder: Option<String>,
 }
 
 /// TODO 项信息
@@ -87,6 +100,7 @@ pub enum WebMessage {
         since_seq: u64,
     },
     CompactThread,
+    CancelAgent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +254,32 @@ mod tests {
         // 验证反序列化
         let deserialized: WebMessage = serde_json::from_str(&json).unwrap();
         assert!(matches!(deserialized, WebMessage::CompactThread));
+    }
+
+    #[test]
+    fn test_ask_user_question_serialization() {
+        let q = AskUserQuestion {
+            tool_call_id: "call-123".into(),
+            description: "请选择语言".into(),
+            multi_select: false,
+            options: vec![AskUserOption { label: "Rust".into(), description: Some("高性能".into()) }],
+            allow_custom_input: false,
+            placeholder: None,
+        };
+        let json = serde_json::to_string(&q).unwrap();
+        assert!(json.contains("\"description\":"), "should have description field: {}", json);
+        assert!(json.contains("\"tool_call_id\":"), "should have tool_call_id field: {}", json);
+        assert!(!json.contains("\"question\":"), "should NOT have old question field: {}", json);
+    }
+
+    #[test]
+    fn test_cancel_agent_serialization() {
+        let msg = WebMessage::CancelAgent;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"cancel_agent\""), "json: {}", json);
+
+        let deserialized: WebMessage = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, WebMessage::CancelAgent));
     }
 
     #[test]

@@ -21,13 +21,10 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         format!(" 📁 {}", cwd_short),
         Style::default().fg(Color::DarkGray),
     ));
-    left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-
-    // Agent 状态
+    // Agent 状态（loading 时显示分隔符和状态，空闲时不显示）
     if app.loading {
+        left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
         left_spans.push(Span::styled("⠿ 运行中", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
-    } else {
-        left_spans.push(Span::styled("● 空闲", Style::default().fg(Color::Green)));
     }
 
     // 运行时长

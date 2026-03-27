@@ -6,7 +6,7 @@ import {
   renderTodoPanel,
   renderPane,
 } from './render.js';
-import { showHitlDialog, closeDialog } from './dialog.js';
+import { showHitlDialog, showAskUserDialog, closeDialog } from './dialog.js';
 
 // ─── 广播消息处理 ─────────────────────────────────────────────
 
@@ -123,7 +123,7 @@ export function handleSingleEvent(sessionId, event) {
   if (event.role !== undefined) {
     handleBaseMessage(agent, event);
   } else {
-    handleLegacyEvent(agent, event);
+    handleLegacyEvent(agent, event, sessionId);
   }
 }
 
@@ -192,7 +192,7 @@ export function handleBaseMessage(agent, event) {
 
 // ─── 旧 AgentEvent 格式处理 ─────────────────────────────────
 
-export function handleLegacyEvent(agent, event) {
+export function handleLegacyEvent(agent, event, sessionId) {
   const eventType = event.type;
 
   switch (eventType) {
@@ -297,11 +297,13 @@ export function handleLegacyEvent(agent, event) {
         })),
       };
       renderPaneForAllPanes();
+      if (sessionId) setTimeout(() => showHitlDialog(agent, sessionId), 0);
       break;
 
     case 'ask_user_batch':
       agent.pendingAskUser = { questions: event.questions || [] };
       renderPaneForAllPanes();
+      if (sessionId) setTimeout(() => showAskUserDialog(agent, sessionId), 0);
       break;
 
     case 'approval_resolved':

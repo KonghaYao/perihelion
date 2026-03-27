@@ -115,8 +115,9 @@ export function showAskUserDialog(agent, sessionId) {
     const div = document.createElement('div');
     div.style.marginBottom = '14px';
 
+    // 问题标题：优先读新字段 description，向后兼容旧字段 question/text
     const label = document.createElement('label');
-    label.textContent = q.question || q.text || `问题 ${i + 1}`;
+    label.textContent = q.description || q.question || q.text || `问题 ${i + 1}`;
     label.style.display = 'block';
     label.style.marginBottom = '6px';
     label.style.color = 'var(--text-primary)';
@@ -137,12 +138,20 @@ export function showAskUserDialog(agent, sessionId) {
 
         const optLabel = document.createElement('span');
         optLabel.textContent = ` ${opt.label || opt}`;
-        if (opt.description) optLabel.textContent += ` — ${opt.description}`;
         optLabel.style.color = 'var(--text-muted)';
         optLabel.style.fontSize = '13px';
 
         optDiv.appendChild(radio);
         optDiv.appendChild(optLabel);
+
+        // 选项副标题：opt.description 作为灰色小字渲染
+        if (opt.description) {
+          const desc = document.createElement('div');
+          desc.textContent = opt.description;
+          desc.style.cssText = 'margin-left:22px; font-size:11px; color:var(--text-muted); line-height:1.4;';
+          optDiv.appendChild(desc);
+        }
+
         div.appendChild(optDiv);
       });
     } else {
@@ -155,6 +164,20 @@ export function showAskUserDialog(agent, sessionId) {
       input.addEventListener('focus', () => { input.style.borderColor = 'var(--accent)'; });
       input.addEventListener('blur', () => { input.style.borderColor = 'var(--border)'; });
       div.appendChild(input);
+    }
+
+    // allow_custom_input：在选项列表后追加自由文本输入框
+    if (q.allow_custom_input) {
+      const customInput = document.createElement('input');
+      customInput.type = 'text';
+      customInput.name = `askuser_custom_${i}`;
+      customInput.placeholder = q.placeholder || '';
+      customInput.style.cssText =
+        'width:100%; margin-top:6px; padding:8px; background:var(--bg-surface); border:1px solid var(--border); ' +
+        'color:var(--text-primary); border-radius:6px; font-size:13px; font-family:inherit; outline:none;';
+      customInput.addEventListener('focus', () => { customInput.style.borderColor = 'var(--accent)'; });
+      customInput.addEventListener('blur', () => { customInput.style.borderColor = 'var(--border)'; });
+      div.appendChild(customInput);
     }
 
     itemsEl.appendChild(div);
@@ -175,16 +198,23 @@ export function showAskUserDialog(agent, sessionId) {
     const answers = {};
 
     (Array.isArray(qs) ? qs : [qs]).forEach((q, i) => {
-      const qText = q.question || q.text || `q${i}`;
+      // key 使用 tool_call_id，向后兼容旧格式的 question/text
+      const key = q.tool_call_id || q.description || q.question || q.text || `q${i}`;
       const inputs = itemsEl.querySelectorAll(`[name="askuser_${i}"]`);
+      let selected = [];
       if (inputs.length === 1 && inputs[0].type === 'text') {
-        answers[qText] = inputs[0].value;
+        selected = [inputs[0].value];
       } else {
-        const selected = Array.from(inputs)
+        selected = Array.from(inputs)
           .filter(el => el.checked)
           .map(el => el.value);
-        answers[qText] = selected.join(', ');
       }
+      // 若有 allow_custom_input 且有值，追加到答案
+      const customInputEl = itemsEl.querySelector(`[name="askuser_custom_${i}"]`);
+      if (customInputEl && customInputEl.value.trim()) {
+        selected.push(customInputEl.value.trim());
+      }
+      answers[key] = selected.join(', ');
     });
 
     sendMessage(sessionId, { type: 'ask_user_response', answers });

@@ -217,7 +217,7 @@ export function renderMessages(paneId, agent) {
     container.appendChild(renderSingleMessage(msg, paneId));
   });
 
-  // Loading 态：追加到消息列表末尾
+  // Loading 态：追加到消息列表末尾（含停止按钮）
   if (agent.isRunning) {
     const loadingEl = document.createElement('div');
     loadingEl.className = 'message msg-loading';
@@ -225,7 +225,14 @@ export function renderMessages(paneId, agent) {
       <div class="loading-dots">
         <span></span><span></span><span></span>
       </div>
+      <button class="stop-btn">■ 停止</button>
     `;
+    const sessionId = state.layout.panes[paneId];
+    loadingEl.querySelector('.stop-btn').addEventListener('click', () => {
+      sendMessage(sessionId, { type: 'cancel_agent' });
+      closeDialog('askuser');
+      closeDialog('hitl');
+    });
     container.appendChild(loadingEl);
   }
 

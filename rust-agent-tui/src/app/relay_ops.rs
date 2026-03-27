@@ -123,7 +123,7 @@ impl App {
                             if let Some(q) = prompt
                                 .questions
                                 .iter_mut()
-                                .find(|q| q.data.description == *q_text)
+                                .find(|q| q.data.tool_call_id == *q_text)
                             {
                                 q.custom_input = answer.clone();
                                 q.in_custom_input = true;
@@ -134,6 +134,11 @@ impl App {
                         }
                     }
                     self.ask_user_confirm();
+                }
+                WebMessage::CancelAgent => {
+                    self.interrupt();
+                    self.ask_user_prompt = None;
+                    self.hitl_prompt = None;
                 }
                 WebMessage::ClearThread => {
                     if let Some(ref relay) = self.relay_client {
