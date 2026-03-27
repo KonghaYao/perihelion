@@ -150,9 +150,9 @@ function renderSingleMessage(msg, paneId) {
       div.innerHTML = `
         <div class="tool-header" data-tool-card="${paneId}">
           <span class="tool-name">🔧 ${escHtml(msg.name || 'tool')}</span>
-          <span class="tool-toggle">${collapsed ? '▶ 展开' : '▼ 折叠'}</span>
+          <span class="tool-toggle">▶ 展开</span>
         </div>
-        <div class="tool-body">
+        <div class="tool-body" style="display:none">
           <div class="tool-section">
             <div class="tool-section-label">INPUT</div>
             <div class="tool-input">${escHtml(inputJson)}</div>
@@ -351,7 +351,7 @@ export function renderPane(paneId, sessionId) {
 
   sendBtn.addEventListener('click', doSend);
   inputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       doSend();
     }

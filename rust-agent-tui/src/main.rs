@@ -115,6 +115,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cl
         let agent_updated = app.poll_agent();
         // 轮询 Relay 事件（Web 端控制消息）
         let relay_updated = app.poll_relay();
+        // 检查 Relay 是否需要重连（断线 3s 后自动重试）
+        app.check_relay_reconnect().await;
 
         match event::next_event(&mut app).await? {
             Some(action) => match action {

@@ -128,6 +128,10 @@ pub struct App {
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     /// Relay 事件接收端（来自 Web 端的控制消息）
     relay_event_rx: Option<rust_relay_server::client::RelayEventRx>,
+    /// Relay 连接参数缓存（url, token, name），断线后自动重连使用
+    relay_params: Option<(String, String, Option<String>)>,
+    /// Relay 重连计划时间（达到后尝试重连，None 表示不需要重连）
+    relay_reconnect_at: Option<std::time::Instant>,
     /// Thread 级别的 Langfuse Session（Thread 创建/打开时懒加载，new_thread/open_thread 时重置）
     langfuse_session: Option<Arc<crate::langfuse::LangfuseSession>>,
     /// 当前轮次的 Langfuse Tracer（submit_message 时创建，Done 时结束，未配置时为 None）
@@ -241,6 +245,8 @@ impl App {
             subagent_group_idx: None,
             relay_client: None,
             relay_event_rx: None,
+            relay_params: None,
+            relay_reconnect_at: None,
             pending_hitl_items: None,
             pending_ask_user: None,
             langfuse_session: None,
@@ -325,6 +331,9 @@ impl App {
             return;
         };
 
+        // 缓存参数供断线重连使用
+        self.relay_params = Some((relay_url.clone(), relay_token.clone(), relay_name.clone()));
+
         match rust_relay_server::client::RelayClient::connect(
             &relay_url,
             &relay_token,
@@ -340,12 +349,17 @@ impl App {
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 self.relay_client = Some(Arc::new(client));
                 self.relay_event_rx = Some(event_rx);
+                self.relay_reconnect_at = None; // 连接成功，取消重连计划
             }
             Err(e) => {
                 // 不用 tracing，通过 TUI 消息显示
                 let err_msg = format!("Relay connection failed: {}", e);
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                // 连接失败时，3 秒后重试
+                self.relay_reconnect_at = Some(
+                    std::time::Instant::now() + std::time::Duration::from_secs(3),
+                );
             }
         }
     }
