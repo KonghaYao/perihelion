@@ -1,0 +1,56 @@
+# ============================================================
+# Stage 1: Builder
+# ============================================================
+FROM rust:1-slim-bookworm AS builder
+
+# Install build dependencies (needed for native-tls / OpenSSL)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy workspace root manifests
+COPY Cargo.toml Cargo.lock ./
+
+# Copy Cargo.toml for ALL workspace members (needed for workspace resolution),
+# but only copy source for relay-server and its actual dependencies.
+COPY rust-create-agent/Cargo.toml       rust-create-agent/Cargo.toml
+COPY rust-agent-middlewares/Cargo.toml  rust-agent-middlewares/Cargo.toml
+COPY rust-agent-tui/Cargo.toml          rust-agent-tui/Cargo.toml
+
+# Stub src files for non-dependency workspace members so Cargo doesn't error
+RUN mkdir -p rust-agent-middlewares/src rust-agent-tui/src && \
+    echo 'pub fn _stub() {}' > rust-agent-middlewares/src/lib.rs && \
+    echo 'fn main() {}' > rust-agent-tui/src/main.rs
+
+# Copy real source for relay-server and its dependency (rust-create-agent)
+COPY rust-create-agent/src/  rust-create-agent/src/
+COPY rust-relay-server/      rust-relay-server/
+
+# Build release binary
+RUN cargo build --release -p rust-relay-server --features server
+
+# ============================================================
+# Stage 2: Runtime
+# ============================================================
+FROM debian:bookworm-slim AS runtime
+
+# Runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user for security
+RUN useradd -m -u 1001 relay
+
+# Copy compiled binary
+COPY --from=builder /app/target/release/relay-server /usr/local/bin/relay-server
+
+EXPOSE 8080
+
+USER relay
+
+ENTRYPOINT ["/usr/local/bin/relay-server"]

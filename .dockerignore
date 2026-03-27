@@ -1,0 +1,7 @@
+target/
+.git/
+.github/
+spec/
+.claude/
+# Exclude compiled artifacts inside each crate
+**/target/
