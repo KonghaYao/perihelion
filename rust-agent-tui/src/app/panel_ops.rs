@@ -277,6 +277,8 @@ impl App {
             subagent_group_idx: None,
             relay_client: None,
             relay_event_rx: None,
+            relay_params: None,
+            relay_reconnect_at: None,
             pending_hitl_items: None,
             pending_ask_user: None,
             langfuse_session: None,
