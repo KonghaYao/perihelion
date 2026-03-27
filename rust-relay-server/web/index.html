@@ -36,15 +36,26 @@
 
   <!-- 右侧主内容区 -->
   <main id="main-content">
+    <!-- 移动端顶部导航栏（桌面端隐藏） -->
+    <div id="mobile-topbar">
+      <button id="hamburger-btn" aria-label="打开 Agent 列表">☰</button>
+      <span id="mobile-title">Agent Remote Control</span>
+      <span id="mobile-agent-name"></span>
+    </div>
     <!-- 分屏工具栏 -->
     <div id="layout-toolbar">
       <button id="btn-cols-1" class="layout-btn active" title="单栏">1</button>
       <button id="btn-cols-2" class="layout-btn" title="双栏">2</button>
       <button id="btn-cols-3" class="layout-btn" title="三栏">3</button>
     </div>
+    <!-- 移动端面板标签页（桌面端隐藏，多面板时显示） -->
+    <div id="mobile-tabs"></div>
     <!-- 分屏容器 -->
     <div id="pane-container"></div>
   </main>
+
+  <!-- 移动端遮罩层（侧边栏打开时显示） -->
+  <div id="mobile-overlay"></div>
 
 </div>
 

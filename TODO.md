@@ -47,3 +47,5 @@
 - [ ] status bar 增加现有消息数,与消息窗口同步
 - [ ] 没有 --remote-control 参数时, 就算有配置也不进行远程链接
 - [x] Relay server 添加日志打印
+- [ ] /clear 前端没有进行清理
+- [ ] 架构更改到 prereact

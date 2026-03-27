@@ -9,6 +9,7 @@ export const state = {
   layout: {
     cols: 1,              // 1 | 2 | 3
     panes: [null, null, null], // 每栏绑定的 sessionId
+    activeMobilePane: 0,  // 移动端当前激活的面板序号
   },
 
   /** 当前激活的 pane index（键盘导航用） */

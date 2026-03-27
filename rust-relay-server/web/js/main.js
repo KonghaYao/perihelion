@@ -2,7 +2,7 @@
 import { state } from './state.js';
 import { connectManagement } from './connection.js';
 import { renderSidebar, renderLayout, initMarked } from './render.js';
-import { initLayout } from './layout.js';
+import { initLayout, initMobile } from './layout.js';
 
 // ─── 检查 Token ───────────────────────────────────────────────
 
@@ -29,6 +29,9 @@ function init() {
 
   // 初始化布局
   initLayout();
+
+  // 初始化移动端交互
+  initMobile();
 
   // 渲染初始状态
   renderSidebar();

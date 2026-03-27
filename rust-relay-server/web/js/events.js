@@ -96,6 +96,8 @@ function autoAssignPane(sessionId) {
   for (let i = 0; i < state.layout.cols; i++) {
     if (!state.layout.panes[i]) {
       setPaneAgent(i, sessionId);
+      // 移动端：同步刷新 Tab 栏
+      import('./layout.js').then(({ renderMobileTabs }) => renderMobileTabs());
       return;
     }
   }

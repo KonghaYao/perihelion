@@ -2,7 +2,7 @@
 import { state, getAgent } from './state.js';
 import { showHitlDialog, showAskUserDialog, closeDialog } from './dialog.js';
 import { sendMessage } from './connection.js';
-import { assignAgentToPane } from './layout.js';
+import { assignAgentToPane, isMobile, closeMobileSidebar, renderMobileTabs } from './layout.js';
 
 // ─── XSS 安全转义 ─────────────────────────────────────────────
 
@@ -79,8 +79,13 @@ export function renderSidebar() {
 
     // 点击将 agent 绑定到当前 pane
     item.addEventListener('click', () => {
-      import('./layout.js').then(({ assignAgentToPane }) => {
+      import('./layout.js').then(({ assignAgentToPane, closeMobileSidebar: closeDrawer, renderMobileTabs: renderTabs }) => {
         assignAgentToPane(state.activePane, sessionId);
+        // 移动端：关闭抽屉 + 更新顶部 Agent 名 + 刷新 Tab 栏
+        closeDrawer();
+        const mobileAgentName = document.getElementById('mobile-agent-name');
+        if (mobileAgentName) mobileAgentName.textContent = agent.name;
+        renderTabs();
       });
     });
 
@@ -283,6 +288,10 @@ export function renderPane(paneId, sessionId) {
     return;
   }
 
+  // 移动端：同步顶部 Agent 名
+  const mobileAgentName = document.getElementById('mobile-agent-name');
+  if (mobileAgentName && isMobile()) mobileAgentName.textContent = agent.name;
+
   // 面板根元素
   container.innerHTML = '';
   container.className = 'pane';
@@ -403,8 +412,19 @@ export function renderLayout() {
   if (!container) return;
 
   container.innerHTML = '';
-  const { cols, panes } = state.layout;
+  const { cols, panes, activeMobilePane } = state.layout;
 
+  // 移动端：强制单面板，只渲染 activeMobilePane 对应的面板
+  if (isMobile()) {
+    const paneEl = document.createElement('div');
+    paneEl.id = 'pane-0';
+    paneEl.className = 'pane';
+    container.appendChild(paneEl);
+    renderPane(0, panes[activeMobilePane] ?? panes[0]);
+    return;
+  }
+
+  // 桌面端：原有多栏逻辑
   for (let i = 0; i < cols; i++) {
     const paneEl = document.createElement('div');
     paneEl.id = `pane-${i}`;
