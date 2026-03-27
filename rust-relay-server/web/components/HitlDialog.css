@@ -1,0 +1,134 @@
+/* 共享弹窗基础样式（HitlDialog + AskUserDialog 共用） */
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.modal-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.modal-close-btn {
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.modal-close-btn:hover {
+    color: var(--text-primary);
+    background: rgba(0, 0, 0, 0.06);
+}
+
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(3px);
+}
+
+.modal-card {
+    position: relative;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    max-width: 520px;
+    width: 90%;
+    max-height: 85dvh;
+    overflow-y: auto;
+    box-shadow:
+        0 8px 40px rgba(0, 0, 0, 0.12),
+        0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+    justify-content: flex-end;
+}
+
+.btn-approve {
+    padding: 8px 20px;
+    background: var(--success);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: 500;
+    transition: opacity 0.15s;
+}
+
+.btn-approve:hover {
+    opacity: 0.88;
+}
+
+.btn-reject {
+    padding: 8px 20px;
+    background: #dc2626;
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: 500;
+    transition: opacity 0.15s;
+}
+
+.btn-reject:hover {
+    opacity: 0.88;
+}
+
+/* HITL 专用 */
+.hitl-item {
+    padding: 12px;
+    margin-bottom: 8px;
+    background: var(--bg-surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.hitl-item .tool-info {
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+
+.hitl-item .tool-input {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: #f6f8fa;
+    border: 1px solid var(--border);
+    padding: 6px 8px;
+    border-radius: 5px;
+    margin-top: 4px;
+    font-family: "SF Mono", monospace;
+}

@@ -1,0 +1,101 @@
+/* =============================================
+   Mobile Top Bar（默认隐藏，移动端显示）
+   ============================================= */
+#mobile-topbar {
+    display: none;
+    align-items: center;
+    padding: 0 12px;
+    height: 48px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+#hamburger-btn {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--text-primary);
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+
+#hamburger-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+#mobile-title {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* =============================================
+   Mobile Overlay（默认隐藏）
+   ============================================= */
+#mobile-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+#mobile-overlay.visible {
+    display: block;
+}
+
+/* =============================================
+   Desktop: 强制隐藏移动端元素
+   ============================================= */
+@media (min-width: 769px) {
+    #mobile-topbar,
+    #mobile-tabs,
+    #mobile-overlay {
+        display: none !important;
+    }
+}
+
+/* =============================================
+   Responsive (Mobile)
+   ============================================= */
+@media (max-width: 768px) {
+    #sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100dvh;
+        z-index: 200;
+        display: flex;
+    }
+
+    #sidebar.mobile-visible {
+        transform: translateX(0);
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12);
+    }
+
+    #mobile-topbar {
+        display: flex;
+    }
+
+    #layout-toolbar {
+        display: none;
+    }
+
+    .pane-input input {
+        font-size: 16px;
+    }
+}

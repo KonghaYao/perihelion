@@ -1,0 +1,115 @@
+#main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    background: var(--bg-base);
+}
+
+#layout-toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 6px 12px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.layout-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: all 0.15s;
+}
+
+.layout-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+
+.layout-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: bold;
+}
+
+#pane-container {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.pane-divider {
+    width: 1px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+
+.pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.pane-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* =============================================
+   Mobile Tabs（多面板时显示）
+   ============================================= */
+#mobile-tabs {
+    display: none;
+    overflow-x: auto;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+}
+
+#mobile-tabs.has-tabs {
+    display: flex;
+}
+
+.mobile-tab {
+    min-height: 44px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    background: transparent;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    font-family: inherit;
+}
+
+.mobile-tab:hover {
+    color: var(--text-primary);
+}
+
+.mobile-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+    font-weight: 500;
+}
