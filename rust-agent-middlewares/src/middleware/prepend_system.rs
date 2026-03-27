@@ -11,16 +11,26 @@ use rust_create_agent::middleware::r#trait::Middleware;
 ///
 /// 注入的 System 消息会与 Anthropic adapter 的 `request.system` 字段合并：
 /// `system_from_msgs(本中间件) + "\n\n" + request_system`。
+///
+/// # 废弃说明
+///
+/// 请改用 `ReActAgent::with_system_prompt()`，它在 executor 内部固定于
+/// 所有中间件 `before_agent` 执行完毕之后 prepend，无顺序约束。
+///
+/// 本类型保留用于需要动态 system prompt 或其他高级场景。
+#[deprecated(since = "0.2.0", note = "改用 ReActAgent::with_system_prompt()")]
 pub struct PrependSystemMiddleware {
     content: String,
 }
 
+#[allow(deprecated)]
 impl PrependSystemMiddleware {
     pub fn new(content: impl Into<String>) -> Self {
         Self { content: content.into() }
     }
 }
 
+#[allow(deprecated)]
 #[async_trait]
 impl<S: State> Middleware<S> for PrependSystemMiddleware {
     fn name(&self) -> &str {

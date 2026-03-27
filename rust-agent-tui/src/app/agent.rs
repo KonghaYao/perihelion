@@ -58,7 +58,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
     let provider_for_factory = provider.clone();
     let provider_name = provider.display_name().to_string();
-    // 不使用 .with_system()，改由 PrependSystemMiddleware 注入到 state，使 Langfuse 可见
+    // 不使用 .with_system()，改由 with_system_prompt() 注入到 state，使 Langfuse 可见
     let model = BaseModelReactLLM::new(provider.into_model());
 
     // Todo channel：TodoMiddleware → TUI
@@ -128,7 +128,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     parent_tools.extend(TerminalMiddleware::build_tools(&cwd));
 
     // LLM 工厂：每次为子 agent 创建裸 LLM（不设 system）
-    // 系统提示词由 system_builder + PrependSystemMiddleware 注入，使其在 Langfuse 中可见
+    // 系统提示词由 system_builder + with_system_prompt() 注入，使其在 Langfuse 中可见
     let provider_clone = provider_for_factory;
     let llm_factory: Arc<dyn Fn() -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync> = Arc::new(move || {
         Box::new(BaseModelReactLLM::new(provider_clone.clone().into_model()))
@@ -150,6 +150,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具
     let executor = ReActAgent::new(model)
         .max_iterations(500)
+        .with_system_prompt(system_prompt)  // executor 内部固定 prepend，无顺序约束
         .add_middleware(Box::new(AgentsMdMiddleware::new()))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new(SkillsMiddleware::new()))
@@ -158,8 +159,6 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         .add_middleware(Box::new(TodoMiddleware::new(todo_tx)))
         .add_middleware(Box::new(hitl))
         .add_middleware(Box::new(subagent))
-        // 最后注册 → before_agent 最后执行 → prepend_message 最后写入 → 位于消息列表最前
-        .add_middleware(Box::new(rust_agent_middlewares::PrependSystemMiddleware::new(system_prompt)))
         .with_event_handler(Arc::clone(&handler))
         .register_tool(Box::new(ask_user_tool));
 

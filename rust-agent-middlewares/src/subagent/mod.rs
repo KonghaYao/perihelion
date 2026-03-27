@@ -49,7 +49,7 @@ pub struct SubAgentMiddleware {
     /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例
     llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     /// 系统提示构建器：(agent overrides, cwd) → system prompt 字符串
-    /// 设置后，子 agent 通过 PrependSystemMiddleware 注入系统提示（Langfuse 可见）
+    /// 设置后，子 agent 通过 with_system_prompt() 注入系统提示（Langfuse 可见）
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
 }
 
@@ -71,7 +71,7 @@ impl SubAgentMiddleware {
         }
     }
 
-    /// 设置系统提示构建器，子 agent 执行时通过 `PrependSystemMiddleware` 注入系统提示词
+    /// 设置系统提示构建器，子 agent 执行时通过 `with_system_prompt()` 注入系统提示词
     pub fn with_system_builder(
         mut self,
         builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
