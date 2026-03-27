@@ -12,6 +12,27 @@
 
 | Feature ID | 摘要 | 领域 | 归档日期 |
 |-----------|------|------|----------|
+| [20260326_F010_relay-loading-state-sync](../archive/feature_20260326_F010_relay-loading-state-sync/) | Agent 执行状态同步到 Web 前端显示「正在思考…」 | relay-server | 2026-03-27 |
+| [20260326_F009_relay-message-id-propagation](../archive/feature_20260326_F009_relay-message-id-propagation/) | TextChunk/ToolStart/ToolEnd 携带 message_id 支持 update-in-place | agent | 2026-03-27 |
+| [20260326_F008_statusbar-msgcount-relay-flag](../archive/feature_20260326_F008_statusbar-msgcount-relay-flag/) | 状态栏消息计数，禁止 relay 隐式自动连接 | tui | 2026-03-27 |
+| [20260326_F007_relay-server-logging](../archive/feature_20260326_F007_relay-server-logging/) | 补充 Relay Server 连接/认证失败/消息转发日志 | relay-server | 2026-03-27 |
+| [20260326_F006_message-uuid-v7](../archive/feature_20260326_F006_message-uuid-v7/) | BaseMessage 四变体增加 UUID v7 全局唯一 ID | agent | 2026-03-27 |
+| [20260326_F005_subagent-skill-preload](../archive/feature_20260326_F005_subagent-skill-preload/) | Agent 定义声明 skills 字段，启动时全文预加载 | agent | 2026-03-27 |
+| [20260326_F004_remote-control-panel](../archive/feature_20260326_F004_remote-control-panel/) | /relay 命令面板：TUI 内配置持久化远程控制参数 | tui | 2026-03-27 |
+| [20260326_F001_subagent-message-hierarchy](../archive/feature_20260326_F001_subagent-message-hierarchy/) | SubAgent 执行消息分层为可折叠块，滑动窗口展示 | tui | 2026-03-27 |
+| [20260326_F001_specialized-agents](../archive/feature_20260326_F001_specialized-agents/) | 预置 Explorer + WebResearcher 声明式专用 Agent | agent | 2026-03-27 |
+| [20260326_F001_relay-frontend-mobile-redesign](../archive/feature_20260326_F001_relay-frontend-mobile-redesign/) | Relay 前端移动端重设计（无设计文档） | relay-server | 2026-03-27 |
+| [20260325_F004_subagent-langfuse-nesting](../archive/feature_20260325_F004_subagent-langfuse-nesting/) | 子 Agent Langfuse 嵌套追踪迭代探索（无设计文档） | langfuse | 2026-03-27 |
+| [20260325_F003_langfuse-observation-types](../archive/feature_20260325_F003_langfuse-observation-types/) | 规范化 Langfuse 观测层级与类型命名 | langfuse | 2026-03-27 |
+| [20260325_F002_large-file-refactor](../archive/feature_20260325_F002_large-file-refactor/) | app/mod.rs 和 main_ui.rs 大文件拆分为多子文件 | tui | 2026-03-27 |
+| [20260325_F001_tui-langfuse-session](../archive/feature_20260325_F001_tui-langfuse-session/) | Thread 级 LangfuseSession 使多轮消息归属同一 Session | langfuse | 2026-03-27 |
+| [20260325_F001_subagent-middleware-injection](../archive/feature_20260325_F001_subagent-middleware-injection/) | 子 Agent 补全三个缺失中间件使上下文一致 | agent | 2026-03-27 |
+| [20260325_F001_langfuse-subagent-nesting](../archive/feature_20260325_F001_langfuse-subagent-nesting/) | Langfuse 子 Agent 嵌套追踪迭代探索（无设计文档） | langfuse | 2026-03-27 |
+| [20260325_F001_langfuse-nested-subagent-trace](../archive/feature_20260325_F001_langfuse-nested-subagent-trace/) | Langfuse 嵌套子 Agent 追踪迭代探索（无设计文档） | langfuse | 2026-03-27 |
+| [20260324_F002_relay-server-ui-redesign](../archive/feature_20260324_F002_relay-server-ui-redesign/) | Relay Web 前端重设计为 Claude 风格多分屏界面 | relay-server | 2026-03-27 |
+| [20260324_F001_ratatui-markdown-renderer](../archive/feature_20260324_F001_ratatui-markdown-renderer/) | pulldown-cmark 替代 tui-markdown，自制 ratatui 渲染器 | tui | 2026-03-27 |
+| [20260324_F001_rust-langfuse-client](../archive/feature_20260324_F001_rust-langfuse-client/) | Langfuse 客户端早期探索（无设计文档） | langfuse | 2026-03-27 |
+| [20260324_F001_langfuse-tui-monitoring](../archive/feature_20260324_F001_langfuse-tui-monitoring/) | TUI 层接入 Langfuse 全链路追踪 | langfuse | 2026-03-27 |
 | [20260324_F001_tui-clipboard-image-paste](../archive/feature_20260324_F001_tui-clipboard-image-paste/) | Ctrl+V 粘贴剪贴板图片作为多模态消息发送 | tui | 2026-03-24 |
 | [20260324_F001_compact-context-command](../archive/feature_20260324_F001_compact-context-command/) | /compact 指令调用 LLM 将对话历史压缩为结构化摘要 | tui | 2026-03-24 |
 | [20260323_F006_ws-event-sync](../archive/feature_20260323_F006_ws-event-sync/) | WebSocket 事件扁平化+seq序列号+会话 Sync 同步 | relay-server | 2026-03-24 |
@@ -31,6 +52,7 @@
 - [agent](./domains/agent.md) — Agent 核心（ReAct 执行器、消息系统、工具抽象、持久化）
 - [tui](./domains/tui.md) — TUI 界面（渲染、交互、命令、面板）
 - [relay-server](./domains/relay-server.md) — Relay Server（WebSocket 中继、远程控制）
+- [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）
 
 ---
-*最后更新: 2026-03-24 — 由批量归档更新*
+*最后更新: 2026-03-27 — 由批量归档（21 个 feature）更新：新增 langfuse 领域*

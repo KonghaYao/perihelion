@@ -9,13 +9,15 @@
 - **HTTP 客户端:** reqwest 0.12（json + stream features）
 - **序列化:** serde 1.x + serde_json 1.x
 - **数据库:** rusqlite 0.31（bundled SQLite，WAL 模式）
-- **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22
+- **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-ergonomic 0.6.3（可观测性，仅 rust-agent-tui）
 - **Web 框架（Relay Server）:** axum 0.8（WebSocket feature）
 - **错误处理:** thiserror 2.0（库 crate）/ anyhow 1.0（应用层）
 - **日志/追踪:** tracing 0.1 + tracing-subscriber 0.3 + opentelemetry 0.31 + tracing-opentelemetry 0.32
 - **OTLP 导出:** opentelemetry-otlp 0.31（http-proto + reqwest-rustls）
+- **UUID:** uuid 1.x（features: v7 + serde，rust-create-agent 层消息 ID）
 - **同步原语:** parking_lot 0.12
 - **构建工具:** Cargo（Workspace resolver = "2"）
+- **Web 前端 CDN（relay-server）:** Tailwind CSS CDN + marked.js 15 + highlight.js 11.9（GitHub Dark 主题）+ DOMPurify（XSS 净化）
 
 ## 架构决策
 
@@ -57,4 +59,4 @@
 - **SubAgent 防递归:** `launch_agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 
 ---
-*最后更新: 2026-03-24 — 由批量归档（13 个 feature）更新：新增 arboard/png/base64 依赖*
+*最后更新: 2026-03-27 — 由批量归档（21 个 feature）更新：新增 uuid(v7)、langfuse-ergonomic 0.6.3、Web CDN 依赖*

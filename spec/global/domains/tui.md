@@ -5,11 +5,12 @@
 TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处理、命令系统、面板管理和与 Agent 核心的集成。
 
 核心职责：
-- 双线程渲染：独立渲染线程计算 Markdown 解析和行包装，UI 线程只从 `RenderCache` 读取可见行，按需重绘
+- 双线程渲染：独立渲染线程计算 Markdown 解析（pulldown-cmark）和行包装，UI 线程只从 `RenderCache` 读取可见行，按需重绘
 - 事件处理：crossterm 输入拦截、命令解析（`/` 前缀）、弹窗状态管理
-- 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`
+- 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/relay`（远程控制）
 - 多会话管理：SQLite 持久化，`/history` 面板浏览
-- 弹窗系统：HITL 审批弹窗、AskUser 问答弹窗、Model/Agents/Thread 配置面板
+- 弹窗系统：HITL 审批弹窗、AskUser 问答弹窗、Model/Agents/Thread/Relay 配置面板
+- SubAgent 层级展示：SubAgentGroup 可折叠块，滑动窗口显示最近 4 步
 
 ## 核心流程
 
@@ -60,6 +61,7 @@ submit_message(text)
 | 维度 | 选型 |
 |------|------|
 | 渲染框架 | ratatui ≥0.30，主 UI 线程 + 独立渲染线程 |
+| Markdown 渲染 | pulldown-cmark 0.12（CommonMark 规范，事件驱动，自制 ratatui 渲染器） |
 | 渲染线程同步 | `parking_lot::RwLock<RenderCache>` + `tokio::sync::Notify` 零 sleep |
 | Headless 测试 | `ratatui::backend::TestBackend`，`#[cfg(test)]` 隔离 |
 | 剪贴板 | `arboard` crate，跨平台，macOS/Linux/Windows |
@@ -68,6 +70,9 @@ submit_message(text)
 | 模型别名 | Opus/Sonnet/Haiku 三档，`ModelAliasMap` 独立绑定 Provider+Model |
 | 输入缓冲 | `pending_messages: Vec<String>`，Done/Error 时合并发送 |
 | 弹窗滚动 | `scroll_offset: u16`，`ensure_cursor_visible()`，80% 高度上限 |
+| SubAgent 展示 | SubAgentGroup ViewModel；滑动窗口 4 条；RenderEvent::UpdateLastMessage 原地更新 |
+| 远程控制配置 | RelayPanel View/Edit 模式；RemoteControlConfig 持久化到 ~/.zen-code/settings.json |
+| 文件组织 | app/ 拆分 8 子文件；ui/ 拆分 popups/、panels/ 子目录；pub(super) 可见性 |
 
 ## Feature 附录
 
@@ -163,7 +168,56 @@ submit_message(text)
 **归档:** [链接](../../archive/feature_20260322_F001_message-render-refactor/)
 **归档日期:** 2026-03-24
 
+### feature_20260324_F001_ratatui-markdown-renderer
+**摘要:** pulldown-cmark 替代 tui-markdown，自制 ratatui Markdown 渲染器
+**关键决策:**
+- pulldown-cmark 0.12（CommonMark 规范，事件驱动）替代 tui-markdown 0.3
+- RenderState 累积行内 Span，事件驱动构建 Text<'static>
+- dirty flag 全量重解析（10KB 约 30μs，帧预算 16.7ms 内可接受）
+- parse_markdown / ensure_rendered 接口不变，message_render.rs 零改动
+**归档:** [链接](../../archive/feature_20260324_F001_ratatui-markdown-renderer/)
+**归档日期:** 2026-03-27
+
+### feature_20260325_F002_large-file-refactor
+**摘要:** app/mod.rs 和 main_ui.rs 大文件拆分为多子文件
+**关键决策:**
+- Rust 同模块多文件 impl 块，app/ 拆分为 8 个子文件（hitl_prompt/ask_user_prompt/agent_ops 等）
+- ui/ 拆分为 popups/（hitl/ask_user/hints）和 panels/（model/thread_browser/agent）子目录
+- 纯机械搬移，禁止顺手重构，pub use 重导出保持外部路径不变
+- pub(super) 可见性约束，render() 为唯一对外入口
+**归档:** [链接](../../archive/feature_20260325_F002_large-file-refactor/)
+**归档日期:** 2026-03-27
+
+### feature_20260326_F001_subagent-message-hierarchy
+**摘要:** SubAgent 执行消息分层为可折叠块
+**关键决策:**
+- 纯 TUI 层感知（方案 A）：利用 launch_agent ToolStart/End 事件作为边界
+- SubAgentGroup ViewModel：滑动窗口最多 4 条，total_steps 单独累计
+- RenderEvent::UpdateLastMessage 原地更新，不触发全量重建
+- 完成后 Enter 键折叠/展开，折叠态只显示摘要行
+**归档:** [链接](../../archive/feature_20260326_F001_subagent-message-hierarchy/)
+**归档日期:** 2026-03-27
+
+### feature_20260326_F004_remote-control-panel
+**摘要:** /relay 命令面板：TUI 内配置并持久化远程控制参数
+**关键决策:**
+- RelayPanel View/Edit 两模式（参考 ModelPanel 设计）
+- RemoteControlConfig 结构化替代 extra 字段（向后兼容 extra.relay_*）
+- --remote-control 无参数时从配置读取；无 --remote-control 参数则不自动连接
+- Token 脱敏显示（****last4****），存储在 ~/.zen-code/settings.json
+**归档:** [链接](../../archive/feature_20260326_F004_remote-control-panel/)
+**归档日期:** 2026-03-27
+
+### feature_20260326_F008_statusbar-msgcount-relay-flag
+**摘要:** 状态栏显示消息计数，禁止 relay 隐式自动连接
+**关键决策:**
+- 消息数从 app.view_messages.len() 直接读取，无需新增事件或字段
+- 无 --remote-control 参数时 try_connect_relay else 分支直接 return，不读配置
+**归档:** [链接](../../archive/feature_20260326_F008_statusbar-msgcount-relay-flag/)
+**归档日期:** 2026-03-27
+
 ---
 
 ## 相关 Feature
 - → [agent.md#20260322_F001_agent-storage-refactor](./agent.md#20260322_F001_agent-storage-refactor) — SQLite 持久化，TUI 消息渲染依赖此存储
+- → [langfuse.md#feature_20260324_F001_langfuse-tui-monitoring](./langfuse.md#feature_20260324_F001_langfuse-tui-monitoring) — Langfuse 追踪集成在 TUI 的 app/agent.rs
