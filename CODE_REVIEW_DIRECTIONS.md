@@ -86,6 +86,8 @@
 - [x] **forward_to_web 锁与清理**
   - [x] `forward_to_web` 持有 DashMap shard Ref 跨 `.await` 点（反模式，可能死锁）：改为在 match 时立即 clone `Arc<SessionEntry>` 释放 shard lock，再做异步操作
   - [x] `forward_to_web` 缺少 retain 清理（与 `broadcast` 不一致）：改用 write lock + `retain(|tx| !tx.is_closed())`，避免 Web 客户端异常断开后 stale sender 持续积累
+  - [x] `handle_agent_ws` 延迟清理任务同样持有 DashMap Ref 跨两次 `.await`：改为 match 时立即 clone Arc，移除不再必要的手动 `drop(entry)`
+  - [x] `spawn_session_cleanup` 循环中 `iter()` Ref 跨两次 `.await`：改为先同步收集所有 `(key, Arc<SessionEntry>)` 再做异步 read，彻底释放所有 shard lock
 
 - [x] **TodoTool notify 可观测性**
   - [x] `TodoWriteTool.invoke` 通知 TUI 时 `let _ = tx.send(...).await` 静默忽略失败：改为 `is_err()` + `tracing::warn!`，channel 关闭时可感知；rust-agent-middlewares 添加 tracing 依赖

@@ -208,14 +208,16 @@ pub async fn handle_agent_ws(
     let sid_cleanup = sid.clone();
     let delayed_cleanup = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
-        if let Some(entry) = state_cleanup.sessions.get(&sid_cleanup) {
-            let connected = *entry.agent_connected.read().await;
-            let elapsed = entry.last_active.read().await.elapsed();
-            if !connected && elapsed > std::time::Duration::from_secs(30 * 60) {
-                drop(entry);
-                state_cleanup.sessions.remove(&sid_cleanup);
-                tracing::debug!("Session cleaned up after timeout: {}", sid_cleanup);
-            }
+        // 立即 clone Arc 释放 DashMap shard lock，避免跨 .await 持有锁
+        let entry = match state_cleanup.sessions.get(&sid_cleanup) {
+            Some(e) => e.clone(),
+            None => return,
+        };
+        let connected = *entry.agent_connected.read().await;
+        let elapsed = entry.last_active.read().await.elapsed();
+        if !connected && elapsed > std::time::Duration::from_secs(30 * 60) {
+            state_cleanup.sessions.remove(&sid_cleanup);
+            tracing::debug!("Session cleaned up after timeout: {}", sid_cleanup);
         }
     });
     tokio::spawn(async move {
@@ -473,12 +475,19 @@ pub fn spawn_session_cleanup(state: Arc<RelayState>) -> tokio::task::JoinHandle<
         tracing::debug!("session cleanup task started");
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5 * 60)).await;
+            // 先同步收集所有 (key, Arc) 以立即释放 DashMap shard locks，
+            // 再对每个 Arc 做 async read，避免跨 .await 持有 shard 锁
+            let entries: Vec<(String, Arc<SessionEntry>)> = state
+                .sessions
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect();
             let mut to_remove = Vec::new();
-            for entry in state.sessions.iter() {
-                let connected = *entry.value().agent_connected.read().await;
-                let last_active = *entry.value().last_active.read().await;
+            for (sid, entry) in entries {
+                let connected = *entry.agent_connected.read().await;
+                let last_active = *entry.last_active.read().await;
                 if !connected && last_active.elapsed() > std::time::Duration::from_secs(30 * 60) {
-                    to_remove.push(entry.key().clone());
+                    to_remove.push(sid);
                 }
             }
             for sid in to_remove {
