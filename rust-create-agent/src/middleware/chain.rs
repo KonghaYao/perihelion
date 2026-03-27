@@ -101,3 +101,180 @@ impl<S: State> Default for MiddlewareChain<S> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::state::AgentState;
+    use crate::error::{AgentError, AgentResult};
+    use crate::middleware::r#trait::Middleware;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+
+    /// 记录调用顺序的中间件
+    struct OrderRecorder {
+        name: String,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl OrderRecorder {
+        fn new(name: &str, log: Arc<Mutex<Vec<String>>>) -> Self {
+            Self { name: name.to_string(), log }
+        }
+    }
+
+    #[async_trait]
+    impl Middleware<AgentState> for OrderRecorder {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        async fn before_agent(&self, _state: &mut AgentState) -> AgentResult<()> {
+            self.log.lock().unwrap().push(format!("{}.before_agent", self.name));
+            Ok(())
+        }
+
+        async fn before_tool(
+            &self,
+            _state: &mut AgentState,
+            tool_call: &ToolCall,
+        ) -> AgentResult<ToolCall> {
+            self.log.lock().unwrap().push(format!("{}.before_tool", self.name));
+            Ok(tool_call.clone())
+        }
+
+        async fn after_tool(
+            &self,
+            _state: &mut AgentState,
+            _tool_call: &ToolCall,
+            _result: &ToolResult,
+        ) -> AgentResult<()> {
+            self.log.lock().unwrap().push(format!("{}.after_tool", self.name));
+            Ok(())
+        }
+    }
+
+    /// 修改 ToolCall 的中间件（用于验证 before_tool 链式传播）
+    struct InputModifier {
+        suffix: String,
+    }
+
+    #[async_trait]
+    impl Middleware<AgentState> for InputModifier {
+        fn name(&self) -> &str {
+            "InputModifier"
+        }
+
+        async fn before_tool(
+            &self,
+            _state: &mut AgentState,
+            tool_call: &ToolCall,
+        ) -> AgentResult<ToolCall> {
+            let mut modified = tool_call.clone();
+            let new_name = format!("{}{}", tool_call.name, self.suffix);
+            modified.name = new_name;
+            Ok(modified)
+        }
+    }
+
+    /// 总是返回错误的中间件（用于验证短路行为）
+    struct FailMiddleware;
+
+    #[async_trait]
+    impl Middleware<AgentState> for FailMiddleware {
+        fn name(&self) -> &str {
+            "FailMiddleware"
+        }
+
+        async fn before_agent(&self, _state: &mut AgentState) -> AgentResult<()> {
+            Err(AgentError::MiddlewareError {
+                middleware: "FailMiddleware".to_string(),
+                reason: "intentional failure".to_string(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multiple_middlewares_sequential_order() {
+        let log = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut chain = MiddlewareChain::<AgentState>::new();
+        chain.add(Box::new(OrderRecorder::new("A", Arc::clone(&log))));
+        chain.add(Box::new(OrderRecorder::new("B", Arc::clone(&log))));
+        chain.add(Box::new(OrderRecorder::new("C", Arc::clone(&log))));
+
+        let mut state = AgentState::new("/tmp");
+        chain.run_before_agent(&mut state).await.unwrap();
+
+        let calls = log.lock().unwrap().clone();
+        assert_eq!(calls, vec!["A.before_agent", "B.before_agent", "C.before_agent"]);
+    }
+
+    #[tokio::test]
+    async fn test_error_short_circuits_chain() {
+        let log = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut chain = MiddlewareChain::<AgentState>::new();
+        chain.add(Box::new(OrderRecorder::new("A", Arc::clone(&log))));
+        chain.add(Box::new(FailMiddleware));
+        chain.add(Box::new(OrderRecorder::new("B", Arc::clone(&log))));
+
+        let mut state = AgentState::new("/tmp");
+        let result = chain.run_before_agent(&mut state).await;
+
+        assert!(result.is_err(), "应该返回错误");
+        // B.before_agent 不应被执行
+        let calls = log.lock().unwrap().clone();
+        assert_eq!(calls, vec!["A.before_agent"]);
+    }
+
+    #[tokio::test]
+    async fn test_before_tool_modification_propagates() {
+        let mut chain = MiddlewareChain::<AgentState>::new();
+        chain.add(Box::new(InputModifier { suffix: "_modified".to_string() }));
+
+        let mut state = AgentState::new("/tmp");
+        let original = ToolCall::new("id1", "my_tool", serde_json::json!({}));
+        let result = chain.run_before_tool(&mut state, original).await.unwrap();
+
+        assert_eq!(result.name, "my_tool_modified");
+    }
+
+    #[tokio::test]
+    async fn test_before_tool_chained_modifications() {
+        let mut chain = MiddlewareChain::<AgentState>::new();
+        chain.add(Box::new(InputModifier { suffix: "_a".to_string() }));
+        chain.add(Box::new(InputModifier { suffix: "_b".to_string() }));
+
+        let mut state = AgentState::new("/tmp");
+        let original = ToolCall::new("id1", "tool", serde_json::json!({}));
+        let result = chain.run_before_tool(&mut state, original).await.unwrap();
+
+        assert_eq!(result.name, "tool_a_b");
+    }
+
+    #[tokio::test]
+    async fn test_empty_chain_runs_ok() {
+        let chain = MiddlewareChain::<AgentState>::new();
+        let mut state = AgentState::new("/tmp");
+        chain.run_before_agent(&mut state).await.unwrap();
+
+        let original = ToolCall::new("id", "tool", serde_json::json!({}));
+        let result = chain.run_before_tool(&mut state, original.clone()).await.unwrap();
+        assert_eq!(result.name, original.name);
+    }
+
+    #[tokio::test]
+    async fn test_after_tool_sequential_order() {
+        let log = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut chain = MiddlewareChain::<AgentState>::new();
+        chain.add(Box::new(OrderRecorder::new("A", Arc::clone(&log))));
+        chain.add(Box::new(OrderRecorder::new("B", Arc::clone(&log))));
+
+        let mut state = AgentState::new("/tmp");
+        let call = ToolCall::new("id", "tool", serde_json::json!({}));
+        let result = ToolResult { tool_call_id: "id".to_string(), tool_name: "tool".to_string(), output: "ok".to_string(), is_error: false };
+        chain.run_after_tool(&mut state, &call, &result).await.unwrap();
+
+        let calls = log.lock().unwrap().clone();
+        assert_eq!(calls, vec!["A.after_tool", "B.after_tool"]);
+    }
+}

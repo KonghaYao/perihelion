@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use rust_create_agent::agent::state::State;
 use rust_create_agent::middleware::r#trait::Middleware;
-use rust_create_agent::tools::{BaseTool, ToolProvider};
+use rust_create_agent::tools::BaseTool;
 use serde_json::Value;
 use std::process::Stdio;
 use tokio::process::Command;
@@ -122,12 +122,6 @@ impl TerminalMiddleware {
 impl Default for TerminalMiddleware {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl ToolProvider for TerminalMiddleware {
-    fn tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        Self::build_tools(cwd)
     }
 }
 
