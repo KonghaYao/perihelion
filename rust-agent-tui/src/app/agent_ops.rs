@@ -512,7 +512,11 @@ impl App {
 
                 // 通知 Relay Web 前端：compact 完成，推送压缩后的 LLM 上下文
                 if let Some(ref relay) = self.relay_client {
-                    relay.send_thread_reset(&self.agent_state_messages);
+                    let msg_vals: Vec<serde_json::Value> = self.agent_state_messages
+                        .iter()
+                        .filter_map(|m| serde_json::to_value(m).ok())
+                        .collect();
+                    relay.send_thread_reset(&msg_vals);
                 }
 
                 // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）

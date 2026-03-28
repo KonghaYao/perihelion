@@ -91,7 +91,11 @@ impl App {
 
         // 通知 Relay Web 前端：thread 已切换，推送完整历史消息
         if let Some(ref relay) = self.relay_client {
-            relay.send_thread_reset(&base_msgs);
+            let msg_vals: Vec<serde_json::Value> = base_msgs
+                .iter()
+                .filter_map(|m| serde_json::to_value(m).ok())
+                .collect();
+            relay.send_thread_reset(&msg_vals);
         }
 
         // 通知渲染线程加载历史消息

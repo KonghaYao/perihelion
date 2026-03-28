@@ -4,6 +4,7 @@ mod config;
 mod event;
 mod langfuse;
 mod prompt;
+mod relay_adapter;
 mod thread;
 mod ui;
 

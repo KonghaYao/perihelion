@@ -5,10 +5,6 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RelayMessage {
-    /// deprecated: 不再主动发送，实时事件改为扁平化 JSON + seq 直接推送
-    AgentEvent {
-        event: rust_create_agent::agent::AgentEvent,
-    },
     /// Sync 响应：历史事件批量推送（Agent → Web）
     SyncResponse {
         events: Vec<serde_json::Value>,

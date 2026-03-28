@@ -99,10 +99,16 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         // 转发到 Relay
         if let Some(ref relay) = relay_for_handler {
             match &event {
-                // BaseMessage 走新的 relay.send_message 路径
-                ExecutorEvent::MessageAdded(msg) => relay.send_message(msg),
-                // 其他事件走原有路径（兼容性保留）
-                _ => relay.send_agent_event(&event),
+                // BaseMessage 序列化后走 send_message 路径，保持原有 JSON 格式
+                ExecutorEvent::MessageAdded(msg) => {
+                    relay.send_message(&serde_json::to_value(msg).unwrap_or_default());
+                }
+                // 其他事件经适配器转换为 RelayAgentEvent 后发送
+                _ => {
+                    if let Some(relay_event) = crate::relay_adapter::to_relay_event(&event) {
+                        relay.send_agent_event(&relay_event);
+                    }
+                }
             }
         }
 
