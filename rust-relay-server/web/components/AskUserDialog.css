@@ -1,5 +1,5 @@
 .ask-user-item {
-    margin-bottom: 16px;
+    margin-bottom: 18px;
 }
 
 .ask-user-item:last-child {
@@ -8,64 +8,78 @@
 
 .ask-user-question {
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
+    font-family: var(--font-sans);
     color: var(--text-primary);
-    margin-bottom: 10px;
+    margin-bottom: 9px;
     line-height: 1.5;
+    letter-spacing: -0.01em;
 }
 
 .ask-user-options {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    margin-bottom: 8px;
+    gap: 5px;
+    margin-bottom: 9px;
 }
 
+/* 选项：凹陷背景，选中时纯白+橙边框 */
 .ask-user-option {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 9px 12px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
     color: var(--text-primary);
-    transition: background 0.15s, border-color 0.15s;
+    transition: background 0.12s, border-color 0.12s;
     user-select: none;
+    background: var(--bg-elevated);
+    font-family: var(--font-sans);
 }
 
 .ask-user-option:hover {
     background: var(--bg-surface);
+    border-color: var(--border);
+}
+
+.ask-user-option:has(input:checked) {
+    background: var(--bg-white);
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-light);
 }
 
 .ask-user-option input[type="radio"],
 .ask-user-option input[type="checkbox"] {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
     accent-color: var(--accent);
     cursor: pointer;
+    margin-top: 1px;
 }
 
+/* 文本输入框 */
 .ask-user-text {
     width: 100%;
-    padding: 9px 14px;
-    background: var(--bg-base);
+    padding: 8px 12px;
+    background: var(--bg-white);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 6px;
     color: var(--text-primary);
     font-size: 13px;
-    font-family: inherit;
+    font-family: var(--font-sans);
     outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color 0.12s, box-shadow 0.12s;
     box-sizing: border-box;
+    line-height: 1.6;
 }
 
 .ask-user-text:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.12);
+    box-shadow: 0 0 0 3px var(--accent-light);
 }
 
 .ask-user-text::placeholder {
@@ -73,16 +87,18 @@
 }
 
 .ask-user-header-chip {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     padding: 2px 8px;
     background: var(--accent);
     color: #fff;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.02em;
-    margin-bottom: 6px;
-    opacity: 0.85;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    margin-bottom: 7px;
+    font-family: var(--font-sans);
 }
 
 .ask-user-option-label-wrap {
@@ -92,7 +108,7 @@
 }
 
 .ask-user-opt-desc {
-    font-size: 11px;
+    font-size: 11.5px;
     color: var(--text-muted);
-    line-height: 1.4;
+    line-height: 1.5;
 }

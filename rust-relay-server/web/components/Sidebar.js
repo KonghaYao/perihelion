@@ -26,7 +26,8 @@ export function Sidebar({ mobileSidebarOpen, onCloseMobile }) {
   return html`
     <aside id="sidebar" class=${sidebarClass}>
       <div class="sidebar-header">
-        <div class="text-sm font-bold" style="color: var(--accent)">在线 Agent</div>
+        <h1>Remote Control</h1>
+        <p>Agent Monitor</p>
       </div>
 
       <div id="agent-list" class="flex-1 overflow-y-auto">

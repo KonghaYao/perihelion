@@ -6,29 +6,44 @@
     justify-content: center;
     color: var(--text-muted);
     gap: 10px;
+    background: var(--bg-base);
+}
+
+.pane-empty p {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--text-muted);
 }
 
 .pane-empty select {
-    background: var(--bg-base);
+    background: var(--bg-white);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-primary);
-    padding: 6px 10px;
+    padding: 7px 28px 7px 11px;
     font-size: 13px;
-    font-family: inherit;
+    font-family: var(--font-sans);
     cursor: pointer;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.12s;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23a1a1aa' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
 }
 
 .pane-empty select:focus {
     border-color: var(--accent);
 }
 
+/* =============================================
+   Input Bar
+   ============================================= */
 .pane-input {
     display: flex;
-    padding: 10px 14px;
-    gap: 8px;
+    padding: 11px 16px;
+    gap: 9px;
     background: var(--bg-surface);
     border-top: 1px solid var(--border);
     flex-shrink: 0;
@@ -37,22 +52,21 @@
 
 .pane-input input {
     flex: 1;
-    padding: 9px 14px;
-    background: var(--bg-base);
+    padding: 8px 14px;
+    background: var(--bg-white);
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: 6px;
     color: var(--text-primary);
     font-size: 14px;
-    font-family: inherit;
+    font-family: var(--font-sans);
     outline: none;
-    transition:
-        border-color 0.15s,
-        box-shadow 0.15s;
+    transition: border-color 0.12s, box-shadow 0.12s;
+    line-height: 1.5;
 }
 
 .pane-input input:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.12);
+    box-shadow: 0 0 0 3px var(--accent-light);
 }
 
 .pane-input input::placeholder {
@@ -60,19 +74,18 @@
 }
 
 .pane-input .send-btn {
-    padding: 9px 18px;
+    padding: 8px 18px;
     background: var(--accent);
     color: #fff;
     border: none;
-    border-radius: 20px;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 14px;
-    font-family: inherit;
-    font-weight: 500;
+    font-size: 13px;
+    font-family: var(--font-sans);
+    font-weight: 400;
     white-space: nowrap;
-    transition:
-        background 0.15s,
-        transform 0.1s;
+    letter-spacing: 0.01em;
+    transition: background 0.12s, transform 0.1s;
 }
 
 .pane-input .send-btn:hover {
@@ -85,11 +98,12 @@
 
 .agent-status {
     font-size: 12px;
-    color: var(--accent);
+    color: var(--sage);
     white-space: nowrap;
     opacity: 0;
     transition: opacity 0.2s;
     min-width: 80px;
+    font-family: var(--font-sans);
 }
 
 .agent-status.visible {

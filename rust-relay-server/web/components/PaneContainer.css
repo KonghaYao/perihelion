@@ -11,35 +11,37 @@
     display: flex;
     gap: 4px;
     padding: 6px 12px;
-    background: var(--bg-elevated);
+    background: var(--bg-surface);
     border-bottom: 1px solid var(--border);
     justify-content: flex-end;
+    align-items: center;
     flex-shrink: 0;
 }
 
 .layout-btn {
-    width: 28px;
-    height: 28px;
-    border-radius: 5px;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
     border: 1px solid var(--border);
-    background: transparent;
+    background: var(--bg-white);
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 12px;
-    font-family: inherit;
-    transition: all 0.15s;
+    font-size: 11px;
+    font-family: var(--font-sans);
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 
 .layout-btn:hover {
-    background: rgba(0, 0, 0, 0.05);
-    color: var(--text-primary);
+    border-color: var(--accent);
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
 }
 
 .layout-btn.active {
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
-    font-weight: bold;
+    font-weight: 600;
 }
 
 #pane-container {
@@ -71,12 +73,12 @@
 }
 
 /* =============================================
-   Mobile Tabs（多面板时显示）
+   Mobile Tabs
    ============================================= */
 #mobile-tabs {
     display: none;
     overflow-x: auto;
-    background: var(--bg-elevated);
+    background: var(--bg-surface);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     -webkit-overflow-scrolling: touch;
@@ -96,20 +98,20 @@
     color: var(--text-muted);
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color 0.12s, border-color 0.12s;
     background: transparent;
     border-top: none;
     border-left: none;
     border-right: none;
-    font-family: inherit;
+    font-family: var(--font-sans);
 }
 
 .mobile-tab:hover {
-    color: var(--text-primary);
+    color: var(--text-secondary);
 }
 
 .mobile-tab.active {
-    color: var(--text-primary);
+    color: var(--accent);
     border-bottom-color: var(--accent);
     font-weight: 500;
 }

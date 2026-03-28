@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Rust Agent 框架，包含 **4 个 Workspace Crate**：
 
 - **`rust-create-agent`**：核心框架——ReAct 循环执行器、Middleware trait、LLM 适配器、工具系统
-- **`rust-agent-middlewares`**：具体中间件实现（文件系统、终端、Skills、HITL、SubAgent、ask_user）
+- **`rust-agent-middlewares`**：具体中间件实现（文件系统、终端、Skills、HITL、SubAgent、ask_user_question）
 - **`rust-agent-tui`**：交互式 TUI playground，基于 ratatui
 - **`rust-relay-server`**：远程控制 WebSocket 中继服务（Agent ↔ Web 双向通信）
 
@@ -231,10 +231,39 @@ web/
 | `folder_operations` | FilesystemMiddleware | ✓ |
 | `bash` | TerminalMiddleware | ✓ |
 | `todo_write` | TodoMiddleware | — |
-| `ask_user` | 手动注册（AskUserTool） | — |
+| `ask_user_question` | 手动注册（AskUserTool） | — |
 | `launch_agent` | SubAgentMiddleware | ✓ |
 
 `bash` 默认超时 120 秒。跨平台：Windows 用 `cmd /C`，其他用 `bash -c`。
+
+### ask_user_question 工具参数
+
+批量向用户提问，1-4 个问题一次性发出，支持单选/多选。
+
+```json
+{
+  "questions": [
+    {
+      "question": "向用户提出的问题（包含必要上下文）",
+      "header": "短标签 <=12字（UI Tab 显示）",
+      "multi_select": false,
+      "options": [
+        { "label": "选项文本（1-50字）", "description": "选项说明（可选）" }
+      ]
+    }
+  ]
+}
+```
+
+**字段说明：**
+- `questions`：1-4 个问题
+- `header`：最多 12 字，显示在 UI Tab 上
+- `multi_select`：默认 `false`（单选），`true` 时允许多选
+- `options`：2-4 个选项；每个问题还自带文本输入框，用户可自由填写
+
+**返回格式：**
+- 单问题：直接返回所选选项（多选用 `, ` 拼接）或自定义文本
+- 多问题：`[问: header]\n回答: value\n\n[问: header]\n回答: value`
 
 ### SubAgents（子 Agent 委派）
 
@@ -372,7 +401,7 @@ ReActAgent::new(llm)
 | `OPENAI_API_KEY` | OpenAI 兼容 API Key |
 | `OPENAI_BASE_URL` | API Base URL |
 | `OPENAI_MODEL` | 模型名称 |
-| `YOLO_MODE=true` | 跳过 HITL 审批（不影响 ask_user） |
+| `YOLO_MODE=true` | 跳过 HITL 审批（不影响 ask_user_question） |
 | `RUST_LOG` | 日志级别（默认 `info`） |
 | `RUST_LOG_FILE` | 日志文件路径 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | 启用 OTLP 导出 |
