@@ -73,6 +73,20 @@ impl App {
             AgentInput::blocks(MessageContent::blocks(blocks))
         };
 
+        // 解析消息中的 #skill-name（字母、数字、连字符、下划线）
+        let preload_skills: Vec<String> = input
+            .split_whitespace()
+            .filter(|token| token.starts_with('#') && token.len() > 1)
+            .map(|token| {
+                let name = token.trim_start_matches('#');
+                // 只取合法字符（字母、数字、-、_），遇到非法字符截断
+                name.chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                    .collect::<String>()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+
         // 确保当前 thread 存在
         let thread_id = self.ensure_thread_id();
 
@@ -131,6 +145,7 @@ impl App {
                     langfuse_tracer,
                     thread_store,
                     thread_id: thread_id_for_agent,
+                    preload_skills,
                 })
                 .await;
             }
@@ -374,16 +389,18 @@ impl App {
                         (true, true, false) // 暂停消费，等待用户确认
                     }
                     InteractionContext::Questions { requests } => {
-                        // 桥接：将 QuestionItem 列表转为旧式 AskUserQuestionData + 转换响应类型
+                        // 桥接：将 QuestionItem 列表转为 AskUserQuestionData + 转换响应类型
                         let ask_questions: Vec<AskUserQuestionData> = requests
                             .iter()
                             .map(|q| AskUserQuestionData {
                                 tool_call_id: q.id.clone(),
-                                description: q.question.clone(),
+                                question: q.question.clone(),
+                                header: q.header.clone(),
                                 multi_select: q.multi_select,
-                                options: q.options.iter().map(|o| AskUserOption { label: o.label.clone() }).collect(),
-                                allow_custom_input: q.allow_custom_input,
-                                placeholder: q.placeholder.clone(),
+                                options: q.options.iter().map(|o| AskUserOption {
+                                    label: o.label.clone(),
+                                    description: o.description.clone(),
+                                }).collect(),
                             })
                             .collect();
                         let (bridge_tx, bridge_rx) = oneshot::channel::<Vec<String>>();
@@ -404,11 +421,10 @@ impl App {
                             let questions_json: Vec<serde_json::Value> = ask_questions.iter().map(|q| {
                                 serde_json::json!({
                                     "tool_call_id": q.tool_call_id,
-                                    "description": q.description,
+                                    "question": q.question,
+                                    "header": q.header,
                                     "multi_select": q.multi_select,
-                                    "options": q.options.iter().map(|o| serde_json::json!({"label": o.label})).collect::<Vec<_>>(),
-                                    "allow_custom_input": q.allow_custom_input,
-                                    "placeholder": q.placeholder,
+                                    "options": q.options.iter().map(|o| serde_json::json!({"label": o.label, "description": o.description})).collect::<Vec<_>>(),
                                 })
                             }).collect();
                             relay.send_value(serde_json::json!({

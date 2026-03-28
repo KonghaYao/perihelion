@@ -27,6 +27,7 @@ pub struct AgentRunConfig {
     pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
     pub thread_store: Arc<dyn rust_create_agent::thread::ThreadStore>,
     pub thread_id: rust_create_agent::thread::ThreadId,
+    pub preload_skills: Vec<String>,
 }
 
 pub async fn run_universal_agent(cfg: AgentRunConfig) {
@@ -42,6 +43,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         langfuse_tracer,
         thread_store,
         thread_id,
+        preload_skills,
     } = cfg;
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
@@ -169,6 +171,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         .add_middleware(Box::new(AgentsMdMiddleware::new()))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new(SkillsMiddleware::new()))
+        .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd)))
         .add_middleware(Box::new(FilesystemMiddleware::new()))
         .add_middleware(Box::new(TerminalMiddleware::new()))
         .add_middleware(Box::new(TodoMiddleware::new(todo_tx)))
