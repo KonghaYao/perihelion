@@ -41,24 +41,22 @@ pub fn render(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),                 // [0] 标题栏
-            Constraint::Min(3),                    // [1] 聊天区
-            Constraint::Length(todo_height),       // [2] TODO 面板（动态）
-            Constraint::Length(attachment_height), // [3] 附件栏（动态）
-            Constraint::Length(panel_height),      // [4] 底部展开区（动态）
-            Constraint::Length(input_height),      // [5] 输入框（动态）
-            Constraint::Length(1),                 // [6] 状态栏
+            Constraint::Min(3),                    // [0] 聊天区
+            Constraint::Length(todo_height),       // [1] TODO 面板（动态）
+            Constraint::Length(attachment_height), // [2] 附件栏（动态）
+            Constraint::Length(panel_height),      // [3] 底部展开区（动态）
+            Constraint::Length(input_height),      // [4] 输入框（动态）
+            Constraint::Length(1),                 // [5] 状态栏
         ])
         .split(area);
 
-    render_title(f, app, chunks[0]);
-    render_messages(f, app, chunks[1]);
-    render_todo_panel(f, app, chunks[2]);
-    render_attachment_bar(f, app, chunks[3]);
+    render_messages(f, app, chunks[0]);
+    render_todo_panel(f, app, chunks[1]);
+    render_attachment_bar(f, app, chunks[2]);
 
     // 底部展开区（HITL / AskUser / 配置面板）
     if panel_height > 0 {
-        let panel_area = chunks[4];
+        let panel_area = chunks[3];
         match &app.interaction_prompt {
             Some(crate::app::InteractionPrompt::Approval(_)) => {
                 popups::hitl::render_hitl_popup(f, app, panel_area);
@@ -82,12 +80,12 @@ pub fn render(f: &mut Frame, app: &mut App) {
         }
     }
 
-    f.render_widget(&app.textarea, chunks[5]);
-    status_bar::render_status_bar(f, app, chunks[6]);
+    f.render_widget(&app.textarea, chunks[4]);
+    status_bar::render_status_bar(f, app, chunks[5]);
 
     // 命令/Skills 提示条（浮动在输入框上方）
-    popups::hints::render_command_hint(f, app, chunks[5]);
-    popups::hints::render_skill_hint(f, app, chunks[5]);
+    popups::hints::render_command_hint(f, app, chunks[4]);
+    popups::hints::render_skill_hint(f, app, chunks[4]);
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
@@ -117,43 +115,6 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
         0
     };
     raw.min(max_h)
-}
-
-fn render_title(f: &mut Frame, app: &App, area: Rect) {
-    let model_info = app
-        .zen_config
-        .as_ref()
-        .map(|c| {
-            let alias = &c.config.active_alias;
-            let mapping = match alias.as_str() {
-                "opus" => &c.config.model_aliases.opus,
-                "sonnet" => &c.config.model_aliases.sonnet,
-                "haiku" => &c.config.model_aliases.haiku,
-                _ => &c.config.model_aliases.opus,
-            };
-            let model_part = if mapping.model_id.is_empty() {
-                app.model_name.as_str()
-            } else {
-                mapping.model_id.as_str()
-            };
-            format!("{}:{}", alias, model_part)
-        })
-        .unwrap_or_else(|| format!("{} {}", app.provider_name, app.model_name));
-    let subtitle = format!(
-        "  —  {} | FilesystemMiddleware + TerminalMiddleware + SubAgentMiddleware",
-        model_info
-    );
-    let title = Paragraph::new(Line::from(vec![
-        Span::styled(" 🦀 ", Style::default().fg(theme::ERROR)),
-        Span::styled(
-            "Rust Agent TUI",
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(subtitle, Style::default().fg(theme::MUTED)),
-    ]));
-    f.render_widget(title, area);
 }
 
 fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
