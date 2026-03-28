@@ -95,8 +95,6 @@ pub struct App {
     pub current_thread_id: Option<ThreadId>,
     /// 启动时的历史浏览面板（选择后关闭）
     pub thread_browser: Option<ThreadBrowser>,
-    /// 已持久化到 thread 的消息数量（用于增量追加）
-    persisted_count: usize,
     /// 当前 Agent 任务的取消令牌（loading 时有效，Ctrl+C 触发）
     cancel_token: Option<AgentCancellationToken>,
     /// 当前 Agent 任务开始时间（用于计算运行时长）
@@ -231,7 +229,6 @@ impl App {
             thread_store,
             current_thread_id: None,
             thread_browser: None,
-            persisted_count: 0,
             cancel_token: None,
             task_start_time: None,
             last_task_duration: None,

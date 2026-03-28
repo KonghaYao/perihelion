@@ -75,10 +75,6 @@ impl App {
 
         // 确保当前 thread 存在
         let thread_id = self.ensure_thread_id();
-        // 用户消息将由 agent 执行结束时的 StateSnapshot 统一持久化，
-        // 避免与 StateSnapshot 竞争写 DB seq 导致序号错乱/重复写入
-        // 用户消息已追加到 self.view_messages，更新已持久化计数
-        self.persisted_count = self.view_messages.len();
 
         // 懒加载 Thread 级 LangfuseSession（首轮创建，后续复用；未配置环境变量时静默跳过）
         if self.langfuse_session.is_none() {
@@ -119,6 +115,8 @@ impl App {
         let history = self.agent_state_messages.clone();
         let agent_id = self.agent_id.clone();
         let relay_client = self.relay_client.clone();
+        let thread_store = self.thread_store.clone();
+        let thread_id_for_agent = thread_id.clone();
         tokio::spawn(
             async move {
                 agent::run_universal_agent(agent::AgentRunConfig {
@@ -131,6 +129,8 @@ impl App {
                     agent_id,
                     relay_client,
                     langfuse_tracer,
+                    thread_store,
+                    thread_id: thread_id_for_agent,
                 })
                 .await;
             }
@@ -467,31 +467,8 @@ impl App {
                     }
                 }
                 // 增量追加到 agent_state_messages（去重，避免重复消息）
-                let start = self.agent_state_messages.len();
                 self.agent_state_messages.extend(msgs);
-
-                // 增量持久化到 thread（从上次持久化位置之后的所有消息）
-                if let Some(id) = self.current_thread_id.clone() {
-                    let new_msgs: Vec<_> = self.agent_state_messages[start..]
-                        .iter()
-                        .filter(|m| !matches!(m, BaseMessage::System { .. }))
-                        .cloned()
-                        .collect();
-                    if !new_msgs.is_empty() {
-                        let store = self.thread_store.clone();
-                        let tid = id.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = store.append_messages(&tid, &new_msgs).await {
-                                tracing::warn!(
-                                    thread_id = %tid,
-                                    msg_count = new_msgs.len(),
-                                    error = %e,
-                                    "StateSnapshot 持久化写入失败"
-                                );
-                            }
-                        });
-                    }
-                }
+                // 持久化已由 AgentState::add_message 自动完成（fire-and-forget）
                 (true, false, false)
             }
             AgentEvent::CompactDone(summary) => {
@@ -529,9 +506,6 @@ impl App {
                             vm.clone(),
                         ));
                 }
-
-                // 重置持久化计数（view_messages 已重建）
-                self.persisted_count = 0;
 
                 self.set_loading(false);
                 self.agent_rx = None;

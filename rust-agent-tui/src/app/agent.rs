@@ -25,6 +25,8 @@ pub struct AgentRunConfig {
     pub agent_id: Option<String>,
     pub relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
+    pub thread_store: Arc<dyn rust_create_agent::thread::ThreadStore>,
+    pub thread_id: rust_create_agent::thread::ThreadId,
 }
 
 pub async fn run_universal_agent(cfg: AgentRunConfig) {
@@ -38,6 +40,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         agent_id,
         relay_client,
         langfuse_tracer,
+        thread_store,
+        thread_id,
     } = cfg;
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
@@ -169,7 +173,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
 
     // 捕获 history 长度，用于后续从全量状态中截取本轮新增消息
     let history_len = history.len();
-    let mut state = AgentState::with_messages(cwd, history);
+    let mut state = AgentState::with_messages(cwd, history)
+        .with_persistence(thread_store, thread_id);
     if let Some(id) = agent_id {
         state = state.with_context("agent_id", id);
     }

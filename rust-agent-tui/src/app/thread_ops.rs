@@ -85,7 +85,6 @@ impl App {
             }
             self.view_messages.push(vm);
         }
-        self.persisted_count = self.view_messages.len();
         self.current_thread_id = Some(thread_id);
         self.thread_browser = None;
         self.langfuse_session = None;
@@ -106,7 +105,6 @@ impl App {
         self.view_messages.clear();
         self.agent_state_messages.clear();
         self.current_thread_id = None;
-        self.persisted_count = 0;
         self.todo_items.clear();
         self.pending_attachments.clear();
         self.thread_browser = None;

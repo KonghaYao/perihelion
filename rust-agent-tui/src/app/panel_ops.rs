@@ -259,7 +259,6 @@ impl App {
             thread_store,
             current_thread_id: None,
             thread_browser: None,
-            persisted_count: 0,
             cancel_token: None,
             task_start_time: None,
             last_task_duration: None,
