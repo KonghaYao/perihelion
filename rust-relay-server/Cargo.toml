@@ -45,5 +45,5 @@ subtle = { version = "2", optional = true }
 
 # Client-only dependencies
 tokio-tungstenite = { version = "0.29", features = [
-    "native-tls",
+    "rustls-tls-native-roots",
 ], optional = true }

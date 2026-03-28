@@ -256,15 +256,26 @@ impl App {
                         let _ = self.render_tx.send(RenderEvent::UpdateLastMessage(vm));
                     }
                 } else {
-                    match self.view_messages.last_mut() {
-                        Some(m) if m.is_assistant() => m.append_chunk(&chunk),
-                        _ => {
-                            let vm = MessageViewModel::assistant();
-                            self.view_messages.push(vm.clone());
-                            let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                    // 如果 chunk 为空且没有现有的 assistant bubble，跳过创建空的 bubble
+                    // 避免 AI 只发起工具调用时显示空白消息
+                    if chunk.is_empty() {
+                        match self.view_messages.last_mut() {
+                            Some(m) if m.is_assistant() => m.append_chunk(&chunk),
+                            _ => {
+                                // 没有现有的 assistant bubble，chunk 为空，不创建新的空 bubble
+                            }
                         }
+                    } else {
+                        match self.view_messages.last_mut() {
+                            Some(m) if m.is_assistant() => m.append_chunk(&chunk),
+                            _ => {
+                                let vm = MessageViewModel::assistant();
+                                self.view_messages.push(vm.clone());
+                                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                            }
+                        }
+                        let _ = self.render_tx.send(RenderEvent::AppendChunk(chunk));
                     }
-                    let _ = self.render_tx.send(RenderEvent::AppendChunk(chunk));
                 }
                 (true, false, false)
             }

@@ -493,4 +493,85 @@ mod tests {
         let has_tool_call_text = snap.iter().any(|l| l.contains("bash") || l.contains("Bash"));
         assert!(has_tool_call_text, "ToolCall 创建的 ToolBlock 应在快照中可见，但实际内容为:\n{}", snap.join("\n"));
     }
+
+    #[tokio::test]
+    async fn test_empty_assistant_chunk_no_bubble() {
+        // 空 AssistantChunk 不应创建空白的 AssistantBubble
+        let (mut app, _handle) = App::new_headless(120, 30);
+
+        // 发送空 chunk，不应创建 AssistantBubble
+        app.push_agent_event(AgentEvent::AssistantChunk("".into()));
+        app.process_pending_events();
+
+        // view_messages 应为空（没有创建空白气泡）
+        assert!(
+            app.view_messages.is_empty(),
+            "空 AssistantChunk 不应创建 AssistantBubble，实际: {:?}",
+            app.view_messages.len()
+        );
+
+        // 发送多个空 chunk，仍不应创建气泡
+        app.push_agent_event(AgentEvent::AssistantChunk("".into()));
+        app.push_agent_event(AgentEvent::AssistantChunk("".into()));
+        app.process_pending_events();
+
+        assert!(
+            app.view_messages.is_empty(),
+            "多个空 AssistantChunk 仍不应创建 AssistantBubble"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_empty_then_nonempty_assistant_chunk() {
+        // 空_chunk → 非空_chunk：非空 chunk 应正常创建气泡
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 先发送空 chunk
+        app.push_agent_event(AgentEvent::AssistantChunk("".into()));
+        app.process_pending_events();
+
+        // 再发送非空 chunk
+        let notify = Arc::clone(&handle.render_notify);
+        let n1 = notify.notified();
+        let n2 = notify.notified();
+        app.push_agent_event(AgentEvent::AssistantChunk("Hello".into()));
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+        tokio::join!(n1, n2);
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+        // 应该只有 1 个 AssistantBubble，内容为 "Hello"
+        assert_eq!(app.view_messages.len(), 1, "应只有 1 条消息");
+        assert!(app.view_messages[0].is_assistant(), "应为 AssistantBubble");
+        assert!(handle.contains("Hello"), "应显示 Hello 内容");
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_without_assistant_chunk_no_bubble() {
+        // 模拟 AI 只调用工具不输出文本的场景
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 直接发送 ToolCall 事件（无 AssistantChunk）
+        let notified = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::ToolCall {
+            tool_call_id: "tc1".into(),
+            name: "bash".into(),
+            display: "Bash".into(),
+            args: Some("ls".into()),
+            is_error: false,
+        });
+        app.process_pending_events();
+        notified.await;
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+        // 应该有 1 个 ToolBlock，不应有空白 AssistantBubble
+        assert_eq!(app.view_messages.len(), 1, "应有 1 条消息（ToolBlock）");
+        // 确保不是 AssistantBubble（空白气泡）
+        assert!(
+            !app.view_messages[0].is_assistant(),
+            "不应创建 AssistantBubble，应为 ToolBlock"
+        );
+    }
 }

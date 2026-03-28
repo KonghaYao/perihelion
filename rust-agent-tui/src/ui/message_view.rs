@@ -82,9 +82,11 @@ impl MessageViewModel {
             }
             BaseMessage::Ai {
                 content,
+                tool_calls,
                 ..
             } => {
-                let blocks: Vec<ContentBlockView> = content
+                // 先处理 content 中的 blocks
+                let mut blocks: Vec<ContentBlockView> = content
                     .content_blocks()
                     .into_iter()
                     .map(|block| match block {
@@ -110,6 +112,27 @@ impl MessageViewModel {
                         },
                     })
                     .collect();
+
+                // 补充 tool_calls 字段中的工具调用（当 content 中没有对应的 ToolUse block 时）
+                // 避免重复：如果 content_blocks 中已有同名 ToolUse，跳过
+                let existing_tool_names: std::collections::HashSet<String> = blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if let ContentBlockView::ToolUse { name } = b {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                for tc in tool_calls {
+                    if !existing_tool_names.contains(&tc.name) {
+                        blocks.push(ContentBlockView::ToolUse {
+                            name: tc.name.clone(),
+                        });
+                    }
+                }
 
                 MessageViewModel::AssistantBubble {
                     blocks,
@@ -291,5 +314,124 @@ pub fn tool_color(name: &str) -> Color {
         "folder_operations" => theme::WARNING,
         _ if name.contains("error") => theme::ERROR,
         _ => theme::MUTED,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_create_agent::messages::{MessageContent, ToolCallRequest};
+    use serde_json::json;
+
+    /// 测试：AI 消息只有 tool_calls（无 content）时，应正确渲染工具调用
+    #[test]
+    fn test_ai_message_with_only_tool_calls_renders_tool_use() {
+        // 模拟：AI 消息只包含 tool_calls，content 为空
+        let msg = BaseMessage::ai_with_tool_calls(
+            MessageContent::text(""),
+            vec![
+                ToolCallRequest::new("toolu_001", "bash", json!({"command": "ls"})),
+                ToolCallRequest::new("toolu_002", "read_file", json!({"path": "test.txt"})),
+            ],
+        );
+
+        let vm = MessageViewModel::from_base_message(&msg, &[]);
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                // 应该有 2 个 ToolUse block
+                let tool_uses: Vec<_> = blocks
+                    .iter()
+                    .filter(|b| matches!(b, ContentBlockView::ToolUse { .. }))
+                    .collect();
+                assert_eq!(tool_uses.len(), 2, "应该有 2 个 ToolUse block");
+
+                // 验证工具名称
+                let names: Vec<&str> = blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if let ContentBlockView::ToolUse { name } = b {
+                            Some(name.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                assert!(names.contains(&"bash"), "应包含 bash 工具");
+                assert!(names.contains(&"read_file"), "应包含 read_file 工具");
+            }
+            _ => panic!("应该是 AssistantBubble"),
+        }
+    }
+
+    /// 测试：AI 消息同时有文本和 tool_calls 时，两者都应渲染
+    #[test]
+    fn test_ai_message_with_text_and_tool_calls_renders_both() {
+        let msg = BaseMessage::ai_with_tool_calls(
+            MessageContent::text("I'll run a command"),
+            vec![ToolCallRequest::new("toolu_001", "bash", json!({"command": "ls"}))],
+        );
+
+        let vm = MessageViewModel::from_base_message(&msg, &[]);
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                // 应该有 1 个 Text block 和 1 个 ToolUse block
+                let text_count = blocks
+                    .iter()
+                    .filter(|b| matches!(b, ContentBlockView::Text { .. }))
+                    .count();
+                let tool_count = blocks
+                    .iter()
+                    .filter(|b| matches!(b, ContentBlockView::ToolUse { .. }))
+                    .count();
+
+                assert_eq!(text_count, 1, "应该有 1 个 Text block");
+                assert_eq!(tool_count, 1, "应该有 1 个 ToolUse block");
+            }
+            _ => panic!("应该是 AssistantBubble"),
+        }
+    }
+
+    /// 测试：content 中已有 ToolUse block 时，不重复添加 tool_calls
+    #[test]
+    fn test_no_duplicate_tool_use_from_tool_calls() {
+        use rust_create_agent::messages::ContentBlock;
+
+        // content 中包含 ToolUse block，同时 tool_calls 也有相同的
+        let blocks = vec![
+            ContentBlock::text("I'll run bash"),
+            ContentBlock::tool_use("toolu_001", "bash", json!({"command": "ls"})),
+        ];
+        let msg = BaseMessage::ai_from_blocks(blocks);
+
+        let vm = MessageViewModel::from_base_message(&msg, &[]);
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                // 应该只有 1 个 ToolUse block（不重复）
+                let tool_count = blocks
+                    .iter()
+                    .filter(|b| matches!(b, ContentBlockView::ToolUse { .. }))
+                    .count();
+                assert_eq!(tool_count, 1, "不应该重复添加 ToolUse block");
+            }
+            _ => panic!("应该是 AssistantBubble"),
+        }
+    }
+
+    /// 测试：纯文本 AI 消息正常渲染
+    #[test]
+    fn test_ai_message_with_only_text_renders_text() {
+        let msg = BaseMessage::ai("Hello, how can I help?");
+
+        let vm = MessageViewModel::from_base_message(&msg, &[]);
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                assert_eq!(blocks.len(), 1, "应该有 1 个 block");
+                assert!(
+                    matches!(blocks[0], ContentBlockView::Text { .. }),
+                    "应该是 Text block"
+                );
+            }
+            _ => panic!("应该是 AssistantBubble"),
+        }
     }
 }

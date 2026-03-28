@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "TUI interface for Rust Agent - interactive terminal playground"
 
+[lib]
+name = "rust_agent_tui"
+path = "src/lib.rs"
+
 [[bin]]
 name = "agent-tui"
 path = "src/main.rs"

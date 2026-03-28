@@ -1,13 +1,3 @@
-mod app;
-mod command;
-mod config;
-mod event;
-mod langfuse;
-mod prompt;
-mod relay_adapter;
-mod thread;
-mod ui;
-
 use anyhow::Result;
 use ratatui::{
     crossterm::{
@@ -18,6 +8,11 @@ use ratatui::{
     prelude::*,
 };
 use std::io;
+
+use rust_agent_tui::app::App;
+use rust_agent_tui::event;
+use rust_agent_tui::ui;
+use rust_agent_tui::{parse_relay_args, RelayCli};
 
 fn main() -> Result<()> {
     // 加载 .env 文件（仅开发环境，文件不存在时静默忽略）
@@ -71,39 +66,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// CLI 参数解析结果：--remote-control [url] [--relay-token <token>] [--relay-name <name>]
-/// url 为空字符串表示 `--remote-control` 无参数模式（从配置读取）
-pub struct RelayCli {
-    pub url: String,
-    pub token: Option<String>,
-    pub name: Option<String>,
-}
-
-fn parse_relay_args(args: &[String]) -> Option<RelayCli> {
-    // 查找 --remote-control 参数位置
-    let remote_idx = args.iter().position(|a| a == "--remote-control")?;
-
-    // 检查是否有值（即 --remote-control <url> 格式）
-    // 有值条件：下一个参数存在且不以 -- 开头
-    let url = if remote_idx + 1 < args.len() && !args[remote_idx + 1].starts_with("--") {
-        args[remote_idx + 1].clone()
-    } else {
-        // --remote-control 无参数，返回空字符串标记"从配置读取"
-        String::new()
-    };
-
-    let token = args.windows(2)
-        .find(|w| w[0] == "--relay-token")
-        .map(|w| w[1].clone());
-    let name = args.windows(2)
-        .find(|w| w[0] == "--relay-name")
-        .map(|w| w[1].clone());
-
-    Some(RelayCli { url, token, name })
-}
-
 async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cli: Option<RelayCli>) -> Result<()> {
-    let mut app = app::App::new();
+    let mut app = App::new();
 
     // 尝试连接 Relay Server（CLI 参数优先，其次读 settings.json）
     app.try_connect_relay(relay_cli.as_ref()).await;
