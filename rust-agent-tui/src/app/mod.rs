@@ -131,8 +131,8 @@ pub struct App {
     relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     /// Relay 事件接收端（来自 Web 端的控制消息）
     relay_event_rx: Option<rust_relay_server::client::RelayEventRx>,
-    /// Relay 连接参数缓存（url, token, name），断线后自动重连使用
-    relay_params: Option<(String, String, Option<String>)>,
+    /// Relay 连接参数缓存（url, token, name, user_id），断线后自动重连使用
+    relay_params: Option<(String, String, Option<String>, String)>,
     /// Relay 重连计划时间（达到后尝试重连，None 表示不需要重连）
     relay_reconnect_at: Option<std::time::Instant>,
     /// Thread 级别的 Langfuse Session（Thread 创建/打开时懒加载，new_thread/open_thread 时重置）
@@ -332,13 +332,48 @@ impl App {
             return;
         };
 
+        // 获取或注册 user_id（复用已有或向 Relay Server 注册新 UUID）
+        let existing_user_id = self.zen_config
+            .as_ref()
+            .and_then(|cfg| cfg.config.remote_control.as_ref())
+            .and_then(|rc| rc.user_id.clone());
+        let user_id = match relay_ops::get_or_register_user_id(
+            &relay_url,
+            &relay_token,
+            existing_user_id.as_deref(),
+        )
+        .await
+        {
+            Ok(uid) => uid,
+            Err(e) => {
+                let err_msg = format!("Relay 注册失败: {}", e);
+                let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
+                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                self.relay_reconnect_at = Some(
+                    std::time::Instant::now() + std::time::Duration::from_secs(3),
+                );
+                return;
+            }
+        };
+
+        // 若为新注册的 user_id，持久化到 settings.json
+        if existing_user_id.is_none() {
+            if let Some(ref mut cfg) = self.zen_config {
+                if let Some(ref mut rc) = cfg.config.remote_control {
+                    rc.user_id = Some(user_id.clone());
+                    let _ = crate::config::save(cfg);
+                }
+            }
+        }
+
         // 缓存参数供断线重连使用
-        self.relay_params = Some((relay_url.clone(), relay_token.clone(), relay_name.clone()));
+        self.relay_params = Some((relay_url.clone(), relay_token.clone(), relay_name.clone(), user_id.clone()));
 
         match rust_relay_server::client::RelayClient::connect(
             &relay_url,
             &relay_token,
             relay_name.as_deref(),
+            &user_id,
         )
         .await
         {
@@ -351,6 +386,17 @@ impl App {
                 self.relay_client = Some(Arc::new(client));
                 self.relay_event_rx = Some(event_rx);
                 self.relay_reconnect_at = None; // 连接成功，取消重连计划
+
+                // 设置 Web 接入 URL（含 user_id hash）
+                let web_url = format!(
+                    "{}/web/?token={}#user_id={}",
+                    relay_ops::ws_url_to_http(&relay_url),
+                    relay_token,
+                    user_id
+                );
+                if let Some(ref mut panel) = self.relay_panel {
+                    panel.set_web_access_url(Some(web_url));
+                }
             }
             Err(e) => {
                 // 不用 tracing，通过 TUI 消息显示

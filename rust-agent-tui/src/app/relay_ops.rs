@@ -1,5 +1,47 @@
 use super::*;
 
+/// 将 WebSocket URL 转换为 HTTP URL（ws:// → http://，wss:// → https://，去掉末尾斜杠）
+pub(crate) fn ws_url_to_http(ws_url: &str) -> String {
+    let http_url = if ws_url.starts_with("wss://") {
+        ws_url.replacen("wss://", "https://", 1)
+    } else if ws_url.starts_with("ws://") {
+        ws_url.replacen("ws://", "http://", 1)
+    } else {
+        ws_url.to_string()
+    };
+    http_url.trim_end_matches('/').to_string()
+}
+
+/// 获取 user_id：若已有则复用，否则向 Relay Server 注册获取新 UUID
+pub(crate) async fn get_or_register_user_id(
+    ws_url: &str,
+    token: &str,
+    existing: Option<&str>,
+) -> anyhow::Result<String> {
+    if let Some(uid) = existing {
+        if !uid.is_empty() {
+            return Ok(uid.to_string());
+        }
+    }
+    let base_url = ws_url_to_http(ws_url);
+    let register_url = format!("{}/register?token={}", base_url, token);
+    let response = reqwest::Client::new()
+        .post(&register_url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("注册请求失败: {}", e))?;
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("解析注册响应失败: {}", e))?;
+    let user_id = body
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("注册响应中没有 user_id 字段"))?
+        .to_string();
+    Ok(user_id)
+}
+
 impl App {
     /// 检查是否需要重连 Relay，如果计时器到期则尝试重连
     pub async fn check_relay_reconnect(&mut self) {
@@ -16,13 +58,13 @@ impl App {
         if self.relay_client.is_some() {
             return;
         }
-        let Some((url, token, name)) = self.relay_params.clone() else {
+        let Some((url, token, name, user_id)) = self.relay_params.clone() else {
             return;
         };
         use rust_create_agent::messages::BaseMessage;
         use crate::ui::render_thread::RenderEvent;
         use crate::app::MessageViewModel;
-        match rust_relay_server::client::RelayClient::connect(&url, &token, name.as_deref()).await {
+        match rust_relay_server::client::RelayClient::connect(&url, &token, name.as_deref(), &user_id).await {
             Ok((client, event_rx)) => {
                 let sid = client.session_id.read().await.clone().unwrap_or_default();
                 let status_msg = format!("Relay reconnected (session: {})", &sid[..8.min(sid.len())]);

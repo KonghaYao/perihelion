@@ -2737,6 +2737,7 @@ dependencies = [
  "pulldown-cmark",
  "ratatui",
  "ratatui-textarea",
+ "reqwest",
  "rust-agent-middlewares",
  "rust-create-agent",
  "rust-relay-server",

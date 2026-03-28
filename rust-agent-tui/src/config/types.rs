@@ -76,6 +76,9 @@ pub struct RemoteControlConfig {
     /// 客户端名称（可选，用于标识连接）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// 用户 ID（匿名账号 UUID，首次连接时从 Relay Server 注册获取，后续复用）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
 }
 
 impl RemoteControlConfig {
@@ -328,6 +331,7 @@ mod tests {
             url: "wss://relay.example.com".to_string(),
             token: "secret123".to_string(),
             name: Some("my-laptop".to_string()),
+            user_id: None,
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: RemoteControlConfig = serde_json::from_str(&json).unwrap();
@@ -342,6 +346,7 @@ mod tests {
             url: "ws://localhost:8080".to_string(),
             token: String::new(),
             name: None,
+            user_id: None,
         };
         let out = serde_json::to_string(&cfg).unwrap();
         assert!(!out.contains("name"), "name should be absent when None");

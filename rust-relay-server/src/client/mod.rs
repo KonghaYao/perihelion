@@ -38,8 +38,9 @@ impl RelayClient {
         url: &str,
         token: &str,
         name: Option<&str>,
+        user_id: &str,
     ) -> anyhow::Result<(Self, RelayEventRx)> {
-        let mut ws_url = format!("{}/agent/ws?token={}", url, token);
+        let mut ws_url = format!("{}/agent/ws?token={}&user_id={}", url, token, user_id);
         if let Some(n) = name {
             ws_url.push_str(&format!("&name={}", n));
         }

@@ -28,9 +28,24 @@ pub struct SessionEntry {
     pub agent_connected: RwLock<bool>,
 }
 
-pub struct RelayState {
+/// 每个用户的隔离命名空间，懒创建，所有 session 和管理端连接均按 user_id 分组
+pub struct UserNamespace {
     pub sessions: DashMap<String, Arc<SessionEntry>>,
     pub broadcast_txs: RwLock<Vec<mpsc::UnboundedSender<String>>>,
+}
+
+impl UserNamespace {
+    pub fn new() -> Self {
+        Self {
+            sessions: DashMap::new(),
+            broadcast_txs: RwLock::new(Vec::new()),
+        }
+    }
+}
+
+pub struct RelayState {
+    /// 按 user_id 分组的命名空间（懒创建）
+    pub users: DashMap<String, Arc<UserNamespace>>,
     pub token: String,
     /// 当前活跃 agent WebSocket 连接数
     pub active_agent_conns: AtomicUsize,
@@ -50,8 +65,7 @@ impl RelayState {
     /// 使用自定义连接限制构造（从环境变量读取时使用）
     pub fn new_with_limits(token: String, max_agent_conns: usize, max_web_conns: usize) -> Arc<Self> {
         Arc::new(Self {
-            sessions: DashMap::new(),
-            broadcast_txs: RwLock::new(Vec::new()),
+            users: DashMap::new(),
             token,
             active_agent_conns: AtomicUsize::new(0),
             active_web_conns: AtomicUsize::new(0),
@@ -60,23 +74,41 @@ impl RelayState {
         })
     }
 
-    pub fn agents_list(&self) -> Vec<AgentInfo> {
-        self.sessions
-            .iter()
-            .map(|entry| AgentInfo {
-                session_id: entry.key().clone(),
-                name: entry.value().name.clone(),
-                connected_at: entry.value().connected_at.to_rfc3339(),
-            })
-            .collect()
+    /// 获取或懒创建指定 user_id 的命名空间
+    pub fn get_or_create_namespace(&self, user_id: &str) -> Arc<UserNamespace> {
+        self.users
+            .entry(user_id.to_string())
+            .or_insert_with(|| Arc::new(UserNamespace::new()))
+            .clone()
     }
 
-    pub async fn broadcast(&self, msg: &BroadcastMessage) {
+    /// 仅返回指定 user_id 命名空间下的 agent 列表
+    pub fn agents_list(&self, user_id: &str) -> Vec<AgentInfo> {
+        match self.users.get(user_id) {
+            Some(ns) => ns
+                .sessions
+                .iter()
+                .map(|entry| AgentInfo {
+                    session_id: entry.key().clone(),
+                    name: entry.value().name.clone(),
+                    connected_at: entry.value().connected_at.to_rfc3339(),
+                })
+                .collect(),
+            None => vec![],
+        }
+    }
+
+    /// 仅向指定 user_id 命名空间的管理端广播消息
+    pub async fn broadcast(&self, user_id: &str, msg: &BroadcastMessage) {
         let json = match serde_json::to_string(msg) {
             Ok(j) => j,
             Err(_) => return,
         };
-        let mut txs = self.broadcast_txs.write().await;
+        let ns = match self.users.get(user_id) {
+            Some(ns) => ns.clone(),
+            None => return,
+        };
+        let mut txs = ns.broadcast_txs.write().await;
         for tx in txs.iter() {
             let _ = tx.send(json.clone());
         }
@@ -84,9 +116,14 @@ impl RelayState {
         txs.retain(|tx| !tx.is_closed());
     }
 
-    pub async fn forward_to_web(&self, session_id: &str, msg: &str) {
+    /// 仅向指定 user_id + session_id 的 Web 会话端转发消息
+    pub async fn forward_to_web(&self, user_id: &str, session_id: &str, msg: &str) {
+        let ns = match self.users.get(user_id) {
+            Some(ns) => ns.clone(),
+            None => return,
+        };
         // 立即 clone Arc 以释放 DashMap shard lock，避免跨 .await 持有锁
-        let entry = match self.sessions.get(session_id) {
+        let entry = match ns.sessions.get(session_id) {
             Some(e) => e.clone(),
             None => return,
         };
@@ -103,6 +140,7 @@ pub async fn handle_agent_ws(
     ws: WebSocket,
     state: Arc<RelayState>,
     name: Option<String>,
+    user_id: String,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
@@ -110,6 +148,7 @@ pub async fn handle_agent_ws(
     state.active_agent_conns.fetch_add(1, Ordering::Relaxed);
     tracing::debug!(
         active = state.active_agent_conns.load(Ordering::Relaxed),
+        user_id = %user_id,
         "agent ws connected"
     );
 
@@ -127,7 +166,9 @@ pub async fn handle_agent_ws(
         agent_connected: RwLock::new(true),
     });
 
-    state.sessions.insert(session_id.clone(), entry.clone());
+    // 懒创建 namespace 并注册 session
+    let ns = state.get_or_create_namespace(&user_id);
+    ns.sessions.insert(session_id.clone(), entry.clone());
 
     // Send session_id to agent
     let session_msg = RelayMessage::SessionId {
@@ -137,18 +178,19 @@ pub async fn handle_agent_ws(
         let _ = ws_tx.send(Message::Text(json.into())).await;
     }
 
-    // Broadcast agent_online
+    // Broadcast agent_online（仅该 user 命名空间内的管理端）
     state
-        .broadcast(&BroadcastMessage::AgentOnline {
+        .broadcast(&user_id, &BroadcastMessage::AgentOnline {
             session_id: session_id.clone(),
             name: name.clone(),
             connected_at: entry.connected_at.to_rfc3339(),
         })
         .await;
 
-    tracing::info!("Agent connected: session={}, name={:?}", session_id, name);
+    tracing::info!("Agent connected: session={}, user_id={}, name={:?}", session_id, user_id, name);
 
     let sid = session_id.clone();
+    let uid = user_id.clone();
     let state2 = state.clone();
 
     // Task: forward from agent_rx to ws_tx
@@ -163,6 +205,7 @@ pub async fn handle_agent_ws(
     // Read from ws_rx and forward to web_txs
     let state3 = state.clone();
     let sid2 = session_id.clone();
+    let uid2 = user_id.clone();
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
@@ -170,6 +213,7 @@ pub async fn handle_agent_ws(
                 if text.len() > MAX_AGENT_MESSAGE_BYTES {
                     tracing::warn!(
                         session = %sid2,
+                        user_id = %uid2,
                         bytes = text.len(),
                         limit = MAX_AGENT_MESSAGE_BYTES,
                         "Agent→Web: 消息超过大小限制，丢弃"
@@ -178,9 +222,9 @@ pub async fn handle_agent_ws(
                 }
                 // Update last_active
                 *entry.last_active.write().await = Instant::now();
-                tracing::trace!(session = %sid2, bytes = text.len(), "Agent→Web 消息转发");
+                tracing::trace!(session = %sid2, user_id = %uid2, bytes = text.len(), "Agent→Web 消息转发");
                 // Forward agent messages to all web clients for this session
-                state3.forward_to_web(&sid2, &text).await;
+                state3.forward_to_web(&uid2, &sid2, &text).await;
             }
             Message::Close(_) => break,
             _ => {}
@@ -188,13 +232,13 @@ pub async fn handle_agent_ws(
     }
 
     // Agent disconnected
-    tracing::info!("Agent disconnected: session={}", sid);
+    tracing::info!("Agent disconnected: session={}, user_id={}", sid, uid);
     *entry.agent_connected.write().await = false;
     send_task.abort();
 
-    // Broadcast agent_offline
+    // Broadcast agent_offline（仅该 user 命名空间内的管理端）
     state2
-        .broadcast(&BroadcastMessage::AgentOffline {
+        .broadcast(&uid, &BroadcastMessage::AgentOffline {
             session_id: sid.clone(),
         })
         .await;
@@ -206,18 +250,28 @@ pub async fn handle_agent_ws(
     // 与 spawn_session_cleanup 对齐：双重条件（未连接 + 超时）防止误删活跃 session
     let state_cleanup = state2.clone();
     let sid_cleanup = sid.clone();
+    let uid_cleanup = uid.clone();
     let delayed_cleanup = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
+        let ns = match state_cleanup.users.get(&uid_cleanup) {
+            Some(ns) => ns.clone(),
+            None => return,
+        };
         // 立即 clone Arc 释放 DashMap shard lock，避免跨 .await 持有锁
-        let entry = match state_cleanup.sessions.get(&sid_cleanup) {
+        let entry = match ns.sessions.get(&sid_cleanup) {
             Some(e) => e.clone(),
             None => return,
         };
         let connected = *entry.agent_connected.read().await;
         let elapsed = entry.last_active.read().await.elapsed();
         if !connected && elapsed > std::time::Duration::from_secs(30 * 60) {
-            state_cleanup.sessions.remove(&sid_cleanup);
-            tracing::debug!("Session cleaned up after timeout: {}", sid_cleanup);
+            ns.sessions.remove(&sid_cleanup);
+            tracing::debug!("Session cleaned up after timeout: {}, user_id={}", sid_cleanup, uid_cleanup);
+            // 如果 namespace 下无 session，清理空 namespace
+            if ns.sessions.is_empty() {
+                state_cleanup.users.remove(&uid_cleanup);
+                tracing::debug!("UserNamespace removed (empty after session cleanup): user_id={}", uid_cleanup);
+            }
         }
     });
     tokio::spawn(async move {
@@ -230,28 +284,31 @@ pub async fn handle_agent_ws(
 pub async fn handle_web_management_ws(
     ws: WebSocket,
     state: Arc<RelayState>,
+    user_id: String,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
     state.active_web_conns.fetch_add(1, Ordering::Relaxed);
     tracing::info!(
         active_web = state.active_web_conns.load(Ordering::Relaxed),
+        user_id = %user_id,
         "Web 管理端已连接"
     );
     let (mut ws_tx, mut ws_rx) = ws.split();
 
-    // Send current agents list
+    // Send current agents list（仅该 user 的 agents）
     let agents_msg = BroadcastMessage::AgentsList {
-        agents: state.agents_list(),
+        agents: state.agents_list(&user_id),
     };
     if let Ok(json) = serde_json::to_string(&agents_msg) {
         let _ = ws_tx.send(Message::Text(json.into())).await;
     }
 
-    // Register broadcast channel
+    // Register broadcast channel（注册到该 user 的 namespace）
+    let ns = state.get_or_create_namespace(&user_id);
     let (broadcast_tx, mut broadcast_rx) = mpsc::unbounded_channel::<String>();
     {
-        let mut txs = state.broadcast_txs.write().await;
+        let mut txs = ns.broadcast_txs.write().await;
         txs.push(broadcast_tx.clone());
     }
 
@@ -295,22 +352,41 @@ pub async fn handle_web_management_ws(
     state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
     tracing::info!(
         active_web = state.active_web_conns.load(Ordering::Relaxed),
+        user_id = %user_id,
         "Web 管理端已断开"
     );
 
     // Remove from broadcast_txs
-    let mut txs = state.broadcast_txs.write().await;
-    txs.retain(|tx| !tx.is_closed());
+    if let Some(ns) = state.users.get(&user_id) {
+        let mut txs = ns.broadcast_txs.write().await;
+        txs.retain(|tx| !tx.is_closed());
+    }
 }
 
 pub async fn handle_web_session_ws(
     ws: WebSocket,
     state: Arc<RelayState>,
     session_id: String,
+    user_id: String,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
-    let entry = match state.sessions.get(&session_id) {
+    // 必须 user_id + session_id 双重匹配
+    let ns = match state.users.get(&user_id) {
+        Some(ns) => ns.clone(),
+        None => {
+            let (mut ws_tx, _) = ws.split();
+            let err = crate::protocol::RelayError::Error {
+                code: "session_not_found".into(),
+                message: format!("Session {} not found", session_id),
+            };
+            if let Ok(json) = serde_json::to_string(&err) {
+                let _ = ws_tx.send(Message::Text(json.into())).await;
+            }
+            return;
+        }
+    };
+    let entry = match ns.sessions.get(&session_id) {
         Some(e) => e.clone(),
         None => {
             let (mut ws_tx, _) = ws.split();
@@ -324,6 +400,8 @@ pub async fn handle_web_session_ws(
             return;
         }
     };
+    // 释放 DashMap shard lock（ns 是 Arc clone，entry 已独立 clone）
+    drop(ns);
 
     state.active_web_conns.fetch_add(1, Ordering::Relaxed);
     let (mut ws_tx, mut ws_rx) = ws.split();
@@ -336,6 +414,7 @@ pub async fn handle_web_session_ws(
             state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
             tracing::warn!(
                 session = %session_id,
+                user_id = %user_id,
                 limit = MAX_WEB_CONNS_PER_SESSION,
                 "Relay: session web 连接数已达上限，拒绝新连接"
             );
@@ -355,6 +434,7 @@ pub async fn handle_web_session_ws(
     }
     tracing::info!(
         session = %session_id,
+        user_id = %user_id,
         active_web = state.active_web_conns.load(Ordering::Relaxed),
         "Web 会话端已连接"
     );
@@ -398,6 +478,7 @@ pub async fn handle_web_session_ws(
                 if text.len() > MAX_WEB_MESSAGE_BYTES {
                     tracing::warn!(
                         session = %session_id,
+                        user_id = %user_id,
                         bytes = text.len(),
                         limit = MAX_WEB_MESSAGE_BYTES,
                         "Web→Agent: 消息超过大小限制，丢弃"
@@ -439,7 +520,7 @@ pub async fn handle_web_session_ws(
                         crate::protocol::WebMessage::HitlDecision { .. }
                         | crate::protocol::WebMessage::AskUserResponse { .. } => {
                             let resolved_json = serde_json::json!({ "type": "interaction_resolved" });
-                            state.forward_to_web(&session_id, &resolved_json.to_string()).await;
+                            state.forward_to_web(&user_id, &session_id, &resolved_json.to_string()).await;
                         }
                         crate::protocol::WebMessage::SyncRequest { .. } => {
                             is_sync_request = true;
@@ -455,7 +536,7 @@ pub async fn handle_web_session_ws(
                     continue;
                 }
 
-                tracing::trace!(session = %session_id, bytes = text_str.len(), "Web→Agent 消息转发");
+                tracing::trace!(session = %session_id, user_id = %user_id, bytes = text_str.len(), "Web→Agent 消息转发");
                 if entry.agent_tx.send(text_str).is_err() {
                     tracing::debug!(session = %session_id, "Web→Agent 转发失败：agent channel 已关闭（agent 已断开）");
                     break;
@@ -468,10 +549,11 @@ pub async fn handle_web_session_ws(
 
     send_task.abort();
     state.active_web_conns.fetch_sub(1, Ordering::Relaxed);
-    tracing::info!(session = %session_id, "Web 会话端已断开");
+    tracing::info!(session = %session_id, user_id = %user_id, "Web 会话端已断开");
 
     // Remove from web_txs
-    let mut txs = entry.web_txs.write().await;
+    let entry_arc = entry.clone();
+    let mut txs = entry_arc.web_txs.write().await;
     txs.retain(|tx| !tx.is_closed());
 }
 
@@ -480,24 +562,43 @@ pub fn spawn_session_cleanup(state: Arc<RelayState>) -> tokio::task::JoinHandle<
         tracing::debug!("session cleanup task started");
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5 * 60)).await;
-            // 先同步收集所有 (key, Arc) 以立即释放 DashMap shard locks，
-            // 再对每个 Arc 做 async read，避免跨 .await 持有 shard 锁
-            let entries: Vec<(String, Arc<SessionEntry>)> = state
-                .sessions
+            // 先同步收集所有 (user_id, namespace Arc) 以立即释放 DashMap shard locks
+            let namespaces: Vec<(String, Arc<UserNamespace>)> = state
+                .users
                 .iter()
                 .map(|e| (e.key().clone(), e.value().clone()))
                 .collect();
-            let mut to_remove = Vec::new();
-            for (sid, entry) in entries {
-                let connected = *entry.agent_connected.read().await;
-                let last_active = *entry.last_active.read().await;
-                if !connected && last_active.elapsed() > std::time::Duration::from_secs(30 * 60) {
-                    to_remove.push(sid);
+
+            let mut empty_namespaces = Vec::new();
+
+            for (uid, ns) in &namespaces {
+                // 收集该 namespace 下需要清理的 sessions
+                let entries: Vec<(String, Arc<SessionEntry>)> = ns
+                    .sessions
+                    .iter()
+                    .map(|e| (e.key().clone(), e.value().clone()))
+                    .collect();
+                let mut to_remove = Vec::new();
+                for (sid, entry) in entries {
+                    let connected = *entry.agent_connected.read().await;
+                    let last_active = *entry.last_active.read().await;
+                    if !connected && last_active.elapsed() > std::time::Duration::from_secs(30 * 60) {
+                        to_remove.push(sid);
+                    }
+                }
+                for sid in to_remove {
+                    ns.sessions.remove(&sid);
+                    tracing::debug!("Session expired and removed: {}, user_id={}", sid, uid);
+                }
+                // 如果 namespace 下无 session，标记为待清理
+                if ns.sessions.is_empty() {
+                    empty_namespaces.push(uid.clone());
                 }
             }
-            for sid in to_remove {
-                state.sessions.remove(&sid);
-                tracing::debug!("Session expired and removed: {}", sid);
+
+            for uid in empty_namespaces {
+                state.users.remove(&uid);
+                tracing::debug!("UserNamespace removed (empty): user_id={}", uid);
             }
         }
     })

@@ -165,7 +165,20 @@ impl App {
     /// 打开 /relay 面板
     pub fn open_relay_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
-        self.relay_panel = Some(RelayPanel::from_config(cfg));
+        let mut panel = RelayPanel::from_config(cfg);
+        // 若已连接，恢复 Web 接入 URL
+        if self.relay_client.is_some() {
+            if let Some((ref url, ref token, _, ref user_id)) = self.relay_params {
+                let web_url = format!(
+                    "{}/web/?token={}#user_id={}",
+                    crate::app::relay_ops::ws_url_to_http(url),
+                    token,
+                    user_id
+                );
+                panel.set_web_access_url(Some(web_url));
+            }
+        }
+        self.relay_panel = Some(panel);
     }
 
     /// 关闭 /relay 面板（不保存）

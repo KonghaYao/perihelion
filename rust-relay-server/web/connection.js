@@ -19,6 +19,12 @@ function wsUrl(path) {
   return `${proto}//${location.host}${path}`
 }
 
+/** 从 URL hash 中解析 user_id（如 #user_id=xxx） */
+export function getUserId() {
+  const hash = window.location.hash.slice(1)
+  return new URLSearchParams(hash).get('user_id') || null
+}
+
 // ─── 辅助函数 ───────────────────────────────────────────────
 
 export function sendMessage(sessionId, msg) {
@@ -31,7 +37,12 @@ export function sendMessage(sessionId, msg) {
 
 export function connectManagement() {
   const token = new URLSearchParams(location.search).get('token') || ''
-  const url = wsUrl(`/web/ws?token=${token}`)
+  const userId = getUserId()
+  if (!userId) {
+    connectionStatus.value = 'no_user_id'
+    return
+  }
+  const url = wsUrl(`/web/ws?token=${token}&user_id=${userId}`)
   managementWs = new WebSocket(url)
 
   managementWs.onopen = () => {
@@ -63,7 +74,9 @@ export function connectSession(sessionId) {
   if (agent.ws && agent.ws.readyState === WebSocket.OPEN) return
 
   const token = new URLSearchParams(location.search).get('token') || ''
-  const url = wsUrl(`/web/ws?token=${token}&session=${sessionId}`)
+  const userId = getUserId()
+  if (!userId) return
+  const url = wsUrl(`/web/ws?token=${token}&user_id=${userId}&session=${sessionId}`)
   const ws = new WebSocket(url)
   agent.ws = ws
 

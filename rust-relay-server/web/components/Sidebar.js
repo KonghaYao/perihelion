@@ -19,6 +19,8 @@ export function Sidebar({ mobileSidebarOpen, onCloseMobile }) {
     ? '已连接'
     : connStatus === 'reconnecting'
     ? '重连中...'
+    : connStatus === 'no_user_id'
+    ? '未提供 user_id'
     : '断线'
 
   const sidebarClass = 'sidebar' + (mobileSidebarOpen ? ' mobile-visible' : '')

@@ -59,6 +59,8 @@ pub struct RelayPanel {
     pub status_message: Option<String>,
     /// 编辑光标位置
     pub cursor: usize,
+    /// Web 接入 URL（含 user_id hash，连接成功后填充，只读展示）
+    pub web_access_url: Option<String>,
 }
 
 impl RelayPanel {
@@ -73,7 +75,13 @@ impl RelayPanel {
             buf_name: rc.map(|r| r.name.clone().unwrap_or_default()).unwrap_or_default(),
             status_message: None,
             cursor: 0,
+            web_access_url: None,
         }
+    }
+
+    /// 设置 Web 接入 URL（连接成功后由 relay_ops 调用）
+    pub fn set_web_access_url(&mut self, url: Option<String>) {
+        self.web_access_url = url;
     }
 
     /// View 模式下显示脱敏的 Token（如 "****abc123****"）
@@ -254,10 +262,13 @@ impl RelayPanel {
             Some(self.buf_name.trim().to_string())
         };
 
+        // 保留已存在的 user_id（不被编辑面板覆盖）
+        let existing_user_id = cfg.config.remote_control.as_ref().and_then(|rc| rc.user_id.clone());
         cfg.config.remote_control = Some(RemoteControlConfig {
             url: self.buf_url.trim().to_string(),
             token: self.buf_token.clone(),
             name,
+            user_id: existing_user_id,
         });
 
         self.mode = RelayPanelMode::View;
@@ -276,6 +287,7 @@ mod tests {
             url: "wss://relay.example.com".to_string(),
             token: "secret123".to_string(),
             name: Some("my-laptop".to_string()),
+            user_id: None,
         });
         cfg
     }

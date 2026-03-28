@@ -74,6 +74,15 @@ fn render_relay_view(f: &mut Frame, panel: &crate::app::RelayPanel, inner: Rect)
         ),
     ]));
 
+    // Web 接入 URL
+    if let Some(url) = &panel.web_access_url {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(" Web URL: ", Style::default().fg(theme::MUTED)),
+            Span::styled(url, Style::default().fg(theme::ACCENT)),
+        ]));
+    }
+
     // 状态消息
     if let Some(msg) = &panel.status_message {
         lines.push(Line::from(""));
