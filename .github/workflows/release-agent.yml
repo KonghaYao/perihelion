@@ -1,0 +1,125 @@
+name: Release Agent
+
+on:
+    push:
+        tags:
+            - "agent-v*"
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    build:
+        name: Build (${{ matrix.target }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: ubuntu-latest
+                      target: x86_64-unknown-linux-gnu
+                      platform: linux-x86_64
+                      ext: ""
+                    - os: macos-13
+                      target: x86_64-apple-darwin
+                      platform: macos-x86_64
+                      ext: ""
+                    - os: windows-latest
+                      target: x86_64-pc-windows-msvc
+                      platform: windows-x86_64
+                      ext: ".exe"
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - name: Cache cargo registry
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry/index
+                      ~/.cargo/registry/cache
+                      ~/.cargo/git/db
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: ${{ runner.os }}-cargo-
+
+            - name: Cache build artifacts
+              uses: actions/cache@v4
+              with:
+                  path: target
+                  key: ${{ runner.os }}-${{ matrix.target }}-build-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-${{ matrix.target }}-build-
+                      ${{ runner.os }}-${{ matrix.target }}-
+
+            - name: Build agent-tui
+              run: cargo build -p rust-agent-tui --release --target ${{ matrix.target }}
+
+            - name: Build relay-server
+              run: cargo build -p rust-relay-server --release --target ${{ matrix.target }} --features server
+
+            - name: Package binaries (Unix)
+              if: matrix.ext == ''
+              run: |
+                  mkdir -p dist
+                  cp target/${{ matrix.target }}/release/agent-tui dist/agent-tui-${{ matrix.platform }}
+                  cp target/${{ matrix.target }}/release/relay-server dist/relay-server-${{ matrix.platform }}
+                  chmod +x dist/agent-tui-${{ matrix.platform }}
+                  chmod +x dist/relay-server-${{ matrix.platform }}
+
+            - name: Package binaries (Windows)
+              if: matrix.ext == '.exe'
+              shell: pwsh
+              run: |
+                  New-Item -ItemType Directory -Force -Path dist
+                  Copy-Item "target/${{ matrix.target }}/release/agent-tui.exe" "dist/agent-tui-${{ matrix.platform }}.exe"
+                  Copy-Item "target/${{ matrix.target }}/release/relay-server.exe" "dist/relay-server-${{ matrix.platform }}.exe"
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: binaries-${{ matrix.platform }}
+                  path: dist/
+                  retention-days: 7
+
+    release:
+        name: Create GitHub Release
+        needs: build
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts/
+                  merge-multiple: true
+
+            - name: List artifacts
+              run: ls -lR artifacts/
+
+            - name: Generate checksums
+              run: |
+                  cd artifacts
+                  sha256sum * > checksums.txt
+                  cat checksums.txt
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: |
+                      artifacts/*
+                  generate_release_notes: true
+                  draft: false
+                  prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
