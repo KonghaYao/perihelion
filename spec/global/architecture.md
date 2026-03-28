@@ -316,6 +316,10 @@ submit_message()
   │←── AskUserResponse{answers} ───    │←── AskUserResponse ─────  │
   │←── UserInput{text} ───────────     │←── UserInput ────────────  │
   │←── ClearThread ───────────────     │←── ClearThread ──────────  │
+  │←── CompactThread ─────────────     │←── CompactThread ────────  │
+  │←── CancelAgent ───────────────     │←── CancelAgent ──────────  │
+  │                                     │                          │
+  │─── ThreadReset{messages} ──────→   │── ThreadReset ──────────→ │
   │                                     │                          │
   │─── Ping ───────────────────────→   │                          │
   │←── Pong ────────────────────────   │                          │
@@ -345,16 +349,24 @@ LangfuseSession（Thread 级别，跨多轮复用）
 中间件按注册顺序执行，典型组装顺序：
 
 ```
+主 Agent（rust-agent-tui 组装）：
 1. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
 2. AgentsMdMiddleware         ← 读 CLAUDE.md/AGENTS.md 注入 system
 3. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
-4. SkillPreloadMiddleware     ← 子 agent 场景：注入 skill 全文（fake tool 序列）
-5. PrependSystemMiddleware    ← 最终 system prompt 注入
-6. FilesystemMiddleware       ← 提供 6 个文件系统工具
-7. TerminalMiddleware         ← 提供 bash 工具
-8. TodoMiddleware             ← after_tool 解析 todo_write 结果
-9. HumanInTheLoopMiddleware   ← before_tool 拦截敏感工具
-10. SubAgentMiddleware        ← 提供 launch_agent 工具
+4. SkillPreloadMiddleware     ← 消息含 #skill-name 时注入 skill 全文（fake tool 序列）
+5. FilesystemMiddleware       ← 提供 6 个文件系统工具
+6. TerminalMiddleware         ← 提供 bash 工具
+7. TodoMiddleware             ← after_tool 解析 todo_write 结果
+8. HumanInTheLoopMiddleware   ← before_tool 拦截敏感工具
+9. SubAgentMiddleware         ← 提供 launch_agent 工具
+[ReActAgent.with_system_prompt()] ← system prompt 固定在 run_before_agent 之后 prepend，不依赖中间件顺序
+
+子 Agent（SubAgentTool 内部组装）：
+1. AgentsMdMiddleware
+2. SkillsMiddleware
+3. SkillPreloadMiddleware     ← 读取 agent 定义 frontmatter.skills 列表
+4. TodoMiddleware
+5. PrependSystemMiddleware    ← 子 agent 仍使用中间件方式（动态 system builder）
 ```
 
 手动注册工具（`register_tool`）优先级最高，覆盖同名中间件工具。
@@ -404,4 +416,4 @@ rust-create-agent（tracing spans）
 ```
 
 ---
-*最后更新: 2026-03-27 — 同步代码实际模块结构，新增 Langfuse/SkillPreload/事件系统/中间件链/Relay 通信细节*
+*最后更新: 2026-03-28 — 更新 Relay 协议（CancelAgent/CompactThread/ThreadReset）、中间件链（with_system_prompt 替代 PrependSystemMiddleware）、主/子 Agent 差异*

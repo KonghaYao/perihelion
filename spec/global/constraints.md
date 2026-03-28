@@ -17,7 +17,8 @@
 - **UUID:** uuid 1.x（features: v7 + serde，rust-create-agent 层消息 ID）
 - **同步原语:** parking_lot 0.12
 - **构建工具:** Cargo（Workspace resolver = "2"）
-- **Web 前端 CDN（relay-server）:** Tailwind CSS CDN + marked.js 15 + highlight.js 11.9（GitHub Dark 主题）+ DOMPurify（XSS 净化）
+- **Web 前端 CDN（relay-server，ES Module，来自 esm.sh）:** preact + preact/hooks + htm + @preact/signals（声明式 UI + 响应式状态）；marked.js 15 + highlight.js 11.9（GitHub Dark 主题）+ DOMPurify（XSS 净化，动态 UMD script 注入）
+- **Web 前端 Signal 订阅规则:** esm.sh 多版本场景下 @preact/signals auto-tracking 不可靠，组件必须通过 `useSignalValue(signal)` 显式订阅，禁止在 render 函数中直接读取 `signal.value`
 
 ## 架构决策
 
@@ -59,4 +60,4 @@
 - **SubAgent 防递归:** `launch_agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 
 ---
-*最后更新: 2026-03-27 — 由批量归档（21 个 feature）更新：新增 uuid(v7)、langfuse-ergonomic 0.6.3、Web CDN 依赖*
+*最后更新: 2026-03-28 — 由批量归档（9 个 feature）更新：Web 前端迁移到 Preact+Signals+htm（esm.sh CDN），新增 Signal 订阅规则*

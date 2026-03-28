@@ -21,14 +21,14 @@
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
 - **AgentsMdMiddleware:** `before_agent` 自动读取 `CLAUDE.md` / `AGENTS.md`，prepend System prompt
 - **TodoMiddleware:** `after_tool` 解析 `todo_write` 结果，推送 Todo 状态到渲染 channel
-- **AskUserTool:** `ask_user` 工具，支持单选/多选/自定义输入，oneshot channel 挂起等待用户输入
+- **AskUserTool:** `ask_user_question` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
 
 ## TUI 界面（rust-agent-tui）
 
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** Opus/Sonnet/Haiku 三级别名，`/model` 三 Tab 面板，`/model <alias>` 快捷切换
 - **TUI 命令:** `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩
-- **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`
+- **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake read_file 工具调用序列）
 - **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
 - **AskUser 弹窗:** `AskUserBatch` 事件触发问答弹窗，支持批量问题，单选/多选
 - **YOLO 模式:** `-y` 参数启动，自动 Approve 所有 HITL 请求（不影响 ask_user）
@@ -40,7 +40,7 @@
 - **Loading 输入缓冲:** Agent 运行中可继续输入，消息自动缓存，完成后合并发送
 - **TODO 状态面板:** 输入框上方固定面板，颜色分类（InProgress 黄/Completed 暗灰/Pending 白）
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
-- **Relay 集成:** 可选连接 Relay Server，事件实时转发，支持 `/remote-control` 远程操控
+- **Relay 集成:** 可选连接 Relay Server，事件实时转发，支持远程操控；Web 端支持 `/compact` 命令触发压缩；Agent thread 状态变更（clear/history/compact）通过 `ThreadReset` 消息自动同步到 Web 前端；Web 端支持"停止"按钮（`CancelAgent` 消息）中断 Agent 运行
 
 ## 基础设施
 
@@ -51,4 +51,4 @@
 - **Relay Server:** axum + tokio-tungstenite，支持 WebSocket 多 Agent 会话管理、心跳、Tab 状态广播；可选 client feature 仅引入 tungstenite
 
 ---
-*最后更新: 2026-03-24 — 由批量归档更新*
+*最后更新: 2026-03-28 — 由批量归档（9 个 feature）更新：ask_user_question 对齐 Claude 规范、#skill-name 全文预加载、Relay ThreadReset/CancelAgent/CompactThread 支持*

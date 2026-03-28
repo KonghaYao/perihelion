@@ -12,6 +12,18 @@
 
 | Feature ID | 摘要 | 领域 | 归档日期 |
 |-----------|------|------|----------|
+| [20260328_H2_thread-store](../archive/feature_20260328_H2_thread-store/) | （无设计文档）| — | 2026-03-28 |
+| [20260328_F001_skill-preload-on-send](../archive/feature_20260328_F001_skill-preload-on-send/) | TUI 发送含 #skill-name 消息时自动全文预加载对应 skill | tui | 2026-03-28 |
+| [20260328_F001_ask-user-question-align](../archive/feature_20260328_F001_ask-user-question-align/) | ask_user 工具全面对齐 Claude AskUserQuestion 接口规范 | agent | 2026-03-28 |
+| [20260327_M3_system-prompt](../archive/feature_20260327_M3_system-prompt/) | with_system_prompt() 消除 PrependSystemMiddleware 注册顺序约束 | agent | 2026-03-28 |
+| [20260327_H3_interaction-unify](../archive/feature_20260327_H3_interaction-unify/) | 提取 UserInteractionBroker trait 统一 HITL 和 AskUser 交互机制 | agent | 2026-03-28 |
+| [20260327_H1_relay-decouple](../archive/feature_20260327_H1_relay-decouple/) | （无设计文档）| relay-server | 2026-03-28 |
+| [20260327_F002_relay-command-sync](../archive/feature_20260327_F002_relay-command-sync/) | Web 端发 /compact 命令及 Agent 侧 thread 状态双向同步 | relay-server | 2026-03-28 |
+| [20260327_F002_fix-agent-history-storage](../archive/feature_20260327_F002_fix-agent-history-storage/) | （无设计文档）| agent | 2026-03-28 |
+| [20260327_F001_web-ask-user-interrupt](../archive/feature_20260327_F001_web-ask-user-interrupt/) | 补全 AskUser 协议字段并支持 Web 端中断 Agent 运行 | relay-server | 2026-03-28 |
+| [20260327_F001_relay-mobile-layout](../archive/feature_20260327_F001_relay-mobile-layout/) | Relay Web 前端移动端完整适配含汉堡侧边栏和面板 Tab 切换 | relay-server | 2026-03-28 |
+| [20260327_F001_preact-no-bundle-migration](../archive/feature_20260327_F001_preact-no-bundle-migration/) | 前端从命令式 DOM 迁移到 Preact+Signals+htm 声明式组件体系 | relay-server | 2026-03-28 |
+| [20260327_F001_frontend-message-id-dedup](../archive/feature_20260327_F001_frontend-message-id-dedup/) | 前端消息基于 UUIDv7 ID 实现 upsert 去重防重复显示 | relay-server | 2026-03-28 |
 | [20260326_F010_relay-loading-state-sync](../archive/feature_20260326_F010_relay-loading-state-sync/) | Agent 执行状态同步到 Web 前端显示「正在思考…」 | relay-server | 2026-03-27 |
 | [20260326_F009_relay-message-id-propagation](../archive/feature_20260326_F009_relay-message-id-propagation/) | TextChunk/ToolStart/ToolEnd 携带 message_id 支持 update-in-place | agent | 2026-03-27 |
 | [20260326_F008_statusbar-msgcount-relay-flag](../archive/feature_20260326_F008_statusbar-msgcount-relay-flag/) | 状态栏消息计数，禁止 relay 隐式自动连接 | tui | 2026-03-27 |
@@ -55,4 +67,4 @@
 - [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）
 
 ---
-*最后更新: 2026-03-27 — 由批量归档（21 个 feature）更新：新增 langfuse 领域*
+*最后更新: 2026-03-28 — 由批量归档（12 个 feature，含 3 个无设计文档）更新*
