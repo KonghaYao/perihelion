@@ -59,7 +59,7 @@ pub mod prelude {
     pub use rust_create_agent::tools::ToolProvider;
     pub use crate::skills::{SkillMetadata, SkillsMiddleware};
     pub use crate::tools::{
-        ArcToolWrapper, AskUserInvoker, AskUserTool, BoxToolWrapper, EditFileTool, FolderOperationsTool,
+        ArcToolWrapper, AskUserTool, BoxToolWrapper, EditFileTool, FolderOperationsTool,
         GlobFilesTool, ReadFileTool, SearchFilesRgTool, TodoItem, TodoStatus, TodoWriteTool,
         WriteFileTool,
     };

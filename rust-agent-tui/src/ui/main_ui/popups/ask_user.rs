@@ -10,7 +10,7 @@ use crate::app::App;
 
 /// AskUser 批量弹窗：header tab 行 + 当前问题选项
 pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
-    let Some(prompt) = &app.ask_user_prompt else { return };
+    let Some(crate::app::InteractionPrompt::Questions(prompt)) = &app.interaction_prompt else { return };
 
     let area = f.area();
     let popup_width = (area.width * 8 / 10).max(54).min(area.width.saturating_sub(4));

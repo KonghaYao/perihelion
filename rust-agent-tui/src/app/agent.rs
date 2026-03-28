@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::hitl::{ApprovalEvent, TuiAskUserHandler, TuiHitlHandler};
 pub(crate) use super::provider::LlmProvider;
+use super::interaction_broker::TuiInteractionBroker;
 use super::AgentEvent;
 use rust_agent_middlewares::prelude::*;
-use rust_agent_middlewares::tools::{AskUserInvoker, AskUserTool, TodoItem};
+use rust_agent_middlewares::tools::{AskUserTool, TodoItem};
 use rust_create_agent::agent::events::{AgentEvent as ExecutorEvent, FnEventHandler};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::state::AgentState;
@@ -20,7 +20,6 @@ pub struct AgentRunConfig {
     pub input: AgentInput,
     pub cwd: String,
     pub history: Vec<rust_create_agent::messages::BaseMessage>,
-    pub approval_tx: mpsc::Sender<ApprovalEvent>,
     pub tx: mpsc::Sender<AgentEvent>,
     pub cancel: AgentCancellationToken,
     pub agent_id: Option<String>,
@@ -34,7 +33,6 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         input,
         cwd,
         history,
-        approval_tx,
         tx,
         cancel,
         agent_id,
@@ -73,12 +71,19 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         }
     });
 
+    // 统一人机交互 broker（取代旧的 TuiHitlHandler + TuiAskUserHandler）
+    let broker = TuiInteractionBroker::new(tx.clone());
+
     // HITL 中间件
-    let hitl = HumanInTheLoopMiddleware::from_env(TuiHitlHandler::new(approval_tx.clone()));
+    let hitl = HumanInTheLoopMiddleware::from_env(
+        broker.clone() as Arc<dyn rust_create_agent::interaction::UserInteractionBroker>,
+        default_requires_approval,
+    );
 
     // AskUser 工具
-    let ask_user_invoker: Arc<dyn AskUserInvoker> = TuiAskUserHandler::new(approval_tx);
-    let ask_user_tool = AskUserTool::new(ask_user_invoker);
+    let ask_user_tool = AskUserTool::new(
+        broker as Arc<dyn rust_create_agent::interaction::UserInteractionBroker>,
+    );
 
     // 事件回调 → TUI AgentEvent channel + Relay 转发
     let tx_event = tx.clone();

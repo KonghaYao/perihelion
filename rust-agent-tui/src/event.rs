@@ -72,7 +72,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // AskUser 批量弹窗
-            if app.ask_user_prompt.is_some() {
+            if matches!(&app.interaction_prompt, Some(crate::app::InteractionPrompt::Questions(_))) {
                 match input {
                     Input {
                         key: Key::Char('c'),
@@ -121,7 +121,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // HITL 批量弹窗激活时，优先处理弹窗按键
-            if app.hitl_prompt.is_some() {
+            if matches!(&app.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) {
                 match input {
                     Input {
                         key: Key::Char('c'),

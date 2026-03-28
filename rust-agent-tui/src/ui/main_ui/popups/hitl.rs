@@ -10,7 +10,7 @@ use crate::app::App;
 
 /// HITL 批量确认弹窗
 pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App) {
-    let Some(prompt) = &app.hitl_prompt else { return };
+    let Some(crate::app::InteractionPrompt::Approval(prompt)) = &app.interaction_prompt else { return };
 
     let area = f.area();
     let item_count = prompt.items.len();

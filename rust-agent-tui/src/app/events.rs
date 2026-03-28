@@ -1,7 +1,6 @@
-use rust_agent_middlewares::ask_user::AskUserBatchRequest;
 use rust_agent_middlewares::prelude::TodoItem;
-
-use super::BatchApprovalRequest;
+use rust_create_agent::interaction::{InteractionContext, InteractionResponse};
+use tokio::sync::oneshot;
 
 /// TUI 与后台 Agent 任务之间的通信事件（通过 mpsc channel 传递）
 pub enum AgentEvent {
@@ -19,10 +18,11 @@ pub enum AgentEvent {
     Error(String),
     /// 用户中断（Ctrl+C），工具已以 error 结尾，消息已持久化
     Interrupted,
-    /// HITL 批量审批请求
-    ApprovalNeeded(BatchApprovalRequest),
-    /// AskUser 批量提问请求
-    AskUserBatch(AskUserBatchRequest),
+    /// 统一人机交互请求（HITL 审批 / AskUser 问答）
+    InteractionRequest {
+        ctx: InteractionContext,
+        response_tx: oneshot::Sender<InteractionResponse>,
+    },
     /// Todo 列表更新
     TodoUpdate(Vec<TodoItem>),
     /// Agent 执行结束后的消息快照（用于多轮对话续接）

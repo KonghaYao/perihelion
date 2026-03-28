@@ -4,9 +4,13 @@ use async_trait::async_trait;
 use rust_create_agent::agent::react::ToolCall;
 use rust_create_agent::agent::state::State;
 use rust_create_agent::error::{AgentError, AgentResult};
+use rust_create_agent::interaction::{
+    ApprovalDecision, ApprovalItem, InteractionContext, InteractionResponse, UserInteractionBroker,
+};
 use rust_create_agent::middleware::r#trait::Middleware;
 
-// 从核心库导入 trait 定义
+// 保留旧类型重导出以向后兼容（已废弃，请改用 UserInteractionBroker）
+#[allow(deprecated)]
 pub use rust_create_agent::hitl::{BatchItem, HitlDecision, HitlHandler};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
@@ -20,7 +24,7 @@ pub fn is_yolo_mode() -> bool {
 
 // ─── 默认规则 ──────────────────────────────────────────────────────────────────
 
-/// 默认敏感工具判断规则（无注入时使用）
+/// 默认敏感工具判断规则
 ///
 /// - `bash`：所有 bash 命令
 /// - `write_*`：文件写入
@@ -41,93 +45,104 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
 
 /// HumanInTheLoopMiddleware — 敏感工具调用前需用户确认
 ///
-/// 在 `before_tool` 时拦截工具调用，通过注入的 [`HitlHandler`] 请求用户审批。
+/// 在 `before_tool` 时拦截工具调用，通过注入的 [`UserInteractionBroker`] 请求用户审批。
 ///
 /// # YOLO 模式
 /// 通过 `HumanInTheLoopMiddleware::disabled()` 或环境变量 `YOLO_MODE=true` 禁用。
 pub struct HumanInTheLoopMiddleware {
-    handler: Option<Arc<dyn HitlHandler>>,
-    enabled: bool,
+    broker: Option<Arc<dyn UserInteractionBroker>>,
+    requires_approval: fn(&str) -> bool,
 }
 
 impl HumanInTheLoopMiddleware {
-    /// 创建启用的 HITL 中间件，使用注入的 handler
-    pub fn new(handler: Arc<dyn HitlHandler>) -> Self {
+    /// 创建启用的 HITL 中间件，使用注入的 broker
+    pub fn new(broker: Arc<dyn UserInteractionBroker>, requires_approval: fn(&str) -> bool) -> Self {
         Self {
-            handler: Some(handler),
-            enabled: true,
+            broker: Some(broker),
+            requires_approval,
         }
     }
 
     /// YOLO 模式：所有工具调用直接放行
     pub fn disabled() -> Self {
         Self {
-            handler: None,
-            enabled: false,
+            broker: None,
+            requires_approval: default_requires_approval,
         }
     }
 
     /// 从环境变量决定是否启用（`YOLO_MODE=true` 则禁用）
-    pub fn from_env(handler: Arc<dyn HitlHandler>) -> Self {
+    pub fn from_env(broker: Arc<dyn UserInteractionBroker>, requires_approval: fn(&str) -> bool) -> Self {
         if is_yolo_mode() {
             Self::disabled()
         } else {
-            Self::new(handler)
+            Self::new(broker, requires_approval)
         }
+    }
+}
+
+/// 将 `ApprovalDecision` 映射为 `AgentResult<ToolCall>`
+fn apply_decision(call: &ToolCall, decision: ApprovalDecision) -> AgentResult<ToolCall> {
+    match decision {
+        ApprovalDecision::Approve => Ok(call.clone()),
+        ApprovalDecision::Edit { new_input } => {
+            let mut modified = call.clone();
+            modified.input = new_input;
+            Ok(modified)
+        }
+        ApprovalDecision::Reject { reason } => Err(AgentError::ToolRejected {
+            tool: call.name.clone(),
+            reason,
+        }),
+        ApprovalDecision::Respond { message } => Err(AgentError::ToolRejected {
+            tool: call.name.clone(),
+            reason: message,
+        }),
     }
 }
 
 impl HumanInTheLoopMiddleware {
     /// 批量处理一批工具调用：收集所有需要审批的项，一次性弹窗，返回每个 call 的处理结果
     pub async fn process_batch(&self, calls: &[ToolCall]) -> Vec<AgentResult<ToolCall>> {
-        let Some(handler) = &self.handler else {
+        let Some(broker) = &self.broker else {
             return calls.iter().map(|c| Ok(c.clone())).collect();
         };
-        if !self.enabled {
-            return calls.iter().map(|c| Ok(c.clone())).collect();
-        }
 
         let needs_approval: Vec<(usize, &ToolCall)> = calls
             .iter()
             .enumerate()
-            .filter(|(_, c)| handler.requires_approval(&c.name, &c.input))
+            .filter(|(_, c)| (self.requires_approval)(&c.name))
             .collect();
 
         if needs_approval.is_empty() {
             return calls.iter().map(|c| Ok(c.clone())).collect();
         }
 
-        let batch_items: Vec<BatchItem> = needs_approval
+        let items: Vec<ApprovalItem> = needs_approval
             .iter()
-            .map(|(_, c)| BatchItem {
+            .map(|(_, c)| ApprovalItem {
+                tool_call_id: c.id.clone(),
                 tool_name: c.name.clone(),
-                input: c.input.clone(),
+                tool_input: c.input.clone(),
             })
             .collect();
 
-        let decisions = handler.request_approval_batch(&batch_items).await;
+        let ctx = InteractionContext::Approval { items };
+        let response = broker.request(ctx).await;
 
-        let mut approval_iter = decisions.into_iter();
+        let decisions = match response {
+            InteractionResponse::Decisions(d) => d,
+            _ => vec![ApprovalDecision::Reject { reason: "unexpected response".to_string() }; needs_approval.len()],
+        };
+
+        let mut decision_iter = decisions.into_iter();
         let mut results: Vec<AgentResult<ToolCall>> = calls.iter().map(|c| Ok(c.clone())).collect();
 
         for (idx, call) in needs_approval {
-            let decision = approval_iter.next().unwrap_or(HitlDecision::Reject);
-            results[idx] = match decision {
-                HitlDecision::Approve => Ok(call.clone()),
-                HitlDecision::Edit(new_input) => {
-                    let mut modified = call.clone();
-                    modified.input = new_input;
-                    Ok(modified)
-                }
-                HitlDecision::Reject => Err(AgentError::ToolRejected {
-                    tool: call.name.clone(),
-                    reason: "用户拒绝".to_string(),
-                }),
-                HitlDecision::Respond(msg) => Err(AgentError::ToolRejected {
-                    tool: call.name.clone(),
-                    reason: msg,
-                }),
-            };
+            let decision = decision_iter
+                .next()
+                .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() });
+            results[idx] = apply_decision(call, decision);
         }
 
         results
@@ -141,33 +156,31 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
     }
 
     async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
-        let Some(handler) = &self.handler else {
+        let Some(broker) = &self.broker else {
             return Ok(tool_call.clone());
         };
-        if !self.enabled {
+
+        if !(self.requires_approval)(&tool_call.name) {
             return Ok(tool_call.clone());
         }
 
-        if !handler.requires_approval(&tool_call.name, &tool_call.input) {
-            return Ok(tool_call.clone());
-        }
+        let ctx = InteractionContext::Approval {
+            items: vec![ApprovalItem {
+                tool_call_id: tool_call.id.clone(),
+                tool_name: tool_call.name.clone(),
+                tool_input: tool_call.input.clone(),
+            }],
+        };
 
-        match handler.request_approval(&tool_call.name, &tool_call.input).await {
-            HitlDecision::Approve => Ok(tool_call.clone()),
-            HitlDecision::Edit(new_input) => {
-                let mut modified = tool_call.clone();
-                modified.input = new_input;
-                Ok(modified)
-            }
-            HitlDecision::Reject => Err(AgentError::ToolRejected {
-                tool: tool_call.name.clone(),
-                reason: "用户拒绝".to_string(),
-            }),
-            HitlDecision::Respond(msg) => Err(AgentError::ToolRejected {
-                tool: tool_call.name.clone(),
-                reason: msg,
-            }),
-        }
+        let response = broker.request(ctx).await;
+        let decision = match response {
+            InteractionResponse::Decisions(mut d) => d
+                .pop()
+                .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() }),
+            _ => ApprovalDecision::Reject { reason: "用户拒绝".to_string() },
+        };
+
+        apply_decision(tool_call, decision)
     }
 }
 
@@ -176,37 +189,37 @@ mod tests {
     use super::*;
     use rust_create_agent::agent::state::AgentState;
 
-    struct AutoApproveHandler;
+    /// 自动批准 broker
+    struct AutoApproveBroker;
 
     #[async_trait]
-    impl HitlHandler for AutoApproveHandler {
-        fn requires_approval(&self, tool_name: &str, _input: &serde_json::Value) -> bool {
-            default_requires_approval(tool_name)
-        }
-
-        async fn request_approval(
-            &self,
-            _tool_name: &str,
-            _input: &serde_json::Value,
-        ) -> HitlDecision {
-            HitlDecision::Approve
+    impl UserInteractionBroker for AutoApproveBroker {
+        async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
+            match ctx {
+                InteractionContext::Approval { items } => {
+                    InteractionResponse::Decisions(
+                        items.iter().map(|_| ApprovalDecision::Approve).collect(),
+                    )
+                }
+                _ => InteractionResponse::Decisions(vec![]),
+            }
         }
     }
 
-    struct AutoRejectHandler;
+    /// 自动拒绝 broker
+    struct AutoRejectBroker;
 
     #[async_trait]
-    impl HitlHandler for AutoRejectHandler {
-        fn requires_approval(&self, _tool_name: &str, _input: &serde_json::Value) -> bool {
-            true
-        }
-
-        async fn request_approval(
-            &self,
-            _tool_name: &str,
-            _input: &serde_json::Value,
-        ) -> HitlDecision {
-            HitlDecision::Reject
+    impl UserInteractionBroker for AutoRejectBroker {
+        async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
+            match ctx {
+                InteractionContext::Approval { items } => {
+                    InteractionResponse::Decisions(
+                        items.iter().map(|_| ApprovalDecision::Reject { reason: "用户拒绝".to_string() }).collect(),
+                    )
+                }
+                _ => InteractionResponse::Decisions(vec![]),
+            }
         }
     }
 
@@ -229,7 +242,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_approve_passes_through() {
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoApproveHandler));
+        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoApproveBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -238,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_reject_returns_error() {
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoRejectHandler));
+        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await;
@@ -247,7 +260,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_file_not_intercepted() {
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoApproveHandler));
+        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("read_file");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -256,40 +269,40 @@ mod tests {
 
     #[test]
     fn test_default_requires_approval() {
-        // 需要审批的工具
         assert!(default_requires_approval("bash"));
         assert!(default_requires_approval("write_file"));
         assert!(default_requires_approval("edit_file"));
         assert!(default_requires_approval("folder_operations"));
         assert!(default_requires_approval("delete_something"));
         assert!(default_requires_approval("rm_rf"));
-        // launch_agent 子 Agent 不含 HITL，可传递绕过审批，必须审批
         assert!(default_requires_approval("launch_agent"));
 
-        // 不需要审批的工具（只读或无副作用）
         assert!(!default_requires_approval("read_file"));
         assert!(!default_requires_approval("glob_files"));
         assert!(!default_requires_approval("search_files_rg"));
-        assert!(!default_requires_approval("todo_write")); // 内存操作，无磁盘副作用
-        assert!(!default_requires_approval("ask_user"));   // 仅询问用户，无副作用
+        assert!(!default_requires_approval("todo_write"));
+        assert!(!default_requires_approval("ask_user"));
     }
 
-    /// Edit 决策：修改工具调用参数后继续执行
     #[tokio::test]
     async fn test_edit_modifies_input() {
-        struct EditHandler;
+        struct EditBroker;
 
         #[async_trait]
-        impl HitlHandler for EditHandler {
-            fn requires_approval(&self, _: &str, _: &serde_json::Value) -> bool {
-                true
-            }
-            async fn request_approval(&self, _: &str, _: &serde_json::Value) -> HitlDecision {
-                HitlDecision::Edit(serde_json::json!({"command": "echo safe"}))
+        impl UserInteractionBroker for EditBroker {
+            async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
+                match ctx {
+                    InteractionContext::Approval { items } => InteractionResponse::Decisions(
+                        items.iter().map(|_| ApprovalDecision::Edit {
+                            new_input: serde_json::json!({"command": "echo safe"}),
+                        }).collect(),
+                    ),
+                    _ => InteractionResponse::Decisions(vec![]),
+                }
             }
         }
 
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(EditHandler));
+        let mw = HumanInTheLoopMiddleware::new(Arc::new(EditBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -297,22 +310,25 @@ mod tests {
         assert_eq!(result.input, serde_json::json!({"command": "echo safe"}));
     }
 
-    /// Respond 决策：拒绝并携带用户消息
     #[tokio::test]
     async fn test_respond_returns_error_with_reason() {
-        struct RespondHandler;
+        struct RespondBroker;
 
         #[async_trait]
-        impl HitlHandler for RespondHandler {
-            fn requires_approval(&self, _: &str, _: &serde_json::Value) -> bool {
-                true
-            }
-            async fn request_approval(&self, _: &str, _: &serde_json::Value) -> HitlDecision {
-                HitlDecision::Respond("请改用 echo 命令".to_string())
+        impl UserInteractionBroker for RespondBroker {
+            async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
+                match ctx {
+                    InteractionContext::Approval { items } => InteractionResponse::Decisions(
+                        items.iter().map(|_| ApprovalDecision::Respond {
+                            message: "请改用 echo 命令".to_string(),
+                        }).collect(),
+                    ),
+                    _ => InteractionResponse::Decisions(vec![]),
+                }
             }
         }
 
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(RespondHandler));
+        let mw = HumanInTheLoopMiddleware::new(Arc::new(RespondBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await;
