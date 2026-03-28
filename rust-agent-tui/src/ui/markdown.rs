@@ -1,10 +1,10 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
 };
-
 use super::message_view::ContentBlockView;
+use super::theme;
 
 // ── 辅助类型 ──────────────────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ impl RenderState {
         // 引用块前缀：每层加一个 ▍
         if self.quote_depth > 0 && !spans.is_empty() {
             let prefix = "▍ ".repeat(self.quote_depth as usize);
-            spans.insert(0, Span::styled(prefix, Style::default().fg(Color::DarkGray)));
+            spans.insert(0, Span::styled(prefix, Style::default().fg(theme::MUTED)));
         }
 
         if spans.is_empty() {
@@ -69,10 +69,10 @@ impl RenderState {
             // ── 标题 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Heading { level, .. }) => {
                 let (color, prefix) = match level {
-                    HeadingLevel::H1 => (Color::Cyan, Some("━━ ")),
-                    HeadingLevel::H2 => (Color::Blue, None),
-                    HeadingLevel::H3 => (Color::Magenta, None),
-                    _ => (Color::DarkGray, None),
+                    HeadingLevel::H1 => (theme::ACCENT, Some("── ")),
+                    HeadingLevel::H2 => (theme::ACCENT, None),
+                    HeadingLevel::H3 => (theme::WARNING, None),
+                    _ => (theme::MUTED, None),
                 };
                 self.inline_style =
                     Style::default().fg(color).add_modifier(Modifier::BOLD);
@@ -105,7 +105,7 @@ impl RenderState {
                     let tag = format!("[{}]", self.code_block_lang);
                     self.current_spans.push(Span::styled(
                         tag,
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(theme::MUTED),
                     ));
                     self.flush_line();
                 }
@@ -145,7 +145,7 @@ impl RenderState {
                     format!("{}• ", indent)
                 };
                 self.current_spans
-                    .push(Span::styled(bullet, Style::default().fg(Color::White)));
+                    .push(Span::styled(bullet, Style::default().fg(theme::TEXT)));
             }
             Event::End(TagEnd::Item) => {
                 if !self.current_spans.is_empty() {
@@ -167,7 +167,7 @@ impl RenderState {
             Event::Rule => {
                 let rule = "─".repeat(60);
                 self.current_spans
-                    .push(Span::styled(rule, Style::default().fg(Color::DarkGray)));
+                    .push(Span::styled(rule, Style::default().fg(theme::MUTED)));
                 self.flush_line();
             }
 
@@ -184,11 +184,11 @@ impl RenderState {
                         }
                         self.current_spans.push(Span::styled(
                             "│ ".to_string(),
-                            Style::default().fg(Color::Green),
+                            Style::default().fg(theme::SAGE),
                         ));
                         self.current_spans.push(Span::styled(
                             line_text.to_string(),
-                            Style::default().fg(Color::White),
+                            Style::default().fg(theme::TEXT),
                         ));
                         self.flush_line();
                     }
@@ -199,7 +199,7 @@ impl RenderState {
 
             // ── 行内代码 ──────────────────────────────────────────────────────
             Event::Code(text) => {
-                let style = Style::default().fg(Color::Yellow).bg(Color::DarkGray);
+                let style = Style::default().fg(theme::ACCENT);
                 self.current_spans
                     .push(Span::styled(text.into_string(), style));
             }
@@ -229,7 +229,7 @@ impl RenderState {
             // ── 链接 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Link { .. }) => {
                 self.inline_style = self.inline_style
-                    .fg(Color::Blue)
+                    .fg(theme::SAGE)
                     .add_modifier(Modifier::UNDERLINED);
             }
             Event::End(TagEnd::Link) => {

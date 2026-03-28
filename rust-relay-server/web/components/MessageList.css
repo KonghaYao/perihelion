@@ -1,6 +1,7 @@
 .messages {
     flex: 1;
-    overflow-y: auto;
+    /* 不能加这个 */
+    /* overflow-y: auto; */
     padding: 20px 24px 16px;
     display: flex;
     flex-direction: column;
@@ -235,7 +236,8 @@
     flex-shrink: 0;
 }
 
-.tool-body {}
+.tool-body {
+}
 
 .tool-section {
     padding: 7px 11px;
@@ -348,7 +350,9 @@
     border-radius: 4px;
     font-size: 11px;
     cursor: pointer;
-    transition: border-color 0.12s, color 0.12s;
+    transition:
+        border-color 0.12s,
+        color 0.12s;
     font-family: var(--font-sans);
     letter-spacing: 0.01em;
 }
@@ -374,6 +378,12 @@
     opacity: 0.2;
     animation: loading-bounce 1.4s ease-in-out infinite;
 }
-.loading-dots span:nth-child(1) { animation-delay: 0s; }
-.loading-dots span:nth-child(2) { animation-delay: 0.22s; }
-.loading-dots span:nth-child(3) { animation-delay: 0.44s; }
+.loading-dots span:nth-child(1) {
+    animation-delay: 0s;
+}
+.loading-dots span:nth-child(2) {
+    animation-delay: 0.22s;
+}
+.loading-dots span:nth-child(3) {
+    animation-delay: 0.44s;
+}

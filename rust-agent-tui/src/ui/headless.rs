@@ -187,7 +187,8 @@ mod tests {
 
     mod markdown_tests {
         use crate::ui::markdown::parse_markdown;
-        use ratatui::style::{Color, Modifier};
+        use crate::ui::theme;
+        use ratatui::style::Modifier;
 
         fn all_text(text: &ratatui::text::Text) -> String {
             text.lines
@@ -205,19 +206,19 @@ mod tests {
             let all_content: String =
                 first_line.spans.iter().map(|s| s.content.as_ref()).collect();
             assert!(
-                all_content.contains("━━"),
-                "H1 首行应含 ━━ 前缀，实际: {all_content:?}"
+                all_content.contains("──"),
+                "H1 首行应含 ── 前缀，实际: {all_content:?}"
             );
             assert!(
                 all_content.contains("Hello World"),
                 "H1 首行应含标题文字，实际: {all_content:?}"
             );
-            // 检查颜色为 Cyan
-            let has_cyan = first_line
+            // 检查颜色为 ACCENT
+            let has_accent = first_line
                 .spans
                 .iter()
-                .any(|s| s.style.fg == Some(Color::Cyan));
-            assert!(has_cyan, "H1 应为 Cyan 颜色");
+                .any(|s| s.style.fg == Some(theme::ACCENT));
+            assert!(has_accent, "H1 应为 ACCENT 颜色");
         }
 
         #[test]
@@ -251,9 +252,9 @@ mod tests {
         fn test_md_inline_code() {
             let text = parse_markdown("`hello`");
             let has_code = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.fg == Some(Color::Yellow) && s.content.contains("hello")
+                s.style.fg == Some(theme::ACCENT) && s.content.contains("hello")
             });
-            assert!(has_code, "行内代码应为 Yellow 颜色，含 hello 文字");
+            assert!(has_code, "行内代码应为 ACCENT 颜色，含 hello 文字");
         }
 
         #[test]

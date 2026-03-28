@@ -7,25 +7,14 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::ui::theme;
 
-/// /agents 面板渲染
-pub(crate) fn render_agent_panel(f: &mut Frame, app: &App) {
+/// /agents 面板渲染（底部展开区）
+pub(crate) fn render_agent_panel(f: &mut Frame, app: &App, area: Rect) {
     let Some(panel) = &app.agent_panel else { return };
 
-    let area = f.area();
     let agent_count = panel.agents.len();
-    let _total_items = panel.total();
-
-    // 弹窗高度：边框(2) + 标题(1) + 空行(1) + 每项(2行或1行) + 间隔 + 底部提示(1)
-    let base_height = 2 + 1 + 1 + 1 + 1; // 边框 + 标题 + 空行 + 空行 + 底部提示
-    let items_height: u16 = panel.agents.iter().map(|a| {
-        if a.description.is_empty() { 1 } else { 2 }
-    }).sum::<u16>();
-    let popup_height = (base_height + items_height).min(area.height * 4 / 5).min(area.height.saturating_sub(4)).max(6);
-    let popup_width = (area.width * 3 / 4).max(50).min(area.width.saturating_sub(4));
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect::new(x, y, popup_width, popup_height);
+    let popup_area = area;
 
     f.render_widget(Clear, popup_area);
 
@@ -36,9 +25,9 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &App) {
     };
 
     let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(title, Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(theme::ACCENT));
     f.render_widget(&block, popup_area);
 
     let inner = block.inner(popup_area);
@@ -51,16 +40,16 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &App) {
     lines.push(Line::from(vec![
         Span::styled(
             if is_none_cursor { "▶ " } else { "  " },
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(theme::ACCENT),
         ),
         Span::styled(
             "○ 无 Agent（默认）",
             if is_none_cursor {
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
             } else if is_none_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(theme::MUTED)
             },
         ),
     ]));
@@ -76,11 +65,11 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &App) {
         let cursor_char = if is_cursor { "▶" } else { " " };
 
         let name_style = if is_cursor {
-            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
         } else if is_selected {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(theme::TEXT)
         };
 
         lines.push(Line::from(vec![
@@ -91,9 +80,9 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &App) {
         // 描述行（次要信息）
         if !agent.description.is_empty() {
             let desc_style = if is_cursor {
-                Style::default().fg(Color::DarkGray).bg(Color::Cyan)
+                Style::default().fg(theme::MUTED).bg(theme::ACCENT)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(theme::MUTED)
             };
             // 截断过长的描述
             let desc: String = agent.description.chars().take(50).collect();
@@ -109,10 +98,10 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &App) {
 
     // 底部提示
     lines.push(Line::from(vec![
-        Span::styled(" Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(":关闭", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":选择  ", Style::default().fg(theme::MUTED)),
+        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));
 
     f.render_widget(

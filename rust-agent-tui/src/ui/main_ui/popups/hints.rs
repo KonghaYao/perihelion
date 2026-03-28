@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::ui::theme;
 
 /// 命令提示条：当输入以 / 开头时，在输入框上方浮动显示匹配命令
 pub(crate) fn render_command_hint(f: &mut Frame, app: &App, input_area: Rect) {
@@ -41,8 +42,8 @@ pub(crate) fn render_command_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" 命令 ", Style::default().fg(Color::DarkGray)));
+        .border_style(Style::default().fg(theme::MUTED))
+        .title(Span::styled(" 命令 ", Style::default().fg(theme::MUTED)));
     f.render_widget(&block, hint_area);
 
     let inner = block.inner(hint_area);
@@ -55,15 +56,15 @@ pub(crate) fn render_command_hint(f: &mut Frame, app: &App, input_area: Rect) {
         .enumerate()
         .map(|(i, (name, desc))| {
             let is_selected = selected == Some(i);
-            let bg = if is_selected { Color::DarkGray } else { Color::Reset };
+            let bg = if is_selected { theme::CURSOR_BG } else { Color::Reset };
             let typed_len = prefix.len();
             let (matched, rest) = name.split_at(typed_len.min(name.len()));
             Line::from(vec![
-                Span::styled(if is_selected { "▸ /" } else { "  /" }, Style::default().fg(Color::Cyan).bg(bg)),
-                Span::styled(matched.to_string(), Style::default().fg(Color::Cyan).bg(bg).add_modifier(Modifier::BOLD)),
-                Span::styled(rest.to_string(), Style::default().fg(Color::White).bg(bg)),
+                Span::styled(if is_selected { "▸ /" } else { "  /" }, Style::default().fg(theme::ACCENT).bg(bg)),
+                Span::styled(matched.to_string(), Style::default().fg(theme::ACCENT).bg(bg).add_modifier(Modifier::BOLD)),
+                Span::styled(rest.to_string(), Style::default().fg(theme::TEXT).bg(bg)),
                 Span::styled("  ", Style::default().bg(bg)),
-                Span::styled(desc.to_string(), Style::default().fg(Color::DarkGray).bg(bg)),
+                Span::styled(desc.to_string(), Style::default().fg(theme::MUTED).bg(bg)),
             ])
         })
         .collect();
@@ -103,8 +104,8 @@ pub(crate) fn render_skill_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Skills ", Style::default().fg(Color::DarkGray)));
+        .border_style(Style::default().fg(theme::MUTED))
+        .title(Span::styled(" Skills ", Style::default().fg(theme::MUTED)));
     f.render_widget(&block, hint_area);
 
     let inner = block.inner(hint_area);
@@ -116,7 +117,7 @@ pub(crate) fn render_skill_hint(f: &mut Frame, app: &App, input_area: Rect) {
         .enumerate()
         .map(|(i, skill)| {
             let is_selected = selected == Some(i);
-            let bg = if is_selected { Color::DarkGray } else { Color::Reset };
+            let bg = if is_selected { theme::CURSOR_BG } else { Color::Reset };
             let name = &skill.name;
             if !prefix.is_empty() {
                 if let Some(pos) = name.find(prefix) {
@@ -124,20 +125,20 @@ pub(crate) fn render_skill_hint(f: &mut Frame, app: &App, input_area: Rect) {
                     let matched = &name[pos..pos + prefix.len()];
                     let after = &name[pos + prefix.len()..];
                     return Line::from(vec![
-                        Span::styled(if is_selected { "▸ #" } else { "  #" }, Style::default().fg(Color::Cyan).bg(bg)),
-                        Span::styled(before.to_string(), Style::default().fg(Color::White).bg(bg)),
-                        Span::styled(matched.to_string(), Style::default().fg(Color::Cyan).bg(bg).add_modifier(Modifier::BOLD)),
-                        Span::styled(after.to_string(), Style::default().fg(Color::White).bg(bg)),
+                        Span::styled(if is_selected { "▸ #" } else { "  #" }, Style::default().fg(theme::ACCENT).bg(bg)),
+                        Span::styled(before.to_string(), Style::default().fg(theme::TEXT).bg(bg)),
+                        Span::styled(matched.to_string(), Style::default().fg(theme::ACCENT).bg(bg).add_modifier(Modifier::BOLD)),
+                        Span::styled(after.to_string(), Style::default().fg(theme::TEXT).bg(bg)),
                         Span::styled("  ", Style::default().bg(bg)),
-                        Span::styled(skill.description.clone(), Style::default().fg(Color::DarkGray).bg(bg)),
+                        Span::styled(skill.description.clone(), Style::default().fg(theme::MUTED).bg(bg)),
                     ]);
                 }
             }
             Line::from(vec![
-                Span::styled(if is_selected { "▸ #" } else { "  #" }, Style::default().fg(Color::Cyan).bg(bg)),
-                Span::styled(name.clone(), Style::default().fg(Color::White).bg(bg)),
+                Span::styled(if is_selected { "▸ #" } else { "  #" }, Style::default().fg(theme::ACCENT).bg(bg)),
+                Span::styled(name.clone(), Style::default().fg(theme::TEXT).bg(bg)),
                 Span::styled("  ", Style::default().bg(bg)),
-                Span::styled(skill.description.clone(), Style::default().fg(Color::DarkGray).bg(bg)),
+                Span::styled(skill.description.clone(), Style::default().fg(theme::MUTED).bg(bg)),
             ])
         })
         .collect();

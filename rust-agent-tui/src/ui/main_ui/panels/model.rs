@@ -8,27 +8,22 @@ use ratatui::{
 
 use crate::app::App;
 use crate::app::model_panel::{AliasEditField, AliasTab, EditField, ModelPanelMode, PROVIDER_TYPES};
+use crate::ui::theme;
 
-/// /model 面板渲染
-pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
+/// /model 面板渲染（底部展开区）
+pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     let Some(panel) = &app.model_panel else { return };
 
-    let area = f.area();
-    let popup_width = (area.width * 4 / 5).max(60).min(area.width.saturating_sub(4));
-    let popup_height = 22u16.min(area.height * 4 / 5).min(area.height.saturating_sub(4));
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect::new(x, y, popup_width, popup_height);
-
+    let popup_area = area;
     f.render_widget(Clear, popup_area);
 
     // 根据模式选颜色/标题
     let (border_color, title) = match &panel.mode {
-        ModelPanelMode::AliasConfig   => (Color::Cyan,   " /model — 模型别名配置 "),
-        ModelPanelMode::Browse        => (Color::Cyan,   " /model — Provider 管理 "),
-        ModelPanelMode::Edit          => (Color::Yellow, " /model — 编辑 Provider "),
-        ModelPanelMode::New           => (Color::Green,  " /model — 新建 Provider "),
-        ModelPanelMode::ConfirmDelete => (Color::Red,    " /model — 确认删除 "),
+        ModelPanelMode::AliasConfig   => (theme::ACCENT,   " /model — 模型别名配置 "),
+        ModelPanelMode::Browse        => (theme::ACCENT,   " /model — Provider 管理 "),
+        ModelPanelMode::Edit          => (theme::WARNING, " /model — 编辑 Provider "),
+        ModelPanelMode::New           => (theme::SAGE,  " /model — 新建 Provider "),
+        ModelPanelMode::ConfirmDelete => (theme::ERROR,    " /model — 确认删除 "),
     };
 
     let block = Block::default()
@@ -61,11 +56,11 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                         format!("[ {} ]", tab.label())
                     };
                     let style = if is_current {
-                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
                     } else if is_active_alias {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(Color::DarkGray)
+                        Style::default().fg(theme::MUTED)
                     };
                     spans.push(Span::styled(label, style));
                     spans.push(Span::styled("  ", Style::default()));
@@ -107,20 +102,20 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
 
             let (prov_label_style, prov_val_style) = if provider_is_active {
                 (
-                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
-                    Style::default().fg(Color::Black).bg(Color::Cyan),
+                    Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::White).bg(theme::ACCENT),
                 )
             } else {
-                (Style::default().fg(Color::DarkGray), Style::default().fg(Color::White))
+                (Style::default().fg(theme::MUTED), Style::default().fg(theme::TEXT))
             };
 
             let (model_label_style, model_val_style) = if model_is_active {
                 (
-                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
-                    Style::default().fg(Color::Black).bg(Color::Cyan),
+                    Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::White).bg(theme::ACCENT),
                 )
             } else {
-                (Style::default().fg(Color::DarkGray), Style::default().fg(Color::White))
+                (Style::default().fg(theme::MUTED), Style::default().fg(theme::TEXT))
             };
 
             let provider_line = Line::from(vec![
@@ -133,20 +128,20 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
             ]);
 
             let hint_line = Line::from(vec![
-                Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换Tab  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":激活  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换字段  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换Provider  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("p", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":管理  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("s", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":保存  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":关闭", Style::default().fg(Color::DarkGray)),
+                Span::styled(" Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换Tab  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":激活  ", Style::default().fg(theme::MUTED)),
+                Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换字段  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换Provider  ", Style::default().fg(theme::MUTED)),
+                Span::styled("p", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":管理  ", Style::default().fg(theme::MUTED)),
+                Span::styled("s", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":保存  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":关闭", Style::default().fg(theme::MUTED)),
             ]);
 
             let mut lines = vec![
@@ -180,22 +175,22 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                 let name = p.display_name().to_string();
                 let type_tag = format!("({})", p.provider_type);
                 let row_style = if is_cursor {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                    Style::default().fg(Color::White).bg(theme::ACCENT)
                 } else if is_active {
-                    Style::default().fg(Color::Cyan)
+                    Style::default().fg(theme::ACCENT)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(theme::TEXT)
                 };
                 list_lines.push(Line::from(vec![
                     Span::styled(format!("{} {} ", cursor_char, bullet), row_style),
                     Span::styled(format!("{} ", name), row_style.add_modifier(Modifier::BOLD)),
-                    Span::styled(type_tag, row_style.fg(if is_cursor { Color::Black } else { Color::DarkGray })),
+                    Span::styled(type_tag, row_style.fg(if is_cursor { Color::White } else { theme::MUTED })),
                 ]));
             }
             if panel.providers.is_empty() {
                 list_lines.push(Line::from(Span::styled(
                     "  （无 provider，按 n 新建）",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::MUTED),
                 )));
             }
             f.render_widget(Paragraph::new(Text::from(list_lines)), list_area);
@@ -207,12 +202,12 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                         let key_masked = mask_api_key(&p.api_key);
                         let mut info_lines = vec![
                             Line::from(vec![
-                                Span::styled("  API Key ", Style::default().fg(Color::DarkGray)),
-                                Span::styled(key_masked, Style::default().fg(Color::White)),
+                                Span::styled("  API Key ", Style::default().fg(theme::MUTED)),
+                                Span::styled(key_masked, Style::default().fg(theme::TEXT)),
                             ]),
                             Line::from(vec![
-                                Span::styled("  Base URL", Style::default().fg(Color::DarkGray)),
-                                Span::styled(format!(" {}", p.base_url), Style::default().fg(Color::White)),
+                                Span::styled("  Base URL", Style::default().fg(theme::MUTED)),
+                                Span::styled(format!(" {}", p.base_url), Style::default().fg(theme::TEXT)),
                             ]),
                         ];
                         let thinking_status = if panel.buf_thinking_enabled {
@@ -220,21 +215,21 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                         } else {
                             " OFF".to_string()
                         };
-                        let thinking_color = if panel.buf_thinking_enabled { Color::Rgb(150, 120, 200) } else { Color::DarkGray };
+                        let thinking_color = if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED };
                         info_lines.push(Line::from(vec![
-                            Span::styled("  Thinking", Style::default().fg(Color::DarkGray)),
+                            Span::styled("  Thinking", Style::default().fg(theme::MUTED)),
                             Span::styled(thinking_status, Style::default().fg(thinking_color)),
                         ]));
                         info_lines.push(Line::from(""));
                         info_lines.push(Line::from(vec![
-                            Span::styled(" e", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                            Span::styled(":编辑  ", Style::default().fg(Color::DarkGray)),
-                            Span::styled("n", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                            Span::styled(":新建  ", Style::default().fg(Color::DarkGray)),
-                            Span::styled("d", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                            Span::styled(":删除  ", Style::default().fg(Color::DarkGray)),
-                            Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                            Span::styled(":返回", Style::default().fg(Color::DarkGray)),
+                            Span::styled(" e", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                            Span::styled(":编辑  ", Style::default().fg(theme::MUTED)),
+                            Span::styled("n", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
+                            Span::styled(":新建  ", Style::default().fg(theme::MUTED)),
+                            Span::styled("d", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                            Span::styled(":删除  ", Style::default().fg(theme::MUTED)),
+                            Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                            Span::styled(":返回", Style::default().fg(theme::MUTED)),
                         ]));
                         info_lines.truncate(form_area.height as usize);
                         f.render_widget(Paragraph::new(Text::from(info_lines)), form_area);
@@ -261,11 +256,11 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                         } else if *field == EditField::ApiKey { mask_api_key(buf) } else { buf.to_string() };
                         let (label_style, value_style) = if is_active {
                             (
-                                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
-                                Style::default().fg(Color::Black).bg(Color::Cyan),
+                                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                                Style::default().fg(Color::White).bg(theme::ACCENT),
                             )
                         } else {
-                            (Style::default().fg(Color::DarkGray), Style::default().fg(Color::White))
+                            (Style::default().fg(theme::MUTED), Style::default().fg(theme::TEXT))
                         };
                         form_lines.push(Line::from(vec![
                             Span::styled(format!("  {} ", label), label_style),
@@ -282,15 +277,15 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                         } else {
                             panel.buf_thinking_budget.clone()
                         };
-                        let enabled_color = if panel.buf_thinking_enabled { Color::Rgb(150, 120, 200) } else { Color::DarkGray };
+                        let enabled_color = if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED };
                         let (label_style, enabled_style, budget_style) = if is_active {
                             (
-                                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
-                                Style::default().fg(if panel.buf_thinking_enabled { Color::Rgb(180, 100, 255) } else { Color::DarkGray }).bg(Color::Cyan),
-                                Style::default().fg(Color::Black).bg(Color::Cyan),
+                                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                                Style::default().fg(if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED }).bg(theme::ACCENT),
+                                Style::default().fg(Color::White).bg(theme::ACCENT),
                             )
                         } else {
-                            (Style::default().fg(Color::DarkGray), Style::default().fg(enabled_color), Style::default().fg(Color::White))
+                            (Style::default().fg(theme::MUTED), Style::default().fg(enabled_color), Style::default().fg(theme::TEXT))
                         };
                         form_lines.push(Line::from(vec![
                             Span::styled(format!("  {} ", label), label_style),
@@ -300,14 +295,14 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                     }
                     form_lines.push(Line::from(""));
                     form_lines.push(Line::from(vec![
-                        Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(":切换字段  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(":切换/开关  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(":保存  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(":取消", Style::default().fg(Color::DarkGray)),
+                        Span::styled(" Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                        Span::styled(":切换字段  ", Style::default().fg(theme::MUTED)),
+                        Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                        Span::styled(":切换/开关  ", Style::default().fg(theme::MUTED)),
+                        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                        Span::styled(":保存  ", Style::default().fg(theme::MUTED)),
+                        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                        Span::styled(":取消", Style::default().fg(theme::MUTED)),
                     ]));
                     form_lines.truncate(form_area.height as usize);
                     f.render_widget(Paragraph::new(Text::from(form_lines)), form_area);
@@ -317,16 +312,16 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App) {
                         let confirm_lines = vec![
                             Line::from(""),
                             Line::from(vec![
-                                Span::styled("  确认删除 ", Style::default().fg(Color::White)),
-                                Span::styled(p.display_name().to_string(), Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                                Span::styled(" ？", Style::default().fg(Color::White)),
+                                Span::styled("  确认删除 ", Style::default().fg(theme::TEXT)),
+                                Span::styled(p.display_name().to_string(), Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                                Span::styled(" ？", Style::default().fg(theme::TEXT)),
                             ]),
                             Line::from(""),
                             Line::from(vec![
-                                Span::styled(" y", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                                Span::styled(":确认删除  ", Style::default().fg(Color::DarkGray)),
-                                Span::styled("n/Esc", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                                Span::styled(":取消", Style::default().fg(Color::DarkGray)),
+                                Span::styled(" y", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                                Span::styled(":确认删除  ", Style::default().fg(theme::MUTED)),
+                                Span::styled("n/Esc", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
+                                Span::styled(":取消", Style::default().fg(theme::MUTED)),
                             ]),
                         ];
                         f.render_widget(Paragraph::new(Text::from(confirm_lines)), form_area);

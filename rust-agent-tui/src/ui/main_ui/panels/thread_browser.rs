@@ -7,27 +7,22 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::ui::theme;
 
-/// Thread 浏览面板
-pub(crate) fn render_thread_browser(f: &mut Frame, app: &App) {
+/// Thread 浏览面板（底部展开区）
+pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
     let Some(browser) = &app.thread_browser else { return };
 
-    let area = f.area();
-    let popup_width = (area.width * 3 / 4).max(50).min(area.width.saturating_sub(4));
-    let popup_height = (browser.total() as u16 + 4).min(area.height * 4 / 5).min(area.height.saturating_sub(4)).max(6);
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect::new(x, y, popup_width, popup_height);
-
+    let popup_area = area;
     f.render_widget(Clear, popup_area);
 
     let block = Block::default()
         .title(Span::styled(
             " 📝 选择对话  ↑↓:移动  Enter:确认  d:删除  Esc:关闭",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(theme::ACCENT));
     f.render_widget(&block, popup_area);
 
     let inner = block.inner(popup_area);
@@ -39,14 +34,14 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &App) {
     lines.push(Line::from(vec![
         Span::styled(
             if is_new_cursor { "▶ " } else { "  " },
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(theme::ACCENT),
         ),
         Span::styled(
             "+ 新建对话",
             if is_new_cursor {
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Green)
+                Style::default().fg(theme::SAGE)
             },
         ),
     ]));
@@ -62,14 +57,14 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &App) {
         lines.push(Line::from(vec![
             Span::styled(
                 if is_cursor { "▶ " } else { "  " },
-                Style::default().fg(Color::Cyan),
+                Style::default().fg(theme::ACCENT),
             ),
             Span::styled(
                 label,
                 if is_cursor {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                    Style::default().fg(Color::White).bg(theme::ACCENT)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(theme::TEXT)
                 },
             ),
         ]));

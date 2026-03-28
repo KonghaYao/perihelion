@@ -1,9 +1,10 @@
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
 };
 
 use super::message_view::{ContentBlockView, MessageViewModel};
+use super::theme;
 
 /// 将单个 ViewModel 渲染为 Vec<Line>
 pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> Vec<Line<'static>> {
@@ -15,7 +16,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                     // 第一行：前缀 + 原始 spans
                     let mut spans = vec![Span::styled(
                         format!("{} ", index),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
                     )];
                     spans.extend(line.spans.clone());
                     lines.push(Line::from(spans));
@@ -48,7 +49,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                                     Span::styled(
                                         format!("{} {}", index, streaming_suffix),
                                         Style::default()
-                                            .fg(Color::Cyan)
+                                            .fg(theme::ACCENT)
                                             .add_modifier(Modifier::BOLD),
                                     ),
                                     Span::raw(" "),
@@ -70,7 +71,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                             lines.push(Line::from(vec![Span::styled(
                                 format!("{} {}", index, streaming_suffix),
                                 Style::default()
-                                    .fg(Color::Cyan)
+                                    .fg(theme::ACCENT)
                                     .add_modifier(Modifier::BOLD),
                             )]));
                             first_text_merged = true;
@@ -79,7 +80,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                             Span::raw("  "),
                             Span::styled(
                                 format!("💭 思考 ({} chars)", char_count),
-                                Style::default().fg(Color::Rgb(150, 120, 200)),
+                                Style::default().fg(theme::THINKING),
                             ),
                         ]));
                     }
@@ -89,7 +90,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                             lines.push(Line::from(vec![Span::styled(
                                 format!("{} {}", index, streaming_suffix),
                                 Style::default()
-                                    .fg(Color::Cyan)
+                                    .fg(theme::ACCENT)
                                     .add_modifier(Modifier::BOLD),
                             )]));
                             first_text_merged = true;
@@ -99,7 +100,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                             Span::raw("  "),
                             Span::styled(
                                 format!("{}{} {}", index, tool_idx, name),
-                                Style::default().fg(Color::Rgb(100, 181, 246)),
+                                Style::default().fg(theme::TOOL_NAME),
                             ),
                         ]));
                     }
@@ -111,7 +112,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                 lines.push(Line::from(vec![Span::styled(
                     format!("{} {}", index, streaming_suffix),
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme::ACCENT)
                         .add_modifier(Modifier::BOLD),
                 )]));
             }
@@ -136,7 +137,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
             if let Some(args) = args_display {
                 header_spans.push(Span::styled(
                     format!("  {}", args),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::MUTED),
                 ));
             }
             let mut lines = vec![Line::from(header_spans)];
@@ -144,7 +145,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                 for line in content.lines() {
                     lines.push(Line::from(vec![
                         Span::raw("  │ "),
-                        Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
                     ]));
                 }
             }
@@ -159,7 +160,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
             collapsed,
             final_result,
         } => {
-            let agent_color = Color::Rgb(129, 199, 132); // 绿色系
+            let agent_color = theme::SUB_AGENT;
             let mut lines: Vec<Line<'static>> = Vec::new();
 
             if *collapsed {
@@ -184,7 +185,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                 if !result_preview.is_empty() {
                     spans.push(Span::styled(
                         format!("  {}", result_preview),
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(theme::MUTED),
                     ));
                 }
                 lines.push(Line::from(spans));
@@ -193,7 +194,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                 let status_span = if *is_running {
                     Span::styled(
                         format!("[运行中 · 已执行 {} 步]", total_steps),
-                        Style::default().fg(Color::Yellow),
+                        Style::default().fg(theme::WARNING),
                     )
                 } else {
                     Span::styled(
@@ -227,7 +228,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                         Span::raw("  "),
                         Span::styled(
                             format!("[仅显示最近 4/{} 步]", total_steps),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(theme::MUTED),
                         ),
                     ]));
                 }
@@ -254,8 +255,8 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
             let mut lines = Vec::new();
             for line in content.lines() {
                 lines.push(Line::from(vec![
-                    Span::styled("ℹ ", Style::default().fg(Color::Blue)),
-                    Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                    Span::styled("ℹ ", Style::default().fg(theme::SAGE)),
+                    Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
                 ]));
             }
             lines

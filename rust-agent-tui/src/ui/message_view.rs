@@ -1,5 +1,6 @@
 use ratatui::style::Color;
 use ratatui::text::Text;
+use crate::ui::theme;
 use rust_create_agent::messages::{BaseMessage, ContentBlock};
 
 use super::markdown::parse_markdown;
@@ -155,7 +156,7 @@ impl MessageViewModel {
                 let display_name = crate::app::tool_display::format_tool_name(&tool_name);
                 let args_display = crate::app::tool_display::format_tool_args(&tool_name, &input, None);
                 let color = if *is_error {
-                    Color::Red
+                    theme::ERROR
                 } else {
                     tool_color(&tool_name)
                 };
@@ -238,7 +239,7 @@ impl MessageViewModel {
     /// 创建工具消息
     pub fn tool_block(tool_name: String, display: String, args: Option<String>, is_error: bool) -> Self {
         let color = if is_error {
-            Color::Red
+            theme::ERROR
         } else {
             tool_color(&tool_name)
         };
@@ -281,14 +282,14 @@ impl MessageViewModel {
 /// 按工具名分配颜色
 pub fn tool_color(name: &str) -> Color {
     match name {
-        "bash" => Color::Rgb(255, 165, 0),                // 橙
-        "read_file" => Color::Rgb(97, 214, 214),          // 青
-        "write_file" => Color::Rgb(105, 240, 174),        // 绿
-        "edit_file" => Color::Rgb(179, 157, 219),         // 紫
-        "glob_files" => Color::Rgb(255, 213, 79),         // 黄
-        "search_files_rg" => Color::Rgb(100, 181, 246),   // 蓝
-        "folder_operations" => Color::Rgb(240, 128, 128), // 玫红
-        _ if name.contains("error") => Color::Red,
-        _ => Color::Yellow,
+        "bash" => theme::ACCENT,
+        "read_file" => theme::TOOL_NAME,
+        "write_file" => theme::SAGE,
+        "edit_file" => theme::THINKING,
+        "glob_files" => theme::WARNING,
+        "search_files_rg" => theme::TOOL_NAME,
+        "folder_operations" => theme::WARNING,
+        _ if name.contains("error") => theme::ERROR,
+        _ => theme::MUTED,
     }
 }

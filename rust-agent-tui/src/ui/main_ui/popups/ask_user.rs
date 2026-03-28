@@ -7,37 +7,23 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::ui::theme;
 
-/// AskUser 批量弹窗：header tab 行 + 当前问题选项
-pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
+/// AskUser 批量弹窗（底部展开区）：header tab 行 + 当前问题选项
+pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
     let Some(crate::app::InteractionPrompt::Questions(prompt)) = &app.interaction_prompt else { return };
 
-    let area = f.area();
-    let popup_width = (area.width * 8 / 10).max(54).min(area.width.saturating_sub(4));
-
-    // 当前问题的行数
     let cur = &prompt.questions[prompt.active_tab];
-    let option_rows = cur.data.options.len() as u16;
-    let desc_extra_rows: u16 = cur.data.options.iter().filter(|o| o.description.is_some()).count() as u16;
-    // 1 header tab行 + 1 分隔线 + question行 + 1 [单/多选] + 选项 + 选项description + 1空行 + 2自定义输入行 + 边框(2)
-    let question_rows = cur.data.question.lines().count() as u16;
-    let popup_height = (1 + 1 + question_rows + 1 + option_rows + desc_extra_rows + 1 + 2 + 2)
-        .min(area.height * 4 / 5)
-        .min(area.height.saturating_sub(2));
-
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect::new(x, y, popup_width, popup_height);
-
+    let popup_area = area;
     f.render_widget(Clear, popup_area);
 
     let block = Block::default()
         .title(Span::styled(
             " ? Agent 提问 ",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(theme::ACCENT));
     f.render_widget(&block, popup_area);
 
     let inner = block.inner(popup_area);
@@ -55,11 +41,11 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
         let check = if done { "✓" } else { " " };
         let label = format!(" {check} {} ", label_text);
         let style = if i == prompt.active_tab {
-            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
         } else if done {
-            Style::default().fg(Color::Green)
+            Style::default().fg(theme::SAGE)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme::MUTED)
         };
         tab_spans.push(Span::styled(label, style));
         if i + 1 < prompt.questions.len() {
@@ -72,7 +58,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
     let sep_area = Rect { y: inner.y + 1, height: 1, ..inner };
     let sep = "─".repeat(inner.width as usize);
     f.render_widget(
-        Paragraph::new(Span::styled(sep, Style::default().fg(Color::DarkGray))),
+        Paragraph::new(Span::styled(sep, Style::default().fg(theme::MUTED))),
         sep_area,
     );
 
@@ -86,10 +72,10 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
 
     // 问题文本
     for l in cur.data.question.lines() {
-        lines.push(Line::from(Span::styled(l.to_string(), Style::default().fg(Color::White))));
+        lines.push(Line::from(Span::styled(l.to_string(), Style::default().fg(theme::TEXT))));
     }
     let select_hint = if cur.data.multi_select { "[多选]" } else { "[单选]" };
-    lines.push(Line::from(Span::styled(select_hint, Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled(select_hint, Style::default().fg(theme::MUTED))));
 
     // 选项列表
     for (i, opt) in cur.data.options.iter().enumerate() {
@@ -97,11 +83,11 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
         let is_selected = cur.selected.get(i).copied().unwrap_or(false);
         let check = if is_selected { "●" } else { "○" };
         let row_style = if is_cursor {
-            Style::default().fg(Color::Black).bg(Color::Cyan)
+            Style::default().fg(Color::White).bg(theme::ACCENT)
         } else if is_selected {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(theme::ACCENT)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(theme::TEXT)
         };
         lines.push(Line::from(vec![
             Span::styled(
@@ -115,7 +101,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
             if !desc.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("      {}", desc),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::MUTED),
                 )));
             }
         }
@@ -131,9 +117,9 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
         format!("{}{}", cur.custom_input, if is_cur { "█" } else { "" })
     };
     let style = if is_cur {
-        Style::default().fg(Color::Black).bg(Color::Yellow)
+        Style::default().fg(Color::White).bg(theme::WARNING)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(theme::MUTED)
     };
     lines.push(Line::from(vec![
         Span::styled(if is_cur { " ▶ " } else { "   " }, style),

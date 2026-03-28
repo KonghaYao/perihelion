@@ -1,26 +1,20 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
 use crate::app::App;
+use crate::ui::theme;
 
-/// HITL 批量确认弹窗
-pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App) {
+/// HITL 批量确认弹窗（底部展开区）
+pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
     let Some(crate::app::InteractionPrompt::Approval(prompt)) = &app.interaction_prompt else { return };
 
-    let area = f.area();
     let item_count = prompt.items.len();
-
-    // 弹窗高度：标题(1) + 每项(2行) + 空行(1) + 底部提示(1) + 边框(2)
-    let popup_height = ((item_count as u16 * 2) + 5).min(area.height.saturating_sub(4));
-    let popup_width = (area.width * 4 / 5).max(55).min(area.width.saturating_sub(4));
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect::new(x, y, popup_width, popup_height);
+    let popup_area = area;
 
     f.render_widget(Clear, popup_area);
 
@@ -31,9 +25,9 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App) {
     };
 
     let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(title, Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+        .border_style(Style::default().fg(theme::WARNING));
     f.render_widget(&block, popup_area);
 
     let inner = block.inner(popup_area);
@@ -47,15 +41,15 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App) {
 
         // 状态图标和颜色
         let (status_icon, status_color) = if approved {
-            ("✓", Color::Green)
+            ("✓", theme::SAGE)
         } else {
-            ("✗", Color::Red)
+            ("✗", theme::ERROR)
         };
 
         // 光标高亮
         let cursor_indicator = if is_cursor { "▶ " } else { "  " };
         let row_style = if is_cursor {
-            Style::default().bg(Color::Rgb(40, 40, 60))
+            Style::default().bg(theme::CURSOR_BG)
         } else {
             Style::default()
         };
@@ -70,7 +64,7 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App) {
                 if approved { "[批准]" } else { "[拒绝]" }
             ),
             if is_cursor {
-                Style::default().fg(status_color).bg(Color::Rgb(40, 40, 60)).add_modifier(Modifier::BOLD)
+                Style::default().fg(status_color).bg(theme::CURSOR_BG).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(status_color)
             },
@@ -80,7 +74,7 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App) {
         let input_preview = format_input_preview(&item.input, max_width.saturating_sub(6));
         lines.push(Line::from(vec![
             Span::raw("     "),
-            Span::styled(input_preview, row_style.fg(Color::DarkGray)),
+            Span::styled(input_preview, row_style.fg(theme::DIM)),
         ]));
     }
 
@@ -94,7 +88,7 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App) {
                     prompt.approved.iter().filter(|&&v| v).count(),
                     prompt.approved.iter().filter(|&&v| !v).count()
                 ),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme::MUTED),
             ),
         ]));
     }

@@ -28,7 +28,8 @@ pub enum InteractionPrompt {
     Questions(AskUserBatchPrompt),
 }
 
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
+use crate::ui::theme;
 use ratatui_textarea::TextArea;
 use rust_agent_middlewares::prelude::{HitlDecision, SkillMetadata, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
@@ -431,19 +432,19 @@ pub fn build_textarea(disabled: bool, buffered_count: usize) -> TextArea<'static
     let (border_color, title_text, title_color) = if disabled {
         if buffered_count > 0 {
             (
-                Color::Yellow,
+                theme::LOADING,
                 format!(" 处理中… (已缓存 {} 条) ", buffered_count),
-                Color::Yellow,
+                theme::LOADING,
             )
         } else {
-            (Color::Yellow, " 处理中… ".to_string(), Color::Yellow)
+            (theme::LOADING, " 处理中… ".to_string(), theme::LOADING)
         }
     } else {
-        (Color::Cyan, " 输入 ".to_string(), Color::Cyan)
+        (theme::ACCENT, " 输入 ".to_string(), theme::ACCENT)
     };
 
     ta.set_cursor_line_style(Style::default());
-    ta.set_style(Style::default().fg(Color::White));
+    ta.set_style(Style::default().fg(theme::TEXT));
     ta.set_block(
         ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)

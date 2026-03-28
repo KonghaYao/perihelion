@@ -1,5 +1,5 @@
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -7,6 +7,7 @@ use ratatui::{
 use ratatui::layout::Rect;
 
 use crate::app::App;
+use crate::ui::theme;
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     // ── 左侧：工作目录 | Agent 状态 | 运行时长 ────────────────────────────────
@@ -19,25 +20,26 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or(&app.cwd);
     left_spans.push(Span::styled(
         format!(" 📁 {}", cwd_short),
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme::MUTED),
     ));
     // Agent 状态（loading 时显示分隔符和状态，空闲时不显示）
     if app.loading {
-        left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-        left_spans.push(Span::styled("⠿ 运行中", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        left_spans.push(Span::styled("⠿ 运行中", Style::default().fg(theme::LOADING).add_modifier(Modifier::BOLD)));
     }
 
     // 运行时长
     if let Some(duration) = app.get_current_task_duration() {
-        left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        let timer_color = if app.loading { theme::LOADING } else { theme::ACCENT };
+        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
             format!("⏱ {}", format_duration(duration)),
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(timer_color),
         ));
     }
 
     // 模型信息（始终显示在右侧）：★Alias → provider/model
-    left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+    left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
     {
         let alias_display = app.zen_config.as_ref().map(|c| {
             let alias = &c.config.active_alias;
@@ -54,34 +56,34 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         }).unwrap_or_else(|| format!(" {} {}", app.provider_name, app.model_name));
         left_spans.push(Span::styled(
             format!(" {}", alias_display),
-            Style::default().fg(Color::Rgb(150, 180, 255)),
+            Style::default().fg(theme::MODEL_INFO),
         ));
     }
 
     // 消息计数
-    left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+    left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
     left_spans.push(Span::styled(
         format!("🗨 {} 条", app.view_messages.len()),
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme::MUTED),
     ));
 
     // Agent 面板选中信息
     if let Some(panel) = &app.agent_panel {
-        left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         if let Some(agent) = panel.current_agent() {
             left_spans.push(Span::styled(
                 format!(" 🤖 {}", agent.name),
-                Style::default().fg(Color::Magenta),
+                Style::default().fg(theme::ACCENT),
             ));
         } else {
-            left_spans.push(Span::styled(" 🤖 无", Style::default().fg(Color::DarkGray)));
+            left_spans.push(Span::styled(" 🤖 无", Style::default().fg(theme::MUTED)));
         }
     } else if let Some(id) = app.get_agent_id() {
         // 已在运行中的 agent（非面板模式）
-        left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
             format!(" 🤖 {}", id),
-            Style::default().fg(Color::Magenta),
+            Style::default().fg(theme::ACCENT),
         ));
     }
 
@@ -89,38 +91,38 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let right_spans: Vec<Span> = match &app.interaction_prompt {
         Some(crate::app::InteractionPrompt::Questions(_)) => {
             vec![
-                Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":确认", Style::default().fg(Color::DarkGray)),
+                Span::styled(" Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
+                Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":移动  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":选择  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":确认", Style::default().fg(theme::MUTED)),
             ]
         }
         Some(crate::app::InteractionPrompt::Approval(_)) => {
             vec![
-                Span::styled(" ↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                Span::styled(":全批准  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("n", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                Span::styled(":全拒绝  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":确认", Style::default().fg(Color::DarkGray)),
+                Span::styled(" ↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":移动  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
+                Span::styled("y", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
+                Span::styled(":全批准  ", Style::default().fg(theme::MUTED)),
+                Span::styled("n", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                Span::styled(":全拒绝  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":确认", Style::default().fg(theme::MUTED)),
             ]
         }
         None => if app.agent_panel.is_some() {
             vec![
-                Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(":确认  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Esc", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                Span::styled(":取消", Style::default().fg(Color::DarkGray)),
+                Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":选择  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":确认  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Esc", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                Span::styled(":取消", Style::default().fg(theme::MUTED)),
             ]
         } else {
             vec![]
