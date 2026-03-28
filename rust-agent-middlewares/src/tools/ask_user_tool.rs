@@ -11,10 +11,10 @@ use crate::ask_user::ask_user_tool_definition;
 
 // ─── AskUserTool ──────────────────────────────────────────────────────────────
 
-/// `ask_user` 工具的 BaseTool 实现
+/// `ask_user_question` 工具的 BaseTool 实现
 ///
-/// 将 ask_user LLM 工具调用转化为对 [`UserInteractionBroker`] 的调用，
-/// 挂起等待用户通过 UI 提供答案后恢复。
+/// 将 ask_user_question LLM 工具调用转化为对 [`UserInteractionBroker`] 的调用，
+/// 挂起等待用户通过 UI 提供答案后恢复。支持单次调用传入 1–4 个问题。
 pub struct AskUserTool {
     broker: Arc<dyn UserInteractionBroker>,
 }
@@ -30,51 +30,42 @@ impl AskUserTool {
 #[derive(serde::Deserialize)]
 struct InputOption {
     label: String,
+    description: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum SelectType {
-    SingleSelect,
-    MultiSelect,
+struct InputQuestion {
+    question: String,
+    header: String,
+    #[serde(default)]
+    multi_select: bool,
+    options: Vec<InputOption>,
 }
 
 #[derive(serde::Deserialize)]
 struct AskUserInput {
-    description: String,
-    #[serde(rename = "type")]
-    select_type: SelectType,
-    options: Vec<InputOption>,
-    #[serde(default = "default_true")]
-    allow_custom_input: bool,
-    placeholder: Option<String>,
+    questions: Vec<InputQuestion>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-fn parse_question(input: Value) -> Result<QuestionItem, Box<dyn std::error::Error + Send + Sync>> {
+fn parse_questions(input: Value) -> Result<Vec<QuestionItem>, Box<dyn std::error::Error + Send + Sync>> {
     let parsed: AskUserInput = serde_json::from_value(input)
-        .map_err(|e| format!("ask_user: 参数解析失败: {e}"))?;
-    Ok(QuestionItem {
-        id: "ask_user".to_string(),
-        question: parsed.description,
-        options: parsed
-            .options
-            .into_iter()
-            .map(|o| QuestionOption { label: o.label })
-            .collect(),
-        multi_select: matches!(parsed.select_type, SelectType::MultiSelect),
-        allow_custom_input: parsed.allow_custom_input,
-        placeholder: parsed.placeholder,
-    })
+        .map_err(|e| format!("ask_user_question: 参数解析失败: {e}"))?;
+    Ok(parsed.questions.into_iter().enumerate().map(|(i, q)| QuestionItem {
+        id: format!("ask_user_question_{i}"),
+        question: q.question,
+        header: q.header,
+        options: q.options.into_iter().map(|o| QuestionOption {
+            label: o.label,
+            description: o.description,
+        }).collect(),
+        multi_select: q.multi_select,
+    }).collect())
 }
 
 #[async_trait]
 impl BaseTool for AskUserTool {
     fn name(&self) -> &str {
-        "ask_user"
+        "ask_user_question"
     }
 
     fn description(&self) -> &str {
@@ -86,26 +77,39 @@ impl BaseTool for AskUserTool {
     }
 
     async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let question = parse_question(input)?;
+        let questions = parse_questions(input)?;
+        let headers: Vec<String> = questions.iter().map(|q| q.header.clone()).collect();
+        let single = questions.len() == 1;
 
-        let ctx = InteractionContext::Questions { requests: vec![question] };
+        let ctx = InteractionContext::Questions { requests: questions };
         let response = self.broker.request(ctx).await;
 
         match response {
-            InteractionResponse::Answers(mut answers) => {
-                let answer = answers.pop().unwrap_or_else(|| rust_create_agent::interaction::QuestionAnswer {
-                    id: String::new(),
-                    selected: vec![],
-                    text: None,
-                });
-                // 优先返回自定义文本，否则返回选中项（逗号拼接）
-                if let Some(text) = answer.text.filter(|t| !t.is_empty()) {
-                    Ok(text)
+            InteractionResponse::Answers(answers) => {
+                if single {
+                    let answer = answers.into_iter().next().unwrap_or_else(|| rust_create_agent::interaction::QuestionAnswer {
+                        id: String::new(),
+                        selected: vec![],
+                        text: None,
+                    });
+                    if let Some(text) = answer.text.filter(|t| !t.is_empty()) {
+                        Ok(text)
+                    } else {
+                        Ok(answer.selected.join(", "))
+                    }
                 } else {
-                    Ok(answer.selected.join(", "))
+                    let parts: Vec<String> = headers.iter().zip(answers.iter()).map(|(header, answer)| {
+                        let val = if let Some(ref text) = answer.text.as_ref().filter(|t| !t.is_empty()) {
+                            text.to_string()
+                        } else {
+                            answer.selected.join(", ")
+                        };
+                        format!("[问: {header}]\n回答: {val}")
+                    }).collect();
+                    Ok(parts.join("\n\n"))
                 }
             }
-            _ => Err("ask_user: unexpected response type".into()),
+            _ => Err("ask_user_question: unexpected response type".into()),
         }
     }
 }

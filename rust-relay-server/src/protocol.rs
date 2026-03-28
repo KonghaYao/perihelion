@@ -53,7 +53,7 @@ pub enum WebMessage {
         decisions: Vec<HitlDecisionItem>,
     },
     AskUserResponse {
-        answers: HashMap<String, String>,
+        answers: HashMap<String, serde_json::Value>,
     },
     ClearThread,
     Pong,

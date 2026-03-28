@@ -18,10 +18,10 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
     // 当前问题的行数
     let cur = &prompt.questions[prompt.active_tab];
     let option_rows = cur.data.options.len() as u16;
-    let extra_rows = if cur.data.allow_custom_input { 2u16 } else { 0 };
-    // 1 header + 1 空行 + 描述行 + 空行 + 选项 + extra + 边框(2)
-    let desc_rows = cur.data.description.lines().count() as u16;
-    let popup_height = (1 + 1 + desc_rows + 1 + option_rows + extra_rows + 2)
+    let desc_extra_rows: u16 = cur.data.options.iter().filter(|o| o.description.is_some()).count() as u16;
+    // 1 header tab行 + 1 分隔线 + question行 + 1 [单/多选] + 选项 + 选项description + 1空行 + 2自定义输入行 + 边框(2)
+    let question_rows = cur.data.question.lines().count() as u16;
+    let popup_height = (1 + 1 + question_rows + 1 + option_rows + desc_extra_rows + 1 + 2 + 2)
         .min(area.height * 4 / 5)
         .min(area.height.saturating_sub(2));
 
@@ -46,10 +46,14 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
     let header_area = Rect { height: 1, ..inner };
     let mut tab_spans: Vec<Span> = Vec::new();
     for (i, q) in prompt.questions.iter().enumerate() {
-        let short: String = q.data.description.chars().take(8).collect();
+        let label_text: String = if q.data.header.is_empty() {
+            format!("Q{}", i + 1)
+        } else {
+            q.data.header.chars().take(12).collect()
+        };
         let done = prompt.confirmed.get(i).copied().unwrap_or(false);
         let check = if done { "✓" } else { " " };
-        let label = format!(" {check} Q{}: {} ", i + 1, short);
+        let label = format!(" {check} {} ", label_text);
         let style = if i == prompt.active_tab {
             Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
         } else if done {
@@ -80,8 +84,8 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
     };
     let mut lines: Vec<Line> = Vec::new();
 
-    // 描述
-    for l in cur.data.description.lines() {
+    // 问题文本
+    for l in cur.data.question.lines() {
         lines.push(Line::from(Span::styled(l.to_string(), Style::default().fg(Color::White))));
     }
     let select_hint = if cur.data.multi_select { "[多选]" } else { "[单选]" };
@@ -106,28 +110,35 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App) {
             ),
             Span::styled(opt.label.clone(), row_style),
         ]));
+        // 选项 description（若有）
+        if let Some(ref desc) = opt.description {
+            if !desc.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", desc),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
     }
 
-    // 自定义输入行
-    if cur.data.allow_custom_input {
-        lines.push(Line::from(""));
-        let is_cur = cur.in_custom_input;
-        let ph = cur.data.placeholder.as_deref().unwrap_or("输入自定义内容…");
-        let display = if cur.custom_input.is_empty() && !is_cur {
-            ph.to_string()
-        } else {
-            format!("{}{}", cur.custom_input, if is_cur { "█" } else { "" })
-        };
-        let style = if is_cur {
-            Style::default().fg(Color::Black).bg(Color::Yellow)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        lines.push(Line::from(vec![
-            Span::styled(if is_cur { " ▶ " } else { "   " }, style),
-            Span::styled(display, style),
-        ]));
-    }
+    // 自定义输入行（始终显示）
+    lines.push(Line::from(""));
+    let is_cur = cur.in_custom_input;
+    let ph = "输入自定义内容…";
+    let display = if cur.custom_input.is_empty() && !is_cur {
+        ph.to_string()
+    } else {
+        format!("{}{}", cur.custom_input, if is_cur { "█" } else { "" })
+    };
+    let style = if is_cur {
+        Style::default().fg(Color::Black).bg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    lines.push(Line::from(vec![
+        Span::styled(if is_cur { " ▶ " } else { "   " }, style),
+        Span::styled(display, style),
+    ]));
 
     f.render_widget(
         Paragraph::new(Text::from(lines))

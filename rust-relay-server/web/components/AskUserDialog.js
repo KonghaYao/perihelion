@@ -20,10 +20,15 @@ function AskUserDialogInner({ agent, sessionId }) {
   const questions = agent.pendingAskUser.questions || []
   const [answers, setAnswers] = useState(() => {
     const init = {}
-    questions.forEach((q, i) => {
-      const key = q.tool_call_id || q.description || q.question || `q${i}`
+    questions.forEach((q) => {
+      const key = q.tool_call_id
       init[key] = q.multi_select ? [] : ''
     })
+    return init
+  })
+  const [customInputs, setCustomInputs] = useState(() => {
+    const init = {}
+    questions.forEach((q) => { init[q.tool_call_id] = '' })
     return init
   })
 
@@ -33,7 +38,19 @@ function AskUserDialogInner({ agent, sessionId }) {
   }
 
   const onSubmit = () => {
-    sendMessage(sessionId, { type: 'ask_user_response', answers })
+    // 合并选项答案和自定义输入
+    const merged = {}
+    questions.forEach((q) => {
+      const key = q.tool_call_id
+      const custom = (customInputs[key] || '').trim()
+      const sel = answers[key]
+      if (q.multi_select) {
+        merged[key] = custom ? [...(sel || []), custom] : (sel || [])
+      } else {
+        merged[key] = custom || sel || ''
+      }
+    })
+    sendMessage(sessionId, { type: 'ask_user_response', answers: merged })
     agent.pendingAskUser = null
     agents.value = new Map(agents.value)
   }
@@ -48,8 +65,8 @@ function AskUserDialogInner({ agent, sessionId }) {
         </div>
 
         <div id="ask-user-items">
-          ${questions.map((q, i) => {
-            const key = q.tool_call_id || q.description || q.question || `q${i}`
+          ${questions.map((q) => {
+            const key = q.tool_call_id
             const isMulti = !!q.multi_select
             const hasOptions = q.options && q.options.length > 0
 
@@ -69,12 +86,14 @@ function AskUserDialogInner({ agent, sessionId }) {
 
             return html`
               <div key=${key} class="ask-user-item">
-                <div class="ask-user-question">${q.question || q.description || ''}</div>
+                ${q.header && html`<span class="ask-user-header-chip">${q.header}</span>`}
+                <div class="ask-user-question">${q.question || ''}</div>
                 ${hasOptions ? html`
                   <div class="ask-user-options">
                     ${q.options.map((opt, oi) => {
-                      const optVal = typeof opt === 'string' ? opt : (opt.value || opt.label || String(oi))
-                      const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || String(oi))
+                      const optVal = typeof opt === 'string' ? opt : (opt.label || String(oi))
+                      const optLabel = typeof opt === 'string' ? opt : (opt.label || String(oi))
+                      const optDesc = typeof opt === 'object' ? opt.description : null
                       if (isMulti) {
                         const checked = (answers[key] || []).includes(optVal)
                         return html`
@@ -85,7 +104,10 @@ function AskUserDialogInner({ agent, sessionId }) {
                               checked=${checked}
                               onChange=${() => toggleCheckbox(optVal)}
                             />
-                            <span>${optLabel}</span>
+                            <div class="ask-user-option-label-wrap">
+                              <span>${optLabel}</span>
+                              ${optDesc && html`<small class="ask-user-opt-desc">${optDesc}</small>`}
+                            </div>
                           </label>
                         `
                       } else {
@@ -98,24 +120,23 @@ function AskUserDialogInner({ agent, sessionId }) {
                               checked=${answers[key] === optVal}
                               onChange=${() => updateAnswer(optVal)}
                             />
-                            <span>${optLabel}</span>
+                            <div class="ask-user-option-label-wrap">
+                              <span>${optLabel}</span>
+                              ${optDesc && html`<small class="ask-user-opt-desc">${optDesc}</small>`}
+                            </div>
                           </label>
                         `
                       }
                     })}
                   </div>
                 ` : null}
-                ${(!hasOptions || q.allow_custom_input) ? html`
-                  <input
-                    type="text"
-                    class="ask-user-text"
-                    placeholder=${hasOptions ? '或输入自定义内容...' : '输入回答...'}
-                    value=${hasOptions ? '' : (answers[key] || '')}
-                    onInput=${(e) => {
-                      if (!hasOptions) updateAnswer(e.target.value)
-                    }}
-                  />
-                ` : null}
+                <input
+                  type="text"
+                  class="ask-user-text"
+                  placeholder=${hasOptions ? '或输入自定义内容...' : '输入回答...'}
+                  value=${customInputs[key] || ''}
+                  onInput=${(e) => setCustomInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                />
               </div>
             `
           })}

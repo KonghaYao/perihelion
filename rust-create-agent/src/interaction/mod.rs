@@ -17,6 +17,7 @@ pub struct ApprovalItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuestionOption {
     pub label: String,
+    pub description: Option<String>,
 }
 
 /// 单个问题
@@ -24,10 +25,9 @@ pub struct QuestionOption {
 pub struct QuestionItem {
     pub id: String,
     pub question: String,
+    pub header: String,
     pub options: Vec<QuestionOption>,
     pub multi_select: bool,
-    pub allow_custom_input: bool,
-    pub placeholder: Option<String>,
 }
 
 // ─── InteractionContext ────────────────────────────────────────────────────────

@@ -7,17 +7,17 @@ use tokio::sync::oneshot;
 #[derive(Debug, Clone)]
 pub struct AskUserOption {
     pub label: String,
+    pub description: Option<String>,
 }
 
 /// 单个问题的纯数据（无 channel，供 agent 层解析并批量聚合）
 #[derive(Debug, Clone)]
 pub struct AskUserQuestionData {
     pub tool_call_id: String,
-    pub description: String,
+    pub question: String,
+    pub header: String,
     pub multi_select: bool,
     pub options: Vec<AskUserOption>,
-    pub allow_custom_input: bool,
-    pub placeholder: Option<String>,
 }
 
 // ─── AskUserBatchRequest ───────────────────────────────────────────────────────

@@ -125,7 +125,16 @@ impl App {
                                 .iter_mut()
                                 .find(|q| q.data.tool_call_id == *q_text)
                             {
-                                q.custom_input = answer.clone();
+                                let answer_str = match answer {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    serde_json::Value::Array(arr) => arr
+                                        .iter()
+                                        .filter_map(|v| v.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                    other => other.to_string(),
+                                };
+                                q.custom_input = answer_str;
                                 q.in_custom_input = true;
                             }
                         }

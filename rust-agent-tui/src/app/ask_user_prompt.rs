@@ -24,7 +24,7 @@ impl QuestionState {
     }
 
     fn total_rows(&self) -> isize {
-        self.data.options.len() as isize + if self.data.allow_custom_input { 1 } else { 0 }
+        self.data.options.len() as isize + 1
     }
 
     pub fn move_option_cursor(&mut self, delta: isize) {
@@ -33,8 +33,7 @@ impl QuestionState {
             return;
         }
         self.option_cursor = (self.option_cursor + delta).rem_euclid(total);
-        self.in_custom_input =
-            self.data.allow_custom_input && self.option_cursor == self.data.options.len() as isize;
+        self.in_custom_input = self.option_cursor == self.data.options.len() as isize;
     }
 
     pub fn toggle_current(&mut self) {
