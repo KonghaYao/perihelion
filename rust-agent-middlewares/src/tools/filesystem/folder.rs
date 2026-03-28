@@ -160,3 +160,67 @@ impl BaseTool for FolderOperationsTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_folder_create() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = FolderOperationsTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"operation": "create", "folder_path": "newdir"}))
+            .await
+            .unwrap();
+        assert!(result.contains("created successfully"), "unexpected: {result}");
+        assert!(dir.path().join("newdir").is_dir());
+    }
+
+    #[tokio::test]
+    async fn test_folder_create_recursive() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = FolderOperationsTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"operation": "create", "folder_path": "a/b/c"}))
+            .await
+            .unwrap();
+        assert!(dir.path().join("a/b/c").is_dir());
+    }
+
+    #[tokio::test]
+    async fn test_folder_exists_true() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("existing")).unwrap();
+        let tool = FolderOperationsTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"operation": "exists", "folder_path": "existing"}))
+            .await
+            .unwrap();
+        assert!(result.contains("Folder exists"), "should report exists: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_folder_exists_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = FolderOperationsTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"operation": "exists", "folder_path": "ghost"}))
+            .await
+            .unwrap();
+        assert!(result.contains("does not exist"), "should report missing: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_folder_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("listed");
+        std::fs::create_dir(&subdir).unwrap();
+        std::fs::write(subdir.join("file.txt"), "hello").unwrap();
+        let tool = FolderOperationsTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"operation": "list", "folder_path": "listed"}))
+            .await
+            .unwrap();
+        assert!(result.contains("file.txt"), "should list file.txt: {result}");
+    }
+}

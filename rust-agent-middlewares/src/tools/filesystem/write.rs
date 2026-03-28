@@ -60,3 +60,60 @@ impl BaseTool for WriteFileTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_write_file_creates_new() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "new.txt", "content": "hello"}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("new.txt")).unwrap();
+        assert_eq!(content, "hello");
+    }
+
+    #[tokio::test]
+    async fn test_write_file_overwrites_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "old").unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "f.txt", "content": "new"}))
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "new");
+    }
+
+    #[tokio::test]
+    async fn test_write_file_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "sub/dir/file.txt", "content": "deep"}))
+            .await
+            .unwrap();
+        assert!(dir.path().join("sub/dir/file.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn test_write_file_missing_content_param() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        let result = tool.invoke(serde_json::json!({"file_path": "f.txt"})).await;
+        assert!(result.is_err(), "missing content should return Err");
+    }
+
+    #[tokio::test]
+    async fn test_write_file_success_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "msg.txt", "content": "x"}))
+            .await
+            .unwrap();
+        assert!(result.contains("written successfully"), "unexpected message: {result}");
+    }
+}

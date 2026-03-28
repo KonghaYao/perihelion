@@ -90,3 +90,142 @@ impl CommandRegistry {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    use super::*;
+    use crate::app::App;
+
+    // ── StubCommand ──
+
+    struct StubCommand {
+        n: &'static str,
+        called: Arc<AtomicBool>,
+        last_args: Arc<parking_lot::Mutex<String>>,
+    }
+
+    impl Command for StubCommand {
+        fn name(&self) -> &str {
+            self.n
+        }
+        fn description(&self) -> &str {
+            "stub"
+        }
+        fn execute(&self, _app: &mut App, args: &str) {
+            self.called.store(true, Ordering::Relaxed);
+            *self.last_args.lock() = args.to_string();
+        }
+    }
+
+    fn make_stub(name: &'static str) -> (StubCommand, Arc<AtomicBool>, Arc<parking_lot::Mutex<String>>) {
+        let called = Arc::new(AtomicBool::new(false));
+        let last_args = Arc::new(parking_lot::Mutex::new(String::new()));
+        (StubCommand { n: name, called: called.clone(), last_args: last_args.clone() }, called, last_args)
+    }
+
+    fn headless_app() -> App {
+        App::new_headless(80, 24).0
+    }
+
+    // ── dispatch 精确匹配 ──
+
+    #[tokio::test]
+    async fn test_dispatch_exact_match() {
+        let mut r = CommandRegistry::new();
+        let (stub, called, _) = make_stub("model");
+        r.register(Box::new(stub));
+        let mut app = headless_app();
+        assert!(r.dispatch(&mut app, "/model"), "exact match should return true");
+        assert!(called.load(Ordering::Relaxed), "command should be called");
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_no_match() {
+        let mut r = CommandRegistry::new();
+        let (stub, _, _) = make_stub("model");
+        r.register(Box::new(stub));
+        let mut app = headless_app();
+        assert!(!r.dispatch(&mut app, "/unknown"), "unknown command should return false");
+    }
+
+    // ── 前缀唯一匹配 ──
+
+    #[tokio::test]
+    async fn test_dispatch_prefix_unique() {
+        let mut r = CommandRegistry::new();
+        let (stub, called, _) = make_stub("model");
+        r.register(Box::new(stub));
+        let mut app = headless_app();
+        assert!(r.dispatch(&mut app, "/mo"), "unique prefix should return true");
+        assert!(called.load(Ordering::Relaxed), "command should be called via prefix");
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_prefix_ambiguous() {
+        let mut r = CommandRegistry::new();
+        let (stub1, called1, _) = make_stub("model");
+        let (stub2, called2, _) = make_stub("mock");
+        r.register(Box::new(stub1));
+        r.register(Box::new(stub2));
+        let mut app = headless_app();
+        assert!(!r.dispatch(&mut app, "/m"), "ambiguous prefix should return false");
+        assert!(!called1.load(Ordering::Relaxed));
+        assert!(!called2.load(Ordering::Relaxed));
+    }
+
+    // ── 参数传递 ──
+
+    #[tokio::test]
+    async fn test_dispatch_with_args() {
+        let mut r = CommandRegistry::new();
+        let (stub, _, last_args) = make_stub("model");
+        r.register(Box::new(stub));
+        let mut app = headless_app();
+        r.dispatch(&mut app, "/model opus");
+        assert_eq!(*last_args.lock(), "opus", "args should be passed correctly");
+    }
+
+    // ── 辅助方法（纯逻辑，无需 App）──
+
+    #[test]
+    fn test_match_prefix_returns_matching() {
+        let mut r = CommandRegistry::new();
+        let (s1, _, _) = make_stub("model");
+        let (s2, _, _) = make_stub("mock");
+        let (s3, _, _) = make_stub("clear");
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        r.register(Box::new(s3));
+        let matches = r.match_prefix("mo");
+        assert_eq!(matches.len(), 2, "should match 'model' and 'mock'");
+    }
+
+    #[test]
+    fn test_list_returns_all() {
+        let mut r = CommandRegistry::new();
+        let (s1, _, _) = make_stub("a");
+        let (s2, _, _) = make_stub("b");
+        let (s3, _, _) = make_stub("c");
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        r.register(Box::new(s3));
+        assert_eq!(r.list().len(), 3, "list should return all 3 commands");
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_empty_prefix() {
+        let mut r = CommandRegistry::new();
+        let (s1, _, _) = make_stub("model");
+        let (s2, _, _) = make_stub("clear");
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        let mut app = headless_app();
+        // "/" → empty name, all commands match → ambiguous → false
+        assert!(!r.dispatch(&mut app, "/"), "empty prefix should return false when ambiguous");
+    }
+}

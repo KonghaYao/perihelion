@@ -124,3 +124,60 @@ impl BaseTool for GlobFilesTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_glob_match_simple() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "").unwrap();
+        std::fs::write(dir.path().join("b.rs"), "").unwrap();
+        std::fs::write(dir.path().join("c.txt"), "").unwrap();
+        let tool = GlobFilesTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"pattern": "*.rs"}))
+            .await
+            .unwrap();
+        assert!(result.contains("a.rs"), "should find a.rs: {result}");
+        assert!(result.contains("b.rs"), "should find b.rs: {result}");
+        assert!(!result.contains("c.txt"), "should not find c.txt: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_glob_no_match() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "").unwrap();
+        let tool = GlobFilesTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"pattern": "*.go"}))
+            .await
+            .unwrap();
+        assert_eq!(result, "No files found.");
+    }
+
+    #[tokio::test]
+    async fn test_glob_recursive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("sub/d.rs"), "").unwrap();
+        let tool = GlobFilesTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"pattern": "**/*.rs"}))
+            .await
+            .unwrap();
+        assert!(result.contains("d.rs"), "should find nested d.rs: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_glob_dir_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = GlobFilesTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"pattern": "*.rs", "path": "nonexistent_dir"}))
+            .await
+            .unwrap();
+        assert!(result.contains("Directory not found"), "should report missing dir: {result}");
+    }
+}

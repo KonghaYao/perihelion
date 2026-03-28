@@ -91,3 +91,66 @@ impl BaseTool for ReadFileTool {
         Ok(numbered.join("\n"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_read_file_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "hello\nworld").unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool.invoke(serde_json::json!({"file_path": "file.txt"})).await.unwrap();
+        assert!(result.contains("1\thello"), "should contain line 1: {result}");
+        assert!(result.contains("2\tworld"), "should contain line 2: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool.invoke(serde_json::json!({"file_path": "nonexistent.txt"})).await.unwrap();
+        assert!(result.contains("File not found"), "should report not found: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_offset_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lines.txt");
+        std::fs::write(&path, "L1\nL2\nL3\nL4\nL5").unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "lines.txt", "offset": 2, "limit": 2}))
+            .await
+            .unwrap();
+        // offset=2 → starts at index 2 (L3), limit=2 → L3 and L4
+        assert!(result.contains("3\tL3"), "should contain line 3: {result}");
+        assert!(result.contains("4\tL4"), "should contain line 4: {result}");
+        assert!(!result.contains("L1"), "should not contain L1");
+        assert!(!result.contains("L5"), "should not contain L5");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_binary_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        // Binary extension check happens before file read, no need to create the file
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool.invoke(serde_json::json!({"file_path": "image.png"})).await.unwrap();
+        assert!(result.contains("BINARY FILE DETECTED"), "should detect binary: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("abs.txt");
+        std::fs::write(&path, "absolute").unwrap();
+        let tool = ReadFileTool::new("/tmp");
+        let result = tool
+            .invoke(serde_json::json!({"file_path": path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(result.contains("absolute"), "should read via absolute path: {result}");
+    }
+}

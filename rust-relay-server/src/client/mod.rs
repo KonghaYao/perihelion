@@ -223,3 +223,96 @@ impl RelayClient {
         self.send_with_seq(json);
     }
 }
+
+#[cfg(test)]
+impl RelayClient {
+    /// 测试专用构造器，绕过 WebSocket 连接
+    fn new_for_testing() -> Self {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        RelayClient {
+            tx,
+            session_id: Arc::new(tokio::sync::RwLock::new(None)),
+            connected: Arc::new(AtomicBool::new(true)),
+            _tasks: vec![],
+            seq: Arc::new(AtomicU64::new(1)),
+            history: Arc::new(Mutex::new(VecDeque::new())),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_history_push_single() {
+        let client = RelayClient::new_for_testing();
+        client.send_with_seq(serde_json::json!({"type": "msg"}));
+        let hist = client.get_history_since(0);
+        assert_eq!(hist.len(), 1, "should have 1 entry");
+    }
+
+    #[test]
+    fn test_get_history_since_filter() {
+        let client = RelayClient::new_for_testing();
+        client.send_with_seq(serde_json::json!({"data": "a"}));
+        client.send_with_seq(serde_json::json!({"data": "b"}));
+        client.send_with_seq(serde_json::json!({"data": "c"}));
+        // seq=1,2,3 pushed; since(1) should return seq=2,3
+        let result = client.get_history_since(1);
+        assert_eq!(result.len(), 2, "since(1) should return 2 entries");
+    }
+
+    #[test]
+    fn test_get_history_since_empty_history() {
+        let client = RelayClient::new_for_testing();
+        let result = client.get_history_since(0);
+        assert!(result.is_empty(), "empty history should return empty vec");
+    }
+
+    #[test]
+    fn test_seq_starts_at_one() {
+        let client = RelayClient::new_for_testing();
+        client.send_with_seq(serde_json::json!({"type": "x"}));
+        let hist = client.get_history_since(0);
+        assert_eq!(hist.len(), 1);
+        // The entry should contain "seq":1
+        assert!(hist[0].contains("\"seq\":1"), "first seq should be 1: {}", hist[0]);
+    }
+
+    #[test]
+    fn test_seq_increments() {
+        let client = RelayClient::new_for_testing();
+        client.send_with_seq(serde_json::json!({"a": 1}));
+        client.send_with_seq(serde_json::json!({"b": 2}));
+        client.send_with_seq(serde_json::json!({"c": 3}));
+        let hist = client.get_history_since(0);
+        assert_eq!(hist.len(), 3);
+        assert!(hist[0].contains("\"seq\":1"), "entry 0 should have seq=1: {}", hist[0]);
+        assert!(hist[1].contains("\"seq\":2"), "entry 1 should have seq=2: {}", hist[1]);
+        assert!(hist[2].contains("\"seq\":3"), "entry 2 should have seq=3: {}", hist[2]);
+    }
+
+    #[test]
+    fn test_history_cap_at_1000() {
+        let client = RelayClient::new_for_testing();
+        for i in 0u64..1001 {
+            client.send_with_seq(serde_json::json!({"i": i}));
+        }
+        let hist = client.get_history_since(0);
+        assert_eq!(hist.len(), 1000, "history should be capped at 1000");
+        // seq=1 should be evicted; since(1) still returns 1000 entries (seq 2..=1001)
+        let since_1 = client.get_history_since(1);
+        assert_eq!(since_1.len(), 1000, "seq=1 should be evicted, since(1) still returns 1000");
+    }
+
+    #[test]
+    fn test_clear_history() {
+        let client = RelayClient::new_for_testing();
+        client.send_with_seq(serde_json::json!({"x": 1}));
+        client.send_with_seq(serde_json::json!({"x": 2}));
+        client.clear_history();
+        let hist = client.get_history_since(0);
+        assert!(hist.is_empty(), "history should be empty after clear");
+    }
+}

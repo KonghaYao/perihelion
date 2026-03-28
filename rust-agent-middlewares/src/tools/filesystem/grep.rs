@@ -118,6 +118,67 @@ impl BaseTool for SearchFilesRgTool {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_search_files_rg_hit() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "needle in a haystack\nother line").unwrap();
+        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"args": ["-n", "needle", "./"]}))
+            .await
+            .unwrap();
+        if result.starts_with("Error executing ripgrep") {
+            return; // rg not available in this environment
+        }
+        assert!(result.contains("needle"), "should find needle: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_search_files_rg_no_match() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "haystack only").unwrap();
+        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"args": ["-n", "zzz_not_here", "./"]}))
+            .await
+            .unwrap();
+        if result.starts_with("Error executing ripgrep") {
+            return;
+        }
+        assert!(result.contains("No matches found"), "should report no match: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_search_files_rg_empty_args() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"args": []}))
+            .await
+            .unwrap();
+        assert!(result.contains("No arguments"), "should report missing args: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_search_files_rg_regex() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "needle123\nneedle456").unwrap();
+        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"args": ["-n", "needle[0-9]+", "./"]}))
+            .await
+            .unwrap();
+        if result.starts_with("Error executing ripgrep") {
+            return;
+        }
+        assert!(result.contains("needle"), "regex should match: {result}");
+    }
+}
+
 fn which_rg() -> &'static str {
     static RG_PATH: OnceLock<&'static str> = OnceLock::new();
     RG_PATH.get_or_init(|| {

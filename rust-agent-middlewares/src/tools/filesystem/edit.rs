@@ -97,3 +97,74 @@ impl BaseTool for EditFileTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_edit_file_single_replace() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "hello foo world").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}))
+            .await
+            .unwrap();
+        assert!(result.contains("edited successfully"), "unexpected: {result}");
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "hello bar world");
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_old_string_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "hello world").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "missing", "new_string": "x"}))
+            .await
+            .unwrap();
+        assert!(result.contains("not found"), "should report not found: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_replace_all() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "x x x").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({
+            "file_path": "f.txt",
+            "old_string": "x",
+            "new_string": "y",
+            "replace_all": true
+        }))
+        .await
+        .unwrap();
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "y y y");
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_ambiguous() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "foo and foo").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}))
+            .await
+            .unwrap();
+        assert!(result.contains("not unique"), "should report ambiguity: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "ghost.txt", "old_string": "x", "new_string": "y"}))
+            .await
+            .unwrap();
+        assert!(result.contains("File not found"), "should report file not found: {result}");
+    }
+}

@@ -49,6 +49,8 @@ pub enum RenderEvent {
     ToggleToolMessages(bool),
     /// 替换最后一条消息并重新渲染（SubAgentGroup 更新专用）
     UpdateLastMessage(MessageViewModel),
+    /// 移除最后一条消息（用于隐藏空的 AssistantBubble）
+    RemoveLastMessage,
 }
 
 /// 渲染线程，持有消息数据的私有副本，在后台执行渲染计算
@@ -224,6 +226,22 @@ impl RenderTask {
                             cache.total_lines = cache.lines.len();
                             cache.version += 1;
                         }
+                    }
+                }
+                RenderEvent::RemoveLastMessage => {
+                    // 移除最后一条消息及其对应的渲染缓存
+                    if !self.messages.is_empty() {
+                        self.messages.pop();
+                        let mut cache = self.cache.write();
+                        // 移除最后一条消息的 offset
+                        cache.message_offsets.pop();
+                        if let Some(&start) = cache.message_offsets.last() {
+                            cache.lines.truncate(start);
+                        } else {
+                            cache.lines.clear();
+                        }
+                        cache.total_lines = cache.lines.len();
+                        cache.version += 1;
                     }
                 }
             }

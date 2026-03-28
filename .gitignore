@@ -162,3 +162,5 @@ target
 
 .claude/*.lock
 *.png
+node_modules/
+*.log
