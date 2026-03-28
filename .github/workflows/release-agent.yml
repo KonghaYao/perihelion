@@ -20,11 +20,12 @@ jobs:
                       target: x86_64-unknown-linux-gnu
                       platform: linux-x86_64
                       ext: ""
+                      use-cross: true
                     - os: ubuntu-latest
                       target: aarch64-unknown-linux-gnu
                       platform: linux-aarch64
                       ext: ""
-                      cross: true
+                      use-cross: true
                     - os: macos-latest
                       target: x86_64-apple-darwin
                       platform: macos-x86_64
@@ -66,18 +67,15 @@ jobs:
                       ${{ runner.os }}-${{ matrix.target }}-build-
                       ${{ runner.os }}-${{ matrix.target }}-
 
-            - name: Install cross (Linux)
-              if: matrix.os == 'ubuntu-latest'
-              run: cargo install cross --git https://github.com/cross-rs/cross
-
-            - name: Build agent-tui (Linux)
-              if: matrix.os == 'ubuntu-latest'
-              run: cross build -p rust-agent-tui --release --target ${{ matrix.target }}
-              env:
-                  CROSS_CONTAINER_IN_CONTAINER: 1
+            - name: Build with cross
+              if: matrix.use-cross
+              uses: cross-rs/cross-action@v1
+              with:
+                  command: build
+                  args: -p rust-agent-tui --release --target ${{ matrix.target }}
 
             - name: Build agent-tui (non-Linux)
-              if: matrix.os != 'ubuntu-latest'
+              if: "!matrix.use-cross"
               run: cargo build -p rust-agent-tui --release --target ${{ matrix.target }}
 
             - name: Package binaries (Unix)
