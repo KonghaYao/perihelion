@@ -1,4 +1,5 @@
 use super::*;
+use rust_agent_middlewares::hitl::BatchItem;
 
 impl App {
     pub fn submit_message(&mut self, input: String) {
@@ -53,36 +54,8 @@ impl App {
         let cancel = AgentCancellationToken::new();
         self.cancel_token = Some(cancel.clone());
 
-        // YOLO_MODE 时跳过 HITL channel，直接给 agent 一个永远不会被消费的 sender
-        let yolo = rust_agent_middlewares::is_yolo_mode();
-
-        let (approval_tx, approval_rx) = mpsc::channel::<ApprovalEvent>(4);
-        {
-            let tx_hitl = tx.clone();
-            tokio::spawn(async move {
-                let mut approval_rx = approval_rx;
-                while let Some(ev) = approval_rx.recv().await {
-                    match ev {
-                        ApprovalEvent::Batch(req) => {
-                            if yolo {
-                                // YOLO 模式：跳过弹窗，直接全部批准
-                                let decisions = vec![HitlDecision::Approve; req.items.len()];
-                                let _ = req.response_tx.send(decisions);
-                            } else if tx_hitl.send(AgentEvent::ApprovalNeeded(req)).await.is_err() {
-                                tracing::warn!("HITL approval forwarding: TUI channel closed");
-                                break;
-                            }
-                        }
-                        ApprovalEvent::AskUserBatch(req) => {
-                            if tx_hitl.send(AgentEvent::AskUserBatch(req)).await.is_err() {
-                                tracing::warn!("AskUser forwarding: TUI channel closed");
-                                break;
-                            }
-                        }
-                    }
-                }
-            });
-        }
+        // 注意：HITL 审批和 AskUser 问答现在统一通过 TuiInteractionBroker 路由到 tx channel，
+        // YOLO 模式由 HumanInTheLoopMiddleware::from_env() 内部处理（自动放行）。
 
         let cwd = self.cwd.clone();
 
@@ -100,12 +73,22 @@ impl App {
             AgentInput::blocks(MessageContent::blocks(blocks))
         };
 
+        // 解析消息中的 #skill-name（字母、数字、连字符、下划线）
+        let preload_skills: Vec<String> = input
+            .split_whitespace()
+            .filter(|token| token.starts_with('#') && token.len() > 1)
+            .map(|token| {
+                let name = token.trim_start_matches('#');
+                // 只取合法字符（字母、数字、-、_），遇到非法字符截断
+                name.chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                    .collect::<String>()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+
         // 确保当前 thread 存在
         let thread_id = self.ensure_thread_id();
-        // 用户消息将由 agent 执行结束时的 StateSnapshot 统一持久化，
-        // 避免与 StateSnapshot 竞争写 DB seq 导致序号错乱/重复写入
-        // 用户消息已追加到 self.view_messages，更新已持久化计数
-        self.persisted_count = self.view_messages.len();
 
         // 懒加载 Thread 级 LangfuseSession（首轮创建，后续复用；未配置环境变量时静默跳过）
         if self.langfuse_session.is_none() {
@@ -146,6 +129,8 @@ impl App {
         let history = self.agent_state_messages.clone();
         let agent_id = self.agent_id.clone();
         let relay_client = self.relay_client.clone();
+        let thread_store = self.thread_store.clone();
+        let thread_id_for_agent = thread_id.clone();
         tokio::spawn(
             async move {
                 agent::run_universal_agent(agent::AgentRunConfig {
@@ -153,12 +138,14 @@ impl App {
                     input: agent_input,
                     cwd,
                     history,
-                    approval_tx,
                     tx,
                     cancel,
                     agent_id,
                     relay_client,
                     langfuse_tracer,
+                    thread_store,
+                    thread_id: thread_id_for_agent,
+                    preload_skills,
                 })
                 .await;
             }
@@ -300,8 +287,7 @@ impl App {
                 // 异常退出时兜底清空 subagent 状态
                 self.subagent_group_idx = None;
                 // Agent 异常退出时清理残留弹窗状态，避免 UI 卡在弹窗
-                self.hitl_prompt = None;
-                self.ask_user_prompt = None;
+                self.interaction_prompt = None;
                 self.pending_hitl_items = None;
                 self.pending_ask_user = None;
                 if let Some(start) = self.task_start_time {
@@ -344,8 +330,7 @@ impl App {
                 // 兜底清空 subagent 状态
                 self.subagent_group_idx = None;
                 // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗
-                self.hitl_prompt = None;
-                self.ask_user_prompt = None;
+                self.interaction_prompt = None;
                 self.pending_hitl_items = None;
                 self.pending_ask_user = None;
                 if let Some(start) = self.task_start_time {
@@ -359,48 +344,102 @@ impl App {
                 }
                 (true, false, true)
             }
-            AgentEvent::ApprovalNeeded(req) => {
-                // 转发 HITL 审批请求到 Relay
-                if let Some(ref relay) = self.relay_client {
-                    let items: Vec<serde_json::Value> = req
-                        .items
-                        .iter()
-                        .map(|item| {
-                            serde_json::json!({
-                                "tool_name": item.tool_name,
-                                "input": item.input,
+            AgentEvent::InteractionRequest { ctx, response_tx } => {
+                use rust_create_agent::interaction::{
+                    ApprovalDecision, InteractionContext, InteractionResponse, QuestionAnswer,
+                };
+                use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
+                use tokio::sync::oneshot;
+
+                match ctx {
+                    InteractionContext::Approval { items } => {
+                        // 桥接：将 ApprovalItem 列表转为旧式 BatchItem + 转换响应类型
+                        let batch_items: Vec<BatchItem> = items
+                            .iter()
+                            .map(|i| BatchItem { tool_name: i.tool_name.clone(), input: i.tool_input.clone() })
+                            .collect();
+                        let (bridge_tx, bridge_rx) = oneshot::channel::<Vec<HitlDecision>>();
+                        tokio::spawn(async move {
+                            if let Ok(decisions) = bridge_rx.await {
+                                let approval_decisions: Vec<ApprovalDecision> = decisions
+                                    .into_iter()
+                                    .map(|d| match d {
+                                        HitlDecision::Approve => ApprovalDecision::Approve,
+                                        HitlDecision::Reject => ApprovalDecision::Reject { reason: "用户拒绝".to_string() },
+                                        HitlDecision::Edit(v) => ApprovalDecision::Edit { new_input: v },
+                                        HitlDecision::Respond(msg) => ApprovalDecision::Respond { message: msg },
+                                    })
+                                    .collect();
+                                let _ = response_tx.send(InteractionResponse::Decisions(approval_decisions));
+                            }
+                        });
+                        // 转发 HITL 审批请求到 Relay（统一 interaction_request 消息）
+                        if let Some(ref relay) = self.relay_client {
+                            let relay_items: Vec<serde_json::Value> = batch_items
+                                .iter()
+                                .map(|item| serde_json::json!({ "tool_name": item.tool_name, "input": item.input }))
+                                .collect();
+                            relay.send_value(serde_json::json!({
+                                "type": "interaction_request",
+                                "ctx_type": "approval",
+                                "items": relay_items
+                            }));
+                        }
+                        self.interaction_prompt = Some(InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)));
+                        (true, true, false) // 暂停消费，等待用户确认
+                    }
+                    InteractionContext::Questions { requests } => {
+                        // 桥接：将 QuestionItem 列表转为 AskUserQuestionData + 转换响应类型
+                        let ask_questions: Vec<AskUserQuestionData> = requests
+                            .iter()
+                            .map(|q| AskUserQuestionData {
+                                tool_call_id: q.id.clone(),
+                                question: q.question.clone(),
+                                header: q.header.clone(),
+                                multi_select: q.multi_select,
+                                options: q.options.iter().map(|o| AskUserOption {
+                                    label: o.label.clone(),
+                                    description: o.description.clone(),
+                                }).collect(),
                             })
-                        })
-                        .collect();
-                    relay.send_value(serde_json::json!({
-                        "type": "approval_needed",
-                        "items": items,
-                    }));
+                            .collect();
+                        let (bridge_tx, bridge_rx) = oneshot::channel::<Vec<String>>();
+                        let ids: Vec<String> = requests.iter().map(|q| q.id.clone()).collect();
+                        tokio::spawn(async move {
+                            if let Ok(answers) = bridge_rx.await {
+                                let question_answers: Vec<QuestionAnswer> = ids
+                                    .into_iter()
+                                    .zip(answers.into_iter())
+                                    .map(|(id, answer)| QuestionAnswer { id, selected: vec![answer.clone()], text: Some(answer) })
+                                    .collect();
+                                let _ = response_tx.send(InteractionResponse::Answers(question_answers));
+                            }
+                        });
+                        // 转发 AskUser 请求到 Relay（统一 interaction_request 消息）
+                        self.pending_ask_user = Some(false);
+                        if let Some(ref relay) = self.relay_client {
+                            let questions_json: Vec<serde_json::Value> = ask_questions.iter().map(|q| {
+                                serde_json::json!({
+                                    "tool_call_id": q.tool_call_id,
+                                    "question": q.question,
+                                    "header": q.header,
+                                    "multi_select": q.multi_select,
+                                    "options": q.options.iter().map(|o| serde_json::json!({"label": o.label, "description": o.description})).collect::<Vec<_>>(),
+                                })
+                            }).collect();
+                            relay.send_value(serde_json::json!({
+                                "type": "interaction_request",
+                                "ctx_type": "questions",
+                                "questions": questions_json
+                            }));
+                        }
+                        let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
+                        // 用桥接的 sender 覆盖 batch_req 的 response_tx
+                        let batch_req_bridged = AskUserBatchRequest { questions: batch_req.questions, response_tx: bridge_tx };
+                        self.interaction_prompt = Some(InteractionPrompt::Questions(AskUserBatchPrompt::from_request(batch_req_bridged)));
+                        (true, true, false) // 暂停消费，等待用户输入
+                    }
                 }
-                self.hitl_prompt = Some(HitlBatchPrompt::new(req.items, req.response_tx));
-                (true, true, false) // 暂停消费，等待用户确认
-            }
-            AgentEvent::AskUserBatch(req) => {
-                // 转发 AskUser 请求到 Relay
-                self.pending_ask_user = Some(false);
-                if let Some(ref relay) = self.relay_client {
-                    let questions: Vec<serde_json::Value> = req.questions.iter().map(|q| {
-                        serde_json::json!({
-                            "tool_call_id": q.tool_call_id,
-                            "description": q.description,
-                            "multi_select": q.multi_select,
-                            "options": q.options.iter().map(|o| serde_json::json!({"label": o.label, "description": null})).collect::<Vec<_>>(),
-                            "allow_custom_input": q.allow_custom_input,
-                            "placeholder": q.placeholder,
-                        })
-                    }).collect();
-                    relay.send_value(serde_json::json!({
-                        "type": "ask_user_batch",
-                        "questions": questions,
-                    }));
-                }
-                self.ask_user_prompt = Some(AskUserBatchPrompt::from_request(req));
-                (true, true, false) // 暂停消费，等待用户输入
             }
             AgentEvent::TodoUpdate(todos) => {
                 // 转发 TODO 更新到 Relay
@@ -444,31 +483,8 @@ impl App {
                     }
                 }
                 // 增量追加到 agent_state_messages（去重，避免重复消息）
-                let start = self.agent_state_messages.len();
                 self.agent_state_messages.extend(msgs);
-
-                // 增量持久化到 thread（从上次持久化位置之后的所有消息）
-                if let Some(id) = self.current_thread_id.clone() {
-                    let new_msgs: Vec<_> = self.agent_state_messages[start..]
-                        .iter()
-                        .filter(|m| !matches!(m, BaseMessage::System { .. }))
-                        .cloned()
-                        .collect();
-                    if !new_msgs.is_empty() {
-                        let store = self.thread_store.clone();
-                        let tid = id.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = store.append_messages(&tid, &new_msgs).await {
-                                tracing::warn!(
-                                    thread_id = %tid,
-                                    msg_count = new_msgs.len(),
-                                    error = %e,
-                                    "StateSnapshot 持久化写入失败"
-                                );
-                            }
-                        });
-                    }
-                }
+                // 持久化已由 AgentState::add_message 自动完成（fire-and-forget）
                 (true, false, false)
             }
             AgentEvent::CompactDone(summary) => {
@@ -507,15 +523,16 @@ impl App {
                         ));
                 }
 
-                // 重置持久化计数（view_messages 已重建）
-                self.persisted_count = 0;
-
                 self.set_loading(false);
                 self.agent_rx = None;
 
                 // 通知 Relay Web 前端：compact 完成，推送压缩后的 LLM 上下文
                 if let Some(ref relay) = self.relay_client {
-                    relay.send_thread_reset(&self.agent_state_messages);
+                    let msg_vals: Vec<serde_json::Value> = self.agent_state_messages
+                        .iter()
+                        .filter_map(|m| serde_json::to_value(m).ok())
+                        .collect();
+                    relay.send_thread_reset(&msg_vals);
                 }
 
                 // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）
@@ -592,8 +609,7 @@ impl App {
                     // 兜底清空 subagent 状态
                     self.subagent_group_idx = None;
                     // 清理残留弹窗状态，避免 UI 卡在弹窗
-                    self.hitl_prompt = None;
-                    self.ask_user_prompt = None;
+                    self.interaction_prompt = None;
                     self.pending_hitl_items = None;
                     self.pending_ask_user = None;
                     if let Some(start) = self.task_start_time {

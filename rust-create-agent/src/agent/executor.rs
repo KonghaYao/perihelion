@@ -30,6 +30,8 @@ where
     event_handler: Option<Arc<dyn AgentEventHandler>>,
     /// 上次发送 StateSnapshot 后的消息数量（用于增量发送）
     last_message_count: std::sync::atomic::AtomicUsize,
+    /// 固定系统提示词：在所有中间件 before_agent 执行完毕后 prepend，无顺序约束
+    system_prompt: Option<String>,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -42,6 +44,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             max_iterations: 10,
             event_handler: None,
             last_message_count: std::sync::atomic::AtomicUsize::new(0),
+            system_prompt: None,
         }
     }
 
@@ -69,6 +72,16 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 注入事件回调（链式 builder）
     pub fn with_event_handler(mut self, handler: Arc<dyn AgentEventHandler>) -> Self {
         self.event_handler = Some(handler);
+        self
+    }
+
+    /// 设置固定系统提示词
+    ///
+    /// 在所有中间件 `before_agent` 执行完毕之后、LLM 循环开始之前，
+    /// 将 system 消息 prepend 到 state 消息列表最前。
+    /// 不依赖中间件注册顺序，可在 builder 链任意位置调用。
+    pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.system_prompt = Some(prompt.into());
         self
     }
 
@@ -129,6 +142,11 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         let tool_refs: Vec<&dyn BaseTool> = all_tools.values().copied().collect();
 
         self.chain.run_before_agent(state).await?;
+
+        // 固定 system prompt：在所有中间件 before_agent 之后 prepend，无顺序约束
+        if let Some(ref prompt) = self.system_prompt {
+            state.prepend_message(BaseMessage::system(prompt.clone()));
+        }
 
         let mut all_tool_calls: Vec<(ToolCall, ToolResult)> = Vec::new();
 
@@ -750,6 +768,86 @@ mod tests {
         assert_eq!(
             ai_msg_id.unwrap(), tool_end_msg_id.unwrap(),
             "ToolEnd.message_id 应与 MessageAdded(Ai).id 相同"
+        );
+    }
+
+    /// 验证 with_system_prompt 注入的 system 消息位于消息列表第一位
+    #[tokio::test]
+    async fn test_system_prompt_is_first() {
+        struct EchoLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for EchoLLM {
+            async fn generate_reasoning(
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                Ok(Reasoning::with_answer("", "done"))
+            }
+        }
+
+        let agent = ReActAgent::new(EchoLLM)
+            .max_iterations(3)
+            .with_system_prompt("system content here");
+
+        let mut state = AgentState::new("/tmp");
+        agent.execute(AgentInput::text("hi"), &mut state, None).await.unwrap();
+
+        let messages = state.messages();
+        let first = messages.first().expect("应至少有一条消息");
+        assert!(
+            matches!(first, BaseMessage::System { .. }),
+            "第一条消息应为 System，实际为: {:?}",
+            first
+        );
+        assert!(
+            first.content().contains("system content here"),
+            "system 内容应包含注入文本"
+        );
+    }
+
+    /// 验证不论其他中间件注册顺序如何，with_system_prompt 的 system 消息始终在最前
+    #[tokio::test]
+    async fn test_system_prompt_order_independent() {
+        use crate::middleware::r#trait::Middleware;
+
+        // 一个会在 before_agent 中 prepend 自己消息的中间件
+        struct PrefixMiddleware;
+        #[async_trait::async_trait]
+        impl<S: State> Middleware<S> for PrefixMiddleware {
+            fn name(&self) -> &str { "PrefixMiddleware" }
+            async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
+                state.prepend_message(BaseMessage::system("middleware injected"));
+                Ok(())
+            }
+        }
+
+        struct EchoLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for EchoLLM {
+            async fn generate_reasoning(
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                Ok(Reasoning::with_answer("", "done"))
+            }
+        }
+
+        // 中间件在 with_system_prompt 之前注册——但 system prompt 应在最前
+        let agent = ReActAgent::new(EchoLLM)
+            .add_middleware(Box::new(PrefixMiddleware))
+            .with_system_prompt("top level system");
+
+        let mut state = AgentState::new("/tmp");
+        agent.execute(AgentInput::text("hi"), &mut state, None).await.unwrap();
+
+        let messages = state.messages();
+        let first = messages.first().expect("应至少有一条消息");
+        assert!(
+            first.content().contains("top level system"),
+            "with_system_prompt 注入的消息应在最前，实际第一条: {:?}",
+            first.content()
         );
     }
 

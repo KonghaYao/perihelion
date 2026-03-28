@@ -286,36 +286,26 @@ export function handleLegacyEvent(agent, event, sessionId) {
       agents.value = new Map(agents.value)
       break
 
-    case 'approval_needed':
-      agent.pendingHitl = {
-        requests: (event.items || []).map(i => ({
-          name: i.tool_name,
-          input: i.input,
-          tool_call_id: i.tool_call_id,
-        })),
+    case 'interaction_request':
+      if (event.ctx_type === 'approval') {
+        agent.pendingHitl = {
+          requests: (event.items || []).map(i => ({
+            name: i.tool_name,
+            input: i.input,
+            tool_call_id: i.tool_call_id,
+          })),
+        }
+      } else if (event.ctx_type === 'questions') {
+        agent.pendingAskUser = { questions: event.questions || [] }
       }
-      // 弹窗组件自动读取 pendingHitl 状态响应
+      // 弹窗组件自动读取 pendingHitl / pendingAskUser 状态响应
       agents.value = new Map(agents.value)
       break
 
-    case 'ask_user_batch':
-      agent.pendingAskUser = { questions: event.questions || [] }
-      // 弹窗组件自动读取 pendingAskUser 状态响应
+    case 'interaction_resolved':
+      agent.pendingHitl = null
+      agent.pendingAskUser = null
       agents.value = new Map(agents.value)
-      break
-
-    case 'approval_resolved':
-      if (agent.pendingHitl) {
-        agent.pendingHitl = null
-        agents.value = new Map(agents.value)
-      }
-      break
-
-    case 'ask_user_resolved':
-      if (agent.pendingAskUser) {
-        agent.pendingAskUser = null
-        agents.value = new Map(agents.value)
-      }
       break
 
     case 'thread_reset': {

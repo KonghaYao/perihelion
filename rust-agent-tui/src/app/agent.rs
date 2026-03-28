@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::hitl::{ApprovalEvent, TuiAskUserHandler, TuiHitlHandler};
 pub(crate) use super::provider::LlmProvider;
+use super::interaction_broker::TuiInteractionBroker;
 use super::AgentEvent;
 use rust_agent_middlewares::prelude::*;
-use rust_agent_middlewares::tools::{AskUserInvoker, AskUserTool, TodoItem};
+use rust_agent_middlewares::tools::{AskUserTool, TodoItem};
 use rust_create_agent::agent::events::{AgentEvent as ExecutorEvent, FnEventHandler};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::state::AgentState;
@@ -20,12 +20,14 @@ pub struct AgentRunConfig {
     pub input: AgentInput,
     pub cwd: String,
     pub history: Vec<rust_create_agent::messages::BaseMessage>,
-    pub approval_tx: mpsc::Sender<ApprovalEvent>,
     pub tx: mpsc::Sender<AgentEvent>,
     pub cancel: AgentCancellationToken,
     pub agent_id: Option<String>,
     pub relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
+    pub thread_store: Arc<dyn rust_create_agent::thread::ThreadStore>,
+    pub thread_id: rust_create_agent::thread::ThreadId,
+    pub preload_skills: Vec<String>,
 }
 
 pub async fn run_universal_agent(cfg: AgentRunConfig) {
@@ -34,12 +36,14 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         input,
         cwd,
         history,
-        approval_tx,
         tx,
         cancel,
         agent_id,
         relay_client,
         langfuse_tracer,
+        thread_store,
+        thread_id,
+        preload_skills,
     } = cfg;
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
@@ -58,7 +62,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
     let provider_for_factory = provider.clone();
     let provider_name = provider.display_name().to_string();
-    // 不使用 .with_system()，改由 PrependSystemMiddleware 注入到 state，使 Langfuse 可见
+    // 不使用 .with_system()，改由 with_system_prompt() 注入到 state，使 Langfuse 可见
     let model = BaseModelReactLLM::new(provider.into_model());
 
     // Todo channel：TodoMiddleware → TUI
@@ -73,12 +77,19 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         }
     });
 
+    // 统一人机交互 broker（取代旧的 TuiHitlHandler + TuiAskUserHandler）
+    let broker = TuiInteractionBroker::new(tx.clone());
+
     // HITL 中间件
-    let hitl = HumanInTheLoopMiddleware::from_env(TuiHitlHandler::new(approval_tx.clone()));
+    let hitl = HumanInTheLoopMiddleware::from_env(
+        broker.clone() as Arc<dyn rust_create_agent::interaction::UserInteractionBroker>,
+        default_requires_approval,
+    );
 
     // AskUser 工具
-    let ask_user_invoker: Arc<dyn AskUserInvoker> = TuiAskUserHandler::new(approval_tx);
-    let ask_user_tool = AskUserTool::new(ask_user_invoker);
+    let ask_user_tool = AskUserTool::new(
+        broker as Arc<dyn rust_create_agent::interaction::UserInteractionBroker>,
+    );
 
     // 事件回调 → TUI AgentEvent channel + Relay 转发
     let tx_event = tx.clone();
@@ -90,10 +101,16 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         // 转发到 Relay
         if let Some(ref relay) = relay_for_handler {
             match &event {
-                // BaseMessage 走新的 relay.send_message 路径
-                ExecutorEvent::MessageAdded(msg) => relay.send_message(msg),
-                // 其他事件走原有路径（兼容性保留）
-                _ => relay.send_agent_event(&event),
+                // BaseMessage 序列化后走 send_message 路径，保持原有 JSON 格式
+                ExecutorEvent::MessageAdded(msg) => {
+                    relay.send_message(&serde_json::to_value(msg).unwrap_or_default());
+                }
+                // 其他事件经适配器转换为 RelayAgentEvent 后发送
+                _ => {
+                    if let Some(relay_event) = crate::relay_adapter::to_relay_event(&event) {
+                        relay.send_agent_event(&relay_event);
+                    }
+                }
             }
         }
 
@@ -117,78 +134,18 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         }
 
         // 映射为 TUI AgentEvent
-        let msg = match event {
-            ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
-            ExecutorEvent::TextChunk { chunk: text, .. } => AgentEvent::AssistantChunk(text),
-            ExecutorEvent::MessageAdded(msg) => AgentEvent::MessageAdded(msg),
-            // launch_agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
-            ExecutorEvent::ToolStart { name, input, .. } if name == "launch_agent" => {
-                let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
-                let task_preview = input["task"].as_str().unwrap_or("").chars().take(40).collect();
-                AgentEvent::SubAgentStart { agent_id, task_preview }
-            }
-            ExecutorEvent::ToolStart { tool_call_id, name, input, .. } => AgentEvent::ToolCall {
-                tool_call_id,
-                args: format_tool_args(&name, &input, Some(cwd_for_handler.as_str())),
-                display: format_tool_name(&name),
-                name,
-                is_error: false,
-            },
-            // launch_agent ToolEnd（成功或失败）→ SubAgentEnd（在通用 ToolEnd 分支之前）
-            ExecutorEvent::ToolEnd { name, output, is_error, .. } if name == "launch_agent" => {
-                AgentEvent::SubAgentEnd { result: output, is_error }
-            }
-            // ask_user 成功：显示用户的回答
-            ExecutorEvent::ToolEnd {
-                name,
-                output,
-                is_error: false,
-                ..
-            } if name == "ask_user" => AgentEvent::ToolCall {
-                tool_call_id: String::new(),
-                display: "AskUser".to_string(),
-                args: Some(format!("? → {}", truncate(&output, 60))),
-                name,
-                is_error: false,
-            },
-            // 工具执行出错
-            ExecutorEvent::ToolEnd {
-                name,
-                output,
-                is_error: true,
-                ..
-            } => AgentEvent::ToolCall {
-                tool_call_id: String::new(),
-                display: format_tool_name(&name),
-                args: Some(format!("✗ {}", truncate(&output, 60))),
-                name,
-                is_error: true,
-            },
-            // 无需转发的内部事件（含新增的 LLM hook 事件，已在 Langfuse 分支处理）
-            ExecutorEvent::ToolEnd { .. }
-            | ExecutorEvent::StepDone { .. }
-            | ExecutorEvent::StateSnapshot(_)
-            | ExecutorEvent::LlmCallStart { .. }
-            | ExecutorEvent::LlmCallEnd { .. } => return,
-        };
-        let _ = tx_event.try_send(msg);
+        if let Some(msg) = map_executor_event(event, &cwd_for_handler) {
+            let _ = tx_event.try_send(msg);
+        }
     }));
 
     // 构建父工具集（供子 agent 继承），来自 Filesystem + Terminal
-    let parent_tools: Arc<Vec<Arc<dyn rust_create_agent::tools::BaseTool>>> = {
-        use rust_create_agent::tools::ToolProvider;
-        let fs_tools = FilesystemMiddleware::new().tools(&cwd);
-        let term_tools = TerminalMiddleware::new().tools(&cwd);
-        let tools = fs_tools
-            .into_iter()
-            .chain(term_tools)
-            .map(|t| Arc::new(BoxToolWrapper(t)) as Arc<dyn rust_create_agent::tools::BaseTool>)
-            .collect();
-        Arc::new(tools)
-    };
+    let mut parent_tools: Vec<Box<dyn rust_create_agent::tools::BaseTool>> =
+        FilesystemMiddleware::build_tools(&cwd);
+    parent_tools.extend(TerminalMiddleware::build_tools(&cwd));
 
     // LLM 工厂：每次为子 agent 创建裸 LLM（不设 system）
-    // 系统提示词由 system_builder + PrependSystemMiddleware 注入，使其在 Langfuse 中可见
+    // 系统提示词由 system_builder + with_system_prompt() 注入，使其在 Langfuse 中可见
     let provider_clone = provider_for_factory;
     let llm_factory: Arc<dyn Fn() -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync> = Arc::new(move || {
         Box::new(BaseModelReactLLM::new(provider_clone.clone().into_model()))
@@ -200,7 +157,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
 
     // SubAgent 中间件
     let subagent = SubAgentMiddleware::new(
-        Arc::clone(&parent_tools),
+        parent_tools,
         Some(Arc::clone(&handler) as Arc<dyn rust_create_agent::agent::events::AgentEventHandler>),
         llm_factory,
     )
@@ -210,22 +167,23 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具
     let executor = ReActAgent::new(model)
         .max_iterations(500)
+        .with_system_prompt(system_prompt)  // executor 内部固定 prepend，无顺序约束
         .add_middleware(Box::new(AgentsMdMiddleware::new()))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new(SkillsMiddleware::new()))
+        .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd)))
         .add_middleware(Box::new(FilesystemMiddleware::new()))
         .add_middleware(Box::new(TerminalMiddleware::new()))
         .add_middleware(Box::new(TodoMiddleware::new(todo_tx)))
         .add_middleware(Box::new(hitl))
         .add_middleware(Box::new(subagent))
-        // 最后注册 → before_agent 最后执行 → prepend_message 最后写入 → 位于消息列表最前
-        .add_middleware(Box::new(rust_agent_middlewares::PrependSystemMiddleware::new(system_prompt)))
         .with_event_handler(Arc::clone(&handler))
         .register_tool(Box::new(ask_user_tool));
 
     // 捕获 history 长度，用于后续从全量状态中截取本轮新增消息
     let history_len = history.len();
-    let mut state = AgentState::with_messages(cwd, history);
+    let mut state = AgentState::with_messages(cwd, history)
+        .with_persistence(thread_store, thread_id);
     if let Some(id) = agent_id {
         state = state.with_context("agent_id", id);
     }
@@ -271,6 +229,56 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
 // ─── 辅助函数 ─────────────────────────────────────────────────────────────────
 
 use super::tool_display::{format_tool_args, format_tool_name, truncate};
+
+/// 将 ExecutorEvent 映射为 TUI AgentEvent；不需转发的内部事件返回 None
+fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
+    Some(match event {
+        ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
+        ExecutorEvent::TextChunk { chunk: text, .. } => AgentEvent::AssistantChunk(text),
+        ExecutorEvent::MessageAdded(msg) => AgentEvent::MessageAdded(msg),
+        // launch_agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
+        ExecutorEvent::ToolStart { name, input, .. } if name == "launch_agent" => {
+            let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
+            let task_preview = input["task"].as_str().unwrap_or("").chars().take(40).collect();
+            AgentEvent::SubAgentStart { agent_id, task_preview }
+        }
+        ExecutorEvent::ToolStart { tool_call_id, name, input, .. } => AgentEvent::ToolCall {
+            tool_call_id,
+            args: format_tool_args(&name, &input, Some(cwd)),
+            display: format_tool_name(&name),
+            name,
+            is_error: false,
+        },
+        // launch_agent ToolEnd → SubAgentEnd（在通用 ToolEnd 分支之前）
+        ExecutorEvent::ToolEnd { name, output, is_error, .. } if name == "launch_agent" => {
+            AgentEvent::SubAgentEnd { result: output, is_error }
+        }
+        // ask_user 成功：显示用户的回答
+        ExecutorEvent::ToolEnd { name, output, is_error: false, .. } if name == "ask_user" => {
+            AgentEvent::ToolCall {
+                tool_call_id: String::new(),
+                display: "AskUser".to_string(),
+                args: Some(format!("? → {}", truncate(&output, 60))),
+                name,
+                is_error: false,
+            }
+        }
+        // 工具执行出错
+        ExecutorEvent::ToolEnd { name, output, is_error: true, .. } => AgentEvent::ToolCall {
+            tool_call_id: String::new(),
+            display: format_tool_name(&name),
+            args: Some(format!("✗ {}", truncate(&output, 60))),
+            name,
+            is_error: true,
+        },
+        // 无需转发的内部事件
+        ExecutorEvent::ToolEnd { .. }
+        | ExecutorEvent::StepDone { .. }
+        | ExecutorEvent::StateSnapshot(_)
+        | ExecutorEvent::LlmCallStart { .. }
+        | ExecutorEvent::LlmCallEnd { .. } => return None,
+    })
+}
 
 // ─── 上下文压缩任务 ────────────────────────────────────────────────────────────
 

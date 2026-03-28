@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::protocol::{RelayMessage, WebMessage};
+use crate::protocol_types::RelayAgentEvent;
 
 pub type RelayEventRx = mpsc::UnboundedReceiver<WebMessage>;
 
@@ -155,7 +156,7 @@ impl RelayClient {
     }
 
     /// 发送 agent 事件到 relay（扁平化 + seq），断线后静默跳过
-    pub fn send_agent_event(&self, event: &rust_create_agent::agent::AgentEvent) {
+    pub fn send_agent_event(&self, event: &RelayAgentEvent) {
         if !self.connected.load(Ordering::Relaxed) {
             return;
         }
@@ -173,14 +174,12 @@ impl RelayClient {
         self.send_with_seq(val);
     }
 
-    /// 发送 BaseMessage 到 relay（序列化为 JSON + seq）
-    pub fn send_message(&self, msg: &rust_create_agent::messages::BaseMessage) {
+    /// 发送消息 JSON Value 到 relay（+ seq），序列化由调用方负责
+    pub fn send_message(&self, val: &serde_json::Value) {
         if !self.connected.load(Ordering::Relaxed) {
             return;
         }
-        if let Ok(val) = serde_json::to_value(msg) {
-            self.send_with_seq(val);
-        }
+        self.send_with_seq(val.clone());
     }
 
     /// 发送原始 JSON 字符串到 relay（不注入 seq，不缓存），断线后静默跳过
@@ -211,19 +210,15 @@ impl RelayClient {
         }
     }
 
-    /// 发送 ThreadReset 到 Web 前端（携带当前 thread 所有 BaseMessage）
+    /// 发送 ThreadReset 到 Web 前端（携带当前 thread 所有消息 JSON），序列化由调用方负责
     /// 先清空历史缓存，再用 send_with_seq 发送并缓存——保证重连后 SyncRequest 能恢复正确状态
-    pub fn send_thread_reset(&self, messages: &[rust_create_agent::messages::BaseMessage]) {
+    pub fn send_thread_reset(&self, messages: &[serde_json::Value]) {
         if !self.connected.load(Ordering::Relaxed) {
             return;
         }
         // 先清空旧历史，避免重连后回放已作废的消息
         self.clear_history();
-        let msgs: Vec<serde_json::Value> = messages
-            .iter()
-            .filter_map(|m| serde_json::to_value(m).ok())
-            .collect();
-        let json = serde_json::json!({ "type": "thread_reset", "messages": msgs });
+        let json = serde_json::json!({ "type": "thread_reset", "messages": messages });
         self.send_with_seq(json);
     }
 }

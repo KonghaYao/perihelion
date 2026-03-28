@@ -10,7 +10,6 @@ use rust_create_agent::tools::BaseTool;
 use crate::agent_define::{AgentDefineMiddleware, AgentOverrides};
 use crate::agents_md::AgentsMdMiddleware;
 use crate::claude_agent_parser::{parse_agent_file, ToolsValue};
-use crate::middleware::PrependSystemMiddleware;
 use crate::middleware::todo::TodoMiddleware;
 use crate::skills::SkillsMiddleware;
 use crate::subagent::skill_preload::SkillPreloadMiddleware;
@@ -27,11 +26,11 @@ pub struct SubAgentTool {
     parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
     /// 父 agent 事件处理器（透传子 agent 事件）
     event_handler: Option<Arc<dyn AgentEventHandler>>,
-    /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例（不设 system，由 PrependSystemMiddleware 注入）
+    /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例（不设 system，由 with_system_prompt() 注入）
     llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     /// 系统提示词构建器：(agent overrides, cwd) → system prompt 字符串
     ///
-    /// 返回的内容会通过 `PrependSystemMiddleware` 注入到子 agent 的 state 消息中，
+    /// 返回的内容会通过 `with_system_prompt()` 注入到子 agent 的 state 消息中，
     /// 使其在 Langfuse 等追踪工具中可见。为 None 时不注入系统提示词。
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
 }
@@ -195,7 +194,7 @@ impl BaseTool for SubAgentTool {
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
 
         // 5. 补全缺失的上下文中间件（与父 agent 对齐）
-        //    注册顺序：AgentsMdMiddleware → SkillsMiddleware → TodoMiddleware → PrependSystemMiddleware（最后）
+        //    注册顺序：AgentsMdMiddleware → SkillsMiddleware → TodoMiddleware
         //    TodoMiddleware 的 _rx 立即丢弃，send 失败静默忽略，不向 TUI 透传
         agent_builder = agent_builder
             .add_middleware(Box::new(AgentsMdMiddleware::new()))
@@ -213,13 +212,12 @@ impl BaseTool for SubAgentTool {
             tx
         })));
 
-        // 6. 通过 PrependSystemMiddleware 将系统提示词注入 state（使其对 Langfuse 等追踪可见）
+        // 6. 通过 with_system_prompt 将系统提示词注入 state（使其对 Langfuse 等追踪可见）
         //    系统提示词 = build_system_prompt(agent overrides, cwd)，包含 tone/proactiveness
         if let Some(ref builder) = self.system_builder {
             let overrides = AgentDefineMiddleware::load_overrides(&cwd, &agent_id);
             let system_content = builder(overrides.as_ref(), &cwd);
-            agent_builder = agent_builder
-                .add_middleware(Box::new(PrependSystemMiddleware::new(system_content)));
+            agent_builder = agent_builder.with_system_prompt(system_content);
         }
 
         // 注册过滤后的工具

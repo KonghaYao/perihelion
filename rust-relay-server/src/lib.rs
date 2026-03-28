@@ -1,4 +1,5 @@
 pub mod protocol;
+pub mod protocol_types;
 
 #[cfg(feature = "server")]
 pub mod relay;

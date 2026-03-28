@@ -17,6 +17,7 @@ use rust_create_agent::tools::BaseTool;
 
 use crate::agent_define::AgentOverrides;
 use crate::parse_agent_file;
+use crate::tools::BoxToolWrapper;
 
 /// SubAgentMiddleware - 向父 agent 注入 `launch_agent` 工具
 ///
@@ -26,9 +27,9 @@ use crate::parse_agent_file;
 /// # 使用示例
 ///
 /// ```rust,ignore
-/// let parent_tools: Arc<Vec<Arc<dyn BaseTool>>> = Arc::new(vec![
-///     Arc::new(ReadFileTool::new(cwd)),
-/// ]);
+/// let parent_tools: Vec<Box<dyn BaseTool>> = vec![
+///     Box::new(ReadFileTool::new(cwd)),
+/// ];
 /// let llm_factory = Arc::new(move || {
 ///     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 /// });
@@ -48,25 +49,29 @@ pub struct SubAgentMiddleware {
     /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例
     llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     /// 系统提示构建器：(agent overrides, cwd) → system prompt 字符串
-    /// 设置后，子 agent 通过 PrependSystemMiddleware 注入系统提示（Langfuse 可见）
+    /// 设置后，子 agent 通过 with_system_prompt() 注入系统提示（Langfuse 可见）
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
 }
 
 impl SubAgentMiddleware {
     pub fn new(
-        parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
+        parent_tools: Vec<Box<dyn BaseTool>>,
         event_handler: Option<Arc<dyn AgentEventHandler>>,
         llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     ) -> Self {
+        let tools: Vec<Arc<dyn BaseTool>> = parent_tools
+            .into_iter()
+            .map(|t| Arc::new(BoxToolWrapper(t)) as Arc<dyn BaseTool>)
+            .collect();
         Self {
-            parent_tools,
+            parent_tools: Arc::new(tools),
             event_handler,
             llm_factory,
             system_builder: None,
         }
     }
 
-    /// 设置系统提示构建器，子 agent 执行时通过 `PrependSystemMiddleware` 注入系统提示词
+    /// 设置系统提示构建器，子 agent 执行时通过 `with_system_prompt()` 注入系统提示词
     pub fn with_system_builder(
         mut self,
         builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
@@ -213,7 +218,7 @@ mod tests {
     #[test]
     fn test_middleware_name() {
         let m = SubAgentMiddleware::new(
-            Arc::new(vec![]),
+            vec![],
             None,
             Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
@@ -224,7 +229,7 @@ mod tests {
     #[test]
     fn test_middleware_collect_tools() {
         let m = SubAgentMiddleware::new(
-            Arc::new(vec![]),
+            vec![],
             None,
             Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
@@ -236,7 +241,7 @@ mod tests {
     #[test]
     fn test_build_tool_returns_subagent_tool() {
         let m = SubAgentMiddleware::new(
-            Arc::new(vec![]),
+            vec![],
             None,
             Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
@@ -298,7 +303,7 @@ mod tests {
         ).unwrap();
 
         let m = SubAgentMiddleware::new(
-            Arc::new(vec![]),
+            vec![],
             None,
             Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
@@ -315,7 +320,7 @@ mod tests {
     #[tokio::test]
     async fn test_before_agent_no_agents_no_op() {
         let m = SubAgentMiddleware::new(
-            Arc::new(vec![]),
+            vec![],
             None,
             Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );

@@ -85,14 +85,17 @@ impl App {
             }
             self.view_messages.push(vm);
         }
-        self.persisted_count = self.view_messages.len();
         self.current_thread_id = Some(thread_id);
         self.thread_browser = None;
         self.langfuse_session = None;
 
         // 通知 Relay Web 前端：thread 已切换，推送完整历史消息
         if let Some(ref relay) = self.relay_client {
-            relay.send_thread_reset(&base_msgs);
+            let msg_vals: Vec<serde_json::Value> = base_msgs
+                .iter()
+                .filter_map(|m| serde_json::to_value(m).ok())
+                .collect();
+            relay.send_thread_reset(&msg_vals);
         }
 
         // 通知渲染线程加载历史消息
@@ -106,7 +109,6 @@ impl App {
         self.view_messages.clear();
         self.agent_state_messages.clear();
         self.current_thread_id = None;
-        self.persisted_count = 0;
         self.todo_items.clear();
         self.pending_attachments.clear();
         self.thread_browser = None;

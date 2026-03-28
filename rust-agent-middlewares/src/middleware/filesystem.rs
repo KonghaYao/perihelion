@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use rust_create_agent::agent::state::State;
 use rust_create_agent::middleware::r#trait::Middleware;
-use rust_create_agent::tools::{BaseTool, ToolProvider};
+use rust_create_agent::tools::BaseTool;
 
 use crate::tools::{
     EditFileTool, FolderOperationsTool, GlobFilesTool, ReadFileTool, SearchFilesRgTool,
@@ -42,12 +42,6 @@ impl FilesystemMiddleware {
 impl Default for FilesystemMiddleware {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl ToolProvider for FilesystemMiddleware {
-    fn tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        Self::build_tools(cwd)
     }
 }
 

@@ -436,15 +436,9 @@ pub async fn handle_web_session_ws(
                         continue;
                     }
                     match web_msg {
-                        crate::protocol::WebMessage::HitlDecision { decisions } => {
-                            let resolved_json = serde_json::json!({
-                                "type": "approval_resolved",
-                                "items": decisions.iter().map(|d| d.tool_call_id.clone()).collect::<Vec<_>>(),
-                            });
-                            state.forward_to_web(&session_id, &resolved_json.to_string()).await;
-                        }
-                        crate::protocol::WebMessage::AskUserResponse { .. } => {
-                            let resolved_json = serde_json::json!({ "type": "ask_user_resolved" });
+                        crate::protocol::WebMessage::HitlDecision { .. }
+                        | crate::protocol::WebMessage::AskUserResponse { .. } => {
+                            let resolved_json = serde_json::json!({ "type": "interaction_resolved" });
                             state.forward_to_web(&session_id, &resolved_json.to_string()).await;
                         }
                         crate::protocol::WebMessage::SyncRequest { .. } => {

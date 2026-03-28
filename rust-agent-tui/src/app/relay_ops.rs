@@ -94,7 +94,7 @@ impl App {
                     }
                 }
                 WebMessage::HitlDecision { decisions } => {
-                    if let Some(prompt) = self.hitl_prompt.take() {
+                    if let Some(InteractionPrompt::Approval(prompt)) = self.interaction_prompt.take() {
                         // 远程控制支持全部 4 种 HITL 决策：Approve / Edit / Reject / Respond
                         let hitl_decisions: Vec<HitlDecision> = decisions
                             .iter()
@@ -118,14 +118,23 @@ impl App {
                     }
                 }
                 WebMessage::AskUserResponse { answers } => {
-                    if let Some(prompt) = self.ask_user_prompt.as_mut() {
+                    if let Some(InteractionPrompt::Questions(prompt)) = self.interaction_prompt.as_mut() {
                         for (q_text, answer) in &answers {
                             if let Some(q) = prompt
                                 .questions
                                 .iter_mut()
                                 .find(|q| q.data.tool_call_id == *q_text)
                             {
-                                q.custom_input = answer.clone();
+                                let answer_str = match answer {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    serde_json::Value::Array(arr) => arr
+                                        .iter()
+                                        .filter_map(|v| v.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                    other => other.to_string(),
+                                };
+                                q.custom_input = answer_str;
                                 q.in_custom_input = true;
                             }
                         }
@@ -137,8 +146,7 @@ impl App {
                 }
                 WebMessage::CancelAgent => {
                     self.interrupt();
-                    self.ask_user_prompt = None;
-                    self.hitl_prompt = None;
+                    self.interaction_prompt = None;
                 }
                 WebMessage::ClearThread => {
                     if let Some(ref relay) = self.relay_client {

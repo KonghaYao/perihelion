@@ -86,41 +86,45 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // ── 右侧：弹窗激活时显示快捷键提示 ─────────────────────────────────────
-    let right_spans: Vec<Span> = if app.ask_user_prompt.is_some() {
-        vec![
-            Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":确认", Style::default().fg(Color::DarkGray)),
-        ]
-    } else if app.hitl_prompt.is_some() {
-        vec![
-            Span::styled(" ↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled(":全批准  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("n", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled(":全拒绝  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":确认", Style::default().fg(Color::DarkGray)),
-        ]
-    } else if app.agent_panel.is_some() {
-        vec![
-            Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(":确认  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Esc", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled(":取消", Style::default().fg(Color::DarkGray)),
-        ]
-    } else {
-        vec![]
+    let right_spans: Vec<Span> = match &app.interaction_prompt {
+        Some(crate::app::InteractionPrompt::Questions(_)) => {
+            vec![
+                Span::styled(" Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":确认", Style::default().fg(Color::DarkGray)),
+            ]
+        }
+        Some(crate::app::InteractionPrompt::Approval(_)) => {
+            vec![
+                Span::styled(" ↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":移动  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Space", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(":全批准  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("n", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(":全拒绝  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":确认", Style::default().fg(Color::DarkGray)),
+            ]
+        }
+        None => if app.agent_panel.is_some() {
+            vec![
+                Span::styled("↑↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":选择  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(":确认  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Esc", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(":取消", Style::default().fg(Color::DarkGray)),
+            ]
+        } else {
+            vec![]
+        }
     };
 
     // ── 计算左右侧宽度，确保右侧对齐 ───────────────────────────────────────

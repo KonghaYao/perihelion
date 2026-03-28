@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod agent_panel;
 pub mod events;
-pub mod hitl;
+pub mod interaction_broker;
 pub mod model_panel;
 pub mod relay_panel;
 mod provider;
@@ -20,6 +20,13 @@ mod hint_ops;
 pub use events::AgentEvent;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
 pub use ask_user_prompt::AskUserBatchPrompt;
+pub use interaction_broker::TuiInteractionBroker;
+
+/// 统一交互弹窗枚举：同一时刻只允许一种弹窗激活
+pub enum InteractionPrompt {
+    Approval(HitlBatchPrompt),
+    Questions(AskUserBatchPrompt),
+}
 
 use ratatui::style::{Color, Style};
 use ratatui_textarea::TextArea;
@@ -37,7 +44,6 @@ use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, Thre
 use crate::command::agents::AgentItem;
 pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
 pub use agent_panel::AgentPanel;
-pub use hitl::{ApprovalEvent, BatchApprovalRequest};
 pub use model_panel::ModelPanel;
 pub use relay_panel::RelayPanel;
 use parking_lot::RwLock;
@@ -59,12 +65,10 @@ pub struct App {
     pub provider_name: String,
     pub model_name: String,
     agent_rx: Option<mpsc::Receiver<AgentEvent>>,
-    /// 当前等待用户确认的批量 HITL 弹窗
-    pub hitl_prompt: Option<HitlBatchPrompt>,
+    /// 当前激活的交互弹窗（HITL 审批或 AskUser 问答，同一时刻只有一种）
+    pub interaction_prompt: Option<InteractionPrompt>,
     /// 已发送待解决的 HITL 工具名称列表（用于 approval_resolved 广播）
     pending_hitl_items: Option<Vec<String>>,
-    /// 当前等待用户输入的 AskUser 批量弹窗
-    pub ask_user_prompt: Option<AskUserBatchPrompt>,
     /// AskUser 是否已提交（用于广播 resolved）
     pending_ask_user: Option<bool>,
     /// 当前 TODO 列表（固定面板，不写入消息流）
@@ -91,8 +95,6 @@ pub struct App {
     pub current_thread_id: Option<ThreadId>,
     /// 启动时的历史浏览面板（选择后关闭）
     pub thread_browser: Option<ThreadBrowser>,
-    /// 已持久化到 thread 的消息数量（用于增量追加）
-    persisted_count: usize,
     /// 当前 Agent 任务的取消令牌（loading 时有效，Ctrl+C 触发）
     cancel_token: Option<AgentCancellationToken>,
     /// 当前 Agent 任务开始时间（用于计算运行时长）
@@ -199,8 +201,7 @@ impl App {
             provider_name,
             model_name,
             agent_rx: None,
-            hitl_prompt: None,
-            ask_user_prompt: None,
+            interaction_prompt: None,
             todo_items: Vec::new(),
             zen_config,
             model_panel: None,
@@ -228,7 +229,6 @@ impl App {
             thread_store,
             current_thread_id: None,
             thread_browser: None,
-            persisted_count: 0,
             cancel_token: None,
             task_start_time: None,
             last_task_duration: None,

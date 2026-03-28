@@ -7,6 +7,7 @@ pub mod agent;
 pub mod ask_user;
 pub mod error;
 pub mod hitl;
+pub mod interaction;
 pub mod llm;
 pub mod messages;
 pub mod middleware;

@@ -12,6 +12,11 @@ pub trait ThreadStore: Send + Sync {
     /// 追加消息到指定 thread（追加写，不覆盖）
     async fn append_messages(&self, id: &ThreadId, msgs: &[BaseMessage]) -> Result<()>;
 
+    /// 追加单条消息到指定 thread（默认实现复用 append_messages）
+    async fn append_message(&self, id: &ThreadId, message: BaseMessage) -> Result<()> {
+        self.append_messages(id, &[message]).await
+    }
+
     /// 加载指定 thread 的全部消息
     async fn load_messages(&self, id: &ThreadId) -> Result<Vec<BaseMessage>>;
 

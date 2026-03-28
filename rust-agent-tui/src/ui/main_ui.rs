@@ -55,14 +55,11 @@ pub fn render(f: &mut Frame, app: &mut App) {
     popups::hints::render_command_hint(f, app, chunks[4]);
     popups::hints::render_skill_hint(f, app, chunks[4]);
 
-    // HITL 弹窗（覆盖层）
-    if app.hitl_prompt.is_some() {
-        popups::hitl::render_hitl_popup(f, app);
-    }
-
-    // AskUser 弹窗（覆盖层）
-    if app.ask_user_prompt.is_some() {
-        popups::ask_user::render_ask_user_popup(f, app);
+    // 交互弹窗（HITL 审批或 AskUser 问答，覆盖层）
+    match &app.interaction_prompt {
+        Some(crate::app::InteractionPrompt::Approval(_)) => popups::hitl::render_hitl_popup(f, app),
+        Some(crate::app::InteractionPrompt::Questions(_)) => popups::ask_user::render_ask_user_popup(f, app),
+        None => {}
     }
 
     // /model 面板（覆盖层）
