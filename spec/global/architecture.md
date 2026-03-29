@@ -7,7 +7,7 @@
 | `rust-create-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
 | `rust-agent-middlewares` | 中间件库 | 文件系统、终端、HITL、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、PrependSystem、AskUser 等具体实现 |
 | `rust-agent-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板、Langfuse 追踪、Relay 集成 |
-| `rust-relay-server` | 可执行文件 + 客户端库 | axum WebSocket 中继服务（server feature），支持远程控制本地 Agent；client feature 供 TUI 集成；前端为 Preact + Signals + htm（esm.sh CDN，无打包工具） |
+| `rust-relay-server` | 可执行文件 + 客户端库 | axum WebSocket 中继服务（server feature），支持远程控制本地 Agent；client feature 供 TUI 集成；多用户隔离（UserNamespace 分层 + /register 匿名账号）；前端为 Preact + Signals + htm（esm.sh CDN，无打包工具） |
 
 ## Workspace 依赖关系
 
@@ -170,10 +170,10 @@ src/
 
 ```
 src/
-├── main.rs               — axum Router：/agent/ws、/web/ws、/agents、/health、/web/*
+├── main.rs               — axum Router：/register、/agent/ws、/web/ws、/agents、/health、/web/*
 ├── lib.rs                — Feature-gated 模块声明
 ├── protocol.rs           — 协议类型：RelayMessage / WebMessage / BroadcastMessage / RelayError
-├── relay.rs              — RelayState + WebSocket handler（Agent/Web 连接管理、Session 生命周期）
+├── relay.rs              — RelayState（users: DashMap<user_id, UserNamespace>）+ WebSocket handler（按 user_id 隔离）
 ├── auth.rs               — Token 验证（constant-time comparison via subtle）
 ├── static_files.rs       — rust-embed 内嵌前端静态文件
 └── client/
@@ -304,8 +304,8 @@ submit_message()
 ```
 本地 TUI (RelayClient)              Relay Server              远程 Web 浏览器
   │                                     │                          │
-  │─── agent/ws?token=&name= ──────→   │                          │
-  │                                     │←── web/ws?token=&session= ──│
+  │─── agent/ws?token=&name=&user_id= ───→   │                          │
+  │                                     │←── web/ws?token=&user_id=&session= ──│
   │                                     │                          │
   │─── MessageBatch{messages,seq} ──→   │── MessageBatch ────────→ │
   │─── ApprovalNeeded{items} ──────→   │── ApprovalNeeded ───────→ │
@@ -416,4 +416,4 @@ rust-create-agent（tracing spans）
 ```
 
 ---
-*最后更新: 2026-03-28 — 更新 Relay 协议（CancelAgent/CompactThread/ThreadReset）、中间件链（with_system_prompt 替代 PrependSystemMiddleware）、主/子 Agent 差异*
+*最后更新: 2026-03-29 — 更新 Relay 多用户隔离（UserNamespace + /register）、环境变量注入（settings.json env）*

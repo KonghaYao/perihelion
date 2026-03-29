@@ -12,6 +12,9 @@
 
 | Feature ID | 摘要 | 领域 | 归档日期 |
 |-----------|------|------|----------|
+| [20260328_F004_settings-env-injection](../archive/feature_20260328_F004_settings-env-injection/) | settings.json env 字段替代 .env 注入环境变量 | tui | 2026-03-29 |
+| [20260328_F003_test-coverage-improvement](../archive/feature_20260328_F003_test-coverage-improvement/) | 四高风险区域补充 55+ 单元测试提升覆盖率 | tui | 2026-03-29 |
+| [20260328_F002_relay-multi-user-isolation](../archive/feature_20260328_F002_relay-multi-user-isolation/) | UserNamespace 分层实现多用户完全隔离 | relay-server | 2026-03-29 |
 | [20260328_H2_thread-store](../archive/feature_20260328_H2_thread-store/) | （无设计文档）| — | 2026-03-28 |
 | [20260328_F001_skill-preload-on-send](../archive/feature_20260328_F001_skill-preload-on-send/) | TUI 发送含 #skill-name 消息时自动全文预加载对应 skill | tui | 2026-03-28 |
 | [20260328_F001_ask-user-question-align](../archive/feature_20260328_F001_ask-user-question-align/) | ask_user 工具全面对齐 Claude AskUserQuestion 接口规范 | agent | 2026-03-28 |
@@ -67,4 +70,4 @@
 - [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）
 
 ---
-*最后更新: 2026-03-28 — 由批量归档（12 个 feature，含 3 个无设计文档）更新*
+*最后更新: 2026-03-29 — 由 F004/F003/F002 归档更新（settings-env-injection、test-coverage、relay-multi-user-isolation）*

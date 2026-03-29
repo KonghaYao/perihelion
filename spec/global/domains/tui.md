@@ -73,6 +73,7 @@ submit_message(text)
 | 弹窗滚动 | `scroll_offset: u16`，`ensure_cursor_visible()`，80% 高度上限 |
 | SubAgent 展示 | SubAgentGroup ViewModel；滑动窗口 4 条；RenderEvent::UpdateLastMessage 原地更新 |
 | 远程控制配置 | RelayPanel View/Edit 模式；RemoteControlConfig 持久化到 ~/.zen-code/settings.json |
+| 环境变量注入 | AppConfig.env HashMap，main() 最先调用 inject_env_from_settings()，进程环境变量优先 |
 | 文件组织 | app/ 拆分 8 子文件；ui/ 拆分 popups/、panels/ 子目录；pub(super) 可见性 |
 
 ## Feature 附录
@@ -219,6 +220,28 @@ submit_message(text)
 - 找不到的 skill 名静默跳过
 **归档:** [链接](../../archive/feature_20260328_F001_skill-preload-on-send/)
 **归档日期:** 2026-03-28
+
+### feature_20260328_F003_test-coverage-improvement
+**摘要:** 四高风险区域补充 55+ 单元测试提升覆盖率
+**关键决策:**
+- 文件系统工具测试: tempfile TempDir 隔离，6 个工具各 4-5 个测试（正常/边界/错误）
+- Relay Server 测试: auth.rs 5 个 token 验证；client/mod.rs 7 个历史缓存（new_for_testing 绕过 WS）
+- AskUserTool 测试: MockBroker mock broker，10 个测试覆盖参数解析和返回格式
+- TUI 命令测试: StubCommand + headless App，8 个 dispatch/prefix 匹配测试
+- 新增总数 ~56 个测试，工具实现层覆盖率 ~40%→~80%
+**归档:** [链接](../../archive/feature_20260328_F003_test-coverage-improvement/)
+**归档日期:** 2026-03-29
+
+### feature_20260328_F004_settings-env-injection
+**摘要:** settings.json env 字段替代 .env 注入环境变量
+**关键决策:**
+- AppConfig.env: Option<HashMap<String, String>>，serde default + skip_serializing_if
+- inject_env_from_settings(): main() 最先调用，std::env::var(key).is_err() 判断不存在再 set_var
+- 优先级: 进程环境变量 > settings.json env 字段
+- 错误处理: 文件不存在/env 缺失/JSON 解析失败均静默跳过（不 panic）
+- 移除 dotenvy 依赖
+**归档:** [链接](../../archive/feature_20260328_F004_settings-env-injection/)
+**归档日期:** 2026-03-29
 
 ### feature_20260326_F008_statusbar-msgcount-relay-flag
 **摘要:** 状态栏显示消息计数，禁止 relay 隐式自动连接

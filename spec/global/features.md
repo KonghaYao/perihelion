@@ -47,8 +47,8 @@
 - **SQLite 线程持久化:** WAL 模式，`parking_lot::Mutex<Connection>` 串行写，`append_messages` 事务保证 crash-safe，`StateSnapshot` 事件驱动增量写入
 - **OpenTelemetry 追踪:** 内置 OTLP HTTP 导出，`OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量控制开关，tracing-opentelemetry 桥接，兼容 Jaeger
 - **结构化日志:** `RUST_LOG` 级别控制，`RUST_LOG_FORMAT=json` 切换 JSON 格式
-- **配置持久化:** `~/.zen-code/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写
-- **Relay Server:** axum + tokio-tungstenite，支持 WebSocket 多 Agent 会话管理、心跳、Tab 状态广播；可选 client feature 仅引入 tungstenite
+- **配置持久化:** `~/.zen-code/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
+- **Relay Server:** axum + tokio-tungstenite，支持 WebSocket 多 Agent 会话管理、心跳、Tab 状态广播；可选 client feature 仅引入 tungstenite；多用户隔离（UserNamespace + 匿名注册 /register）
 
 ---
-*最后更新: 2026-03-28 — 由批量归档（9 个 feature）更新：ask_user_question 对齐 Claude 规范、#skill-name 全文预加载、Relay ThreadReset/CancelAgent/CompactThread 支持*
+*最后更新: 2026-03-29 — 由 F004/F003/F002 归档更新：settings.json env 注入、Relay 多用户隔离*

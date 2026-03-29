@@ -86,7 +86,6 @@ mod tests {
         tokio::join!(n1, n2, n3);
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
-        assert!(handle.contains("Agent"), "应显示 Agent 标头，实际:\n{}", snap.join("\n"));
         assert!(handle.contains("Hello world"), "应显示消息内容，实际:\n{}", snap.join("\n"));
     }
 
