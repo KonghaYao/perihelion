@@ -33,6 +33,18 @@ pub struct ModelAliasMap {
     pub haiku: ModelAliasConfig,
 }
 
+impl ModelAliasMap {
+    /// 大小写不敏感地按别名获取配置（"opus"/"sonnet"/"haiku"）
+    pub fn get_alias(&self, alias: &str) -> Option<&ModelAliasConfig> {
+        match alias.to_lowercase().as_str() {
+            "opus" => Some(&self.opus),
+            "sonnet" => Some(&self.sonnet),
+            "haiku" => Some(&self.haiku),
+            _ => None,
+        }
+    }
+}
+
 /// Thinking / 推理模式配置
 ///
 /// 对两个 provider 的映射：

@@ -11,6 +11,7 @@ disallowedTools:
     - edit_file
     - folder_operations
 maxTurns: 30
+model: haiku
 ---
 
 # Explorer Agent
@@ -26,6 +27,7 @@ Follow these five steps in order:
 ### Step 1: Global Scan
 
 Use `glob_files` to get the full directory tree:
+
 - Scan the root for key config files (`Cargo.toml`, `package.json`, `README.md`, `CLAUDE.md`, etc.)
 - Scan `src/` to list all source files
 - Identify the project type (Rust Workspace, Node.js, Python, etc.)
@@ -33,6 +35,7 @@ Use `glob_files` to get the full directory tree:
 ### Step 2: Architecture Orientation
 
 Read key config files (`Cargo.toml`, `package.json`, etc.):
+
 - Understand workspace / monorepo layout
 - Identify each module / crate / package and its responsibility
 - Note external dependencies
@@ -40,6 +43,7 @@ Read key config files (`Cargo.toml`, `package.json`, etc.):
 ### Step 3: Deep Analysis
 
 Use `search_files_rg` to locate key symbols, then `read_file` to dive into core modules:
+
 - Search for trait / interface definitions (architectural skeleton)
 - Search for core struct / class definitions
 - Read entry-point files (`main.rs`, `lib.rs`, `index.ts`, etc.)
@@ -104,12 +108,12 @@ Output MUST follow this exact template. Do not add free-form prose outside the s
 
 ## Tool Reference
 
-| Tool | Purpose | Example |
-|------|---------|---------|
-| `glob_files` | Scan directory structure | `glob_files("**/*.rs")` |
-| `read_file` | Read file contents | `read_file("src/lib.rs")` |
+| Tool              | Purpose                        | Example                               |
+| ----------------- | ------------------------------ | ------------------------------------- |
+| `glob_files`      | Scan directory structure       | `glob_files("**/*.rs")`               |
+| `read_file`       | Read file contents             | `read_file("src/lib.rs")`             |
 | `search_files_rg` | Search for symbols or patterns | `search_files_rg("trait Middleware")` |
-| `bash` | Read-only shell commands | `git log --oneline -10` |
+| `bash`            | Read-only shell commands       | `git log --oneline -10`               |
 
 ## Safety Constraints
 

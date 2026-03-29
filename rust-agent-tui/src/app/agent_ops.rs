@@ -131,6 +131,7 @@ impl App {
         let relay_client = self.relay_client.clone();
         let thread_store = self.thread_store.clone();
         let thread_id_for_agent = thread_id.clone();
+        let zen_config_for_agent = Arc::new(self.zen_config.clone().unwrap_or_default());
         tokio::spawn(
             async move {
                 agent::run_universal_agent(agent::AgentRunConfig {
@@ -146,6 +147,7 @@ impl App {
                     thread_store,
                     thread_id: thread_id_for_agent,
                     preload_skills,
+                    config: zen_config_for_agent,
                 })
                 .await;
             }

@@ -28,6 +28,7 @@ pub struct AgentRunConfig {
     pub thread_store: Arc<dyn rust_create_agent::thread::ThreadStore>,
     pub thread_id: rust_create_agent::thread::ThreadId,
     pub preload_skills: Vec<String>,
+    pub config: Arc<crate::config::ZenConfig>,
 }
 
 pub async fn run_universal_agent(cfg: AgentRunConfig) {
@@ -44,6 +45,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         thread_store,
         thread_id,
         preload_skills,
+        config: zen_config,
     } = cfg;
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
@@ -146,8 +148,15 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
 
     // LLM 工厂：每次为子 agent 创建裸 LLM（不设 system）
     // 系统提示词由 system_builder + with_system_prompt() 注入，使其在 Langfuse 中可见
+    // model_alias: None 表示继承父模型；有值时通过 from_config_for_alias 解析
     let provider_clone = provider_for_factory;
-    let llm_factory: Arc<dyn Fn() -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync> = Arc::new(move || {
+    let config_for_factory = zen_config;
+    let llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync> = Arc::new(move |model_alias: Option<&str>| {
+        if let Some(alias) = model_alias {
+            if let Some(p) = LlmProvider::from_config_for_alias(&config_for_factory, alias) {
+                return Box::new(BaseModelReactLLM::new(p.into_model()));
+            }
+        }
         Box::new(BaseModelReactLLM::new(provider_clone.clone().into_model()))
     });
 

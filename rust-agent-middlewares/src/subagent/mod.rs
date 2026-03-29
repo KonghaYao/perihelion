@@ -30,7 +30,7 @@ use crate::tools::BoxToolWrapper;
 /// let parent_tools: Vec<Box<dyn BaseTool>> = vec![
 ///     Box::new(ReadFileTool::new(cwd)),
 /// ];
-/// let llm_factory = Arc::new(move || {
+/// let llm_factory = Arc::new(move |_: Option<&str>| {
 ///     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 /// });
 /// // 可选：系统提示构建器，使子 agent 的 tone/proactiveness 在 Langfuse 中可见
@@ -47,7 +47,8 @@ pub struct SubAgentMiddleware {
     /// 父 agent 事件处理器（子 agent 事件透传）
     event_handler: Option<Arc<dyn AgentEventHandler>>,
     /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例
-    llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+    /// 参数为可选的 model alias（如 "haiku"/"sonnet"/"opus"），None 时使用父模型
+    llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     /// 系统提示构建器：(agent overrides, cwd) → system prompt 字符串
     /// 设置后，子 agent 通过 with_system_prompt() 注入系统提示（Langfuse 可见）
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
@@ -57,7 +58,7 @@ impl SubAgentMiddleware {
     pub fn new(
         parent_tools: Vec<Box<dyn BaseTool>>,
         event_handler: Option<Arc<dyn AgentEventHandler>>,
-        llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+        llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     ) -> Self {
         let tools: Vec<Arc<dyn BaseTool>> = parent_tools
             .into_iter()
@@ -220,7 +221,7 @@ mod tests {
         let m = SubAgentMiddleware::new(
             vec![],
             None,
-            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         // 通过 Middleware<AgentState> 调用，明确泛型参数
         assert_eq!(<SubAgentMiddleware as Middleware<AgentState>>::name(&m), "SubAgentMiddleware");
@@ -231,7 +232,7 @@ mod tests {
         let m = SubAgentMiddleware::new(
             vec![],
             None,
-            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         let tools = <SubAgentMiddleware as Middleware<AgentState>>::collect_tools(&m, "/tmp");
         assert_eq!(tools.len(), 1);
@@ -243,7 +244,7 @@ mod tests {
         let m = SubAgentMiddleware::new(
             vec![],
             None,
-            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         let tool = m.build_tool();
         assert_eq!(tool.name(), "launch_agent");
@@ -305,7 +306,7 @@ mod tests {
         let m = SubAgentMiddleware::new(
             vec![],
             None,
-            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state).await.unwrap();
@@ -322,7 +323,7 @@ mod tests {
         let m = SubAgentMiddleware::new(
             vec![],
             None,
-            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         let mut state = AgentState::new("/nonexistent");
         <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state).await.unwrap();

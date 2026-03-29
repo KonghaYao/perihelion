@@ -27,7 +27,8 @@ pub struct SubAgentTool {
     /// 父 agent 事件处理器（透传子 agent 事件）
     event_handler: Option<Arc<dyn AgentEventHandler>>,
     /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例（不设 system，由 with_system_prompt() 注入）
-    llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+    /// 参数为可选的 model alias（如 "haiku"/"sonnet"/"opus"），None 时使用父模型
+    llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     /// 系统提示词构建器：(agent overrides, cwd) → system prompt 字符串
     ///
     /// 返回的内容会通过 `with_system_prompt()` 注入到子 agent 的 state 消息中，
@@ -39,7 +40,7 @@ impl SubAgentTool {
     pub fn new(
         parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
         event_handler: Option<Arc<dyn AgentEventHandler>>,
-        llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+        llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     ) -> Self {
         Self {
             parent_tools,
@@ -188,7 +189,13 @@ impl BaseTool for SubAgentTool {
             self.filter_tools(&agent_def.frontmatter.tools, &agent_def.frontmatter.disallowed_tools);
 
         // 4. 组装子 ReActAgent
-        let llm = (self.llm_factory)();
+        // 提取 model alias：非 "inherit" 且非空时传给 factory，否则 None 表示继承父模型
+        let model_alias: Option<&str> = agent_def
+            .frontmatter
+            .model
+            .as_deref()
+            .filter(|m| !m.is_empty() && *m != "inherit");
+        let llm = (self.llm_factory)(model_alias);
         let max_iterations = agent_def.frontmatter.max_turns.unwrap_or(20) as usize;
 
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
@@ -318,7 +325,7 @@ mod tests {
         SubAgentTool::new(
             Arc::new(parent_tools),
             None,
-            Arc::new(|| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         )
     }
 
@@ -554,7 +561,7 @@ mod tests {
         let t = SubAgentTool::new(
             Arc::new(vec![]),
             None,
-            Arc::new(|| Box::new(SystemEchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(SystemEchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         )
         .with_system_builder(Arc::new(|_overrides, _cwd| "tone: be concise".to_string()));
 
@@ -613,7 +620,7 @@ mod tests {
         let t = SubAgentTool::new(
             Arc::new(vec![]),
             None,
-            Arc::new(|| Box::new(SkillPreloadCheckLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| Box::new(SkillPreloadCheckLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
 
         let result = t
