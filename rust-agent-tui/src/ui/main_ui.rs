@@ -152,11 +152,10 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
         let cache = app.render_cache.read();
         app.last_render_version = cache.version;
 
+        // total_lines 已是 wrap 后的真实视觉行数（由渲染线程通过 Paragraph::line_count 计算）
         let total_lines = cache.total_lines;
         let spinner_extra = if spinner_line.is_some() { 1u16 } else { 0 };
-        let visual_total = (total_lines as u16)
-            .saturating_add(10)
-            .saturating_add(spinner_extra);
+        let visual_total = (total_lines as u16).saturating_add(spinner_extra);
         let max_scroll = visual_total.saturating_sub(visible_height);
         let offset = if app.scroll_follow {
             max_scroll
@@ -183,7 +182,7 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(paragraph, text_area);
 
     // 滚动条
-    let visual_total = (total_lines as u16).saturating_add(10);
+    let visual_total = total_lines as u16;
     if visual_total > visible_height {
         let mut scrollbar_state =
             ScrollbarState::new(max_scroll as usize).position(offset as usize);

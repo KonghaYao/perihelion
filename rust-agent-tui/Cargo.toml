@@ -21,7 +21,7 @@ headless = []
 serde = { version = "1", features = ["derive"] }
 rust-create-agent = { path = "../rust-create-agent" }
 rust-agent-middlewares = { path = "../rust-agent-middlewares" }
-ratatui = ">=0.30"
+ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

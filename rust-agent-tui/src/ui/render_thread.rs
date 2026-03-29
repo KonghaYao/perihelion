@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use ratatui::text::Line;
+use ratatui::widgets::{Paragraph, Wrap};
 use tokio::sync::{mpsc, Notify};
 
 use super::markdown::ensure_rendered;
@@ -14,7 +15,7 @@ pub struct RenderCache {
     pub lines: Vec<Line<'static>>,
     /// 每条消息在 lines 中的起始行索引（用于定位）
     pub message_offsets: Vec<usize>,
-    /// 总行数（用于滚动范围计算）
+    /// 总行数（已考虑 wrap 换行后的真实视觉行数）
     pub total_lines: usize,
     /// 版本号，UI 线程比较是否有变化以决定是否重绘
     pub version: u64,
@@ -28,6 +29,18 @@ impl RenderCache {
             total_lines: 0,
             version: 0,
         }
+    }
+
+    /// 计算给定 lines 在指定宽度下 wrap 后的真实视觉行数。
+    /// 使用 ratatui 的 Paragraph::line_count 与 Wrap{trim:false} 确保与实际渲染一致。
+    fn compute_wrapped_height(lines: &[Line<'static>], width: u16) -> usize {
+        if width == 0 || lines.is_empty() {
+            return 0;
+        }
+        let text = ratatui::text::Text::from(lines.to_vec());
+        Paragraph::new(text)
+            .wrap(Wrap { trim: false })
+            .line_count(width)
     }
 }
 
@@ -96,11 +109,11 @@ impl RenderTask {
             all_lines.extend(Self::render_one(vm, i + 1, width));
         }
 
-        let total = all_lines.len();
+        let render_width = self.width.saturating_sub(1);
         let mut cache = self.cache.write();
         cache.lines = all_lines;
         cache.message_offsets = offsets;
-        cache.total_lines = total;
+        cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
         cache.version += 1;
     }
 
@@ -114,11 +127,12 @@ impl RenderTask {
                     let idx = self.messages.len() - 1;
                     let lines = Self::render_one(&mut self.messages[idx], idx + 1, width);
 
+                    let render_width = self.width.saturating_sub(1);
                     let mut cache = self.cache.write();
                     let offset = cache.lines.len();
                     cache.message_offsets.push(offset);
                     cache.lines.extend(lines);
-                    cache.total_lines = cache.lines.len();
+                    cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
                     cache.version += 1;
                 }
                 RenderEvent::AppendChunk(chunk) => {
@@ -146,6 +160,7 @@ impl RenderTask {
                     let last_idx = self.messages.len() - 1;
                     let new_lines = Self::render_one(&mut self.messages[last_idx], last_idx + 1, width);
 
+                    let render_width = self.width.saturating_sub(1);
                     let mut cache = self.cache.write();
                     // 获取最后一条消息的起始偏移
                     let start = if let Some(&offset) = cache.message_offsets.last() {
@@ -159,7 +174,7 @@ impl RenderTask {
                     // 替换从 start 开始到末尾的所有行
                     cache.lines.truncate(start);
                     cache.lines.extend(new_lines);
-                    cache.total_lines = cache.lines.len();
+                    cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
                     cache.version += 1;
                 }
                 RenderEvent::StreamingDone => {
@@ -174,11 +189,12 @@ impl RenderTask {
                     if !self.messages.is_empty() {
                         let last_idx = self.messages.len() - 1;
                         let new_lines = Self::render_one(&mut self.messages[last_idx], last_idx + 1, width);
+                        let render_width = self.width.saturating_sub(1);
                         let mut cache = self.cache.write();
                         if let Some(&start) = cache.message_offsets.last() {
                             cache.lines.truncate(start);
                             cache.lines.extend(new_lines);
-                            cache.total_lines = cache.lines.len();
+                            cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
                             cache.version += 1;
                         }
                     }
@@ -219,11 +235,12 @@ impl RenderTask {
                             last_idx + 1,
                             width,
                         );
+                        let render_width = self.width.saturating_sub(1);
                         let mut cache = self.cache.write();
                         if let Some(&start) = cache.message_offsets.last() {
                             cache.lines.truncate(start);
                             cache.lines.extend(new_lines);
-                            cache.total_lines = cache.lines.len();
+                            cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
                             cache.version += 1;
                         }
                     }
@@ -232,6 +249,7 @@ impl RenderTask {
                     // 移除最后一条消息及其对应的渲染缓存
                     if !self.messages.is_empty() {
                         self.messages.pop();
+                        let render_width = self.width.saturating_sub(1);
                         let mut cache = self.cache.write();
                         // 移除最后一条消息的 offset
                         cache.message_offsets.pop();
@@ -240,7 +258,7 @@ impl RenderTask {
                         } else {
                             cache.lines.clear();
                         }
-                        cache.total_lines = cache.lines.len();
+                        cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
                         cache.version += 1;
                     }
                 }
