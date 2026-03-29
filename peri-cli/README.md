@@ -1,103 +1,80 @@
-# Perihelion CLI Installer
+# peri-cli
 
-Node.js CLI tool for installing, updating, and managing the Perihelion Rust Agent Framework.
+CLI tool for installing and managing the Perihelion Rust Agent Framework.
 
-## Installation
-
-```bash
-cd cli
-npm install
-npm link
-```
-
-Or use npx directly:
+## Quick Start
 
 ```bash
-npx perihelion install
+# Install perihelion
+npx peri-cli
+
+# Add to PATH (run after installation)
+npx peri-cli add-env
 ```
 
 ## Commands
 
-### `perihelion install` or `peri install`
+### `npx peri-cli install`
 
-Install Perihelion to the latest version.
+Install or update Perihelion to the latest version.
 
-**Options:**
-- `-v, --version <version>` - Install a specific version
-
-**Examples:**
 ```bash
-perihelion install              # Install latest version
-perihelion install -v v0.1.0    # Install specific version
-peri install -v v0.2.0           # Use short alias
+npx peri-cli                    # Install latest
+npx peri-cli -v agent-v1.5      # Install specific version
 ```
 
-### `perihelion list` or `peri list`
+### `npx peri-cli add-env`
 
-List the top 5 versions published on GitHub.
+Add `peri` to your PATH. Run this once after installation.
 
-**Examples:**
 ```bash
-perihelion list
-peri ls
+npx peri-cli add-env
+source ~/.zshrc   # or ~/.bashrc
 ```
 
-Example output:
-```
-📋 Available versions:
+Then you can run directly:
 
-  1. agent-v0.2.0 (latest) (current)
-     Name: Perihelion v0.2.0
-     Published: 3/28/2026
-     URL: https://github.com/konghayao/perihelion/releases/tag/agent-v0.2.0
-     Binary: agent-tui-macos-aarch64 (15.2 MB)
-
-  2. agent-v0.1.0
-     Name: Perihelion v0.1.0
-     Published: 3/20/2026
-     URL: https://github.com/konghayao/perihelion/releases/tag/agent-v0.1.0
-     Binary: agent-tui-macos-aarch64 (14.8 MB)
-```
-
-### `perihelion update` or `peri update`
-
-Update Perihelion to the latest version.
-
-**Examples:**
 ```bash
-perihelion update
-peri update
+peri
 ```
 
-## GitHub Release Naming
+### `npx peri-cli list`
 
-The project uses `agent-v*` tag format for releases, for example:
-- `agent-v0.1.0` - First version
-- `agent-v0.2.0` - Second version
+List available versions on GitHub.
 
-Binary file naming:
-- `agent-tui-linux-x86_64` - Linux x64
-- `agent-tui-macos-x86_64` - macOS x64 (Intel)
-- `agent-tui-macos-aarch64` - macOS ARM64 (Apple Silicon)
-- `agent-tui-windows-x86_64.exe` - Windows x64
+```bash
+npx peri-cli list
+npx peri-cli ls
+```
 
-## Installation Location
+### `npx peri-cli update`
 
-Binaries are installed to the `~/.perihelion/` directory:
+Update to the latest version.
+
+```bash
+npx peri-cli update
+```
+
+### `npx peri-cli uninstall`
+
+Uninstall peri and clean up PATH.
+
+```bash
+npx peri-cli uninstall
+```
+
+## Installation Directory
 
 ```
 ~/.perihelion/
-├── current-version.txt          # Current version marker
-├── bin                          # Symlink to active version
-├── agent-v0.2.0/                # Version directory
-│   └── agent-tui               # Binary file
-└── agent-v0.1.0/                # Historical version directory
-    └── agent-tui
+├── current-version.txt   # Current version marker
+├── peri                  # Executable symlink
+└── agent-v1.5/           # Version directory
+    └── agent-tui         # Binary
 ```
 
-## Platform Support
+## Supported Platforms
 
-Supported platforms:
 - macOS (x86_64, aarch64)
 - Linux (x86_64, aarch64)
 - Windows (x86_64)
@@ -105,15 +82,7 @@ Supported platforms:
 ## Development
 
 ```bash
-cd cli
-npm install                     # Install dependencies
-npm link                        # Create global link
-perihelion list                # Test commands
-```
-
-## Uninstall
-
-```bash
-npm unlink                      # Remove global link
-rm -rf ~/.perihelion            # Remove installation files
+cd peri-cli
+bun install
+bun run bin/peri-cli.js --help
 ```

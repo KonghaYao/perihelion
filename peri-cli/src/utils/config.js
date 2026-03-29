@@ -96,7 +96,7 @@ export async function setCurrentVersion(version) {
 
     // 创建符号链接（Unix）或复制文件（Windows）
     const execPath = getExecutablePath(version);
-    const linkPath = `${installDir}/perihelion${getPlatformInfo().isWindows ? ".exe" : ""}`;
+    const linkPath = `${installDir}/peri${getPlatformInfo().isWindows ? ".exe" : ""}`;
 
     if (getPlatformInfo().isWindows) {
         await fs.copy(execPath, linkPath);

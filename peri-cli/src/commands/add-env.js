@@ -6,18 +6,18 @@ import { getInstallDir, getPlatformInfo } from '../utils/config.js';
 const SHELL_CONFIGS = {
   bash: {
     configFile: '.bashrc',
-    marker: '# >>> perihelion >>>',
-    markerEnd: '# <<< perihelion <<<',
+    marker: '# >>> peri >>>',
+    markerEnd: '# <<< peri <<<',
   },
   zsh: {
     configFile: '.zshrc',
-    marker: '# >>> perihelion >>>',
-    markerEnd: '# <<< perihelion <<<',
+    marker: '# >>> peri >>>',
+    markerEnd: '# <<< peri <<<',
   },
   fish: {
     configFile: '.config/fish/config.fish',
-    marker: '# >>> perihelion >>>',
-    markerEnd: '# <<< perihelion <<<',
+    marker: '# >>> peri >>>',
+    markerEnd: '# <<< peri <<<',
   },
 };
 
@@ -40,12 +40,12 @@ function getEnvContent(installDir, shell) {
 export async function addEnv() {
   const installDir = getInstallDir();
   const platformInfo = getPlatformInfo();
-  const binPath = path.join(installDir, 'perihelion');
+  const binPath = path.join(installDir, 'peri');
 
   // 检查二进制文件是否存在
   if (!await fs.pathExists(binPath)) {
-    console.error('❌ Perihelion binary not found.');
-    console.log('Please run `perihelion install` first.');
+    console.error('❌ peri binary not found.');
+    console.log('Please run `peri install` first.');
     process.exit(1);
   }
 
@@ -75,7 +75,7 @@ export async function addEnv() {
 
   // 检查是否已经添加过
   if (content.includes(shellConfig.marker)) {
-    console.log('✅ Perihelion is already in your PATH.');
+    console.log('✅ peri is already in your PATH.');
     console.log('');
     console.log('To activate in current session, run:');
     console.log(`   source ${configPath}`);
@@ -87,7 +87,7 @@ export async function addEnv() {
 
   await fs.appendFile(configPath, envContent);
 
-  console.log('✅ Added Perihelion to your PATH.');
+  console.log('✅ Added peri to your PATH.');
   console.log('');
   console.log(`Shell: ${shell}`);
   console.log(`Config: ~/${shellConfig.configFile}`);

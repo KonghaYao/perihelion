@@ -71,8 +71,8 @@ export async function install(options) {
     console.log(`Version: ${release.tag_name}`);
     console.log(`Binary: ${targetPath}`);
     console.log('');
-    console.log('To add Perihelion to your PATH, run:');
-    console.log('  perihelion add-env');
+    console.log('To add peri to your PATH, run:');
+    console.log('  peri add-env');
     console.log('');
 
   } catch (error) {
