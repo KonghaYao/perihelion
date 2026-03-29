@@ -345,7 +345,7 @@ pub async fn compact_task(
 
     if lines.is_empty() {
         let fallback = "## 目标\n（无有效对话历史）\n\n## 已完成操作\n无\n\n## 关键发现\n无".to_string();
-        let _ = tx.send(super::AgentEvent::CompactDone(fallback)).await;
+        let _ = tx.send(super::AgentEvent::CompactDone { summary: fallback, new_thread_id: String::new() }).await;
         return;
     }
 
@@ -380,7 +380,7 @@ pub async fn compact_task(
     match model.invoke(request).await {
         Ok(response) => {
             let summary = response.message.content();
-            let _ = tx.send(super::AgentEvent::CompactDone(summary)).await;
+            let _ = tx.send(super::AgentEvent::CompactDone { summary, new_thread_id: String::new() }).await;
         }
         Err(e) => {
             let _ = tx.send(super::AgentEvent::CompactError(e.to_string())).await;

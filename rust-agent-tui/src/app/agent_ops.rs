@@ -500,28 +500,53 @@ impl App {
                 // 持久化已由 AgentState::add_message 自动完成（fire-and-forget）
                 (true, false, false)
             }
-            AgentEvent::CompactDone(summary) => {
-                // 替换 LLM 历史为摘要（以 AI Message 形式写入，保留 system prompt 由 agent 注入）
-                self.agent_state_messages = vec![BaseMessage::ai(summary.clone())];
+            AgentEvent::CompactDone { summary, new_thread_id: _ } => {
+                // 保存旧 Thread ID 用于 Relay 通知
+                let old_thread_id = self.current_thread_id.clone();
 
-                // 保留最近 10 条显示消息
-                let keep_count = 10usize;
-                if self.view_messages.len() > keep_count {
-                    let tail = self
-                        .view_messages
-                        .split_off(self.view_messages.len() - keep_count);
-                    self.view_messages = tail;
-                }
+                // 创建新 Thread，带摘要截断名称
+                let truncated: String = summary.chars().take(30).collect();
+                let ellipsis = if summary.chars().count() > 30 { "..." } else { "" };
+                let thread_title = format!("📦 Compact: {}{}", truncated, ellipsis);
+                let mut meta = ThreadMeta::new(&self.cwd);
+                meta.title = Some(thread_title);
+                let store = self.thread_store.clone();
+                let new_tid = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(store.create_thread(meta))
+                        .unwrap_or_else(|e| {
+                            tracing::warn!(error = %e, "compact: 创建新 thread 失败，使用临时 ID");
+                            uuid::Uuid::now_v7().to_string()
+                        })
+                });
 
-                // 头部插入压缩提示
-                let compact_vm = MessageViewModel::system(format!(
-                    "📦 上下文已压缩（保留最近 {} 条显示消息，LLM 历史已替换为摘要）",
-                    keep_count
-                ));
-                self.view_messages.insert(0, compact_vm);
+                // 构造新 Thread 的消息：Ai(摘要) — 以 AI 消息形式展示摘要
+                let new_messages = vec![BaseMessage::ai(summary.clone())];
 
-                // 尾部追加摘要内容（可见）
-                let summary_vm = MessageViewModel::system(format!("📋 压缩摘要：\n{}", summary));
+                // 持久化新 Thread 消息
+                let store = self.thread_store.clone();
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(store.append_messages(&new_tid, &new_messages))
+                        .unwrap_or_else(|e| {
+                            tracing::warn!(error = %e, thread_id = %new_tid, "compact: 持久化新 thread 消息失败");
+                        });
+                });
+
+                // 切换到新 Thread
+                self.current_thread_id = Some(new_tid.clone());
+                self.agent_state_messages = new_messages;
+
+                // 清空显示消息，插入压缩提示 + 摘要（AI 消息形式）
+                self.view_messages.clear();
+                let compact_vm = MessageViewModel::system(
+                    "📦 上下文已压缩（从旧对话迁移到新 Thread）".to_string(),
+                );
+                self.view_messages.push(compact_vm);
+                let summary_vm = MessageViewModel::from_base_message(
+                    &BaseMessage::ai(format!("📋 压缩摘要：\n{}", summary)),
+                    &[],
+                );
                 self.view_messages.push(summary_vm);
 
                 // 通知渲染线程重建显示
@@ -539,13 +564,17 @@ impl App {
                 self.set_loading(false);
                 self.agent_rx = None;
 
-                // 通知 Relay Web 前端：compact 完成，推送压缩后的 LLM 上下文
+                // 重置 Langfuse session（新 Thread 需要独立 session）
+                self.langfuse_session = None;
+
+                // 通知 Relay Web 前端：compact 完成
                 if let Some(ref relay) = self.relay_client {
-                    let msg_vals: Vec<serde_json::Value> = self.agent_state_messages
-                        .iter()
-                        .filter_map(|m| serde_json::to_value(m).ok())
-                        .collect();
-                    relay.send_thread_reset(&msg_vals);
+                    relay.send_value(serde_json::json!({
+                        "type": "compact_done",
+                        "summary": summary,
+                        "new_thread_id": new_tid,
+                        "old_thread_id": old_thread_id.unwrap_or_default(),
+                    }));
                 }
 
                 // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）

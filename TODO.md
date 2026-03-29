@@ -52,5 +52,8 @@
 - [x] /clear relay serve 的前端没有进行清理
 - [x] 架构更改到 preact
 - [x] 前端拼音模式直接enter提交了
-- [ ] subagent 显示: 不需要序号
-- [ ] ai messages 的工具调用不用显示, 多余了
+- [x] subagent 显示: 不需要序号
+- [x] ai messages 的工具调用不用显示, 多余了
+- [ ] 弹窗/AskUserQuestion 有时候不够长度显示
+- [x] compact 的信息应该是 ai messages 的形式
+- [x] compact thread 的名称应该

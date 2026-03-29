@@ -314,6 +314,16 @@ export function handleLegacyEvent(agent, event, sessionId) {
       agents.value = new Map(agents.value)
       break
     }
+
+    case 'compact_done': {
+      agent.messages = []
+      agent.messages.push({ type: 'system', text: '📦 上下文已从旧对话压缩' })
+      if (event.summary) {
+        agent.messages.push({ type: 'assistant', text: event.summary })
+      }
+      agents.value = new Map(agents.value)
+      break
+    }
   }
 }
 

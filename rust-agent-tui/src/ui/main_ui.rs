@@ -91,7 +91,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
 fn active_panel_height(app: &App, screen_height: u16) -> u16 {
-    let max_h = screen_height * 2 / 5; // 最多占 40% 屏高
+    let max_h = screen_height * 3 / 5; // 最多占 60% 屏高
     let raw = if let Some(panel) = &app.thread_browser {
         (panel.total() as u16 + 4).max(6)
     } else if app.model_panel.is_some() {

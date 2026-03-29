@@ -90,7 +90,7 @@ impl RenderTask {
             }
         }
 
-        let mut lines = render_view_model(vm, index, width);
+        let mut lines = render_view_model(vm, Some(index), width);
         // 只在 conversational 消息后面加空行分隔，避免消息间出现两个空行
         if is_conversational {
             lines.push(Line::from(""));

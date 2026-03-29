@@ -33,6 +33,12 @@ pub enum RelayMessage {
     ThreadReset {
         messages: Vec<serde_json::Value>,
     },
+    /// 上下文压缩完成（Agent → Web），携带摘要和新旧 Thread ID
+    CompactDone {
+        summary: String,
+        new_thread_id: String,
+        old_thread_id: String,
+    },
 }
 
 /// TODO 项信息
@@ -241,5 +247,30 @@ mod tests {
         let json2 = serde_json::to_string(&msg_with_data).unwrap();
         assert!(json2.contains("\"type\":\"thread_reset\""), "json: {}", json2);
         assert!(json2.contains("hello"), "json: {}", json2);
+    }
+
+    #[test]
+    fn test_relay_compact_done_serialization() {
+        let msg = RelayMessage::CompactDone {
+            summary: "test summary".into(),
+            new_thread_id: "new-123".into(),
+            old_thread_id: "old-456".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"compact_done\""), "json: {}", json);
+        assert!(json.contains("test summary"), "json: {}", json);
+        assert!(json.contains("new-123"), "json: {}", json);
+        assert!(json.contains("old-456"), "json: {}", json);
+
+        // 验证反序列化 round-trip
+        let deserialized: RelayMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            RelayMessage::CompactDone { summary, new_thread_id, old_thread_id } => {
+                assert_eq!(summary, "test summary");
+                assert_eq!(new_thread_id, "new-123");
+                assert_eq!(old_thread_id, "old-456");
+            }
+            _ => panic!("Expected CompactDone, got {:?}", deserialized),
+        }
     }
 }

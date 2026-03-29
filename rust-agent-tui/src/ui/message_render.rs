@@ -7,17 +7,22 @@ use super::message_view::{ContentBlockView, MessageViewModel};
 use super::theme;
 
 /// 将单个 ViewModel 渲染为 Vec<Line>
-pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> Vec<Line<'static>> {
+/// `index`: Some(n) 表示外层消息，渲染时带序号前缀；None 表示 SubAgent 内部消息，不渲染序号
+pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: usize) -> Vec<Line<'static>> {
     match vm {
         MessageViewModel::UserBubble { rendered, .. } => {
             let mut lines = Vec::with_capacity(rendered.lines.len() + 1);
             for (i, line) in rendered.lines.iter().enumerate() {
                 if i == 0 {
-                    // 第一行：前缀 + 原始 spans
-                    let mut spans = vec![Span::styled(
-                        format!("{} ", index),
-                        Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-                    )];
+                    // 第一行
+                    let mut spans = if let Some(idx) = index {
+                        vec![Span::styled(
+                            format!("{} ", idx),
+                            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                        )]
+                    } else {
+                        vec![Span::raw("  ")]
+                    };
                     spans.extend(line.spans.clone());
                     lines.push(Line::from(spans));
                 } else {
@@ -37,7 +42,6 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
             let streaming_suffix = if *is_streaming { "…" } else { "" };
             let mut lines = Vec::new();
             let mut first_text_merged = false;
-            let mut tool_idx = 0;
 
             for block in blocks {
                 match block {
@@ -45,15 +49,19 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                         for line in rendered.lines.iter() {
                             if !first_text_merged {
                                 // 第一行文本合并到标题行，保留 markdown 样式 spans
-                                let mut spans = vec![
-                                    Span::styled(
-                                        format!("{} {}", index, streaming_suffix),
-                                        Style::default()
-                                            .fg(theme::ACCENT)
-                                            .add_modifier(Modifier::BOLD),
-                                    ),
-                                    Span::raw(" "),
-                                ];
+                                let mut spans = if let Some(idx) = index {
+                                    vec![
+                                        Span::styled(
+                                            format!("{} {}", idx, streaming_suffix),
+                                            Style::default()
+                                                .fg(theme::ACCENT)
+                                                .add_modifier(Modifier::BOLD),
+                                        ),
+                                        Span::raw(" "),
+                                    ]
+                                } else {
+                                    vec![Span::raw("  ")]
+                                };
                                 spans.extend(line.spans.clone());
                                 lines.push(Line::from(spans));
                                 first_text_merged = true;
@@ -68,12 +76,14 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                     ContentBlockView::Reasoning { char_count } => {
                         if !first_text_merged {
                             // 没有文本块，直接创建标题行
-                            lines.push(Line::from(vec![Span::styled(
-                                format!("{} {}", index, streaming_suffix),
-                                Style::default()
-                                    .fg(theme::ACCENT)
-                                    .add_modifier(Modifier::BOLD),
-                            )]));
+                            if let Some(idx) = index {
+                                lines.push(Line::from(vec![Span::styled(
+                                    format!("{} {}", idx, streaming_suffix),
+                                    Style::default()
+                                        .fg(theme::ACCENT)
+                                        .add_modifier(Modifier::BOLD),
+                                )]));
+                            }
                             first_text_merged = true;
                         }
                         lines.push(Line::from(vec![
@@ -84,37 +94,25 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                             ),
                         ]));
                     }
-                    ContentBlockView::ToolUse { name } => {
+                    ContentBlockView::ToolUse { .. } => {
+                        // 跳过 ToolUse 渲染（Task 2：AI 消息不再显示工具调用行）
                         if !first_text_merged {
-                            // 没有文本块，直接创建标题行
-                            lines.push(Line::from(vec![Span::styled(
-                                format!("{} {}", index, streaming_suffix),
-                                Style::default()
-                                    .fg(theme::ACCENT)
-                                    .add_modifier(Modifier::BOLD),
-                            )]));
                             first_text_merged = true;
                         }
-                        tool_idx += 1;
-                        lines.push(Line::from(vec![
-                            Span::raw("  "),
-                            Span::styled(
-                                format!("{}{} {}", index, tool_idx, name),
-                                Style::default().fg(theme::TOOL_NAME),
-                            ),
-                        ]));
                     }
                 }
             }
 
             // 如果没有任何 block，至少创建标题行
             if lines.is_empty() {
-                lines.push(Line::from(vec![Span::styled(
-                    format!("{} {}", index, streaming_suffix),
-                    Style::default()
-                        .fg(theme::ACCENT)
-                        .add_modifier(Modifier::BOLD),
-                )]));
+                if let Some(idx) = index {
+                    lines.push(Line::from(vec![Span::styled(
+                        format!("{} {}", idx, streaming_suffix),
+                        Style::default()
+                            .fg(theme::ACCENT)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
+                }
             }
 
             lines
@@ -130,8 +128,11 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
         } => {
             let arrow = if *collapsed { "▸" } else { "▾" };
             let icon = if *is_error { "✗ " } else { "" };
+            let prefix = index
+                .map(|idx| format!("{} ", idx))
+                .unwrap_or_default();
             let mut header_spans = vec![Span::styled(
-                format!("{} {}{}{}", index, display_name, icon, arrow),
+                format!("{}{}{}{}", prefix, display_name, icon, arrow),
                 Style::default().fg(*color).add_modifier(Modifier::BOLD),
             )];
             if let Some(args) = args_display {
@@ -176,9 +177,12 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                         }
                     })
                     .unwrap_or_default();
+                let prefix = index
+                    .map(|idx| format!("{} ", idx))
+                    .unwrap_or_default();
                 let mut spans = vec![
                     Span::styled(
-                        format!("▸ 🤖 {}  「已完成 {} 步」", agent_id, total_steps),
+                        format!("{}▸ 🤖 {}  「已完成 {} 步」", prefix, agent_id, total_steps),
                         Style::default().fg(agent_color).add_modifier(Modifier::BOLD),
                     ),
                 ];
@@ -203,17 +207,20 @@ pub fn render_view_model(vm: &MessageViewModel, index: usize, _width: usize) -> 
                     )
                 };
                 let task_label: String = task_preview.chars().take(40).collect();
+                let prefix = index
+                    .map(|idx| format!("{} ", idx))
+                    .unwrap_or_default();
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("▾ 🤖 {}  「{}」  ", agent_id, task_label),
+                        format!("{}▾ 🤖 {}  「{}」  ", prefix, agent_id, task_label),
                         Style::default().fg(agent_color).add_modifier(Modifier::BOLD),
                     ),
                     status_span,
                 ]));
 
-                // 嵌套消息（滑动窗口，index 传 0 隐藏序号）
+                // 嵌套消息（不渲染序号）
                 for inner_vm in recent_messages.iter() {
-                    let inner_lines = render_view_model(inner_vm, 0, _width);
+                    let inner_lines = render_view_model(inner_vm, None, _width);
                     for line in inner_lines {
                         // 每行前缀 2 空格缩进
                         let mut new_spans = vec![Span::raw("  ")];

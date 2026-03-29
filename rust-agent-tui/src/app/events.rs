@@ -27,8 +27,11 @@ pub enum AgentEvent {
     TodoUpdate(Vec<TodoItem>),
     /// Agent 执行结束后的消息快照（用于多轮对话续接）
     StateSnapshot(Vec<rust_create_agent::messages::BaseMessage>),
-    /// 上下文压缩成功，携带摘要文本
-    CompactDone(String),
+    /// 上下文压缩成功，携带摘要文本和新 Thread ID
+    CompactDone {
+        summary: String,
+        new_thread_id: String,
+    },
     /// 上下文压缩失败，携带错误信息
     CompactError(String),
     /// SubAgent 开始执行（由 launch_agent ToolStart 映射而来）
