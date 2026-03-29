@@ -12,6 +12,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::ui::theme;
+use crate::ui::welcome;
 use rust_agent_middlewares::prelude::TodoStatus;
 
 pub fn render(f: &mut Frame, app: &mut App) {
@@ -118,6 +119,12 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
 }
 
 fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
+    // Welcome Card：空消息时显示品牌欢迎界面
+    if app.view_messages.is_empty() {
+        welcome::render_welcome(f, app, area);
+        return;
+    }
+
     let inner = area;
     let visible_height = inner.height;
 

@@ -325,6 +325,68 @@ mod tests {
                 "不完整 Markdown 应降级为纯文本，实际: {all:?}"
             );
         }
+
+        #[test]
+        fn test_md_table_basic() {
+            let md = "| Name  | Value |\n|-------|-------|\n| foo   | 123   |\n| bar   | 456   |";
+            let text = parse_markdown(md);
+            let all = all_text(&text);
+            // Should contain header and data cells
+            assert!(all.contains("Name"), "Table should contain header 'Name', got: {all:?}");
+            assert!(all.contains("foo"), "Table should contain data 'foo', got: {all:?}");
+            assert!(all.contains("456"), "Table should contain data '456', got: {all:?}");
+            // Should have border characters
+            assert!(all.contains("│"), "Table should have vertical borders, got: {all:?}");
+            assert!(all.contains("┌"), "Table should have top-left corner, got: {all:?}");
+            assert!(all.contains("└"), "Table should have bottom-left corner, got: {all:?}");
+            assert!(all.contains("┼"), "Table should have header separator, got: {all:?}");
+        }
+
+        #[test]
+        fn test_md_table_cell_count() {
+            let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+            let text = parse_markdown(md);
+            // Should produce exactly: top border + header + separator + 1 data row + bottom border = 5 lines
+            assert_eq!(text.lines.len(), 5, "2-col table should produce 5 lines, got: {}", text.lines.len());
+        }
+
+        #[test]
+        fn test_md_table_border_alignment() {
+            let md = "| Name | Value |\n|------|-------|\n| foo  | 123   |";
+            let text = parse_markdown(md);
+            // Debug: print each line
+            for (i, line) in text.lines.iter().enumerate() {
+                let content: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+                eprintln!("line {}: {:?} (chars={})", i, content, content.chars().count());
+            }
+            // Each line should have the same visual width (measured in chars, not bytes)
+            let widths: Vec<usize> = text.lines.iter().map(|line| {
+                line.spans.iter().map(|s| s.content.chars().count()).sum::<usize>()
+            }).collect();
+            let unique_widths: std::collections::HashSet<usize> = widths.iter().copied().collect();
+            assert!(
+                unique_widths.len() == 1,
+                "All table lines should have same visual width, got: {:?}",
+                widths
+            );
+        }
+
+        #[test]
+        fn test_md_table_alignment() {
+            let md = "| Left | Center | Right |\n|:-----|:------:|------:|\n| a    | b      | c     |";
+            let text = parse_markdown(md);
+            let all = all_text(&text);
+            assert!(all.contains("Left"), "Should contain 'Left' header, got: {all:?}");
+            assert!(all.contains("a"), "Should contain data 'a', got: {all:?}");
+        }
+
+        #[test]
+        fn test_md_table_with_inline_code() {
+            let md = "| Command |\n|---------|\n| `ls`    |";
+            let text = parse_markdown(md);
+            let all = all_text(&text);
+            assert!(all.contains("ls"), "Should contain inline code content, got: {all:?}");
+        }
     }
 
     #[tokio::test]
@@ -571,6 +633,71 @@ mod tests {
         assert!(
             !app.view_messages[0].is_assistant(),
             "不应创建 AssistantBubble，应为 ToolBlock"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_welcome_card_renders_when_empty() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        // 默认 view_messages 为空，应显示 Welcome Card
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            snap_text.contains("Perihelion"),
+            "Welcome Card 应包含 'Perihelion'，实际:\n{}",
+            snap_text
+        );
+        assert!(
+            snap_text.contains("/help") || snap_text.contains("/model"),
+            "Welcome Card 应包含命令提示，实际:\n{}",
+            snap_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_welcome_card_hidden_after_message() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        let notify = Arc::clone(&handle.render_notify);
+        let n1 = notify.notified();
+        let n2 = notify.notified();
+        app.push_agent_event(AgentEvent::AssistantChunk("Hello from agent".into()));
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+        tokio::join!(n1, n2);
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            !snap_text.contains("What can I do?"),
+            "有消息后 Welcome Card 应消失，但仍有 welcome 内容，实际:\n{}",
+            snap_text
+        );
+        assert!(
+            handle.contains("Hello from agent"),
+            "应显示消息内容，实际:\n{}",
+            snap_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_welcome_card_narrow_screen() {
+        let (mut app, mut handle) = App::new_headless(40, 24);
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        // 窄屏不应显示 ASCII Art（包含 ██ 或 ╚═ 等 block 字符）
+        assert!(
+            !snap_text.contains("██"),
+            "窄屏不应显示 ASCII Art Logo，实际:\n{}",
+            snap_text
+        );
+        // 但仍应包含文字版标题
+        assert!(
+            snap_text.contains("Perihelion"),
+            "窄屏应显示文字版标题 'Perihelion'，实际:\n{}",
+            snap_text
         );
     }
 }
