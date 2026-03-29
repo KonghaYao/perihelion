@@ -1,6 +1,6 @@
 {
     "name": "peri-cli",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "description": "Perihelion Rust Agent Framework CLI",
     "bin": {
         "peri-cli": "./bin/peri-cli.js"
