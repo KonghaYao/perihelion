@@ -1,3 +1,6 @@
+import fs from 'fs-extra';
+import path from 'path';
+
 // GitHub API 配置
 export const CONFIG = {
     owner: "konghayao",
@@ -67,13 +70,12 @@ export function getExecutablePath(version = "current") {
 
 // 获取当前安装版本
 export async function getCurrentVersion() {
-    const fs = await import("fs");
     const installDir = getInstallDir();
     const versionFile = `${installDir}/current-version.txt`;
 
     try {
-        if (fs.existsSync(versionFile)) {
-            return fs.readFileSync(versionFile, "utf-8").trim();
+        if (await fs.pathExists(versionFile)) {
+            return (await fs.readFile(versionFile, "utf-8")).trim();
         }
     } catch (error) {
         // 文件不存在或读取失败
@@ -84,8 +86,6 @@ export async function getCurrentVersion() {
 
 // 设置当前版本
 export async function setCurrentVersion(version) {
-    const fs = await import("fs-extra");
-    const path = await import("path");
     const installDir = getInstallDir();
 
     // 确保安装目录存在
