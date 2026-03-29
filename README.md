@@ -27,8 +27,8 @@ cargo run -p rust-agent-tui
 ## 快速上手
 
 ```bash
-cargo run -p rust-agent-tui        # 启动
-cargo run -p rust-agent-tui -- -y  # YOLO 模式（跳过所有审批）
+cargo run -p rust-agent-tui        # 启动（默认 YOLO，跳过审批）
+cargo run -p rust-agent-tui -- -a  # 启用 HITL 审批模式
 ```
 
 ## 架构

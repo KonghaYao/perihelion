@@ -60,8 +60,10 @@ fn main() -> Result<()> {
 
     // 解析命令行参数
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--yolo" || a == "-y") {
-        std::env::set_var("YOLO_MODE", "true");
+    // -y/--yolo 保留为向后兼容的无操作（YOLO 已是默认行为）
+    // --approve / -a 显式启用 HITL 审批（设置 YOLO_MODE=false）
+    if args.iter().any(|a| a == "--approve" || a == "-a") {
+        std::env::set_var("YOLO_MODE", "false");
     }
 
     // 解析 --remote-control <url> [--relay-token <token>] [--relay-name <name>]

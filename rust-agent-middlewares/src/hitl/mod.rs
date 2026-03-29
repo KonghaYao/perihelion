@@ -15,11 +15,14 @@ pub use rust_create_agent::hitl::{BatchItem, HitlDecision, HitlHandler};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
 
-/// 检测是否处于 YOLO 模式（`YOLO_MODE=true` 或 `YOLO_MODE=1`）
+/// 检测是否处于 YOLO 模式（默认启用）
+///
+/// - `YOLO_MODE` 未设置或为 `true`/`1` → YOLO（跳过审批）
+/// - `YOLO_MODE=false`/`0` → 启用 HITL 审批
 pub fn is_yolo_mode() -> bool {
     std::env::var("YOLO_MODE")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(false)
+        .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
+        .unwrap_or(true)
 }
 
 // ─── 默认规则 ──────────────────────────────────────────────────────────────────
@@ -47,8 +50,8 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
 ///
 /// 在 `before_tool` 时拦截工具调用，通过注入的 [`UserInteractionBroker`] 请求用户审批。
 ///
-/// # YOLO 模式
-/// 通过 `HumanInTheLoopMiddleware::disabled()` 或环境变量 `YOLO_MODE=true` 禁用。
+/// # HITL 模式
+/// 通过 `HumanInTheLoopMiddleware::new(...)` 或环境变量 `YOLO_MODE=false` 启用审批。
 pub struct HumanInTheLoopMiddleware {
     broker: Option<Arc<dyn UserInteractionBroker>>,
     requires_approval: fn(&str) -> bool,
@@ -71,7 +74,7 @@ impl HumanInTheLoopMiddleware {
         }
     }
 
-    /// 从环境变量决定是否启用（`YOLO_MODE=true` 则禁用）
+    /// 从环境变量决定是否启用（默认 YOLO；`YOLO_MODE=false` 则启用审批）
     pub fn from_env(broker: Arc<dyn UserInteractionBroker>, requires_approval: fn(&str) -> bool) -> Self {
         if is_yolo_mode() {
             Self::disabled()

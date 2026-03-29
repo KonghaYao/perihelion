@@ -322,18 +322,18 @@ impl App {
                 // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
                 (true, false, false)
             }
-            AgentEvent::Error(ref _e) => {
+            AgentEvent::Error(ref e) => {
                 let vm = MessageViewModel::tool_block(
                     "error".to_string(),
                     "agent-error".to_string(),
-                    None,
+                    Some(e.clone()),
                     true,
                 );
                 self.view_messages.push(vm.clone());
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 // Langfuse：错误路径也需结束 Trace，避免 Trace 在 Langfuse 侧永远显示为运行中
                 if let Some(ref tracer) = self.langfuse_tracer {
-                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", _e))));
+                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
                 }
                 self.langfuse_tracer = None;
                 self.set_loading(false);
@@ -605,7 +605,7 @@ impl App {
                     let vm = MessageViewModel::tool_block(
                         "error".to_string(),
                         "agent-error".to_string(),
-                        None,
+                        Some("agent channel disconnected unexpectedly".to_string()),
                         true,
                     );
                     self.view_messages.push(vm.clone());

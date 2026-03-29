@@ -23,6 +23,7 @@
 - [x] 写一个 Explorer Agent
 - [x] 写一个 Web Research Agent
 - [ ] Shell 有没有时间约束
+- [x] 现在改为默认采用 yolo 模式, 不需要审批
 
 **第三层：用户界面**
 

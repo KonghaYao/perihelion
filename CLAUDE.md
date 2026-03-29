@@ -17,7 +17,8 @@ Rust Agent 框架，包含 **4 个 Workspace Crate**：
 cargo build                          # 构建所有 crate
 cargo build -p rust-create-agent     # 构建指定 crate
 cargo run -p rust-agent-tui          # 运行 TUI
-cargo run -p rust-agent-tui -- -y    # YOLO 模式（跳过 HITL 审批）
+cargo run -p rust-agent-tui -- -y    # YOLO 模式（已废弃，YOLO 已是默认行为）
+cargo run -p rust-agent-tui -- -a    # 启用 HITL 审批模式
 cargo test                           # 全量测试
 cargo test -p rust-create-agent --lib -- test_name  # 运行单个测试
 RELAY_TOKEN=your-token cargo run -p rust-relay-server --features server  # 启动 Relay Server
@@ -80,8 +81,8 @@ submit_message()
   │       Done/Error              → set_loading(false), agent_rx=None
   │
   └─ mpsc(4): ApprovalEvent channel ──→ 转发 task
-       ApprovalEvent::Batch        → YOLO: 直接 response_tx.send(Approve×N)
-                                     非YOLO: tx.send(AgentEvent::ApprovalNeeded)
+       ApprovalEvent::Batch        → YOLO（默认）: 直接 response_tx.send(Approve×N)
+                                     审批模式（-a）: tx.send(AgentEvent::ApprovalNeeded)
        ApprovalEvent::AskUserBatch → tx.send(AgentEvent::AskUserBatch)  [始终转发]
 
 用户操作弹窗后:
@@ -401,7 +402,8 @@ ReActAgent::new(llm)
 | `OPENAI_API_KEY` | OpenAI 兼容 API Key |
 | `OPENAI_BASE_URL` | API Base URL |
 | `OPENAI_MODEL` | 模型名称 |
-| `YOLO_MODE=true` | 跳过 HITL 审批（不影响 ask_user_question） |
+| `YOLO_MODE=true` | 默认行为，跳过 HITL 审批（不影响 ask_user_question） |
+| `YOLO_MODE=false` | 启用 HITL 审批 |
 | `RUST_LOG` | 日志级别（默认 `info`） |
 | `RUST_LOG_FILE` | 日志文件路径 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | 启用 OTLP 导出 |
@@ -413,7 +415,8 @@ ReActAgent::new(llm)
 
 | 参数 | 说明 |
 |------|------|
-| `-y, --yolo` | 跳过 HITL 审批 |
+| `-y, --yolo` | 已废弃（YOLO 已是默认行为） |
+| `-a, --approve` | 启用 HITL 审批（设置 `YOLO_MODE=false`） |
 | `--remote-control [url]` | 连接 Relay Server |
 | `--relay-token <token>` | Relay 认证 Token |
 | `--relay-name <name>` | 客户端名称 |
