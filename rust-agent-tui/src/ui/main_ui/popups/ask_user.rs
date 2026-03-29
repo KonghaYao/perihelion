@@ -11,7 +11,7 @@ use crate::ui::theme;
 
 /// AskUser 批量弹窗（底部展开区）：header tab 行 + 当前问题选项
 pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
-    let Some(crate::app::InteractionPrompt::Questions(prompt)) = &app.interaction_prompt else { return };
+    let Some(crate::app::InteractionPrompt::Questions(prompt)) = &app.agent.interaction_prompt else { return };
 
     let cur = &prompt.questions[prompt.active_tab];
     let popup_area = area;

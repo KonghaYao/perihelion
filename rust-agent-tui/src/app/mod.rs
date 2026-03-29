@@ -7,13 +7,17 @@ mod provider;
 pub mod relay_panel;
 pub mod tool_display;
 
+mod core;
+mod agent_comm;
 mod agent_ops;
+mod langfuse_state;
 mod ask_user_ops;
 mod ask_user_prompt;
 mod hint_ops;
 mod hitl_ops;
 mod hitl_prompt;
 mod panel_ops;
+mod relay_state;
 mod relay_ops;
 mod thread_ops;
 
@@ -31,13 +35,12 @@ pub enum InteractionPrompt {
 use crate::ui::theme;
 use ratatui::style::Style;
 use ratatui_textarea::TextArea;
-use rust_agent_middlewares::prelude::{HitlDecision, SkillMetadata, TodoItem};
+use rust_agent_middlewares::prelude::{HitlDecision, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::AgentCancellationToken;
 use rust_create_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use tokio::sync::mpsc;
 
-use crate::command::CommandRegistry;
 use crate::config::ZenConfig;
 use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
 
@@ -46,101 +49,34 @@ use crate::command::agents::AgentItem;
 pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
 pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
-use parking_lot::RwLock;
 pub use relay_panel::RelayPanel;
 use std::sync::Arc;
-use tokio::sync::Notify;
 use tracing::Instrument;
 
-use crate::ui::render_thread::{RenderCache, RenderEvent};
+use crate::ui::render_thread::RenderEvent;
+
+// Re-export sub-structs
+pub use agent_comm::AgentComm;
+pub use core::AppCore;
+pub use langfuse_state::LangfuseState;
+pub use relay_state::RelayState;
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 pub struct App {
-    pub view_messages: Vec<MessageViewModel>,
-    pub textarea: TextArea<'static>,
-    pub loading: bool,
-    pub scroll_offset: u16,
-    pub scroll_follow: bool,
+    pub core: AppCore,
+    pub agent: AgentComm,
+    pub relay: RelayState,
+    pub langfuse: LangfuseState,
+    // 不变字段（跨子结构体的"胶水"字段）
     pub cwd: String,
     pub provider_name: String,
     pub model_name: String,
-    agent_rx: Option<mpsc::Receiver<AgentEvent>>,
-    /// 当前激活的交互弹窗（HITL 审批或 AskUser 问答，同一时刻只有一种）
-    pub interaction_prompt: Option<InteractionPrompt>,
-    /// 已发送待解决的 HITL 工具名称列表（用于 approval_resolved 广播）
-    pending_hitl_items: Option<Vec<String>>,
-    /// AskUser 是否已提交（用于广播 resolved）
-    pending_ask_user: Option<bool>,
-    /// 当前 TODO 列表（固定面板，不写入消息流）
-    pub todo_items: Vec<TodoItem>,
-    /// 内存中的配置快照（来自 ~/.zen-code/settings.json）
     pub zen_config: Option<ZenConfig>,
-    /// /model 面板状态
-    pub model_panel: Option<ModelPanel>,
-    /// /agents 面板状态
-    pub agent_panel: Option<AgentPanel>,
-    /// /relay 面板状态
-    pub relay_panel: Option<RelayPanel>,
-    /// 命令注册表
-    pub command_registry: CommandRegistry,
-    /// 命令帮助文本缓存（启动时预计算，/help 直接读取，不受 std::mem::take 影响）
-    pub command_help_list: Vec<(String, String)>,
-    /// 可用 skills 列表（启动时加载）
-    pub skills: Vec<SkillMetadata>,
-    /// 提示浮层（命令/Skills）当前光标位置
-    pub hint_cursor: Option<usize>,
-    /// Thread 持久化存储
     pub thread_store: Arc<dyn ThreadStore>,
-    /// 当前会话的 thread id（选择或新建后设置）
     pub current_thread_id: Option<ThreadId>,
-    /// 启动时的历史浏览面板（选择后关闭）
-    pub thread_browser: Option<ThreadBrowser>,
-    /// 当前 Agent 任务的取消令牌（loading 时有效，Ctrl+C 触发）
-    cancel_token: Option<AgentCancellationToken>,
-    /// 当前 Agent 任务开始时间（用于计算运行时长）
-    task_start_time: Option<std::time::Instant>,
-    /// 上一次任务的总运行时长（任务结束后保留显示）
-    last_task_duration: Option<std::time::Duration>,
-    /// 持久化的 Agent 消息历史（多轮对话的上下文）
-    agent_state_messages: Vec<rust_create_agent::messages::BaseMessage>,
-    /// 当前 Agent 的 ID（用于 AgentDefineMiddleware 加载 agent 定义）
-    agent_id: Option<String>,
-    /// 渲染线程事件发送端（无界 channel，避免 try_send 静默丢弃导致渲染状态分叉）
-    pub render_tx: mpsc::UnboundedSender<RenderEvent>,
-    /// 渲染缓存（UI 线程只读）
-    pub render_cache: Arc<RwLock<RenderCache>>,
-    /// 渲染线程完成通知
-    #[allow(dead_code)]
-    pub render_notify: Arc<Notify>,
-    /// UI 线程记录的最后绘制版本
-    pub last_render_version: u64,
-    /// 测试用事件注入队列（仅测试时使用，生产时保持为空）
-    #[doc(hidden)]
-    #[allow(dead_code)]
-    pub agent_event_queue: Vec<AgentEvent>,
-    /// Loading 期间的消息缓冲区（完成后合并发送）
-    pub pending_messages: Vec<String>,
-    /// 待发送的图片附件（Ctrl+V 粘贴图片后缓存，发送时消费）
-    pub pending_attachments: Vec<PendingAttachment>,
-    /// 是否显示工具调用消息（默认 false，完全隐藏）
-    pub show_tool_messages: bool,
-    /// 当前活跃 SubAgentGroup 在 view_messages 中的下标（子 agent 执行中时有值）
-    subagent_group_idx: Option<usize>,
-    /// Relay 客户端（远程控制，可选）
-    relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
-    /// Relay 事件接收端（来自 Web 端的控制消息）
-    relay_event_rx: Option<rust_relay_server::client::RelayEventRx>,
-    /// Relay 连接参数缓存（url, token, name, user_id），断线后自动重连使用
-    relay_params: Option<(String, String, Option<String>, String)>,
-    /// Relay 重连计划时间（达到后尝试重连，None 表示不需要重连）
-    relay_reconnect_at: Option<std::time::Instant>,
-    /// Thread 级别的 Langfuse Session（Thread 创建/打开时懒加载，new_thread/open_thread 时重置）
-    langfuse_session: Option<Arc<crate::langfuse::LangfuseSession>>,
-    /// 当前轮次的 Langfuse Tracer（submit_message 时创建，Done 时结束，未配置时为 None）
-    langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
-    /// on_trace_end 返回的 flush JoinHandle，进程退出前应 await 确保 batcher flush 完成
-    pub langfuse_flush_handle: Option<tokio::task::JoinHandle<()>>,
+    pub todo_items: Vec<TodoItem>,
+    pub relay_panel: Option<RelayPanel>,
 }
 
 impl App {
@@ -149,8 +85,6 @@ impl App {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-
-        let textarea = build_textarea(false, 0);
 
         // 优先从 ~/.zen-code/settings.json 加载配置，失败时 fallback 到环境变量
         let zen_config = crate::config::load().ok();
@@ -184,82 +118,81 @@ impl App {
         let (render_tx, render_cache, render_notify) =
             crate::ui::render_thread::spawn_render_thread(80);
 
-        // 预计算命令帮助列表（在注册表被 std::mem::take 时仍可读）
+        // 预计算命令帮助列表
         let command_registry = crate::command::default_registry();
-        let command_help_list: Vec<(String, String)> = command_registry
-            .list()
-            .into_iter()
-            .map(|(n, d)| (n.to_string(), d.to_string()))
-            .collect();
-
-        let mut app = Self {
-            view_messages: Vec::new(),
-            textarea,
-            loading: false,
-            scroll_offset: u16::MAX,
-            scroll_follow: true,
-            cwd: cwd.clone(),
-            provider_name,
-            model_name,
-            agent_rx: None,
-            interaction_prompt: None,
-            todo_items: Vec::new(),
-            zen_config,
-            model_panel: None,
-            agent_panel: None,
-            relay_panel: None,
-            command_registry,
-            command_help_list,
-            hint_cursor: None,
-            skills: {
-                let mut dirs = Vec::new();
-                // 用户级 skills（优先）
-                if let Some(home) = dirs_next::home_dir() {
-                    dirs.push(home.join(".claude").join("skills"));
-                }
-                // 全局配置的 skillsDir（~/.zen-code/settings.json）
-                if let Some(global_dir) = rust_agent_middlewares::skills::load_global_skills_dir() {
-                    dirs.push(global_dir);
-                }
-                // 项目级 skills
-                if let Ok(cwd) = std::env::current_dir() {
-                    dirs.push(cwd.join(".claude").join("skills"));
-                }
-                rust_agent_middlewares::skills::list_skills(&dirs)
-            },
-            thread_store,
-            current_thread_id: None,
-            thread_browser: None,
-            cancel_token: None,
-            task_start_time: None,
-            last_task_duration: None,
-            agent_state_messages: Vec::new(),
-            agent_id: None,
-            render_tx,
-            render_cache,
-            render_notify,
-            last_render_version: 0,
-            agent_event_queue: Vec::new(),
-            pending_messages: Vec::new(),
-            pending_attachments: Vec::new(),
-            show_tool_messages: false,
-            subagent_group_idx: None,
-            relay_client: None,
-            relay_event_rx: None,
-            relay_params: None,
-            relay_reconnect_at: None,
-            pending_hitl_items: None,
-            pending_ask_user: None,
-            langfuse_session: None,
-            langfuse_tracer: None,
-            langfuse_flush_handle: None,
+        let skills = {
+            let mut dirs = Vec::new();
+            if let Some(home) = dirs_next::home_dir() {
+                dirs.push(home.join(".claude").join("skills"));
+            }
+            if let Some(global_dir) = rust_agent_middlewares::skills::load_global_skills_dir() {
+                dirs.push(global_dir);
+            }
+            if let Ok(cwd) = std::env::current_dir() {
+                dirs.push(cwd.join(".claude").join("skills"));
+            }
+            rust_agent_middlewares::skills::list_skills(&dirs)
         };
 
-        // let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));
-        // app.view_messages.push(sys_msg.clone());
-        // let _ = app.render_tx.send(RenderEvent::AddMessage(sys_msg));
+        Self {
+            core: AppCore::new(render_tx, render_cache, render_notify, command_registry, skills),
+            agent: AgentComm::default(),
+            relay: RelayState::default(),
+            langfuse: LangfuseState::default(),
+            cwd,
+            provider_name,
+            model_name,
+            zen_config,
+            thread_store,
+            current_thread_id: None,
+            todo_items: Vec::new(),
+            relay_panel: None,
+        }
+    }
 
-        app
+    // ─── 转发访问器（保持 app.xxx 调用方式不变）─────────────────────────────────
+
+    /// 中断正在运行的 Agent（Ctrl+C during loading）
+    pub fn interrupt(&mut self) {
+        if let Some(token) = &self.agent.cancel_token {
+            token.cancel();
+        }
+    }
+
+    pub fn set_loading(&mut self, loading: bool) {
+        self.core.loading = loading;
+        self.core.textarea = build_textarea(loading, self.core.pending_messages.len());
+        if !loading {
+            self.agent.cancel_token = None;
+        }
+    }
+
+    /// 更新输入框标题以反映缓冲消息数量
+    pub fn update_textarea_hint(&mut self) {
+        self.core.textarea = build_textarea(self.core.loading, self.core.pending_messages.len());
+    }
+
+    /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
+    pub fn set_agent_id(&mut self, id: Option<String>) {
+        self.agent.agent_id = id;
+    }
+
+    /// 获取当前 Agent 的 ID
+    pub fn get_agent_id(&self) -> Option<&String> {
+        self.agent.agent_id.as_ref()
+    }
+
+    /// 获取当前任务运行时长（运行中）或上次任务时长（已完成）
+    pub fn get_current_task_duration(&self) -> Option<std::time::Duration> {
+        if let Some(start) = self.agent.task_start_time {
+            if self.core.loading {
+                Some(start.elapsed())
+            } else {
+                self.agent.last_task_duration
+            }
+        } else {
+            self.agent.last_task_duration
+        }
     }
 
     /// 尝试连接 Relay Server
@@ -294,7 +227,7 @@ impl App {
                                 ),
                                 &[],
                             );
-                            let _ = self.render_tx.send(RenderEvent::AddMessage(msg));
+                            let _ = self.core.render_tx.send(RenderEvent::AddMessage(msg));
                             return;
                         }
                         let url = extra_config.unwrap().to_string();
@@ -317,7 +250,6 @@ impl App {
             } else {
                 // --remote-control <url>：使用 CLI 参数（token 可从配置 fallback）
                 let token = c.token.clone().unwrap_or_else(|| {
-                    // 优先从新字段读取，fallback 到 extra 字段
                     self.zen_config
                         .as_ref()
                         .and_then(|cfg| cfg.config.remote_control.as_ref())
@@ -334,11 +266,10 @@ impl App {
                 (c.url.clone(), token, c.name.clone())
             }
         } else {
-            // 无 --remote-control 参数：不尝试连接
             return;
         };
 
-        // 获取或注册 user_id（复用已有或向 Relay Server 注册新 UUID）
+        // 获取或注册 user_id
         let existing_user_id = self
             .zen_config
             .as_ref()
@@ -355,14 +286,13 @@ impl App {
             Err(e) => {
                 let err_msg = format!("Relay 注册失败: {}", e);
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
-                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
-                self.relay_reconnect_at =
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.relay.relay_reconnect_at =
                     Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
                 return;
             }
         };
 
-        // 若为新注册的 user_id，持久化到 settings.json
         if existing_user_id.is_none() {
             if let Some(ref mut cfg) = self.zen_config {
                 if let Some(ref mut rc) = cfg.config.remote_control {
@@ -373,7 +303,7 @@ impl App {
         }
 
         // 缓存参数供断线重连使用
-        self.relay_params = Some((
+        self.relay.relay_params = Some((
             relay_url.clone(),
             relay_token.clone(),
             relay_name.clone(),
@@ -390,15 +320,13 @@ impl App {
         {
             Ok((client, event_rx)) => {
                 let sid = client.session_id.read().await.clone().unwrap_or_default();
-                // 在 TUI 消息区域显示连接状态（不用 tracing，避免 raw mode 乱码）
                 let status_msg = format!("Relay connected (session: {})", &sid[..8.min(sid.len())]);
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(status_msg), &[]);
-                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
-                self.relay_client = Some(Arc::new(client));
-                self.relay_event_rx = Some(event_rx);
-                self.relay_reconnect_at = None; // 连接成功，取消重连计划
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.relay.relay_client = Some(Arc::new(client));
+                self.relay.relay_event_rx = Some(event_rx);
+                self.relay.relay_reconnect_at = None;
 
-                // 设置 Web 接入 URL（含 user_id hash）
                 let web_url = format!(
                     "{}/web/?token={}#user_id={}",
                     relay_ops::ws_url_to_http(&relay_url),
@@ -410,57 +338,12 @@ impl App {
                 }
             }
             Err(e) => {
-                // 不用 tracing，通过 TUI 消息显示
                 let err_msg = format!("Relay connection failed: {}", e);
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
-                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
-                // 连接失败时，3 秒后重试
-                self.relay_reconnect_at =
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.relay.relay_reconnect_at =
                     Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
             }
-        }
-    }
-
-    pub fn set_loading(&mut self, loading: bool) {
-        self.loading = loading;
-        self.textarea = build_textarea(loading, self.pending_messages.len());
-        if !loading {
-            self.cancel_token = None;
-        }
-    }
-
-    /// 更新输入框标题以反映缓冲消息数量
-    pub fn update_textarea_hint(&mut self) {
-        self.textarea = build_textarea(self.loading, self.pending_messages.len());
-    }
-
-    /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
-    pub fn set_agent_id(&mut self, id: Option<String>) {
-        self.agent_id = id;
-    }
-
-    /// 获取当前 Agent 的 ID
-    pub fn get_agent_id(&self) -> Option<&String> {
-        self.agent_id.as_ref()
-    }
-
-    /// 中断正在运行的 Agent（Ctrl+C during loading）
-    pub fn interrupt(&mut self) {
-        if let Some(token) = &self.cancel_token {
-            token.cancel();
-        }
-    }
-
-    /// 获取当前任务运行时长（运行中）或上次任务时长（已完成）
-    pub fn get_current_task_duration(&self) -> Option<std::time::Duration> {
-        if let Some(start) = self.task_start_time {
-            if self.loading {
-                Some(start.elapsed())
-            } else {
-                self.last_task_duration
-            }
-        } else {
-            self.last_task_duration
         }
     }
 }

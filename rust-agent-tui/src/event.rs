@@ -38,7 +38,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
     match ev {
         Event::Resize(w, _) => {
-            let _ = app.render_tx.send(RenderEvent::Resize(w));
+            let _ = app.core.render_tx.send(RenderEvent::Resize(w));
         }
         Event::Key(key_event) => {
             // 只处理 Press 事件，忽略 Release（防止按键重复触发）
@@ -48,13 +48,13 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             let input = Input::from(ev);
 
             // Thread 浏览面板优先处理
-            if app.thread_browser.is_some() {
+            if app.core.thread_browser.is_some() {
                 handle_thread_browser(app, input);
                 return Ok(Some(Action::Redraw));
             }
 
             // /agents 面板优先处理
-            if app.agent_panel.is_some() {
+            if app.core.agent_panel.is_some() {
                 handle_agent_panel(app, input);
                 return Ok(Some(Action::Redraw));
             }
@@ -66,13 +66,13 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // /model 面板优先处理
-            if app.model_panel.is_some() {
+            if app.core.model_panel.is_some() {
                 handle_model_panel(app, input);
                 return Ok(Some(Action::Redraw));
             }
 
             // AskUser 批量弹窗
-            if matches!(&app.interaction_prompt, Some(crate::app::InteractionPrompt::Questions(_))) {
+            if matches!(&app.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Questions(_))) {
                 match input {
                     Input {
                         key: Key::Char('c'),
@@ -121,7 +121,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // HITL 批量弹窗激活时，优先处理弹窗按键
-            if matches!(&app.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) {
+            if matches!(&app.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) {
                 match input {
                     Input {
                         key: Key::Char('c'),
@@ -179,22 +179,22 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     ctrl: true,
                     ..
                 } => {
-                    if app.loading {
+                    if app.core.loading {
                         // loading 时：中断 Agent（不退出）
                         app.interrupt();
                     } else {
                         return Ok(Some(Action::Quit));
                     }
                 }
-                Input { key: Key::Esc, .. } if !app.loading => return Ok(Some(Action::Quit)),
+                Input { key: Key::Esc, .. } if !app.core.loading => return Ok(Some(Action::Quit)),
 
                 // Ctrl+V：优先尝试粘贴剪贴板图片，失败则回退到粘贴文字
-                Input { key: Key::Char('v'), ctrl: true, .. } if !app.loading => {
+                Input { key: Key::Char('v'), ctrl: true, .. } if !app.core.loading => {
                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
                         if let Ok(img) = clipboard.get_image() {
                             let (w, h) = (img.width as u32, img.height as u32);
                             if let Ok((b64, sz)) = rgba_to_png_base64(w, h, &img.bytes) {
-                                let n = app.pending_attachments.len() + 1;
+                                let n = app.core.pending_attachments.len() + 1;
                                 app.add_pending_attachment(PendingAttachment {
                                     label: format!("clipboard_{}.png", n),
                                     media_type: "image/png".to_string(),
@@ -204,7 +204,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             }
                         } else if let Ok(text) = clipboard.get_text() {
                             let text = text.replace('\r', "\n");
-                            app.textarea.insert_str(&text);
+                            app.core.textarea.insert_str(&text);
                         }
                     }
                 }
@@ -214,20 +214,20 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     key: Key::Tab,
                     shift: false,
                     ..
-                } if !app.loading => {
+                } if !app.core.loading => {
                     let count = app.hint_candidates_count();
                     if count > 0 {
-                        match app.hint_cursor {
+                        match app.core.hint_cursor {
                             Some(cur) if cur + 1 < count => {
-                                app.hint_cursor = Some(cur + 1);
+                                app.core.hint_cursor = Some(cur + 1);
                             }
                             Some(_) => {
                                 // 已在最后一个，循环到第一个
-                                app.hint_cursor = Some(0);
+                                app.core.hint_cursor = Some(0);
                             }
                             None => {
                                 // 首次按 Tab，选中第一个
-                                app.hint_cursor = Some(0);
+                                app.core.hint_cursor = Some(0);
                             }
                         }
                     }
@@ -236,7 +236,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 // Enter 在提示浮层激活时：确认选中
                 Input {
                     key: Key::Enter, ..
-                } if !app.loading && app.hint_cursor.is_some() => {
+                } if !app.core.loading && app.core.hint_cursor.is_some() => {
                     app.hint_complete();
                 }
 
@@ -246,7 +246,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     alt: true,
                     ..
                 } => {
-                    app.textarea.input(Input {
+                    app.core.textarea.input(Input {
                         key: Key::Enter,
                         ctrl: false,
                         alt: false,
@@ -258,27 +258,27 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 Input {
                     key: Key::Enter, ..
                 } => {
-                    let text = app.textarea.lines().join("\n");
+                    let text = app.core.textarea.lines().join("\n");
                     let text = text.trim().to_string();
                     if !text.is_empty() {
-                        if app.loading {
+                        if app.core.loading {
                             // Loading 状态：缓冲消息
-                            app.pending_messages.push(text);
+                            app.core.pending_messages.push(text);
                             app.update_textarea_hint();
                         } else if text.starts_with('/') {
-                            app.textarea = crate::app::build_textarea(false, 0);
+                            app.core.textarea = crate::app::build_textarea(false, 0);
                             // 命令模式：取出 registry 避免借用冲突
-                            let registry = std::mem::take(&mut app.command_registry);
+                            let registry = std::mem::take(&mut app.core.command_registry);
                             let known = registry.dispatch(app, &text);
-                            app.command_registry = registry;
+                            app.core.command_registry = registry;
                             if !known {
-                                app.view_messages.push(MessageViewModel::system(format!(
+                                app.core.view_messages.push(MessageViewModel::system(format!(
                                     "未知命令: {}  （输入 /help 查看可用命令）",
                                     text
                                 )));
                             }
                         } else {
-                            app.textarea = crate::app::build_textarea(false, 0);
+                            app.core.textarea = crate::app::build_textarea(false, 0);
                             return Ok(Some(Action::Submit(text)));
                         }
                     }
@@ -309,16 +309,16 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 }
 
                 // Del：删除最后一个待发送附件（有附件时优先消费 Del）
-                Input { key: Key::Delete, .. } if !app.loading && !app.pending_attachments.is_empty() => {
+                Input { key: Key::Delete, .. } if !app.core.loading && !app.core.pending_attachments.is_empty() => {
                     app.pop_pending_attachment();
                 }
 
                 // 拦截普通 Enter，避免 textarea 默认换行；允许 loading 时输入
                 input if input.key != Key::Enter => {
-                    app.textarea.input(input);
+                    app.core.textarea.input(input);
                     // 输入内容变化时重置提示光标
-                    if !app.loading {
-                        app.hint_cursor = None;
+                    if !app.core.loading {
+                        app.core.hint_cursor = None;
                     }
                 }
 
@@ -331,8 +331,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             let text = text.replace('\r', "\n");
 
             // model_panel 打开时粘贴到面板当前字段
-            if app.model_panel.is_some() {
-                app.model_panel.as_mut().unwrap().paste_text(&text);
+            if app.core.model_panel.is_some() {
+                app.core.model_panel.as_mut().unwrap().paste_text(&text);
                 return Ok(Some(Action::Redraw));
             }
 
@@ -345,7 +345,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // 其他情况粘贴到 textarea
-            app.textarea.insert_str(&text);
+            app.core.textarea.insert_str(&text);
         }
         Event::Mouse(mouse) => match mouse.kind {
             MouseEventKind::ScrollUp => app.scroll_up(),
@@ -369,14 +369,14 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         } => {}
         Input { key: Key::Esc, .. } => {
             // Esc 关闭面板，回到当前对话
-            app.thread_browser = None;
+            app.core.thread_browser = None;
         }
         Input { key: Key::Up, .. }
         | Input {
             key: Key::Char('k'),
             ..
         } => {
-            if let Some(b) = app.thread_browser.as_mut() {
+            if let Some(b) = app.core.thread_browser.as_mut() {
                 b.move_cursor(-1);
                 b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
             }
@@ -386,7 +386,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             key: Key::Char('j'),
             ..
         } => {
-            if let Some(b) = app.thread_browser.as_mut() {
+            if let Some(b) = app.core.thread_browser.as_mut() {
                 b.move_cursor(1);
                 b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
             }
@@ -394,7 +394,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         Input {
             key: Key::Enter, ..
         } => {
-            if let Some(b) = app.thread_browser.as_mut() {
+            if let Some(b) = app.core.thread_browser.as_mut() {
                 if b.is_new() {
                     app.new_thread();
                 } else if let Some(id) = b.selected_id().cloned() {
@@ -406,7 +406,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             key: Key::Char('d'),
             ..
         } => {
-            if let Some(b) = app.thread_browser.as_mut() {
+            if let Some(b) = app.core.thread_browser.as_mut() {
                 b.delete_selected();
             }
         }
@@ -455,8 +455,8 @@ fn handle_agent_panel(app: &mut App, input: Input) {
 fn handle_model_panel(app: &mut App, input: Input) {
     use crate::app::model_panel::{AliasEditField, EditField};
 
-    // 用只读借用提前获取 mode（借用立即释放），后续各分支可自由重借 app.model_panel
-    let mode = match app.model_panel.as_ref() {
+    // 用只读借用提前获取 mode（借用立即释放），后续各分支可自由重借 app.core.model_panel
+    let mode = match app.core.model_panel.as_ref() {
         Some(p) => p.mode.clone(),
         None => return,
     };
@@ -470,30 +470,30 @@ fn handle_model_panel(app: &mut App, input: Input) {
             Input { key: Key::Char('v'), ctrl: true, .. } => {
                 if let Ok(mut clipboard) = arboard::Clipboard::new() {
                     if let Ok(text) = clipboard.get_text() {
-                        app.model_panel.as_mut().unwrap().paste_text(&text);
+                        app.core.model_panel.as_mut().unwrap().paste_text(&text);
                     }
                 }
             }
             // Tab / Shift+Tab：切换 Alias Tab（Opus / Sonnet / Haiku）
             Input { key: Key::Tab, shift: false, .. } => {
-                app.model_panel.as_mut().unwrap().tab_next();
+                app.core.model_panel.as_mut().unwrap().tab_next();
             }
             Input { key: Key::Tab, shift: true, .. } => {
-                app.model_panel.as_mut().unwrap().tab_prev();
+                app.core.model_panel.as_mut().unwrap().tab_prev();
             }
             // ↓：切换到下一个编辑字段（Provider → ModelId）
             Input { key: Key::Down, .. } => {
-                app.model_panel.as_mut().unwrap().alias_field_next();
+                app.core.model_panel.as_mut().unwrap().alias_field_next();
             }
             // ↑：切换到上一个编辑字段（ModelId → Provider）
             Input { key: Key::Up, .. } => {
-                app.model_panel.as_mut().unwrap().alias_field_prev();
+                app.core.model_panel.as_mut().unwrap().alias_field_prev();
             }
             // Space：循环切换 Provider（当 alias_edit_field == Provider 时）
             Input { key: Key::Char(' '), .. } => {
-                let field = app.model_panel.as_ref().unwrap().alias_edit_field.clone();
+                let field = app.core.model_panel.as_ref().unwrap().alias_edit_field.clone();
                 if field == AliasEditField::Provider {
-                    app.model_panel.as_mut().unwrap().cycle_alias_provider();
+                    app.core.model_panel.as_mut().unwrap().cycle_alias_provider();
                 }
             }
             // Enter：激活当前 Tab（写入 active_alias）并保存
@@ -506,15 +506,15 @@ fn handle_model_panel(app: &mut App, input: Input) {
             }
             // p：进入 provider 管理子面板
             Input { key: Key::Char('p'), ctrl: false, alt: false, .. } => {
-                app.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
+                app.core.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
             }
             // Backspace：删除当前 Tab 的 model_id 末字符
             Input { key: Key::Backspace, .. } => {
-                app.model_panel.as_mut().unwrap().pop_alias_char();
+                app.core.model_panel.as_mut().unwrap().pop_alias_char();
             }
             // 字符输入：写入 model_id 缓冲（当 alias_edit_field == ModelId 时）
             Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
-                app.model_panel.as_mut().unwrap().push_alias_char(c);
+                app.core.model_panel.as_mut().unwrap().push_alias_char(c);
             }
             _ => {}
         },
@@ -522,66 +522,66 @@ fn handle_model_panel(app: &mut App, input: Input) {
         ModelPanelMode::Browse => match input {
             Input { key: Key::Esc, .. } => {
                 // 回到别名配置主界面
-                app.model_panel.as_mut().unwrap().mode = ModelPanelMode::AliasConfig;
+                app.core.model_panel.as_mut().unwrap().mode = ModelPanelMode::AliasConfig;
             }
             Input { key: Key::Up, .. }
             | Input { key: Key::Char('k'), .. } => {
-                app.model_panel.as_mut().unwrap().move_cursor(-1);
+                app.core.model_panel.as_mut().unwrap().move_cursor(-1);
             }
             Input { key: Key::Down, .. }
             | Input { key: Key::Char('j'), .. } => {
-                app.model_panel.as_mut().unwrap().move_cursor(1);
+                app.core.model_panel.as_mut().unwrap().move_cursor(1);
             }
             Input { key: Key::Enter, .. } => {
                 app.model_panel_confirm_select();
             }
             Input { key: Key::Char('e'), .. } => {
-                app.model_panel.as_mut().unwrap().enter_edit();
+                app.core.model_panel.as_mut().unwrap().enter_edit();
             }
             Input { key: Key::Char('n'), .. } => {
-                app.model_panel.as_mut().unwrap().enter_new();
+                app.core.model_panel.as_mut().unwrap().enter_new();
             }
             Input { key: Key::Char('d'), .. } => {
-                app.model_panel.as_mut().unwrap().request_delete();
+                app.core.model_panel.as_mut().unwrap().request_delete();
             }
             _ => {}
         },
         // ── Provider 编辑/新建 ────────────────────────────────────────────────
         ModelPanelMode::Edit | ModelPanelMode::New => match input {
             Input { key: Key::Esc, .. } => {
-                app.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
+                app.core.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
             }
             Input { key: Key::Char('v'), ctrl: true, .. } => {
                 if let Ok(mut clipboard) = arboard::Clipboard::new() {
                     if let Ok(text) = clipboard.get_text() {
-                        app.model_panel.as_mut().unwrap().paste_text(&text);
+                        app.core.model_panel.as_mut().unwrap().paste_text(&text);
                     }
                 }
             }
             Input { key: Key::Tab, shift: false, .. } => {
-                app.model_panel.as_mut().unwrap().field_next();
+                app.core.model_panel.as_mut().unwrap().field_next();
             }
             Input { key: Key::Tab, shift: true, .. } => {
-                app.model_panel.as_mut().unwrap().field_prev();
+                app.core.model_panel.as_mut().unwrap().field_prev();
             }
             Input { key: Key::Char(' '), .. } => {
-                let field = app.model_panel.as_ref().unwrap().edit_field.clone();
+                let field = app.core.model_panel.as_ref().unwrap().edit_field.clone();
                 if field == EditField::ProviderType {
-                    app.model_panel.as_mut().unwrap().cycle_type();
+                    app.core.model_panel.as_mut().unwrap().cycle_type();
                 } else if field == EditField::ThinkingBudget {
-                    app.model_panel.as_mut().unwrap().toggle_thinking();
+                    app.core.model_panel.as_mut().unwrap().toggle_thinking();
                 } else {
-                    app.model_panel.as_mut().unwrap().push_char(' ');
+                    app.core.model_panel.as_mut().unwrap().push_char(' ');
                 }
             }
             Input { key: Key::Enter, .. } => {
                 app.model_panel_apply_edit();
             }
             Input { key: Key::Backspace, .. } => {
-                app.model_panel.as_mut().unwrap().pop_char();
+                app.core.model_panel.as_mut().unwrap().pop_char();
             }
             Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
-                app.model_panel.as_mut().unwrap().push_char(c);
+                app.core.model_panel.as_mut().unwrap().push_char(c);
             }
             _ => {}
         },
@@ -592,7 +592,7 @@ fn handle_model_panel(app: &mut App, input: Input) {
             }
             Input { key: Key::Char('n'), .. }
             | Input { key: Key::Esc, .. } => {
-                app.model_panel.as_mut().unwrap().cancel_delete();
+                app.core.model_panel.as_mut().unwrap().cancel_delete();
             }
             _ => {}
         },

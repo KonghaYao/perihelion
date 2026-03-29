@@ -8,7 +8,7 @@ impl App {
         }
 
         // 消费待发送附件
-        let attachments = std::mem::take(&mut self.pending_attachments);
+        let attachments = std::mem::take(&mut self.core.pending_attachments);
 
         // 构建用于显示的文字（附件摘要追加在末尾）
         let display = if attachments.is_empty() {
@@ -17,16 +17,16 @@ impl App {
             format!("{} [🖼 {} 张图片]", input, attachments.len())
         };
         let user_vm = MessageViewModel::user(display);
-        self.view_messages.push(user_vm.clone());
-        let _ = self.render_tx.send(RenderEvent::AddMessage(user_vm));
+        self.core.view_messages.push(user_vm.clone());
+        let _ = self.core.render_tx.send(RenderEvent::AddMessage(user_vm));
         self.set_loading(true);
-        self.scroll_offset = u16::MAX;
-        self.scroll_follow = true;
+        self.core.scroll_offset = u16::MAX;
+        self.core.scroll_follow = true;
         self.todo_items.clear();
 
         // 开始计时新任务
-        self.task_start_time = Some(std::time::Instant::now());
-        self.last_task_duration = None;
+        self.agent.task_start_time = Some(std::time::Instant::now());
+        self.agent.last_task_duration = None;
 
         let provider = match self
             .zen_config
@@ -36,7 +36,7 @@ impl App {
         {
             Some(p) => p,
             None => {
-                self.view_messages.push(MessageViewModel::tool_block(
+                self.core.view_messages.push(MessageViewModel::tool_block(
                     "error".to_string(),
                     "config-error".to_string(),
                     None,
@@ -48,11 +48,11 @@ impl App {
         };
 
         let (tx, rx) = mpsc::channel(32);
-        self.agent_rx = Some(rx);
+        self.agent.agent_rx = Some(rx);
 
         // 创建取消令牌（Ctrl+C 触发中断）
         let cancel = AgentCancellationToken::new();
-        self.cancel_token = Some(cancel.clone());
+        self.agent.cancel_token = Some(cancel.clone());
 
         // 注意：HITL 审批和 AskUser 问答现在统一通过 TuiInteractionBroker 路由到 tx channel，
         // YOLO 模式由 HumanInTheLoopMiddleware::from_env() 内部处理（自动放行）。
@@ -91,7 +91,7 @@ impl App {
         let thread_id = self.ensure_thread_id();
 
         // 懒加载 Thread 级 LangfuseSession（首轮创建，后续复用；未配置环境变量时静默跳过）
-        if self.langfuse_session.is_none() {
+        if self.langfuse.langfuse_session.is_none() {
             tracing::debug!(thread_id = %thread_id, "langfuse: session is None, attempting to create");
             if let Some(cfg) = crate::langfuse::LangfuseConfig::from_env() {
                 tracing::debug!(host = %cfg.host, "langfuse: config found, creating session");
@@ -105,7 +105,7 @@ impl App {
                 } else {
                     tracing::warn!(thread_id = %thread_id, "langfuse: session creation failed (None)");
                 }
-                self.langfuse_session = session.map(Arc::new);
+                self.langfuse.langfuse_session = session.map(Arc::new);
             } else {
                 tracing::debug!("langfuse: no config found in env, skipping session creation");
             }
@@ -114,21 +114,21 @@ impl App {
         }
 
         // 构造当前轮次的 Langfuse Tracer（同步，复用共享 Session）
-        let langfuse_tracer = self.langfuse_session.clone().map(|session| {
+        let langfuse_tracer = self.langfuse.langfuse_session.clone().map(|session| {
             let mut t = crate::langfuse::LangfuseTracer::new(session);
             t.on_trace_start(input.trim());
             Arc::new(parking_lot::Mutex::new(t))
         });
-        self.langfuse_tracer = langfuse_tracer.clone();
+        self.langfuse.langfuse_tracer = langfuse_tracer.clone();
 
         let span = tracing::info_span!(
             "thread.run",
             thread.id = %thread_id,
             thread.cwd = %cwd,
         );
-        let history = self.agent_state_messages.clone();
-        let agent_id = self.agent_id.clone();
-        let relay_client = self.relay_client.clone();
+        let history = self.agent.agent_state_messages.clone();
+        let agent_id = self.agent.agent_id.clone();
+        let relay_client = self.relay.relay_client.clone();
         let thread_store = self.thread_store.clone();
         let thread_id_for_agent = thread_id.clone();
         let zen_config_for_agent = Arc::new(self.zen_config.clone().unwrap_or_default());
@@ -160,28 +160,28 @@ impl App {
         match event {
             AgentEvent::SubAgentStart { agent_id, task_preview } => {
                 let vm = MessageViewModel::subagent_group(agent_id, task_preview);
-                self.view_messages.push(vm.clone());
-                self.subagent_group_idx = Some(self.view_messages.len() - 1);
-                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                self.core.view_messages.push(vm.clone());
+                self.core.subagent_group_idx = Some(self.core.view_messages.len() - 1);
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                 (true, false, false)
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
-                if let Some(idx) = self.subagent_group_idx {
+                if let Some(idx) = self.core.subagent_group_idx {
                     if let Some(MessageViewModel::SubAgentGroup {
                         is_running,
                         final_result,
                         ..
-                    }) = self.view_messages.get_mut(idx)
+                    }) = self.core.view_messages.get_mut(idx)
                     {
                         *is_running = false;
                         *final_result = Some(result);
                         let _ = is_error; // 错误时颜色由渲染层通过 is_error 体现
                     }
                     // 发送更新事件重绘
-                    if let Some(vm) = self.view_messages.get(idx).cloned() {
-                        let _ = self.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                    if let Some(vm) = self.core.view_messages.get(idx).cloned() {
+                        let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
                     }
-                    self.subagent_group_idx = None;
+                    self.core.subagent_group_idx = None;
                 }
                 (true, false, false)
             }
@@ -192,13 +192,13 @@ impl App {
                 args,
                 is_error,
             } => {
-                if let Some(idx) = self.subagent_group_idx {
+                if let Some(idx) = self.core.subagent_group_idx {
                     // 路由进 SubAgentGroup.recent_messages（滑动窗口 max 4）
                     if let Some(MessageViewModel::SubAgentGroup {
                         total_steps,
                         recent_messages,
                         ..
-                    }) = self.view_messages.get_mut(idx)
+                    }) = self.core.view_messages.get_mut(idx)
                     {
                         *total_steps += 1;
                         if recent_messages.len() >= 4 {
@@ -209,20 +209,20 @@ impl App {
                         ));
                     }
                     // 发送更新事件重绘最后一条消息（SubAgentGroup）
-                    if let Some(vm) = self.view_messages.get(idx).cloned() {
-                        let _ = self.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                    if let Some(vm) = self.core.view_messages.get(idx).cloned() {
+                        let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
                     }
                 } else {
                     // 父 Agent 层：正常创建 ToolBlock
                     let vm = MessageViewModel::tool_block(name, display, args, is_error);
-                    self.view_messages.push(vm.clone());
-                    let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                    self.core.view_messages.push(vm.clone());
+                    let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                 }
                 (true, false, false)
             }
             AgentEvent::MessageAdded(msg) => {
                 // SubAgent 执行期间忽略 MessageAdded（不影响父 Agent 消息历史）
-                if self.subagent_group_idx.is_some() {
+                if self.core.subagent_group_idx.is_some() {
                     return (false, false, false);
                 }
                 // AI 消息文本由紧随其后的 AiReasoning→AssistantChunk 事件处理，此处不处理
@@ -230,13 +230,13 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
-                if let Some(idx) = self.subagent_group_idx {
+                if let Some(idx) = self.core.subagent_group_idx {
                     // 路由进 SubAgentGroup.recent_messages 的最后一个 AssistantBubble
                     if let Some(MessageViewModel::SubAgentGroup {
                         recent_messages,
                         total_steps,
                         ..
-                    }) = self.view_messages.get_mut(idx)
+                    }) = self.core.view_messages.get_mut(idx)
                     {
                         match recent_messages.last_mut() {
                             Some(m) if m.is_assistant() => m.append_chunk(&chunk),
@@ -254,29 +254,29 @@ impl App {
                         }
                     }
                     // 发送更新事件重绘
-                    if let Some(vm) = self.view_messages.get(idx).cloned() {
-                        let _ = self.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                    if let Some(vm) = self.core.view_messages.get(idx).cloned() {
+                        let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
                     }
                 } else {
                     // 如果 chunk 为空且没有现有的 assistant bubble，跳过创建空的 bubble
                     // 避免 AI 只发起工具调用时显示空白消息
                     if chunk.is_empty() {
-                        match self.view_messages.last_mut() {
+                        match self.core.view_messages.last_mut() {
                             Some(m) if m.is_assistant() => m.append_chunk(&chunk),
                             _ => {
                                 // 没有现有的 assistant bubble，chunk 为空，不创建新的空 bubble
                             }
                         }
                     } else {
-                        match self.view_messages.last_mut() {
+                        match self.core.view_messages.last_mut() {
                             Some(m) if m.is_assistant() => m.append_chunk(&chunk),
                             _ => {
                                 let vm = MessageViewModel::assistant();
-                                self.view_messages.push(vm.clone());
-                                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                                self.core.view_messages.push(vm.clone());
+                                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                             }
                         }
-                        let _ = self.render_tx.send(RenderEvent::AppendChunk(chunk));
+                        let _ = self.core.render_tx.send(RenderEvent::AppendChunk(chunk));
                     }
                 }
                 (true, false, false)
@@ -284,32 +284,32 @@ impl App {
             AgentEvent::Done => {
                 // 将最后一个 AssistantBubble 的 is_streaming 设为 false
                 if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
-                    self.view_messages.last_mut()
+                    self.core.view_messages.last_mut()
                 {
                     *is_streaming = false;
                 }
                 // 通知渲染线程清除流式指示器
-                let _ = self.render_tx.send(RenderEvent::StreamingDone);
+                let _ = self.core.render_tx.send(RenderEvent::StreamingDone);
                 // Langfuse：结束 Trace，上报最终答案（通过 TextChunk 事件累积，避免 UI 截断）
-                if let Some(ref tracer) = self.langfuse_tracer {
-                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
+                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
+                    self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
                 }
-                self.langfuse_tracer = None;
+                self.langfuse.langfuse_tracer = None;
                 self.set_loading(false);
-                self.agent_rx = None;
+                self.agent.agent_rx = None;
                 // 异常退出时兜底清空 subagent 状态
-                self.subagent_group_idx = None;
+                self.core.subagent_group_idx = None;
                 // Agent 异常退出时清理残留弹窗状态，避免 UI 卡在弹窗
-                self.interaction_prompt = None;
-                self.pending_hitl_items = None;
-                self.pending_ask_user = None;
-                if let Some(start) = self.task_start_time {
-                    self.last_task_duration = Some(start.elapsed());
+                self.agent.interaction_prompt = None;
+                self.agent.pending_hitl_items = None;
+                self.agent.pending_ask_user = None;
+                if let Some(start) = self.agent.task_start_time {
+                    self.agent.last_task_duration = Some(start.elapsed());
                 }
                 // 检查缓冲消息，合并发送
-                if !self.pending_messages.is_empty() {
-                    let combined = self.pending_messages.join("\n\n");
-                    self.pending_messages.clear();
+                if !self.core.pending_messages.is_empty() {
+                    let combined = self.core.pending_messages.join("\n\n");
+                    self.core.pending_messages.clear();
                     self.submit_message(combined);
                 }
                 (true, false, true)
@@ -319,8 +319,8 @@ impl App {
                 let vm = MessageViewModel::system(
                     "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
                 );
-                self.view_messages.push(vm.clone());
-                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                self.core.view_messages.push(vm.clone());
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                 // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
                 (true, false, false)
             }
@@ -331,28 +331,28 @@ impl App {
                     Some(e.clone()),
                     true,
                 );
-                self.view_messages.push(vm.clone());
-                let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                self.core.view_messages.push(vm.clone());
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                 // Langfuse：错误路径也需结束 Trace，避免 Trace 在 Langfuse 侧永远显示为运行中
-                if let Some(ref tracer) = self.langfuse_tracer {
-                    self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
+                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
+                    self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
                 }
-                self.langfuse_tracer = None;
+                self.langfuse.langfuse_tracer = None;
                 self.set_loading(false);
-                self.agent_rx = None;
+                self.agent.agent_rx = None;
                 // 兜底清空 subagent 状态
-                self.subagent_group_idx = None;
+                self.core.subagent_group_idx = None;
                 // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗
-                self.interaction_prompt = None;
-                self.pending_hitl_items = None;
-                self.pending_ask_user = None;
-                if let Some(start) = self.task_start_time {
-                    self.last_task_duration = Some(start.elapsed());
+                self.agent.interaction_prompt = None;
+                self.agent.pending_hitl_items = None;
+                self.agent.pending_ask_user = None;
+                if let Some(start) = self.agent.task_start_time {
+                    self.agent.last_task_duration = Some(start.elapsed());
                 }
                 // 检查缓冲消息，合并发送
-                if !self.pending_messages.is_empty() {
-                    let combined = self.pending_messages.join("\n\n");
-                    self.pending_messages.clear();
+                if !self.core.pending_messages.is_empty() {
+                    let combined = self.core.pending_messages.join("\n\n");
+                    self.core.pending_messages.clear();
                     self.submit_message(combined);
                 }
                 (true, false, true)
@@ -387,7 +387,7 @@ impl App {
                             }
                         });
                         // 转发 HITL 审批请求到 Relay（统一 interaction_request 消息）
-                        if let Some(ref relay) = self.relay_client {
+                        if let Some(ref relay) = self.relay.relay_client {
                             let relay_items: Vec<serde_json::Value> = batch_items
                                 .iter()
                                 .map(|item| serde_json::json!({ "tool_name": item.tool_name, "input": item.input }))
@@ -398,7 +398,7 @@ impl App {
                                 "items": relay_items
                             }));
                         }
-                        self.interaction_prompt = Some(InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)));
+                        self.agent.interaction_prompt = Some(InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)));
                         (true, true, false) // 暂停消费，等待用户确认
                     }
                     InteractionContext::Questions { requests } => {
@@ -429,8 +429,8 @@ impl App {
                             }
                         });
                         // 转发 AskUser 请求到 Relay（统一 interaction_request 消息）
-                        self.pending_ask_user = Some(false);
-                        if let Some(ref relay) = self.relay_client {
+                        self.agent.pending_ask_user = Some(false);
+                        if let Some(ref relay) = self.relay.relay_client {
                             let questions_json: Vec<serde_json::Value> = ask_questions.iter().map(|q| {
                                 serde_json::json!({
                                     "tool_call_id": q.tool_call_id,
@@ -449,14 +449,14 @@ impl App {
                         let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
                         // 用桥接的 sender 覆盖 batch_req 的 response_tx
                         let batch_req_bridged = AskUserBatchRequest { questions: batch_req.questions, response_tx: bridge_tx };
-                        self.interaction_prompt = Some(InteractionPrompt::Questions(AskUserBatchPrompt::from_request(batch_req_bridged)));
+                        self.agent.interaction_prompt = Some(InteractionPrompt::Questions(AskUserBatchPrompt::from_request(batch_req_bridged)));
                         (true, true, false) // 暂停消费，等待用户输入
                     }
                 }
             }
             AgentEvent::TodoUpdate(todos) => {
                 // 转发 TODO 更新到 Relay
-                if let Some(ref relay) = self.relay_client {
+                if let Some(ref relay) = self.relay.relay_client {
                     let items: Vec<serde_json::Value> = todos
                         .iter()
                         .map(|t| {
@@ -496,7 +496,7 @@ impl App {
                     }
                 }
                 // 增量追加到 agent_state_messages（去重，避免重复消息）
-                self.agent_state_messages.extend(msgs);
+                self.agent.agent_state_messages.extend(msgs);
                 // 持久化已由 AgentState::add_message 自动完成（fire-and-forget）
                 (true, false, false)
             }
@@ -535,40 +535,40 @@ impl App {
 
                 // 切换到新 Thread
                 self.current_thread_id = Some(new_tid.clone());
-                self.agent_state_messages = new_messages;
+                self.agent.agent_state_messages = new_messages;
 
                 // 清空显示消息，插入压缩提示 + 摘要（AI 消息形式）
-                self.view_messages.clear();
+                self.core.view_messages.clear();
                 let compact_vm = MessageViewModel::system(
                     "📦 上下文已压缩（从旧对话迁移到新 Thread）".to_string(),
                 );
-                self.view_messages.push(compact_vm);
+                self.core.view_messages.push(compact_vm);
                 let summary_vm = MessageViewModel::from_base_message(
                     &BaseMessage::ai(format!("📋 压缩摘要：\n{}", summary)),
                     &[],
                 );
-                self.view_messages.push(summary_vm);
+                self.core.view_messages.push(summary_vm);
 
                 // 通知渲染线程重建显示
                 let _ = self
-                    .render_tx
+                    .core.render_tx
                     .send(crate::ui::render_thread::RenderEvent::Clear);
-                for vm in &self.view_messages {
+                for vm in &self.core.view_messages {
                     let _ = self
-                        .render_tx
+                        .core.render_tx
                         .send(crate::ui::render_thread::RenderEvent::AddMessage(
                             vm.clone(),
                         ));
                 }
 
                 self.set_loading(false);
-                self.agent_rx = None;
+                self.agent.agent_rx = None;
 
                 // 重置 Langfuse session（新 Thread 需要独立 session）
-                self.langfuse_session = None;
+                self.langfuse.langfuse_session = None;
 
                 // 通知 Relay Web 前端：compact 完成
-                if let Some(ref relay) = self.relay_client {
+                if let Some(ref relay) = self.relay.relay_client {
                     relay.send_value(serde_json::json!({
                         "type": "compact_done",
                         "summary": summary,
@@ -578,9 +578,9 @@ impl App {
                 }
 
                 // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）
-                if !self.pending_messages.is_empty() {
-                    let combined = self.pending_messages.join("\n\n");
-                    self.pending_messages.clear();
+                if !self.core.pending_messages.is_empty() {
+                    let combined = self.core.pending_messages.join("\n\n");
+                    self.core.pending_messages.clear();
                     self.submit_message(combined);
                 }
 
@@ -588,17 +588,17 @@ impl App {
             }
             AgentEvent::CompactError(msg) => {
                 let vm = MessageViewModel::system(format!("❌ 压缩失败: {}", msg));
-                self.view_messages.push(vm.clone());
+                self.core.view_messages.push(vm.clone());
                 let _ = self
-                    .render_tx
+                    .core.render_tx
                     .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
                 self.set_loading(false);
-                self.agent_rx = None;
+                self.agent.agent_rx = None;
 
                 // 刷新 compact 期间缓冲的消息
-                if !self.pending_messages.is_empty() {
-                    let combined = self.pending_messages.join("\n\n");
-                    self.pending_messages.clear();
+                if !self.core.pending_messages.is_empty() {
+                    let combined = self.core.pending_messages.join("\n\n");
+                    self.core.pending_messages.clear();
                     self.submit_message(combined);
                 }
 
@@ -609,7 +609,7 @@ impl App {
 
     /// 每帧调用：消费 channel 事件，返回是否有 UI 更新
     pub fn poll_agent(&mut self) -> bool {
-        if self.agent_rx.is_none() {
+        if self.agent.agent_rx.is_none() {
             return false;
         }
 
@@ -617,7 +617,7 @@ impl App {
 
         loop {
             // 先 try_recv 拿到事件（短暂借用 rx），立即释放借用
-            let result = self.agent_rx.as_mut().map(|rx| rx.try_recv());
+            let result = self.agent.agent_rx.as_mut().map(|rx| rx.try_recv());
             match result {
                 Some(Ok(event)) => {
                     let (ev_updated, should_break, should_return) = self.handle_agent_event(event);
@@ -639,23 +639,23 @@ impl App {
                         Some("agent channel disconnected unexpectedly".to_string()),
                         true,
                     );
-                    self.view_messages.push(vm.clone());
-                    let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
+                    self.core.view_messages.push(vm.clone());
+                    let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                     // Langfuse：channel 意外断开也需结束 Trace，与 Error 路径保持一致
-                    if let Some(ref tracer) = self.langfuse_tracer {
-                        self.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly")));
+                    if let Some(ref tracer) = self.langfuse.langfuse_tracer {
+                        self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly")));
                     }
-                    self.langfuse_tracer = None;
+                    self.langfuse.langfuse_tracer = None;
                     self.set_loading(false);
-                    self.agent_rx = None;
+                    self.agent.agent_rx = None;
                     // 兜底清空 subagent 状态
-                    self.subagent_group_idx = None;
+                    self.core.subagent_group_idx = None;
                     // 清理残留弹窗状态，避免 UI 卡在弹窗
-                    self.interaction_prompt = None;
-                    self.pending_hitl_items = None;
-                    self.pending_ask_user = None;
-                    if let Some(start) = self.task_start_time {
-                        self.last_task_duration = Some(start.elapsed());
+                    self.agent.interaction_prompt = None;
+                    self.agent.pending_hitl_items = None;
+                    self.agent.pending_ask_user = None;
+                    if let Some(start) = self.agent.task_start_time {
+                        self.agent.last_task_duration = Some(start.elapsed());
                     }
                     return true;
                 }

@@ -6,29 +6,29 @@ impl App {
     /// 打开 /model 面板
     pub fn open_model_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
-        self.model_panel = Some(ModelPanel::from_config(cfg));
+        self.core.model_panel = Some(ModelPanel::from_config(cfg));
     }
 
     /// 关闭 /model 面板（不保存）
     pub fn close_model_panel(&mut self) {
-        self.model_panel = None;
+        self.core.model_panel = None;
     }
 
     // ─── Agent 面板操作 ───────────────────────────────────────────────────────
 
     /// 打开 /agents 面板（传入扫描到的 agent 列表）
     pub fn open_agent_panel(&mut self, agents: Vec<AgentItem>) {
-        self.agent_panel = Some(AgentPanel::new(agents, self.agent_id.clone()));
+        self.core.agent_panel = Some(AgentPanel::new(agents, self.agent.agent_id.clone()));
     }
 
     /// 关闭 /agents 面板（不选择任何 agent）
     pub fn close_agent_panel(&mut self) {
-        self.agent_panel = None;
+        self.core.agent_panel = None;
     }
 
     /// 在 agent 面板中上移光标
     pub fn agent_panel_move_up(&mut self) {
-        if let Some(panel) = self.agent_panel.as_mut() {
+        if let Some(panel) = self.core.agent_panel.as_mut() {
             panel.move_cursor(-1);
             panel.scroll_offset =
                 ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
@@ -37,7 +37,7 @@ impl App {
 
     /// 在 agent 面板中下移光标
     pub fn agent_panel_move_down(&mut self) {
-        if let Some(panel) = self.agent_panel.as_mut() {
+        if let Some(panel) = self.core.agent_panel.as_mut() {
             panel.move_cursor(1);
             panel.scroll_offset =
                 ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
@@ -48,7 +48,7 @@ impl App {
     pub fn agent_panel_confirm(&mut self) {
         // 先取出 selection，避免同时借用 panel 和 agent_id
         let (is_none, agent_id, agent_name) = {
-            let panel = match self.agent_panel.as_mut() {
+            let panel = match self.core.agent_panel.as_mut() {
                 Some(p) => p,
                 None => return,
             };
@@ -65,29 +65,29 @@ impl App {
 
         if is_none {
             self.set_agent_id(None);
-            self.view_messages.push(MessageViewModel::system(
+            self.core.view_messages.push(MessageViewModel::system(
                 "Agent 已重置（未设置 agent_id）".to_string(),
             ));
         } else if let Some(id) = agent_id {
             self.set_agent_id(Some(id.clone()));
             let name = agent_name.unwrap_or_else(|| id.clone());
-            self.view_messages.push(MessageViewModel::system(format!(
+            self.core.view_messages.push(MessageViewModel::system(format!(
                 "Agent 已切换为: {} ({})",
                 name, id
             )));
         }
-        self.agent_panel = None;
+        self.core.agent_panel = None;
     }
 
     /// 取消选择（不改变当前 agent_id），关闭面板
     #[allow(dead_code)]
     pub fn agent_panel_clear(&mut self) {
-        self.agent_panel = None;
+        self.core.agent_panel = None;
     }
 
     /// 在面板中确认选择当前 provider（Browse 模式下，仅更新 active_id 显示）
     pub fn model_panel_confirm_select(&mut self) {
-        let Some(panel) = self.model_panel.as_mut() else {
+        let Some(panel) = self.core.model_panel.as_mut() else {
             return;
         };
         let Some(cfg) = self.zen_config.as_mut() else {
@@ -100,7 +100,7 @@ impl App {
     /// 在面板中保存编辑/新建，写回配置
     /// 新建 provider 时自动关联到当前 alias
     pub fn model_panel_apply_edit(&mut self) {
-        let Some(panel) = self.model_panel.as_mut() else {
+        let Some(panel) = self.core.model_panel.as_mut() else {
             return;
         };
         let Some(cfg) = self.zen_config.as_mut() else {
@@ -114,7 +114,7 @@ impl App {
 
     /// 删除光标处的 provider
     pub fn model_panel_confirm_delete(&mut self) {
-        let Some(panel) = self.model_panel.as_mut() else {
+        let Some(panel) = self.core.model_panel.as_mut() else {
             return;
         };
         let Some(cfg) = self.zen_config.as_mut() else {
@@ -130,7 +130,7 @@ impl App {
 
     /// 激活当前 Tab（写入 active_alias），保存配置，更新状态栏
     pub fn model_panel_activate_tab(&mut self) {
-        let Some(panel) = self.model_panel.as_ref() else {
+        let Some(panel) = self.core.model_panel.as_ref() else {
             return;
         };
         let Some(cfg) = self.zen_config.as_mut() else {
@@ -143,12 +143,12 @@ impl App {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
         }
-        self.model_panel = None;
+        self.core.model_panel = None;
     }
 
     /// 保存当前 Tab 的 provider/model 配置（不改变 active_alias）
     pub fn model_panel_save_alias(&mut self) {
-        let Some(panel) = self.model_panel.as_ref() else {
+        let Some(panel) = self.core.model_panel.as_ref() else {
             return;
         };
         let Some(cfg) = self.zen_config.as_mut() else {
@@ -170,8 +170,8 @@ impl App {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
         let mut panel = RelayPanel::from_config(cfg);
         // 若已连接，恢复 Web 接入 URL
-        if self.relay_client.is_some() {
-            if let Some((ref url, ref token, _, ref user_id)) = self.relay_params {
+        if self.relay.relay_client.is_some() {
+            if let Some((ref url, ref token, _, ref user_id)) = self.relay.relay_params {
                 let web_url = format!(
                     "{}/web/?token={}#user_id={}",
                     crate::app::relay_ops::ws_url_to_http(url),
@@ -220,12 +220,12 @@ impl App {
 impl App {
     /// 向事件队列注入 AgentEvent（测试用）
     pub fn push_agent_event(&mut self, event: AgentEvent) {
-        self.agent_event_queue.push(event);
+        self.agent.agent_event_queue.push(event);
     }
 
     /// 批量处理队列中所有待处理事件，复用 handle_agent_event 逻辑
     pub fn process_pending_events(&mut self) {
-        let events: Vec<AgentEvent> = std::mem::take(&mut self.agent_event_queue);
+        let events: Vec<AgentEvent> = std::mem::take(&mut self.agent.agent_event_queue);
         for event in events {
             let (_updated, should_break, should_return) = self.handle_agent_event(event);
             if should_return || should_break {
@@ -253,51 +253,26 @@ impl App {
                 .expect("无法创建测试用 SQLite 数据库"),
         );
 
+        let core = super::AppCore::new(
+            render_tx,
+            render_cache,
+            Arc::clone(&render_notify),
+            crate::command::default_registry(),
+            Vec::new(),
+        );
+
         let app = App {
-            view_messages: Vec::new(),
-            textarea: build_textarea(false, 0),
-            loading: false,
-            scroll_offset: u16::MAX,
-            scroll_follow: true,
+            core,
+            agent: super::AgentComm::default(),
+            relay: super::RelayState::default(),
+            langfuse: super::LangfuseState::default(),
             cwd: "/tmp".to_string(),
             provider_name: "test".to_string(),
             model_name: "test-model".to_string(),
-            agent_rx: None,
-            interaction_prompt: None,
-            todo_items: Vec::new(),
             zen_config: None,
-            model_panel: None,
-            agent_panel: None,
-            command_registry: crate::command::default_registry(),
-            command_help_list: Vec::new(),
-            skills: Vec::new(),
-            hint_cursor: None,
             thread_store,
             current_thread_id: None,
-            thread_browser: None,
-            cancel_token: None,
-            task_start_time: None,
-            last_task_duration: None,
-            agent_state_messages: Vec::new(),
-            agent_id: None,
-            render_tx,
-            render_cache,
-            render_notify: Arc::clone(&render_notify),
-            last_render_version: 0,
-            agent_event_queue: Vec::new(),
-            pending_messages: Vec::new(),
-            pending_attachments: Vec::new(),
-            show_tool_messages: false,
-            subagent_group_idx: None,
-            relay_client: None,
-            relay_event_rx: None,
-            relay_params: None,
-            relay_reconnect_at: None,
-            pending_hitl_items: None,
-            pending_ask_user: None,
-            langfuse_session: None,
-            langfuse_tracer: None,
-            langfuse_flush_handle: None,
+            todo_items: Vec::new(),
             relay_panel: None,
         };
 

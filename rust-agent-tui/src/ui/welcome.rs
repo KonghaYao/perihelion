@@ -95,7 +95,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     ]));
 
     // ── 动态信息 ────────────────────────────────────────────────────────
-    let skills_count = app.skills.len();
+    let skills_count = app.core.skills.len();
     if skills_count > 0 {
         lines.push(Line::from(vec![
             Span::styled(" #", Style::default().fg(theme::WARNING)),

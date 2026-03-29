@@ -2,19 +2,19 @@ use super::*;
 
 impl App {
     pub fn ask_user_next_tab(&mut self) {
-        if let Some(InteractionPrompt::Questions(p)) = self.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
             p.next_tab();
         }
     }
 
     pub fn ask_user_prev_tab(&mut self) {
-        if let Some(InteractionPrompt::Questions(p)) = self.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
             p.prev_tab();
         }
     }
 
     pub fn ask_user_move(&mut self, delta: isize) {
-        if let Some(InteractionPrompt::Questions(p)) = self.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
             p.current().move_option_cursor(delta);
             // 光标跟随滚动
             let cursor_row = p.current().option_cursor.max(0) as u16;
@@ -23,19 +23,19 @@ impl App {
     }
 
     pub fn ask_user_toggle(&mut self) {
-        if let Some(InteractionPrompt::Questions(p)) = self.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
             p.current().toggle_current();
         }
     }
 
     pub fn ask_user_push_char(&mut self, c: char) {
-        if let Some(InteractionPrompt::Questions(p)) = self.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
             p.current().push_char(c);
         }
     }
 
     pub fn ask_user_pop_char(&mut self) {
-        if let Some(InteractionPrompt::Questions(p)) = self.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
             p.current().pop_char();
         }
     }
@@ -44,7 +44,7 @@ impl App {
     /// 若当前问题没有选中任何选项（且不在自定义输入模式），自动选中光标所在选项。
     pub fn ask_user_confirm(&mut self) {
         let all_done = {
-            let p = match self.interaction_prompt.as_mut() {
+            let p = match self.agent.interaction_prompt.as_mut() {
                 Some(InteractionPrompt::Questions(p)) => p,
                 _ => return,
             };
@@ -61,11 +61,11 @@ impl App {
 
         if all_done {
             // 通知所有端清除交互弹窗
-            if let Some(ref relay) = self.relay_client {
+            if let Some(ref relay) = self.relay.relay_client {
                 relay.send_value(serde_json::json!({ "type": "interaction_resolved" }));
             }
-            self.pending_ask_user = None;
-            if let Some(InteractionPrompt::Questions(p)) = self.interaction_prompt.take() {
+            self.agent.pending_ask_user = None;
+            if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.take() {
                 p.confirm();
             }
         }

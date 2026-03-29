@@ -84,9 +84,7 @@ impl SubAgentTool {
                 }
                 // 若 allowed_list 非空，则仅保留列表中的工具（大小写不敏感）
                 if !allowed_list.is_empty()
-                    && !allowed_list
-                        .iter()
-                        .any(|n| n.to_lowercase() == name_lower)
+                    && !allowed_list.iter().any(|n| n.to_lowercase() == name_lower)
                 {
                     return false;
                 }
@@ -185,8 +183,10 @@ impl BaseTool for SubAgentTool {
         };
 
         // 3. 工具过滤
-        let filtered_tools =
-            self.filter_tools(&agent_def.frontmatter.tools, &agent_def.frontmatter.disallowed_tools);
+        let filtered_tools = self.filter_tools(
+            &agent_def.frontmatter.tools,
+            &agent_def.frontmatter.disallowed_tools,
+        );
 
         // 4. 组装子 ReActAgent
         // 提取 model alias：非 "inherit" 且非空时传给 factory，否则 None 表示继承父模型
@@ -196,7 +196,7 @@ impl BaseTool for SubAgentTool {
             .as_deref()
             .filter(|m| !m.is_empty() && *m != "inherit");
         let llm = (self.llm_factory)(model_alias);
-        let max_iterations = agent_def.frontmatter.max_turns.unwrap_or(20) as usize;
+        let max_iterations = agent_def.frontmatter.max_turns.unwrap_or(200) as usize;
 
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
 
@@ -209,9 +209,10 @@ impl BaseTool for SubAgentTool {
 
         // 若 agent def 声明了 skills，注入 SkillPreloadMiddleware（全文预加载）
         if !agent_def.frontmatter.skills.is_empty() {
-            agent_builder = agent_builder.add_middleware(Box::new(
-                SkillPreloadMiddleware::new(agent_def.frontmatter.skills.clone(), &cwd),
-            ));
+            agent_builder = agent_builder.add_middleware(Box::new(SkillPreloadMiddleware::new(
+                agent_def.frontmatter.skills.clone(),
+                &cwd,
+            )));
         }
 
         agent_builder = agent_builder.add_middleware(Box::new(TodoMiddleware::new({
@@ -396,7 +397,10 @@ mod tests {
 
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"glob_files"));
-        assert!(!names.contains(&"write_file"), "write_file 不在 allowlist 中应被排除");
+        assert!(
+            !names.contains(&"write_file"),
+            "write_file 不在 allowlist 中应被排除"
+        );
     }
 
     #[test]
@@ -410,14 +414,19 @@ mod tests {
         let t = make_subagent_tool(parent_tools);
 
         let allowed = ToolsValue::Empty;
-        let disallowed =
-            ToolsValue::List(vec!["write_file".to_string(), "edit_file".to_string()]);
+        let disallowed = ToolsValue::List(vec!["write_file".to_string(), "edit_file".to_string()]);
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
         assert!(names.contains(&"read_file"));
-        assert!(!names.contains(&"write_file"), "write_file 在 disallow 列表中应被排除");
-        assert!(!names.contains(&"edit_file"), "edit_file 在 disallow 列表中应被排除");
+        assert!(
+            !names.contains(&"write_file"),
+            "write_file 在 disallow 列表中应被排除"
+        );
+        assert!(
+            !names.contains(&"edit_file"),
+            "edit_file 在 disallow 列表中应被排除"
+        );
     }
 
     #[tokio::test]
@@ -463,10 +472,7 @@ mod tests {
         let t = make_subagent_tool(parent_tools);
 
         // agent.md 中 tools: ["launch_agent", "read_file"]
-        let allowed = ToolsValue::List(vec![
-            "launch_agent".to_string(),
-            "read_file".to_string(),
-        ]);
+        let allowed = ToolsValue::List(vec!["launch_agent".to_string(), "read_file".to_string()]);
         let disallowed = ToolsValue::Empty;
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
@@ -494,9 +500,18 @@ mod tests {
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
-        assert!(names.contains(&"read_file"), "大小写不敏感：Read_File 应匹配 read_file");
-        assert!(names.contains(&"glob_files"), "大小写不敏感：Glob_Files 应匹配 glob_files");
-        assert!(!names.contains(&"write_file"), "write_file 不在 allowlist 中应被排除");
+        assert!(
+            names.contains(&"read_file"),
+            "大小写不敏感：Read_File 应匹配 read_file"
+        );
+        assert!(
+            names.contains(&"glob_files"),
+            "大小写不敏感：Glob_Files 应匹配 glob_files"
+        );
+        assert!(
+            !names.contains(&"write_file"),
+            "write_file 不在 allowlist 中应被排除"
+        );
 
         // disallowedTools 大小写不敏感
         let allowed2 = ToolsValue::Empty;
@@ -506,16 +521,16 @@ mod tests {
 
         assert!(names2.contains(&"read_file"));
         assert!(names2.contains(&"glob_files"));
-        assert!(!names2.contains(&"write_file"), "Write_File 应大小写不敏感地排除 write_file");
+        assert!(
+            !names2.contains(&"write_file"),
+            "Write_File 应大小写不敏感地排除 write_file"
+        );
     }
 
     /// 防递归：launch_agent 在 disallowedTools 中是冗余但不应出错
     #[test]
     fn test_launch_agent_excluded_when_in_disallowed() {
-        let parent_tools = vec![
-            make_tool("read_file"),
-            make_tool("launch_agent"),
-        ];
+        let parent_tools = vec![make_tool("read_file"), make_tool("launch_agent")];
         let t = make_subagent_tool(parent_tools);
 
         let allowed = ToolsValue::Empty;
@@ -554,7 +569,10 @@ mod tests {
                     .find(|m| matches!(m, BaseMessage::System { .. }))
                     .map(|m| m.content())
                     .unwrap_or_else(|| "no-system".to_string());
-                Ok(Reasoning::with_answer("", format!("system={system_content}")))
+                Ok(Reasoning::with_answer(
+                    "",
+                    format!("system={system_content}"),
+                ))
             }
         }
 
@@ -573,7 +591,11 @@ mod tests {
             }))
             .await
             .unwrap();
-        assert!(result.contains("tone: be concise"), "系统提示应被注入: {}", result);
+        assert!(
+            result.contains("tone: be concise"),
+            "系统提示应被注入: {}",
+            result
+        );
     }
 
     /// 验证当 agent.md 包含 skills 字段时，SkillPreloadMiddleware 被正确注册
@@ -609,10 +631,16 @@ mod tests {
                 messages: &[BaseMessage],
                 _tools: &[&dyn BaseTool],
             ) -> rust_create_agent::error::AgentResult<Reasoning> {
-                let found = messages.iter().any(|m| m.content().contains("预加载 skill 文件"));
+                let found = messages
+                    .iter()
+                    .any(|m| m.content().contains("预加载 skill 文件"));
                 Ok(Reasoning::with_answer(
                     "",
-                    if found { "skill_preload_found" } else { "skill_preload_not_found" },
+                    if found {
+                        "skill_preload_found"
+                    } else {
+                        "skill_preload_not_found"
+                    },
                 ))
             }
         }
@@ -620,7 +648,9 @@ mod tests {
         let t = SubAgentTool::new(
             Arc::new(vec![]),
             None,
-            Arc::new(|_: Option<&str>| Box::new(SkillPreloadCheckLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| {
+                Box::new(SkillPreloadCheckLLM) as Box<dyn ReactLLM + Send + Sync>
+            }),
         );
 
         let result = t

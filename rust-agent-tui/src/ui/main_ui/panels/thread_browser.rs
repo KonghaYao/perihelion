@@ -11,7 +11,7 @@ use crate::ui::theme;
 
 /// Thread 浏览面板（底部展开区）
 pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
-    let Some(browser) = &app.thread_browser else { return };
+    let Some(browser) = &app.core.thread_browser else { return };
 
     let popup_area = area;
     f.render_widget(Clear, popup_area);

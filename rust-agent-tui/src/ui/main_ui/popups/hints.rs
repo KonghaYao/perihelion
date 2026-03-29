@@ -12,13 +12,13 @@ use crate::ui::theme;
 /// 命令提示条：当输入以 / 开头时，在输入框上方浮动显示匹配命令
 pub(crate) fn render_command_hint(f: &mut Frame, app: &App, input_area: Rect) {
     // 取输入框第一行内容
-    let first_line = app.textarea.lines().first().map(|s| s.as_str()).unwrap_or("");
+    let first_line = app.core.textarea.lines().first().map(|s| s.as_str()).unwrap_or("");
     if !first_line.starts_with('/') {
         return;
     }
 
     let prefix = first_line.trim_start_matches('/');
-    let candidates = app.command_registry.match_prefix(prefix);
+    let candidates = app.core.command_registry.match_prefix(prefix);
 
     // 无候选：不显示
     if candidates.is_empty() {
@@ -48,7 +48,7 @@ pub(crate) fn render_command_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
     let inner = block.inner(hint_area);
 
-    let selected = if first_line.starts_with('/') { app.hint_cursor } else { None };
+    let selected = if first_line.starts_with('/') { app.core.hint_cursor } else { None };
 
     let lines: Vec<Line> = candidates
         .iter()
@@ -74,13 +74,13 @@ pub(crate) fn render_command_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
 /// Skills 提示浮层（输入以 # 开头时显示匹配的 skills）
 pub(crate) fn render_skill_hint(f: &mut Frame, app: &App, input_area: Rect) {
-    let first_line = app.textarea.lines().first().map(|s| s.as_str()).unwrap_or("");
+    let first_line = app.core.textarea.lines().first().map(|s| s.as_str()).unwrap_or("");
     if !first_line.starts_with('#') {
         return;
     }
 
     let prefix = first_line.trim_start_matches('#');
-    let candidates: Vec<_> = app.skills.iter()
+    let candidates: Vec<_> = app.core.skills.iter()
         .filter(|s| prefix.is_empty() || s.name.contains(prefix))
         .take(8)
         .collect();
@@ -110,7 +110,7 @@ pub(crate) fn render_skill_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
     let inner = block.inner(hint_area);
 
-    let selected = if first_line.starts_with('#') { app.hint_cursor } else { None };
+    let selected = if first_line.starts_with('#') { app.core.hint_cursor } else { None };
 
     let lines: Vec<Line> = candidates
         .iter()

@@ -23,14 +23,14 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(theme::MUTED),
     ));
     // Agent 状态（loading 时显示分隔符和状态，空闲时不显示）
-    if app.loading {
+    if app.core.loading {
         left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled("⠿ 运行中", Style::default().fg(theme::LOADING).add_modifier(Modifier::BOLD)));
     }
 
     // 运行时长
     if let Some(duration) = app.get_current_task_duration() {
-        let timer_color = if app.loading { theme::LOADING } else { theme::ACCENT };
+        let timer_color = if app.core.loading { theme::LOADING } else { theme::ACCENT };
         left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
             format!("⏱ {}", format_duration(duration)),
@@ -63,12 +63,12 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     // 消息计数
     left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
     left_spans.push(Span::styled(
-        format!("🗨 {} 条", app.view_messages.len()),
+        format!("🗨 {} 条", app.core.view_messages.len()),
         Style::default().fg(theme::MUTED),
     ));
 
     // Agent 面板选中信息
-    if let Some(panel) = &app.agent_panel {
+    if let Some(panel) = &app.core.agent_panel {
         left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         if let Some(agent) = panel.current_agent() {
             left_spans.push(Span::styled(
@@ -88,7 +88,7 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // ── 右侧：弹窗激活时显示快捷键提示 ─────────────────────────────────────
-    let right_spans: Vec<Span> = match &app.interaction_prompt {
+    let right_spans: Vec<Span> = match &app.agent.interaction_prompt {
         Some(crate::app::InteractionPrompt::Questions(_)) => {
             vec![
                 Span::styled(" Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
@@ -115,7 +115,7 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(":确认", Style::default().fg(theme::MUTED)),
             ]
         }
-        None => if app.agent_panel.is_some() {
+        None => if app.core.agent_panel.is_some() {
             vec![
                 Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
                 Span::styled(":选择  ", Style::default().fg(theme::MUTED)),

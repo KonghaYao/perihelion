@@ -11,7 +11,7 @@ use crate::ui::theme;
 
 /// /agents 面板渲染（底部展开区）
 pub(crate) fn render_agent_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.agent_panel else { return };
+    let Some(panel) = &app.core.agent_panel else { return };
 
     let agent_count = panel.agents.len();
     let popup_area = area;

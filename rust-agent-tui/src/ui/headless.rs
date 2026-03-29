@@ -116,8 +116,8 @@ mod tests {
         let notified = handle.render_notify.notified();
         // 使用 ASCII 内容避免 CJK 宽字符在 buffer 中的空格填充问题
         let vm = MessageViewModel::user("hello from user".into());
-        app.view_messages.push(vm.clone());
-        let _ = app.render_tx.send(RenderEvent::AddMessage(vm));
+        app.core.view_messages.push(vm.clone());
+        let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
         notified.await;
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
@@ -141,17 +141,17 @@ mod tests {
         tokio::join!(n1, n2, n3);
 
         // 验证 RenderCache 有内容
-        let lines_before = app.render_cache.read().total_lines;
+        let lines_before = app.core.render_cache.read().total_lines;
         assert!(lines_before > 0, "清空前应有内容");
 
         // 注册监听后发送 Clear，确保不错过通知
         let notified_clear = handle.render_notify.notified();
-        app.view_messages.clear();
-        let _ = app.render_tx.send(RenderEvent::Clear);
+        app.core.view_messages.clear();
+        let _ = app.core.render_tx.send(RenderEvent::Clear);
         notified_clear.await;
 
         // 验证 RenderCache 已清空
-        let cache = app.render_cache.read();
+        let cache = app.core.render_cache.read();
         assert_eq!(cache.total_lines, 0, "清空后 RenderCache 应为空");
     }
 
@@ -438,7 +438,7 @@ mod tests {
         assert!(has_steps, "应显示步数计数，实际:\n{}", snap.join("\n"));
 
         // 验证 SubAgentGroup 已完成（is_running=false）
-        if let Some(vm) = app.view_messages.last() {
+        if let Some(vm) = app.core.view_messages.last() {
             assert!(vm.is_subagent_group(), "最后一条消息应为 SubAgentGroup");
             if let crate::app::MessageViewModel::SubAgentGroup { is_running, total_steps, .. } = vm {
                 assert!(!is_running, "SubAgentEnd 后 is_running 应为 false");
@@ -477,7 +477,7 @@ mod tests {
             recent_messages,
             is_running,
             ..
-        }) = app.view_messages.last()
+        }) = app.core.view_messages.last()
         {
             assert_eq!(*total_steps, 6, "total_steps 应为 6，实际: {}", total_steps);
             assert!(
@@ -512,7 +512,7 @@ mod tests {
             recent_messages,
             final_result,
             ..
-        }) = app.view_messages.last()
+        }) = app.core.view_messages.last()
         {
             let has_assistant = recent_messages.iter().any(|m| m.is_assistant());
             assert!(has_assistant, "recent_messages 应包含 AssistantBubble");
@@ -566,9 +566,9 @@ mod tests {
 
         // view_messages 应为空（没有创建空白气泡）
         assert!(
-            app.view_messages.is_empty(),
+            app.core.view_messages.is_empty(),
             "空 AssistantChunk 不应创建 AssistantBubble，实际: {:?}",
-            app.view_messages.len()
+            app.core.view_messages.len()
         );
 
         // 发送多个空 chunk，仍不应创建气泡
@@ -577,7 +577,7 @@ mod tests {
         app.process_pending_events();
 
         assert!(
-            app.view_messages.is_empty(),
+            app.core.view_messages.is_empty(),
             "多个空 AssistantChunk 仍不应创建 AssistantBubble"
         );
     }
@@ -603,8 +603,8 @@ mod tests {
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
 
         // 应该只有 1 个 AssistantBubble，内容为 "Hello"
-        assert_eq!(app.view_messages.len(), 1, "应只有 1 条消息");
-        assert!(app.view_messages[0].is_assistant(), "应为 AssistantBubble");
+        assert_eq!(app.core.view_messages.len(), 1, "应只有 1 条消息");
+        assert!(app.core.view_messages[0].is_assistant(), "应为 AssistantBubble");
         assert!(handle.contains("Hello"), "应显示 Hello 内容");
     }
 
@@ -628,10 +628,10 @@ mod tests {
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
 
         // 应该有 1 个 ToolBlock，不应有空白 AssistantBubble
-        assert_eq!(app.view_messages.len(), 1, "应有 1 条消息（ToolBlock）");
+        assert_eq!(app.core.view_messages.len(), 1, "应有 1 条消息（ToolBlock）");
         // 确保不是 AssistantBubble（空白气泡）
         assert!(
-            !app.view_messages[0].is_assistant(),
+            !app.core.view_messages[0].is_assistant(),
             "不应创建 AssistantBubble，应为 ToolBlock"
         );
     }

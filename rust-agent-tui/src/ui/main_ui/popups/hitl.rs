@@ -11,7 +11,7 @@ use crate::ui::theme;
 
 /// HITL 批量确认弹窗（底部展开区）
 pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
-    let Some(crate::app::InteractionPrompt::Approval(prompt)) = &app.interaction_prompt else { return };
+    let Some(crate::app::InteractionPrompt::Approval(prompt)) = &app.agent.interaction_prompt else { return };
 
     let item_count = prompt.items.len();
     let popup_area = area;

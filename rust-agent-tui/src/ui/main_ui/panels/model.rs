@@ -12,7 +12,7 @@ use crate::ui::theme;
 
 /// /model 面板渲染（底部展开区）
 pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.model_panel else { return };
+    let Some(panel) = &app.core.model_panel else { return };
 
     let popup_area = area;
     f.render_widget(Clear, popup_area);

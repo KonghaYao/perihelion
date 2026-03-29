@@ -19,7 +19,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
     // 动态输入框高度：行数 + 边框（上下各 1），最少 3 行，最多 40%
-    let line_count = app.textarea.lines().len() as u16;
+    let line_count = app.core.textarea.lines().len() as u16;
     let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
 
     // TODO 面板高度：无内容时为 0，有内容时为条目数 + 边框(2)，上限 10
@@ -30,7 +30,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     };
 
     // 附件栏高度：无附件时为 0，有附件时固定 3 行
-    let attachment_height: u16 = if app.pending_attachments.is_empty() {
+    let attachment_height: u16 = if app.core.pending_attachments.is_empty() {
         0
     } else {
         3
@@ -58,7 +58,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     // 底部展开区（HITL / AskUser / 配置面板）
     if panel_height > 0 {
         let panel_area = chunks[3];
-        match &app.interaction_prompt {
+        match &app.agent.interaction_prompt {
             Some(crate::app::InteractionPrompt::Approval(_)) => {
                 popups::hitl::render_hitl_popup(f, app, panel_area);
             }
@@ -67,21 +67,21 @@ pub fn render(f: &mut Frame, app: &mut App) {
             }
             None => {}
         }
-        if app.model_panel.is_some() {
+        if app.core.model_panel.is_some() {
             panels::model::render_model_panel(f, app, panel_area);
         }
-        if app.agent_panel.is_some() {
+        if app.core.agent_panel.is_some() {
             panels::agent::render_agent_panel(f, app, panel_area);
         }
         if app.relay_panel.is_some() {
             panels::relay::render_relay_panel(f, app, panel_area);
         }
-        if app.thread_browser.is_some() {
+        if app.core.thread_browser.is_some() {
             panels::thread_browser::render_thread_browser(f, app, panel_area);
         }
     }
 
-    f.render_widget(&app.textarea, chunks[4]);
+    f.render_widget(&app.core.textarea, chunks[4]);
     status_bar::render_status_bar(f, app, chunks[5]);
 
     // 命令/Skills 提示条（浮动在输入框上方）
@@ -92,17 +92,17 @@ pub fn render(f: &mut Frame, app: &mut App) {
 /// 计算底部展开区所需高度（无激活面板时返回 0）
 fn active_panel_height(app: &App, screen_height: u16) -> u16 {
     let max_h = screen_height * 3 / 5; // 最多占 60% 屏高
-    let raw = if let Some(panel) = &app.thread_browser {
+    let raw = if let Some(panel) = &app.core.thread_browser {
         (panel.total() as u16 + 4).max(6)
-    } else if app.model_panel.is_some() {
+    } else if app.core.model_panel.is_some() {
         14
-    } else if let Some(panel) = &app.agent_panel {
+    } else if let Some(panel) = &app.core.agent_panel {
         (panel.agents.len() as u16 * 2 + 6).max(6)
     } else if app.relay_panel.is_some() {
         10
-    } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.interaction_prompt {
+    } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.agent.interaction_prompt {
         (p.items.len() as u16 * 2 + 5).max(5)
-    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.interaction_prompt {
+    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt {
         let cur = &p.questions[p.active_tab];
         let opt_rows = cur.data.options.len() as u16;
         let desc_rows = cur
@@ -120,7 +120,7 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
 
 fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     // Welcome Card：空消息时显示品牌欢迎界面
-    if app.view_messages.is_empty() {
+    if app.core.view_messages.is_empty() {
         welcome::render_welcome(f, app, area);
         return;
     }
@@ -129,7 +129,7 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     let visible_height = inner.height;
 
     // 计算 loading spinner 帧（基于当前时间，200ms 切换一帧）
-    let spinner_line: Option<Line<'static>> = if app.loading {
+    let spinner_line: Option<Line<'static>> = if app.core.loading {
         const FRAMES: &[&str] = &["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"];
         let frame_idx = (std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -149,18 +149,18 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
 
     // 从 RenderCache 读取已渲染好的行（浅克隆 Vec 头，开销极小）
     let (mut all_lines, total_lines, max_scroll, offset) = {
-        let cache = app.render_cache.read();
-        app.last_render_version = cache.version;
+        let cache = app.core.render_cache.read();
+        app.core.last_render_version = cache.version;
 
         // total_lines 已是 wrap 后的真实视觉行数（由渲染线程通过 Paragraph::line_count 计算）
         let total_lines = cache.total_lines;
         let spinner_extra = if spinner_line.is_some() { 1u16 } else { 0 };
         let visual_total = (total_lines as u16).saturating_add(spinner_extra);
         let max_scroll = visual_total.saturating_sub(visible_height);
-        let offset = if app.scroll_follow {
+        let offset = if app.core.scroll_follow {
             max_scroll
         } else {
-            app.scroll_offset.min(max_scroll)
+            app.core.scroll_offset.min(max_scroll)
         };
 
         // Vec::clone() 是浅克隆，只复制指针+容量+长度头（3个 usize），不复制 Line 内容
@@ -169,7 +169,7 @@ fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(line) = spinner_line {
         all_lines.push(line);
     }
-    app.scroll_offset = offset;
+    app.core.scroll_offset = offset;
 
     // 文字区域（留出右侧 1 列给滚动条）
     let text_area = Rect {
@@ -213,7 +213,7 @@ fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
 
     // 第 1 行：所有附件标签
     let tags: String = app
-        .pending_attachments
+        .core.pending_attachments
         .iter()
         .map(|att| {
             let size_kb = (att.size_bytes / 1024).max(1);
@@ -239,7 +239,7 @@ fn render_todo_panel(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let border_color = if app.loading {
+    let border_color = if app.core.loading {
         theme::WARNING
     } else {
         theme::ACCENT
