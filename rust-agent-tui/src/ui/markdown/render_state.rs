@@ -1,47 +1,214 @@
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use ratatui::{
     style::{Modifier, Style},
-    text::{Line, Span, Text},
+    text::{Line, Span},
 };
-use super::message_view::ContentBlockView;
-use super::theme;
+use super::super::theme;
 
 // ── 辅助类型 ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-enum ListType {
+pub(crate) enum ListType {
     Ordered(u64),
     Unordered,
 }
 
 #[derive(Debug, Clone)]
-struct ListState {
-    list_type: ListType,
+pub(crate) struct ListState {
+    pub list_type: ListType,
+}
+
+// ── 表格类型 ──────────────────────────────────────────────────────────────────
+
+/// 一个单元格的渲染结果：多个 Span 组成
+type CellContent = Vec<Span<'static>>;
+
+/// 表格累积状态
+#[derive(Debug, Default)]
+struct TableBuilder {
+    /// 列对齐方式
+    alignments: Vec<Alignment>,
+    /// 所有行：head + body
+    rows: Vec<Vec<CellContent>>,
+    /// 当前行的单元格
+    current_row: Vec<CellContent>,
+    /// 当前单元格的 span 累积
+    current_cell: CellContent,
+    /// 是否在 head 中
+    in_head: bool,
+}
+
+impl TableBuilder {
+    fn new(alignments: Vec<Alignment>) -> Self {
+        Self {
+            alignments,
+            ..Default::default()
+        }
+    }
+
+    fn push_cell(&mut self) {
+        let cell = std::mem::take(&mut self.current_cell);
+        self.current_row.push(cell);
+    }
+
+    fn push_row(&mut self) {
+        if !self.current_row.is_empty() {
+            let row = std::mem::take(&mut self.current_row);
+            self.rows.push(row);
+        }
+    }
+
+    /// 渲染表格为多行 Lines
+    fn render(self) -> Vec<Line<'static>> {
+        if self.rows.is_empty() {
+            return vec![];
+        }
+
+        let num_cols = self.rows[0].len();
+        if num_cols == 0 {
+            return vec![];
+        }
+
+        // 计算每列最大宽度（字符数）
+        let mut col_widths = vec![0usize; num_cols];
+        for row in &self.rows {
+            for (i, cell) in row.iter().enumerate() {
+                if i < num_cols {
+                    let w: usize = cell.iter().map(|s| s.content.chars().count()).sum();
+                    col_widths[i] = col_widths[i].max(w);
+                }
+            }
+        }
+
+        let mut lines = Vec::new();
+
+        // 顶边框: ┌─────┬─────┐
+        lines.push(Line::from(make_border(
+            &col_widths, '┌', '┬', '┐', '─',
+        )));
+
+        // 渲染每行
+        for (row_idx, row) in self.rows.iter().enumerate() {
+            // 数据行: │ cell │ cell │
+            lines.push(make_data_line(&col_widths, row, &self.alignments));
+
+            if row_idx == 0 {
+                // head 后的分隔线: ├─────┼─────┤
+                lines.push(Line::from(make_border(
+                    &col_widths, '├', '┼', '┤', '─',
+                )));
+            }
+        }
+
+        // 底边框: └─────┴─────┘
+        lines.push(Line::from(make_border(
+            &col_widths, '└', '┴', '┘', '─',
+        )));
+
+        lines
+    }
+}
+
+/// 生成边框行（如 ┌─────┬─────┐）
+fn make_border(
+    col_widths: &[usize],
+    left: char,
+    mid: char,
+    right: char,
+    fill: char,
+) -> Span<'static> {
+    let mut s = String::new();
+    s.push(left);
+    for (i, &w) in col_widths.iter().enumerate() {
+        // 单元格内左右各 1 空格 padding
+        for _ in 0..w + 2 {
+            s.push(fill);
+        }
+        if i < col_widths.len() - 1 {
+            s.push(mid);
+        }
+    }
+    s.push(right);
+    Span::styled(s, Style::default().fg(theme::MUTED))
+}
+
+/// 生成数据行（如 │ Name │ Value │）
+fn make_data_line(
+    col_widths: &[usize],
+    row: &[CellContent],
+    alignments: &[Alignment],
+) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+
+    spans.push(Span::styled("│".to_string(), Style::default().fg(theme::MUTED)));
+
+    for (i, col_w) in col_widths.iter().enumerate() {
+        spans.push(Span::raw(" ")); // left padding
+
+        let cell_spans = row.get(i).cloned().unwrap_or_default();
+        let cell_char_count: usize = cell_spans.iter().map(|s| s.content.chars().count()).sum();
+        let padding = col_w.saturating_sub(cell_char_count);
+
+        let align = alignments.get(i).copied().unwrap_or(Alignment::None);
+
+        match align {
+            Alignment::Center => {
+                let left_pad = padding / 2;
+                let right_pad = padding - left_pad;
+                if left_pad > 0 {
+                    spans.push(Span::raw(" ".repeat(left_pad)));
+                }
+                spans.extend(cell_spans);
+                if right_pad > 0 {
+                    spans.push(Span::raw(" ".repeat(right_pad)));
+                }
+            }
+            Alignment::Right => {
+                if padding > 0 {
+                    spans.push(Span::raw(" ".repeat(padding)));
+                }
+                spans.extend(cell_spans);
+            }
+            Alignment::None | Alignment::Left => {
+                spans.extend(cell_spans);
+                if padding > 0 {
+                    spans.push(Span::raw(" ".repeat(padding)));
+                }
+            }
+        }
+
+        spans.push(Span::raw(" ")); // right padding
+        spans.push(Span::styled("│".to_string(), Style::default().fg(theme::MUTED)));
+    }
+
+    Line::from(spans)
 }
 
 // ── 渲染状态机 ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
-struct RenderState {
+pub(crate) struct RenderState {
     /// 已完成的行
-    lines: Vec<Line<'static>>,
+    pub lines: Vec<Line<'static>>,
     /// 当前行待写入的 Span 列表
-    current_spans: Vec<Span<'static>>,
+    pub current_spans: Vec<Span<'static>>,
     /// 当前累积的行内样式（Strong / Emphasis / Strikethrough / Link 叠加）
-    inline_style: Style,
+    pub inline_style: Style,
     /// 嵌套列表栈（每层记录类型和当前编号）
-    list_stack: Vec<ListState>,
+    pub list_stack: Vec<ListState>,
     /// 引用块嵌套深度
-    quote_depth: u32,
+    pub quote_depth: u32,
     /// 是否在代码块内
-    in_code_block: bool,
+    pub in_code_block: bool,
     /// 代码块语言标识
-    code_block_lang: String,
+    pub code_block_lang: String,
+    /// 表格构建器（进入表格时 Some）
+    table: Option<TableBuilder>,
 }
 
 impl RenderState {
     /// 将 current_spans 封装为 Line 并 push 到 lines，清空 current_spans
-    fn flush_line(&mut self) {
+    pub fn flush_line(&mut self) {
         let mut spans = std::mem::take(&mut self.current_spans);
 
         // 引用块前缀：每层加一个 ▍
@@ -58,13 +225,13 @@ impl RenderState {
     }
 
     /// 将 text 以 inline_style 合并 extra 后作为 Span 追加到 current_spans
-    fn push_span(&mut self, text: String, extra: Style) {
+    pub fn push_span(&mut self, text: String, extra: Style) {
         let style = self.inline_style.patch(extra);
         self.current_spans.push(Span::styled(text, style));
     }
 
     /// 处理单个 pulldown-cmark 事件
-    fn handle_event(&mut self, event: Event<'_>) {
+    pub fn handle_event(&mut self, event: Event<'_>) {
         match event {
             // ── 标题 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Heading { level, .. }) => {
@@ -192,6 +359,11 @@ impl RenderState {
                         ));
                         self.flush_line();
                     }
+                } else if self.table.is_some() {
+                    // 表格内文本 → 追加到 current_cell
+                    let style = self.inline_style;
+                    self.table.as_mut().unwrap().current_cell
+                        .push(Span::styled(text_str, style));
                 } else {
                     self.push_span(text_str, Style::default());
                 }
@@ -200,8 +372,12 @@ impl RenderState {
             // ── 行内代码 ──────────────────────────────────────────────────────
             Event::Code(text) => {
                 let style = Style::default().fg(theme::ACCENT);
-                self.current_spans
-                    .push(Span::styled(text.into_string(), style));
+                let span = Span::styled(text.into_string(), style);
+                if self.table.is_some() {
+                    self.table.as_mut().unwrap().current_cell.push(span);
+                } else {
+                    self.current_spans.push(span);
+                }
             }
 
             // ── Strong / Emphasis / Strikethrough ────────────────────────────
@@ -236,6 +412,43 @@ impl RenderState {
                 self.inline_style = Style::default();
             }
 
+            // ── 表格 ─────────────────────────────────────────────────────────
+            Event::Start(Tag::Table(alignments)) => {
+                self.table = Some(TableBuilder::new(alignments));
+            }
+            Event::End(TagEnd::Table) => {
+                if let Some(tb) = self.table.take() {
+                    let table_lines = tb.render();
+                    self.lines.extend(table_lines);
+                }
+            }
+            Event::Start(Tag::TableHead) => {
+                if let Some(tb) = self.table.as_mut() {
+                    tb.in_head = true;
+                }
+            }
+            Event::End(TagEnd::TableHead) => {
+                if let Some(tb) = self.table.as_mut() {
+                    // push last cell of head
+                    tb.push_cell();
+                    tb.push_row();
+                    tb.in_head = false;
+                }
+            }
+            Event::Start(Tag::TableRow) => {}
+            Event::End(TagEnd::TableRow) => {
+                if let Some(tb) = self.table.as_mut() {
+                    tb.push_cell();
+                    tb.push_row();
+                }
+            }
+            Event::Start(Tag::TableCell) => {}
+            Event::End(TagEnd::TableCell) => {
+                if let Some(tb) = self.table.as_mut() {
+                    tb.push_cell();
+                }
+            }
+
             // ── 换行 ─────────────────────────────────────────────────────────
             Event::SoftBreak => {
                 self.push_span(" ".to_string(), Style::default());
@@ -245,37 +458,6 @@ impl RenderState {
             }
 
             _ => {}
-        }
-    }
-}
-
-// ── 公共接口（保持不变） ───────────────────────────────────────────────────────
-
-/// 解析 markdown 文本为 ratatui Text
-pub fn parse_markdown(input: &str) -> Text<'static> {
-    if input.is_empty() {
-        return Text::raw("");
-    }
-    // 禁用智能引号，保持原始撇号字符
-    let options = Options::all() - Options::ENABLE_SMART_PUNCTUATION;
-    let parser = Parser::new_ext(input, options);
-    let mut state = RenderState::default();
-    for event in parser {
-        state.handle_event(event);
-    }
-    // 收尾：确保最后一行被 flush
-    if !state.current_spans.is_empty() {
-        state.flush_line();
-    }
-    Text::from(state.lines)
-}
-
-/// 确保 block 已渲染（dirty 为 true 时重新解析）
-pub fn ensure_rendered(block: &mut ContentBlockView) {
-    if let ContentBlockView::Text { raw, rendered, dirty } = block {
-        if *dirty {
-            *rendered = parse_markdown(raw);
-            *dirty = false;
         }
     }
 }

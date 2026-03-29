@@ -52,3 +52,5 @@
 - [x] /clear relay serve 的前端没有进行清理
 - [x] 架构更改到 preact
 - [x] 前端拼音模式直接enter提交了
+- [ ] subagent 显示: 不需要序号
+- [ ] ai messages 的工具调用不用显示, 多余了
