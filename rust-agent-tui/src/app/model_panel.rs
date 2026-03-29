@@ -418,8 +418,10 @@ impl ModelPanel {
 
     /// 将编辑/新建的内容应用到 ZenConfig，并更新内部 providers 快照
     /// 返回 true 表示成功
+    /// 新建 provider 时，会自动关联到当前激活的 alias
     pub fn apply_edit(&mut self, cfg: &mut ZenConfig) -> bool {
-        let id = if self.mode == ModelPanelMode::New {
+        let is_new = self.mode == ModelPanelMode::New;
+        let id = if is_new {
             if self.buf_name.trim().is_empty() {
                 return false;
             }
@@ -446,7 +448,7 @@ impl ModelPanel {
             }
         }
 
-        if self.mode == ModelPanelMode::New {
+        if is_new {
             cfg.config.providers.push(p);
             self.cursor = cfg.config.providers.len() - 1;
         } else if let Some(existing) = cfg.config.providers.iter_mut().find(|x| x.id == id) {
@@ -459,6 +461,12 @@ impl ModelPanel {
             enabled: self.buf_thinking_enabled,
             budget_tokens,
         });
+
+        // 新建 provider 时，自动关联到当前激活的 alias
+        if is_new {
+            let idx = self.active_tab.index();
+            self.buf_alias_provider[idx] = id.clone();
+        }
 
         self.providers = cfg.config.providers.clone();
         self.mode = ModelPanelMode::AliasConfig;

@@ -14,9 +14,49 @@ use rust_agent_tui::event;
 use rust_agent_tui::ui;
 use rust_agent_tui::{parse_relay_args, RelayCli};
 
+/// 从 settings.json 读取 env 字段并注入进程环境变量
+/// 仅在进程环境变量不存在时设置（进程环境优先）
+fn inject_env_from_settings() {
+    let path = dirs_next::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".zen-code")
+        .join("settings.json");
+
+    if !path.exists() {
+        return;
+    }
+
+    // 读取并解析 JSON
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return;
+    };
+
+    // 提取 config.env 字段
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return;
+    };
+
+    let Some(env_obj) = json.get("config").and_then(|c| c.get("env")) else {
+        return;
+    };
+
+    let Some(env_map) = env_obj.as_object() else {
+        return;
+    };
+
+    // 遍历键值对，仅在进程环境变量不存在时设置
+    for (key, value) in env_map {
+        if let Some(value_str) = value.as_str() {
+            if std::env::var(key).is_err() {
+                std::env::set_var(key, value_str);
+            }
+        }
+    }
+}
+
 fn main() -> Result<()> {
-    // 加载 .env 文件（仅开发环境，文件不存在时静默忽略）
-    let _ = dotenvy::dotenv();
+    // 最先注入环境变量（进程环境变量优先）
+    inject_env_from_settings();
 
     // 解析命令行参数
     let args: Vec<String> = std::env::args().collect();
@@ -187,5 +227,24 @@ mod tests {
         let args = vec!["agent-tui".to_string()];
         let result = parse_relay_args(&args);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_env_priority_process_over_settings() {
+        // 测试进程环境变量优先于 settings.json
+        // 设置一个测试环境变量
+        std::env::set_var("TEST_ENV_PRIORITY_VAR", "from_process");
+
+        // 调用注入函数（即使 settings.json 存在该变量也不应覆盖）
+        inject_env_from_settings();
+
+        // 验证进程环境变量未被覆盖
+        assert_eq!(
+            std::env::var("TEST_ENV_PRIORITY_VAR").unwrap(),
+            "from_process"
+        );
+
+        // 清理
+        std::env::remove_var("TEST_ENV_PRIORITY_VAR");
     }
 }

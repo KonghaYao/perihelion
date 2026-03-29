@@ -48,7 +48,7 @@
 
 ## 部署方式
 
-- **开发/本地运行:** `cargo run -p rust-agent-tui`，配置通过 `.env` 文件（`rust-agent-tui/.env`）和环境变量
+- **开发/本地运行:** `cargo run -p rust-agent-tui`，配置通过 `~/.zen-code/settings.json` 的 `env` 字段和环境变量
 - **生产构建:** `cargo build --release`，输出单一二进制，无外部动态依赖（SQLite bundled）
 - **可观测性（可选）:** `docker compose -f docker-compose.otel.yml up -d` 启动 Jaeger，设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量即开启 OTLP 导出
 - **CI/CD:** （未检测到）
@@ -56,7 +56,7 @@
 ## 安全约束
 
 - **HITL 默认拦截清单:** `bash`、`write_*`、`edit_*`、`delete_*`、`rm_*`、`folder_operations`，需明确审批才执行
-- **API Key 安全:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 只通过环境变量传递，`.env` 文件已 gitignore
+- **API Key 安全:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 可通过环境变量或 `~/.zen-code/settings.json` 的 `env` 字段配置（用户目录配置文件已 gitignore）
 - **SubAgent 防递归:** `launch_agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 
 ---

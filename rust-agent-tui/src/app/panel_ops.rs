@@ -98,6 +98,7 @@ impl App {
     }
 
     /// 在面板中保存编辑/新建，写回配置
+    /// 新建 provider 时自动关联到当前 alias
     pub fn model_panel_apply_edit(&mut self) {
         let Some(panel) = self.model_panel.as_mut() else {
             return;
@@ -106,6 +107,8 @@ impl App {
             return;
         };
         panel.apply_edit(cfg);
+        // 将 buf_alias_provider 写入 cfg.config.model_aliases
+        panel.apply_alias_edit(cfg);
         let _ = crate::config::save(cfg);
     }
 

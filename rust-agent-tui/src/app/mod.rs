@@ -3,23 +3,23 @@ pub mod agent_panel;
 pub mod events;
 pub mod interaction_broker;
 pub mod model_panel;
-pub mod relay_panel;
 mod provider;
+pub mod relay_panel;
 pub mod tool_display;
 
-mod hitl_prompt;
-mod ask_user_prompt;
-mod hitl_ops;
-mod ask_user_ops;
-mod thread_ops;
-mod panel_ops;
 mod agent_ops;
-mod relay_ops;
+mod ask_user_ops;
+mod ask_user_prompt;
 mod hint_ops;
+mod hitl_ops;
+mod hitl_prompt;
+mod panel_ops;
+mod relay_ops;
+mod thread_ops;
 
+pub use ask_user_prompt::AskUserBatchPrompt;
 pub use events::AgentEvent;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
-pub use ask_user_prompt::AskUserBatchPrompt;
 pub use interaction_broker::TuiInteractionBroker;
 
 /// 统一交互弹窗枚举：同一时刻只允许一种弹窗激活
@@ -28,8 +28,8 @@ pub enum InteractionPrompt {
     Questions(AskUserBatchPrompt),
 }
 
-use ratatui::style::Style;
 use crate::ui::theme;
+use ratatui::style::Style;
 use ratatui_textarea::TextArea;
 use rust_agent_middlewares::prelude::{HitlDecision, SkillMetadata, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
@@ -46,8 +46,8 @@ use crate::command::agents::AgentItem;
 pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
 pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
-pub use relay_panel::RelayPanel;
 use parking_lot::RwLock;
+pub use relay_panel::RelayPanel;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use tracing::Instrument;
@@ -255,9 +255,9 @@ impl App {
             langfuse_flush_handle: None,
         };
 
-        let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));
-        app.view_messages.push(sys_msg.clone());
-        let _ = app.render_tx.send(RenderEvent::AddMessage(sys_msg));
+        // let sys_msg = MessageViewModel::system(format!("CWD: {}", cwd));
+        // app.view_messages.push(sys_msg.clone());
+        // let _ = app.render_tx.send(RenderEvent::AddMessage(sys_msg));
 
         app
     }
@@ -272,7 +272,8 @@ impl App {
         let (relay_url, relay_token, relay_name) = if let Some(c) = cli {
             if c.url.is_empty() {
                 // --remote-control 无参数：从配置读取
-                let config = self.zen_config
+                let config = self
+                    .zen_config
                     .as_ref()
                     .and_then(|cfg| cfg.config.remote_control.as_ref())
                     .filter(|rc| rc.is_complete());
@@ -281,26 +282,31 @@ impl App {
                     Some(rc) => (rc.url.clone(), rc.token.clone(), rc.name.clone()),
                     None => {
                         // 回退到旧 extra 字段（向后兼容）
-                        let extra_config = self.zen_config
+                        let extra_config = self
+                            .zen_config
                             .as_ref()
                             .and_then(|cfg| cfg.config.extra.get("relay_url"))
                             .and_then(|v| v.as_str());
                         if extra_config.is_none() {
                             let msg = MessageViewModel::from_base_message(
-                                &BaseMessage::system("未配置远程控制，请使用 /relay 命令配置".to_string()),
+                                &BaseMessage::system(
+                                    "未配置远程控制，请使用 /relay 命令配置".to_string(),
+                                ),
                                 &[],
                             );
                             let _ = self.render_tx.send(RenderEvent::AddMessage(msg));
                             return;
                         }
                         let url = extra_config.unwrap().to_string();
-                        let token = self.zen_config
+                        let token = self
+                            .zen_config
                             .as_ref()
                             .and_then(|cfg| cfg.config.extra.get("relay_token"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
-                        let name = self.zen_config
+                        let name = self
+                            .zen_config
                             .as_ref()
                             .and_then(|cfg| cfg.config.extra.get("relay_name"))
                             .and_then(|v| v.as_str())
@@ -333,7 +339,8 @@ impl App {
         };
 
         // 获取或注册 user_id（复用已有或向 Relay Server 注册新 UUID）
-        let existing_user_id = self.zen_config
+        let existing_user_id = self
+            .zen_config
             .as_ref()
             .and_then(|cfg| cfg.config.remote_control.as_ref())
             .and_then(|rc| rc.user_id.clone());
@@ -349,9 +356,8 @@ impl App {
                 let err_msg = format!("Relay 注册失败: {}", e);
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
-                self.relay_reconnect_at = Some(
-                    std::time::Instant::now() + std::time::Duration::from_secs(3),
-                );
+                self.relay_reconnect_at =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
                 return;
             }
         };
@@ -367,7 +373,12 @@ impl App {
         }
 
         // 缓存参数供断线重连使用
-        self.relay_params = Some((relay_url.clone(), relay_token.clone(), relay_name.clone(), user_id.clone()));
+        self.relay_params = Some((
+            relay_url.clone(),
+            relay_token.clone(),
+            relay_name.clone(),
+            user_id.clone(),
+        ));
 
         match rust_relay_server::client::RelayClient::connect(
             &relay_url,
@@ -404,9 +415,8 @@ impl App {
                 let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
                 let _ = self.render_tx.send(RenderEvent::AddMessage(vm));
                 // 连接失败时，3 秒后重试
-                self.relay_reconnect_at = Some(
-                    std::time::Instant::now() + std::time::Duration::from_secs(3),
-                );
+                self.relay_reconnect_at =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
             }
         }
     }
@@ -453,7 +463,6 @@ impl App {
             self.last_task_duration
         }
     }
-
 }
 
 /// 确保光标在滚动视口内可见，返回调整后的 scroll_offset
@@ -504,4 +513,3 @@ pub fn build_textarea(disabled: bool, buffered_count: usize) -> TextArea<'static
     );
     ta
 }
-

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 
 /// 顶层包装（与 ~/.zen-code/settings.json 的 { "config": {...} } 对应）
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -114,6 +115,9 @@ pub struct AppConfig {
     /// 远程控制配置
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_control: Option<RemoteControlConfig>,
+    /// 环境变量注入（扁平键值对）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<HashMap<String, String>>,
     /// 保留未知字段，写回时不丢失
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -381,5 +385,43 @@ mod tests {
         let cfg = AppConfig::default();
         let out = serde_json::to_string(&cfg).unwrap();
         assert!(!out.contains("remote_control"), "remote_control should be absent when None");
+    }
+
+    // ── AppConfig env 字段测试 ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_app_config_env_serde_roundtrip() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("ANTHROPIC_API_KEY".to_string(), "sk-ant-123".to_string());
+        env.insert("RUST_LOG".to_string(), "debug".to_string());
+
+        let cfg = AppConfig {
+            env: Some(env),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: AppConfig = serde_json::from_str(&json).unwrap();
+
+        assert!(back.env.is_some());
+        let env_back = back.env.unwrap();
+        assert_eq!(env_back.get("ANTHROPIC_API_KEY"), Some(&"sk-ant-123".to_string()));
+        assert_eq!(env_back.get("RUST_LOG"), Some(&"debug".to_string()));
+    }
+
+    #[test]
+    fn test_app_config_env_optional() {
+        // env 字段缺失时应为 None
+        let json = r#"{"active_alias": "opus", "providers": []}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert!(cfg.env.is_none());
+    }
+
+    #[test]
+    fn test_app_config_env_skip_when_none() {
+        let cfg = AppConfig::default(); // env = None
+        let out = serde_json::to_string(&cfg).unwrap();
+        // skip_serializing_if = "Option::is_none"，所以 env 字段不应出现
+        assert!(!out.contains("env"), "env should be absent when None");
     }
 }

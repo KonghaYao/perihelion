@@ -22,6 +22,7 @@
 - [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
 - [x] 写一个 Explorer Agent
 - [x] 写一个 Web Research Agent
+- [ ] Shell 有没有时间约束
 
 **第三层：用户界面**
 

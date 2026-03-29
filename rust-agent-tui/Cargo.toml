@@ -42,4 +42,7 @@ base64 = { version = "0.22", features = ["alloc"] }
 pulldown-cmark = "0.12"
 langfuse-ergonomic = "0.6.3"
 langfuse-client-base = "0.7.1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+] }
