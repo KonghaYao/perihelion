@@ -3,13 +3,8 @@ use rust_create_agent::error::AgentError;
 
 // 从核心库导入 trait 和数据类型
 pub use rust_create_agent::ask_user::{
-    AskUserBatchRequest, AskUserInvoker, AskUserOption, AskUserQuestionData,
+    AskUserBatchRequest, AskUserOption, AskUserQuestionData,
 };
-
-// ─── AskUserHandler trait（TUI 批量请求接口）─────────────────────────────────
-
-/// UI 层实现此 trait，决定如何展示问题并收集答案
-pub use rust_create_agent::ask_user::AskUserInvoker as AskUserHandler;
 
 // ─── 解析辅助 ──────────────────────────────────────────────────────────────────
 

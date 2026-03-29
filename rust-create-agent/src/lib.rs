@@ -24,10 +24,10 @@ pub mod prelude {
         AgentCancellationToken, ReActAgent,
     };
     pub use crate::ask_user::{
-        AskUserBatchRequest, AskUserInvoker, AskUserOption, AskUserQuestionData,
+        AskUserBatchRequest, AskUserOption, AskUserQuestionData,
     };
     pub use crate::error::{AgentError, AgentResult};
-    pub use crate::hitl::{BatchItem, HitlDecision, HitlHandler};
+    pub use crate::hitl::{BatchItem, HitlDecision};
     pub use crate::llm::{BaseModel, BaseModelReactLLM, ChatAnthropic, ChatOpenAI, MockLLM};
     pub use crate::messages::{
         BaseMessage, ContentBlock, DocumentSource, ImageSource, MessageContent, ToolCallRequest,

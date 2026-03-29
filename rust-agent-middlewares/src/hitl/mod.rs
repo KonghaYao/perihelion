@@ -9,9 +9,7 @@ use rust_create_agent::interaction::{
 };
 use rust_create_agent::middleware::r#trait::Middleware;
 
-// 保留旧类型重导出以向后兼容（已废弃，请改用 UserInteractionBroker）
-#[allow(deprecated)]
-pub use rust_create_agent::hitl::{BatchItem, HitlDecision, HitlHandler};
+pub use rust_create_agent::hitl::{BatchItem, HitlDecision};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
 

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use tokio::sync::oneshot;
 
 // ─── AskUserQuestionData ───────────────────────────────────────────────────────
@@ -38,16 +37,3 @@ impl AskUserBatchRequest {
     }
 }
 
-// ─── AskUserInvoker ────────────────────────────────────────────────────────────
-
-/// 批量 ask_user 调用接口 —— 由应用层（TUI / CLI）实现
-///
-/// 解耦工具与具体 UI 实现：
-/// - TUI 实现：将问题发送到 TUI 弹窗，挂起等待用户输入
-/// - CLI 实现：在终端打印问题，读取用户输入
-/// - 测试实现：预设答案自动回复
-#[async_trait]
-pub trait AskUserInvoker: Send + Sync {
-    /// 批量提问，返回与 questions 等长的答案列表
-    async fn ask_batch(&self, questions: Vec<AskUserQuestionData>) -> Vec<String>;
-}

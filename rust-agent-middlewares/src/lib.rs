@@ -31,12 +31,9 @@ pub use ask_user::{
     AskUserQuestionData,
 };
 pub use hitl::{
-    default_requires_approval, is_yolo_mode, BatchItem, HitlDecision, HitlHandler,
+    default_requires_approval, is_yolo_mode, BatchItem, HitlDecision,
     HumanInTheLoopMiddleware,
 };
-// AskUserInvoker 从核心库直通，AskUserHandler 是其别名
-pub use rust_create_agent::ask_user::AskUserInvoker;
-pub use rust_create_agent::ask_user::AskUserInvoker as AskUserHandler;
 pub use skills::{load_global_skills_dir, list_skills, load_skill_metadata, SkillsMiddleware, SkillMetadata};
 pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
 pub use subagent::{SubAgentMiddleware, SubAgentTool, SkillPreloadMiddleware};
@@ -46,11 +43,11 @@ pub mod prelude {
     pub use crate::agents_md::AgentsMdMiddleware;
     pub use crate::agent_define::AgentDefineMiddleware;
     pub use crate::ask_user::{
-        ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserHandler,
+        ask_user_tool_definition, parse_ask_user, AskUserBatchRequest,
         AskUserOption, AskUserQuestionData,
     };
     pub use crate::hitl::{
-        default_requires_approval, is_yolo_mode, BatchItem, HitlDecision, HitlHandler,
+        default_requires_approval, is_yolo_mode, BatchItem, HitlDecision,
         HumanInTheLoopMiddleware,
     };
     #[allow(deprecated)]
