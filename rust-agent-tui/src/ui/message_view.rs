@@ -305,13 +305,11 @@ impl MessageViewModel {
 /// 按工具名分配颜色
 pub fn tool_color(name: &str) -> Color {
     match name {
-        "bash" => theme::ACCENT,
-        "read_file" => theme::TOOL_NAME,
-        "write_file" => theme::SAGE,
-        "edit_file" => theme::THINKING,
-        "glob_files" => theme::WARNING,
-        "search_files_rg" => theme::TOOL_NAME,
-        "folder_operations" => theme::WARNING,
+        "bash" => theme::WARNING,
+        "write_file" | "edit_file" | "folder_operations"
+        | "delete_file" | "delete_folder" | "rm" | "rm_rf" => theme::WARNING,
+        "read_file" | "glob_files" | "search_files_rg"
+        | "launch_agent" | "ask_user_question" | "todo_write" => theme::MUTED,
         _ if name.contains("error") => theme::ERROR,
         _ => theme::MUTED,
     }

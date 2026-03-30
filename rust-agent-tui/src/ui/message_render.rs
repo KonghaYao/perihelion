@@ -18,7 +18,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: us
                     let mut spans = if let Some(idx) = index {
                         vec![Span::styled(
                             format!("{} ", idx),
-                            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                            Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
                         )]
                     } else {
                         vec![Span::raw("  ")]
@@ -54,7 +54,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: us
                                         Span::styled(
                                             format!("{} {}", idx, streaming_suffix),
                                             Style::default()
-                                                .fg(theme::ACCENT)
+                                                .fg(theme::MUTED)
                                                 .add_modifier(Modifier::BOLD),
                                         ),
                                         Span::raw(" "),
@@ -80,7 +80,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: us
                                 lines.push(Line::from(vec![Span::styled(
                                     format!("{} {}", idx, streaming_suffix),
                                     Style::default()
-                                        .fg(theme::ACCENT)
+                                        .fg(theme::MUTED)
                                         .add_modifier(Modifier::BOLD),
                                 )]));
                             }
@@ -109,7 +109,7 @@ pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: us
                     lines.push(Line::from(vec![Span::styled(
                         format!("{} {}", idx, streaming_suffix),
                         Style::default()
-                            .fg(theme::ACCENT)
+                            .fg(theme::MUTED)
                             .add_modifier(Modifier::BOLD),
                     )]));
                 }

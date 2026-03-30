@@ -19,8 +19,8 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
 
     // 根据模式选颜色/标题
     let (border_color, title) = match &panel.mode {
-        ModelPanelMode::AliasConfig   => (theme::ACCENT,   " /model — 模型别名配置 "),
-        ModelPanelMode::Browse        => (theme::ACCENT,   " /model — Provider 管理 "),
+        ModelPanelMode::AliasConfig   => (theme::MUTED,    " /model — 模型别名配置 "),
+        ModelPanelMode::Browse        => (theme::MUTED,    " /model — Provider 管理 "),
         ModelPanelMode::Edit          => (theme::WARNING, " /model — 编辑 Provider "),
         ModelPanelMode::New           => (theme::SAGE,  " /model — 新建 Provider "),
         ModelPanelMode::ConfirmDelete => (theme::ERROR,    " /model — 确认删除 "),

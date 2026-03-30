@@ -19,10 +19,10 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(
             " 📝 选择对话  ↑↓:移动  Enter:确认  d:删除  Esc:关闭",
-            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
+        .border_style(Style::default().fg(theme::MUTED));
     f.render_widget(&block, popup_area);
 
     let inner = block.inner(popup_area);

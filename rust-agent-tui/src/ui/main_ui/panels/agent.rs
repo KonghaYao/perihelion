@@ -25,9 +25,9 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(title, Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
+        .border_style(Style::default().fg(theme::MUTED));
     f.render_widget(&block, popup_area);
 
     let inner = block.inner(popup_area);

@@ -30,7 +30,7 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
     // 运行时长
     if let Some(duration) = app.get_current_task_duration() {
-        let timer_color = if app.core.loading { theme::LOADING } else { theme::ACCENT };
+        let timer_color = if app.core.loading { theme::LOADING } else { theme::MUTED };
         left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
             format!("⏱ {}", format_duration(duration)),
@@ -73,7 +73,7 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         if let Some(agent) = panel.current_agent() {
             left_spans.push(Span::styled(
                 format!(" 🤖 {}", agent.name),
-                Style::default().fg(theme::ACCENT),
+                Style::default().fg(theme::MUTED),
             ));
         } else {
             left_spans.push(Span::styled(" 🤖 无", Style::default().fg(theme::MUTED)));
@@ -83,7 +83,7 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
             format!(" 🤖 {}", id),
-            Style::default().fg(theme::ACCENT),
+            Style::default().fg(theme::MUTED),
         ));
     }
 

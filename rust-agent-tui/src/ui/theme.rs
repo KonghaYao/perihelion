@@ -15,8 +15,8 @@ pub const ACCENT: Color = Color::Rgb(255, 107, 43);
 /// 哑光绿 — 成功/工具名/在线状态，对应 #6EB56A
 pub const SAGE: Color = Color::Rgb(110, 181, 106);
 
-/// 琥珀黄 — 运行中/警告/keybind 提示，对应 #C8942A
-pub const WARNING: Color = Color::Rgb(200, 148, 42);
+/// 暖米灰 — 次要强调（标题、工具名、快捷键），对应 #B09878
+pub const WARNING: Color = Color::Rgb(176, 152, 120);
 
 /// 暗红 — 错误/拒绝，对应 #CC463E
 pub const ERROR: Color = Color::Rgb(204, 70, 62);

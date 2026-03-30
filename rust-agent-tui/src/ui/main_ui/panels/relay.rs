@@ -17,7 +17,7 @@ pub(crate) fn render_relay_panel(f: &mut Frame, app: &crate::app::App, area: Rec
     f.render_widget(Clear, popup_area);
 
     let (border_color, title) = match &panel.mode {
-        RelayPanelMode::View => (theme::ACCENT, " 远程控制配置 "),
+        RelayPanelMode::View => (theme::MUTED, " 远程控制配置 "),
         RelayPanelMode::Edit => (theme::WARNING, " 远程控制配置 (编辑) "),
     };
 

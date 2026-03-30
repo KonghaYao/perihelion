@@ -1,6 +1,6 @@
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use ratatui::{
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 use super::super::theme;
@@ -235,9 +235,9 @@ impl RenderState {
         match event {
             // ── 标题 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Heading { level, .. }) => {
-                let (color, prefix) = match level {
-                    HeadingLevel::H1 => (theme::ACCENT, Some("── ")),
-                    HeadingLevel::H2 => (theme::ACCENT, None),
+                let (color, prefix): (Color, Option<&str>) = match level {
+                    HeadingLevel::H1 => (theme::WARNING, None),
+                    HeadingLevel::H2 => (theme::WARNING, None),
                     HeadingLevel::H3 => (theme::WARNING, None),
                     _ => (theme::MUTED, None),
                 };
@@ -371,7 +371,7 @@ impl RenderState {
 
             // ── 行内代码 ──────────────────────────────────────────────────────
             Event::Code(text) => {
-                let style = Style::default().fg(theme::ACCENT);
+                let style = Style::default().fg(theme::WARNING);
                 let span = Span::styled(text.into_string(), style);
                 if self.table.is_some() {
                     self.table.as_mut().unwrap().current_cell.push(span);

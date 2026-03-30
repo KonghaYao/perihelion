@@ -200,24 +200,31 @@ mod tests {
         #[test]
         fn test_md_heading() {
             let text = parse_markdown("# Hello World");
-            // H1 首行应有 ━━ 前缀
+            // H1 首行无前缀，直接显示文字
             let first_line = &text.lines[0];
             let all_content: String =
                 first_line.spans.iter().map(|s| s.content.as_ref()).collect();
             assert!(
-                all_content.contains("──"),
-                "H1 首行应含 ── 前缀，实际: {all_content:?}"
-            );
-            assert!(
                 all_content.contains("Hello World"),
                 "H1 首行应含标题文字，实际: {all_content:?}"
             );
-            // 检查颜色为 ACCENT
-            let has_accent = first_line
+            // 检查颜色为 WARNING（v1.1 降噪）
+            let has_warning = first_line
                 .spans
                 .iter()
-                .any(|s| s.style.fg == Some(theme::ACCENT));
-            assert!(has_accent, "H1 应为 ACCENT 颜色");
+                .any(|s| s.style.fg == Some(theme::WARNING));
+            assert!(has_warning, "H1 应为 WARNING 颜色（v1.1）");
+        }
+
+        #[test]
+        fn test_md_heading_h2() {
+            let text = parse_markdown("## Section Title");
+            let first_line = &text.lines[0];
+            let has_warning = first_line
+                .spans
+                .iter()
+                .any(|s| s.style.fg == Some(theme::WARNING));
+            assert!(has_warning, "H2 应为 WARNING 颜色（v1.1）");
         }
 
         #[test]
@@ -251,9 +258,9 @@ mod tests {
         fn test_md_inline_code() {
             let text = parse_markdown("`hello`");
             let has_code = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.fg == Some(theme::ACCENT) && s.content.contains("hello")
+                s.style.fg == Some(theme::WARNING) && s.content.contains("hello")
             });
-            assert!(has_code, "行内代码应为 ACCENT 颜色，含 hello 文字");
+            assert!(has_code, "行内代码应为 WARNING 颜色，含 hello 文字");
         }
 
         #[test]
