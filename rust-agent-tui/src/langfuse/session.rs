@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use langfuse_ergonomic::{BackpressurePolicy, Batcher, ClientBuilder, LangfuseClient};
+use langfuse_client::{BackpressurePolicy, Batcher, BatcherConfig, LangfuseClient};
 
 use super::config::LangfuseConfig;
 
@@ -19,26 +19,23 @@ pub struct LangfuseSession {
 impl LangfuseSession {
     /// 从配置和 session_id 构造 Session，失败时返回 None（静默降级）
     pub async fn new(config: LangfuseConfig, session_id: String) -> Option<Self> {
-        let client = ClientBuilder::new()
-            .public_key(config.public_key)
-            .secret_key(config.secret_key)
-            .base_url(config.host)
-            .build()
-            .ok()?;
+        let client = Arc::new(LangfuseClient::new(
+            &config.public_key,
+            &config.secret_key,
+            &config.host,
+            3, // max_retries
+        ));
 
-        // max_events=50: 每批最多 50 个事件
-        // flush_interval=10s: 10 秒自动 flush 一次
-        // backpressure_policy=DropNew: 队列满时丢弃新事件，避免 OOM
-        let batcher = Batcher::builder()
-            .client(client.clone())
-            .max_events(50)
-            .flush_interval(Duration::from_secs(10))
-            .backpressure_policy(BackpressurePolicy::DropNew)
-            .build()
-            .await;
+        let batcher_config = BatcherConfig {
+            max_events: 50,
+            flush_interval: Duration::from_secs(10),
+            backpressure: BackpressurePolicy::DropNew,
+            max_retries: 3,
+        };
+        let batcher = Batcher::new((*client).clone(), batcher_config);
 
         Some(Self {
-            client: Arc::new(client),
+            client,
             batcher: Arc::new(batcher),
             session_id,
         })
