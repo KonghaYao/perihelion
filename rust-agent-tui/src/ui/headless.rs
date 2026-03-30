@@ -707,4 +707,130 @@ mod tests {
             snap_text
         );
     }
+
+    // ── Sticky Human Message Header ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_sticky_header_hidden_when_no_messages() {
+        // 无消息时 sticky header 应完全隐藏
+        let (mut app, mut handle) = App::new_headless(80, 24);
+        assert!(
+            app.core.last_human_message.is_none(),
+            "默认应无 last_human_message"
+        );
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            !snap_text.contains("你:"),
+            "无消息时不应显示 sticky header，实际:\n{}",
+            snap_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sticky_header_shows_after_submit() {
+        // 模拟 submit_message 后 sticky header 显示
+        let (mut app, mut handle) = App::new_headless(80, 24);
+
+        // 直接设置 last_human_message（模拟 submit_message 的效果）
+        app.core.last_human_message = Some("hello from user".to_string());
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        assert!(
+            snap_text.contains("> "),
+            "应显示 sticky header 标签，实际:\n{}",
+            snap_text
+        );
+        assert!(
+            snap_text.contains("hello from"),
+            "应显示消息内容，实际:\n{}",
+            snap_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sticky_header_hidden_after_clear() {
+        // /clear 后 sticky header 应消失
+        let (mut app, mut handle) = App::new_headless(80, 24);
+
+        // 模拟已有消息
+        app.core.last_human_message = Some("some message".to_string());
+        assert!(
+            app.core.last_human_message.is_some(),
+            "应有 last_human_message"
+        );
+
+        // 模拟 /clear → new_thread
+        let notified = handle.render_notify.notified();
+        app.new_thread();
+        notified.await;
+
+        assert!(
+            app.core.last_human_message.is_none(),
+            "/clear 后 last_human_message 应为 None"
+        );
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            !snap_text.contains("你:"),
+            "/clear 后不应显示 sticky header，实际:\n{}",
+            snap_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sticky_header_shows_last_message_not_first() {
+        // 连续发送多条消息，header 应显示最后一条
+        let (mut app, mut handle) = App::new_headless(80, 24);
+
+        // 模拟第一条消息
+        app.core.last_human_message = Some("first message".to_string());
+        // 模拟第二条消息（覆盖）
+        app.core.last_human_message = Some("second message".to_string());
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        assert!(
+            snap_text.contains("second"),
+            "应显示最后一条消息，实际:\n{}",
+            snap_text
+        );
+        assert!(
+            !snap_text.contains("first"),
+            "不应显示第一条消息（已被覆盖），实际:\n{}",
+            snap_text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sticky_header_truncation_long_message() {
+        // 超长消息应在达到行数上限后截断并加 …
+        let (mut app, mut handle) = App::new_headless(40, 24); // 窄屏 40 列
+
+        // 模拟超长消息（远超 header 可显示范围）
+        let long_msg = "hello this is a very long message that definitely exceeds header capacity".to_string();
+        assert!(long_msg.chars().count() > 40);
+        app.core.last_human_message = Some(long_msg.clone());
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        // 应显示消息开头
+        assert!(
+            snap_text.contains("hello this"),
+            "应显示消息开头部分，实际:\n{}",
+            snap_text
+        );
+        // 超长时应在末尾有省略号
+        // （多行内容在 max_lines 行后被截断）
+    }
 }

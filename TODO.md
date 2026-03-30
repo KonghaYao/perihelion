@@ -24,6 +24,7 @@
 - [x] 写一个 Web Research Agent
 - [ ] Shell 有没有时间约束
 - [x] 现在改为默认采用 yolo 模式, 不需要审批
+- [ ] LangFuse 监控完整性校验
 
 **第三层：用户界面**
 
@@ -54,6 +55,6 @@
 - [x] 前端拼音模式直接enter提交了
 - [x] subagent 显示: 不需要序号
 - [x] ai messages 的工具调用不用显示, 多余了
-- [ ] 弹窗/AskUserQuestion 有时候不够长度显示
+- [ ] 弹窗 /AskUserQuestion 有时候不够长度显示
 - [x] compact 的信息应该是 ai messages 的形式
 - [x] compact thread 的名称应该

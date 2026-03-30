@@ -89,6 +89,23 @@ impl App {
         self.core.thread_browser = None;
         self.langfuse.langfuse_session = None;
 
+        // 恢复 sticky header：找到 thread 中最后一条 Human 消息
+        self.core.last_human_message = base_msgs
+            .iter()
+            .filter_map(|m| {
+                if let BaseMessage::Human { content, .. } = m {
+                    let text = content.text_content();
+                    if text.trim().is_empty() {
+                        None
+                    } else {
+                        Some(text)
+                    }
+                } else {
+                    None
+                }
+            })
+            .last();
+
         // 通知 Relay Web 前端：thread 已切换，推送完整历史消息
         if let Some(ref relay) = self.relay.relay_client {
             let msg_vals: Vec<serde_json::Value> = base_msgs
@@ -113,6 +130,7 @@ impl App {
         self.core.pending_attachments.clear();
         self.core.thread_browser = None;
         self.langfuse.langfuse_session = None;
+        self.core.last_human_message = None;
         let _ = self.core.render_tx.send(RenderEvent::Clear);
         if let Some(ref relay) = self.relay.relay_client {
             relay.send_thread_reset(&[]);

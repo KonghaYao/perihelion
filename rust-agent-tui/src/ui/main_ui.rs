@@ -1,6 +1,7 @@
 mod panels;
 mod popups;
 mod status_bar;
+mod sticky_header;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -39,25 +40,38 @@ pub fn render(f: &mut Frame, app: &mut App) {
     // 底部展开区高度（替代居中弹窗）
     let panel_height = active_panel_height(app, area.height);
 
+    // Sticky header 高度：有消息时动态高度（1-3 行），无消息时 0
+    let sticky_header_height: u16 = app
+        .core
+        .last_human_message
+        .as_ref()
+        .map(|msg| {
+            let width = area.width.saturating_sub(2).max(1);
+            let lines = sticky_header::estimate_header_lines(msg, width);
+            lines as u16 // 1-3 行，无分隔线
+        })
+        .unwrap_or(0);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(3),                    // [0] 聊天区
-            Constraint::Length(todo_height),       // [1] TODO 面板（动态）
-            Constraint::Length(attachment_height), // [2] 附件栏（动态）
-            Constraint::Length(panel_height),      // [3] 底部展开区（动态）
-            Constraint::Length(input_height),      // [4] 输入框（动态）
-            Constraint::Length(1),                 // [5] 状态栏
+            Constraint::Length(sticky_header_height), // [0] sticky header
+            Constraint::Min(1),                      // [1] 聊天区（可滚动）
+            Constraint::Length(todo_height),          // [2] TODO 面板（动态）
+            Constraint::Length(attachment_height),    // [3] 附件栏（动态）
+            Constraint::Length(panel_height),         // [4] 底部展开区（动态）
+            Constraint::Length(input_height),         // [5] 输入框（动态）
+            Constraint::Length(1),                    // [6] 状态栏
         ])
         .split(area);
 
-    render_messages(f, app, chunks[0]);
-    render_todo_panel(f, app, chunks[1]);
-    render_attachment_bar(f, app, chunks[2]);
+    render_messages(f, app, chunks[0], chunks[1]);
+    render_todo_panel(f, app, chunks[2]);
+    render_attachment_bar(f, app, chunks[3]);
 
     // 底部展开区（HITL / AskUser / 配置面板）
     if panel_height > 0 {
-        let panel_area = chunks[3];
+        let panel_area = chunks[4];
         match &app.agent.interaction_prompt {
             Some(crate::app::InteractionPrompt::Approval(_)) => {
                 popups::hitl::render_hitl_popup(f, app, panel_area);
@@ -81,12 +95,12 @@ pub fn render(f: &mut Frame, app: &mut App) {
         }
     }
 
-    f.render_widget(&app.core.textarea, chunks[4]);
-    status_bar::render_status_bar(f, app, chunks[5]);
+    f.render_widget(&app.core.textarea, chunks[5]);
+    status_bar::render_status_bar(f, app, chunks[6]);
 
     // 命令/Skills 提示条（浮动在输入框上方）
-    popups::hints::render_command_hint(f, app, chunks[4]);
-    popups::hints::render_skill_hint(f, app, chunks[4]);
+    popups::hints::render_command_hint(f, app, chunks[5]);
+    popups::hints::render_skill_hint(f, app, chunks[5]);
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
@@ -118,14 +132,17 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
     raw.min(max_h)
 }
 
-fn render_messages(f: &mut Frame, app: &mut App, area: Rect) {
-    // Welcome Card：空消息时显示品牌欢迎界面
+fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_area: Rect) {
+    // Sticky header
+    sticky_header::render_sticky_header(f, app, header_area);
+
+    // Welcome Card 或消息列表
     if app.core.view_messages.is_empty() {
-        welcome::render_welcome(f, app, area);
+        welcome::render_welcome(f, app, messages_area);
         return;
     }
 
-    let inner = area;
+    let inner = messages_area;
     let visible_height = inner.height;
 
     // 计算 loading spinner 帧（基于当前时间，200ms 切换一帧）

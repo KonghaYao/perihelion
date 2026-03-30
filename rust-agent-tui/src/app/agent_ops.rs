@@ -16,8 +16,9 @@ impl App {
         } else {
             format!("{} [🖼 {} 张图片]", input, attachments.len())
         };
-        let user_vm = MessageViewModel::user(display);
+        let user_vm = MessageViewModel::user(display.clone());
         self.core.view_messages.push(user_vm.clone());
+        self.core.last_human_message = Some(display);
         let _ = self.core.render_tx.send(RenderEvent::AddMessage(user_vm));
         self.set_loading(true);
         self.core.scroll_offset = u16::MAX;
