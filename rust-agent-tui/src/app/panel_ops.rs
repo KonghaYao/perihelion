@@ -273,6 +273,7 @@ impl App {
             thread_store,
             current_thread_id: None,
             todo_items: Vec::new(),
+            cron: super::CronState::default(),
             relay_panel: None,
         };
 

@@ -133,6 +133,7 @@ impl App {
         let thread_store = self.thread_store.clone();
         let thread_id_for_agent = thread_id.clone();
         let zen_config_for_agent = Arc::new(self.zen_config.clone().unwrap_or_default());
+        let cron_scheduler = Some(self.cron.scheduler.clone());
         tokio::spawn(
             async move {
                 agent::run_universal_agent(agent::AgentRunConfig {
@@ -149,6 +150,7 @@ impl App {
                     thread_id: thread_id_for_agent,
                     preload_skills,
                     config: zen_config_for_agent,
+                    cron_scheduler,
                 })
                 .await;
             }
@@ -664,5 +666,23 @@ impl App {
         }
 
         updated
+    }
+
+    /// 每帧调用：检查 cron 触发事件，空闲时自动提交 prompt
+    pub fn poll_cron_triggers(&mut self) {
+        let cron_triggers: Vec<_> = self.cron.trigger_rx.as_mut()
+            .map(|rx| {
+                let mut triggers = Vec::new();
+                while let Ok(trigger) = rx.try_recv() {
+                    triggers.push(trigger);
+                }
+                triggers
+            })
+            .unwrap_or_default();
+        for trigger in cron_triggers {
+            if !self.core.loading {
+                self.submit_message(trigger.prompt);
+            }
+        }
     }
 }

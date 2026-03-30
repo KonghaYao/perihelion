@@ -1,8 +1,10 @@
 pub mod agents;
 pub mod clear;
 pub mod compact;
+pub mod cron;
 pub mod help;
 pub mod history;
+pub mod loop_cmd;
 pub mod model;
 pub mod relay;
 
@@ -16,6 +18,8 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(help::HelpCommand));
     r.register(Box::new(history::HistoryCommand));
     r.register(Box::new(relay::RelayCommand));
+    r.register(Box::new(loop_cmd::LoopCommand));
+    r.register(Box::new(cron::CronCommand));
     r
 }
 

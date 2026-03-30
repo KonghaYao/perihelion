@@ -53,6 +53,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // CronPanel 优先处理
+            if app.cron.cron_panel.is_some() {
+                handle_cron_panel(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
             // /agents 面板优先处理
             if app.core.agent_panel.is_some() {
                 handle_agent_panel(app, input);
@@ -656,5 +662,55 @@ fn handle_relay_panel(app: &mut App, input: Input) {
             }
             _ => {}
         },
+    }
+}
+
+fn handle_cron_panel(app: &mut App, input: Input) {
+    match input {
+        Input {
+            key: Key::Char('c'),
+            ctrl: true,
+            ..
+        } => {
+            // Ctrl+C 在面板中不退出，忽略
+        }
+        Input {
+            key: Key::Up, ..
+        }
+        | Input {
+            key: Key::Char('k'),
+            ctrl: false,
+            ..
+        } => {
+            app.cron_panel_move_up();
+        }
+        Input {
+            key: Key::Down, ..
+        }
+        | Input {
+            key: Key::Char('j'),
+            ctrl: false,
+            ..
+        } => {
+            app.cron_panel_move_down();
+        }
+        Input {
+            key: Key::Enter, ..
+        } => {
+            app.cron_panel_toggle();
+        }
+        Input {
+            key: Key::Char('d'),
+            ctrl: false,
+            ..
+        } => {
+            app.cron_panel_delete();
+        }
+        Input {
+            key: Key::Esc, ..
+        } => {
+            app.cron_panel_close();
+        }
+        _ => {}
     }
 }

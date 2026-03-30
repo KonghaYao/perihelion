@@ -22,7 +22,7 @@ struct SkillFrontmatter {
 pub fn load_skill_metadata(path: &Path) -> Option<SkillMetadata> {
     let content = std::fs::read_to_string(path).ok()?;
     let matter = Matter::<YAML>::new();
-    let result = matter.parse(&content);
+    let result: gray_matter::ParsedEntity = matter.parse(&content).ok()?;
 
     let data = result.data?;
     let fm: SkillFrontmatter = data.deserialize().ok()?;

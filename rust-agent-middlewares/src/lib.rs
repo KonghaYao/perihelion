@@ -17,6 +17,7 @@ pub mod subagent;
 pub mod claude_agent_parser;
 pub use claude_agent_parser::{format_agent_id, parse_agent_file, ClaudeAgent, ClaudeAgentFrontmatter, ToolsValue};
 pub mod ask_user;
+pub mod cron;
 pub mod hitl;
 pub mod middleware;
 pub mod skills;
@@ -37,6 +38,7 @@ pub use hitl::{
 pub use skills::{load_global_skills_dir, list_skills, load_skill_metadata, SkillsMiddleware, SkillMetadata};
 pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
 pub use subagent::{SubAgentMiddleware, SubAgentTool, SkillPreloadMiddleware};
+pub use cron::{CronMiddleware, CronScheduler, CronTask, CronTrigger};
 
 /// Prelude - 常用类型一次性导入
 pub mod prelude {
@@ -61,6 +63,7 @@ pub mod prelude {
         WriteFileTool,
     };
     pub use crate::subagent::{SubAgentMiddleware, SubAgentTool, SkillPreloadMiddleware};
+    pub use crate::cron::{CronMiddleware, CronScheduler, CronTask, CronTrigger};
 
     // 重导出 rust-create-agent 核心类型
     pub use rust_create_agent::prelude::*;

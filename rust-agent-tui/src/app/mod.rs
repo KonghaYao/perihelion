@@ -8,6 +8,8 @@ pub mod relay_panel;
 pub mod tool_display;
 
 mod core;
+mod cron_state;
+mod cron_ops;
 mod agent_comm;
 mod agent_ops;
 mod langfuse_state;
@@ -58,6 +60,7 @@ use crate::ui::render_thread::RenderEvent;
 // Re-export sub-structs
 pub use agent_comm::AgentComm;
 pub use core::AppCore;
+pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use relay_state::RelayState;
 
@@ -76,6 +79,7 @@ pub struct App {
     pub thread_store: Arc<dyn ThreadStore>,
     pub current_thread_id: Option<ThreadId>,
     pub todo_items: Vec<TodoItem>,
+    pub cron: CronState,
     pub relay_panel: Option<RelayPanel>,
 }
 
@@ -134,6 +138,10 @@ impl App {
             rust_agent_middlewares::skills::list_skills(&dirs)
         };
 
+        // 初始化 cron state + spawn tick task
+        let (cron_state, scheduler_arc) = CronState::new();
+        CronState::spawn_tick_task(scheduler_arc);
+
         Self {
             core: AppCore::new(render_tx, render_cache, render_notify, command_registry, skills),
             agent: AgentComm::default(),
@@ -146,6 +154,7 @@ impl App {
             thread_store,
             current_thread_id: None,
             todo_items: Vec::new(),
+            cron: cron_state,
             relay_panel: None,
         }
     }

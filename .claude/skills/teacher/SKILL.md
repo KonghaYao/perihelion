@@ -1,5 +1,5 @@
 ---
-name: align-architect
+name: teacher
 description: >
     架构对齐测验——agent 主动从架构维度提问，用户作答，agent 针对偏差给出纠正和解释。
     当用户说"考考我架构"、"帮我对齐架构认知"、"测测我对架构的理解"、
@@ -61,7 +61,7 @@ glob_files("spec/global/**/*.md")    # 如果存在，读取全局架构文档
 
 ## 第三步：提问流程
 
-**使用 `AskUserQuestion` 工具**逐批交互式提问，每批最多 4 题，不要把题目作为文本段落输出。
+**使用 `ask_user_question` 工具**逐批交互式提问，每批最多 4 题，不要把题目作为文本段落输出。
 
 **题目形式**：
 
@@ -69,17 +69,17 @@ glob_files("spec/global/**/*.md")    # 如果存在，读取全局架构文档
     - 选项 A-C：正确答案 + 2 个常见误解的干扰项
     - 选项 D：固定为 `"不知道"`，description 固定为 `"我不确定，请告诉我正确答案"`
 - `header` 填题目序号，如 `"第 1 题"`
-- `multiSelect: false`（单选）
+- `multi_select: false`（单选）
 
 **调用示例**（每批 1–4 题，用一次工具调用）：
 
 ```
-AskUserQuestion({
+ask_user_question({
   questions: [
     {
       header: "第 1 题",
       question: "ReActAgent 的工具来源有哪几种方式，合并顺序如何？",
-      multiSelect: false,
+      multi_select: false,
       options: [
         { label: "A", description: "ToolProvider 优先，手动注册的工具会被覆盖" },
         { label: "B", description: "手动注册的工具优先级最高，ToolProvider 补充其余工具" },
@@ -95,7 +95,7 @@ AskUserQuestion({
 **分批规则**：
 
 - 5–8 题时，按 4+余量 分两批；不超过 4 题时一批完成
-- 每批调用一次 `AskUserQuestion`，等待用户作答后再发下一批
+- 每批调用一次 `ask_user_question`，等待用户作答后再发下一批
 - 先告知用户总题数和分批情况（一句话即可），然后立即调用工具，不要在文本中把题目再列一遍
 
 ---
@@ -153,15 +153,15 @@ AskUserQuestion({
 建议：<下一步可以重点看哪部分文档或代码>
 ```
 
-总结输出后，用 `AskUserQuestion` 询问是否继续：
+总结输出后，用 `ask_user_question` 询问是否继续：
 
 ```
-AskUserQuestion({
+ask_user_question({
   questions: [
     {
       header: "继续？",
       question: "要再来一轮吗？",
-      multiSelect: false,
+      multi_select: false,
       options: [
         { label: "再来一轮", description: "换一组新题，继续测验" },
         { label: "针对薄弱点再练", description: "只出刚才答错或不确定的相关题目" },

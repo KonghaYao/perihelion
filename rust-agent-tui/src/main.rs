@@ -120,6 +120,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cl
     'event_loop: loop {
         // 轮询后台 agent 结果
         let agent_updated = app.poll_agent();
+        // 检查 cron 定时触发
+        app.poll_cron_triggers();
         // 轮询 Relay 事件（Web 端控制消息）
         let relay_updated = app.poll_relay();
         // 检查 Relay 是否需要重连（断线 3s 后自动重试）

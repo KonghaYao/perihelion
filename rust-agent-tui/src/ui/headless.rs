@@ -833,4 +833,28 @@ mod tests {
         // 超长时应在末尾有省略号
         // （多行内容在 max_lines 行后被截断）
     }
+
+    #[tokio::test]
+    async fn test_cron_panel_render() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // Register a cron task
+        app.cron.scheduler.lock().register("* * * * *", "hello cron test").unwrap();
+        let tasks: Vec<_> = app.cron.scheduler.lock().list_tasks().into_iter().cloned().collect();
+        app.cron.cron_panel = Some(crate::app::CronPanel::new(tasks));
+
+        let notified = handle.render_notify.notified();
+        drop(notified);
+
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        eprintln!("SNAPSHOT:");
+        for (i, line) in snap.iter().enumerate() {
+            if !line.is_empty() {
+                eprintln!("{:3}: {}", i, line);
+            }
+        }
+        assert!(handle.contains("hello cron test"), "should contain task prompt");
+        assert!(handle.contains("* * * * *"), "should contain cron expression");
+    }
 }
