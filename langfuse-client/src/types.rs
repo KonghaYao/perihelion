@@ -331,6 +331,9 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 if let Some(ref completion_start) = body.completion_start_time {
                     attrs.push(OtelAttribute::string("langfuse.observation.completion_start_time", completion_start));
                 }
+                if let Some(ref session_id) = body.session_id {
+                    attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
+                }
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
@@ -360,6 +363,9 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                     for (k, v) in usage_details {
                         attrs.push(OtelAttribute::new(format!("gen_ai.usage.{}", k), OtelAttributeValue::int(*v as i64)));
                     }
+                }
+                if let Some(ref session_id) = body.session_id {
+                    attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
                 }
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
@@ -415,6 +421,9 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 if let Some(ref msg) = body.status_message {
                     attrs.push(OtelAttribute::string("langfuse.observation.status_message", msg));
                 }
+                if let Some(ref session_id) = body.session_id {
+                    attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
+                }
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
@@ -441,6 +450,9 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                     OtelAttribute::string("langfuse.observation.type", &obs_type_str),
                 ];
                 append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                if let Some(ref session_id) = body.session_id {
+                    attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
+                }
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
@@ -584,9 +596,10 @@ fn rfc3339_to_nano(rfc3339: &str) -> Option<String> {
 }
 
 /// 观测类型（V4 扩展，含 10 种变体）
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ObservationType {
+    #[default]
     Span,
     Generation,
     Event,
@@ -662,7 +675,7 @@ pub struct TraceBody {
 }
 
 /// V4 统一观测类型（ObservationCreate/ObservationUpdate 共用）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct ObservationBody {
@@ -683,6 +696,7 @@ pub struct ObservationBody {
     pub status_message: Option<String>,
     pub version: Option<String>,
     pub environment: Option<String>,
+    pub session_id: Option<String>,
 }
 
 /// Span Body（SpanCreate/SpanUpdate 共用）
@@ -734,6 +748,7 @@ pub struct GenerationBody {
     pub cost_details: Option<CostDetails>,
     pub prompt_name: Option<String>,
     pub prompt_version: Option<i32>,
+    pub session_id: Option<String>,
 }
 
 /// Event Body（EventCreate 使用）
@@ -903,6 +918,7 @@ mod tests {
             status_message: None,
             version: None,
             environment: None,
+            session_id: None,
         }
     }
 

@@ -162,6 +162,10 @@ impl App {
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         match event {
             AgentEvent::SubAgentStart { agent_id, task_preview } => {
+                // Langfuse：创建 SubAgent Observation（与主 agent 共享 trace_id）
+                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
+                    tracer.lock().on_subagent_start(&agent_id, &task_preview);
+                }
                 let vm = MessageViewModel::subagent_group(agent_id, task_preview);
                 self.core.view_messages.push(vm.clone());
                 self.core.subagent_group_idx = Some(self.core.view_messages.len() - 1);
@@ -169,6 +173,10 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
+                // Langfuse：结束 SubAgent Observation
+                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
+                    tracer.lock().on_subagent_end(&result, is_error);
+                }
                 if let Some(idx) = self.core.subagent_group_idx {
                     if let Some(MessageViewModel::SubAgentGroup {
                         is_running,

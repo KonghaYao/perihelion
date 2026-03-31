@@ -46,8 +46,10 @@
 - [x] ai messages 的工具调用不用显示, 多余了
 - [x] compact 的信息应该是 ai messages 的形式
 - [x] compact thread 的名称应该
+- [ ] compact 的模型应该固定为 haiku
 - [ ] 弹窗 /AskUserQuestion 有时候不够长度显示
 - [ ] i18n 文件整合替换能力; 默认中文, 但是检测到 ./i18n/ 里面的 json 时, 会进行替换. /i18n 会进入选择面板, 即文件, 选中即可替换.
+- [ ] theme.json 然后注入默认的颜色, 支持列举面板和 theme 切换, 写入
 
 ### 命令系统
 
@@ -73,4 +75,6 @@
   - [x] Langfuse Client 有问题, 现在发送不了 tool 观测暂时无法解决
 - [ ] langfuse 没有 user id
   - [ ] 需要唯一 id
-- [ ] 每一次 agent run 应该单独一个 langfuse 的节点记录, 但是他们是同一个 sessions
+- [x] 好像 generation 这些没有加入 sessionsid 标记,导致没有记录到 sessions里面
+- [ ] 模型报错好像没有记录到 langfuse
+- [ ] subagent 的监控层级不对

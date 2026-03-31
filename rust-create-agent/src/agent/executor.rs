@@ -168,6 +168,13 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     match result {
                         Ok(r) => r,
                         Err(e) => {
+                            // LLM 报错时仍 emit LlmCallEnd，确保 Langfuse generation 可观测
+                            self.emit(AgentEvent::LlmCallEnd {
+                                step,
+                                model: self.llm.model_name(),
+                                output: format!("ERROR: {}", e),
+                                usage: None,
+                            });
                             self.chain.run_on_error(state, &e).await?;
                             return Err(e);
                         }
