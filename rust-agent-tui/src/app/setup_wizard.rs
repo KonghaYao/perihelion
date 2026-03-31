@@ -1,9 +1,11 @@
 /// 向导步骤
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SetupStep {
+    /// Provider + API Key 合并表单
     Provider,
-    ApiKey,
+    /// 模型别名配置
     ModelAlias,
+    /// 确认完成
     Done,
 }
 
@@ -86,6 +88,7 @@ pub enum Step1Field {
     ProviderType,
     ProviderId,
     BaseUrl,
+    ApiKey,
 }
 
 impl Step1Field {
@@ -93,15 +96,17 @@ impl Step1Field {
         match self {
             Self::ProviderType => Self::ProviderId,
             Self::ProviderId => Self::BaseUrl,
-            Self::BaseUrl => Self::ProviderType,
+            Self::BaseUrl => Self::ApiKey,
+            Self::ApiKey => Self::ProviderType,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            Self::ProviderType => Self::BaseUrl,
+            Self::ProviderType => Self::ApiKey,
             Self::ProviderId => Self::ProviderType,
             Self::BaseUrl => Self::ProviderId,
+            Self::ApiKey => Self::BaseUrl,
         }
     }
 }
@@ -131,9 +136,9 @@ impl SetupWizardPanel {
             SetupStep::Provider => match self.step1_focus {
                 Step1Field::ProviderId => self.provider_id.push_str(&text),
                 Step1Field::BaseUrl => self.base_url.push_str(&text),
+                Step1Field::ApiKey => self.api_key.push_str(&text),
                 _ => {}
             },
-            SetupStep::ApiKey => self.api_key.push_str(&text),
             SetupStep::ModelAlias => {
                 if self.step3_focus < 3 {
                     self.aliases[self.step3_focus].model_id.push_str(&text);
@@ -201,7 +206,6 @@ pub fn handle_setup_wizard_key(
 
     match wizard.step {
         SetupStep::Provider => handle_step_provider(wizard, input),
-        SetupStep::ApiKey => handle_step_api_key(wizard, input),
         SetupStep::ModelAlias => handle_step_model_alias(wizard, input),
         SetupStep::Done => handle_step_done(wizard, input),
     }
@@ -232,7 +236,7 @@ fn handle_step_provider(
 ) -> Option<SetupWizardAction> {
     use ratatui_textarea::Key;
     match input {
-        // Tab: 在 Step1Field 三个字段间循环切换
+        // Tab: 在四个字段间循环切换
         ratatui_textarea::Input {
             key: Key::Tab,
             shift: false,
@@ -268,12 +272,14 @@ fn handle_step_provider(
             }
             Some(SetupWizardAction::Redraw)
         }
-        // Enter: 校验 provider_id 非空后进入 Step 2
+        // Enter: 校验所有字段非空后进入 ModelAlias
         ratatui_textarea::Input {
             key: Key::Enter, ..
         } => {
-            if !wizard.provider_id.trim().is_empty() {
-                wizard.step = SetupStep::ApiKey;
+            if !wizard.provider_id.trim().is_empty()
+                && !wizard.api_key.trim().is_empty()
+            {
+                wizard.step = SetupStep::ModelAlias;
             }
             Some(SetupWizardAction::Redraw)
         }
@@ -296,6 +302,9 @@ fn handle_step_provider(
                 Step1Field::BaseUrl => {
                     wizard.base_url.pop();
                 }
+                Step1Field::ApiKey => {
+                    wizard.api_key.pop();
+                }
                 _ => {}
             }
             Some(SetupWizardAction::Redraw)
@@ -312,48 +321,9 @@ fn handle_step_provider(
                 Step1Field::BaseUrl => {
                     wizard.base_url.push(c);
                 }
+                Step1Field::ApiKey => wizard.api_key.push(c),
                 _ => {}
             }
-            Some(SetupWizardAction::Redraw)
-        }
-        _ => None,
-    }
-}
-
-fn handle_step_api_key(
-    wizard: &mut SetupWizardPanel,
-    input: ratatui_textarea::Input,
-) -> Option<SetupWizardAction> {
-    use ratatui_textarea::Key;
-    match input {
-        ratatui_textarea::Input {
-            key: Key::Enter, ..
-        } => {
-            if !wizard.api_key.trim().is_empty() {
-                wizard.step = SetupStep::ModelAlias;
-            }
-            Some(SetupWizardAction::Redraw)
-        }
-        ratatui_textarea::Input {
-            key: Key::Esc, ..
-        } => {
-            wizard.step = SetupStep::Provider;
-            Some(SetupWizardAction::Redraw)
-        }
-        ratatui_textarea::Input {
-            key: Key::Backspace,
-            ..
-        } => {
-            wizard.api_key.pop();
-            Some(SetupWizardAction::Redraw)
-        }
-        ratatui_textarea::Input {
-            key: Key::Char(c),
-            ctrl: false,
-            alt: false,
-            ..
-        } => {
-            wizard.api_key.push(c);
             Some(SetupWizardAction::Redraw)
         }
         _ => None,
@@ -393,7 +363,7 @@ fn handle_step_model_alias(
         ratatui_textarea::Input {
             key: Key::Esc, ..
         } => {
-            wizard.step = SetupStep::ApiKey;
+            wizard.step = SetupStep::Provider;
             Some(SetupWizardAction::Redraw)
         }
         ratatui_textarea::Input {
@@ -601,11 +571,13 @@ mod tests {
     fn test_step1_field_navigation() {
         assert_eq!(Step1Field::ProviderType.next(), Step1Field::ProviderId);
         assert_eq!(Step1Field::ProviderId.next(), Step1Field::BaseUrl);
-        assert_eq!(Step1Field::BaseUrl.next(), Step1Field::ProviderType);
+        assert_eq!(Step1Field::BaseUrl.next(), Step1Field::ApiKey);
+        assert_eq!(Step1Field::ApiKey.next(), Step1Field::ProviderType);
 
-        assert_eq!(Step1Field::ProviderType.prev(), Step1Field::BaseUrl);
+        assert_eq!(Step1Field::ProviderType.prev(), Step1Field::ApiKey);
         assert_eq!(Step1Field::ProviderId.prev(), Step1Field::ProviderType);
         assert_eq!(Step1Field::BaseUrl.prev(), Step1Field::ProviderId);
+        assert_eq!(Step1Field::ApiKey.prev(), Step1Field::BaseUrl);
     }
 
     // ── Event handling tests ──
@@ -633,6 +605,8 @@ mod tests {
         let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Tab));
         assert_eq!(wizard.step1_focus, Step1Field::BaseUrl);
         let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Tab));
+        assert_eq!(wizard.step1_focus, Step1Field::ApiKey);
+        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Tab));
         assert_eq!(wizard.step1_focus, Step1Field::ProviderType);
     }
 
@@ -650,23 +624,31 @@ mod tests {
     fn test_handle_step_provider_enter_advances() {
         let mut wizard = SetupWizardPanel::new();
         assert!(!wizard.provider_id.is_empty());
+        // Empty api_key → Enter blocked
         let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-        assert_eq!(wizard.step, SetupStep::ApiKey);
-    }
-
-    #[test]
-    fn test_handle_step_api_key_enter_advances() {
-        let mut wizard = SetupWizardPanel::new();
-        wizard.step = SetupStep::ApiKey;
+        assert_eq!(wizard.step, SetupStep::Provider);
+        // Set api_key → Enter advances to ModelAlias
         wizard.api_key = "sk-test".to_string();
         let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
         assert_eq!(wizard.step, SetupStep::ModelAlias);
     }
 
     #[test]
-    fn test_handle_step_api_key_esc_back() {
+    fn test_handle_step_api_key_in_step1() {
         let mut wizard = SetupWizardPanel::new();
-        wizard.step = SetupStep::ApiKey;
+        // Tab to ApiKey field
+        wizard.step1_focus = Step1Field::ApiKey;
+        type_text(&mut wizard, "sk-test-key");
+        assert_eq!(wizard.api_key, "sk-test-key");
+        // Backspace
+        let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Backspace));
+        assert_eq!(wizard.api_key, "sk-test-ke");
+    }
+
+    #[test]
+    fn test_handle_step_model_alias_esc_back() {
+        let mut wizard = SetupWizardPanel::new();
+        wizard.step = SetupStep::ModelAlias;
         let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
         assert_eq!(wizard.step, SetupStep::Provider);
     }

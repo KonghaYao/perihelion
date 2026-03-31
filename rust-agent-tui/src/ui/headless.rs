@@ -912,31 +912,22 @@ mod tests {
                 .terminal
                 .draw(|f| crate::ui::main_ui::render(f, &mut app))
                 .unwrap();
-            assert!(handle.contains("Step 1/3"));
+            assert!(handle.contains("Step 1/2"));
 
-            // Step 1 → Enter → Step 2
+            // Step 1: type API key then Enter → ModelAlias
             let wizard = app.setup_wizard.as_mut().unwrap();
-            let action = handle_setup_wizard_key(wizard, make_key(Key::Enter));
-            assert!(matches!(action, Some(SetupWizardAction::Redraw)));
-            assert_eq!(wizard.step, SetupStep::ApiKey);
-
-            // Step 2: type API key → Enter → Step 3
-            handle
-                .terminal
-                .draw(|f| crate::ui::main_ui::render(f, &mut app))
-                .unwrap();
-            assert!(handle.contains("Step 2/3"));
-            let wizard = app.setup_wizard.as_mut().unwrap();
+            wizard.step1_focus = Step1Field::ApiKey;
             type_text(wizard, "sk-ant-test-key-12345");
             let action = handle_setup_wizard_key(wizard, make_key(Key::Enter));
+            assert!(matches!(action, Some(SetupWizardAction::Redraw)));
             assert_eq!(wizard.step, SetupStep::ModelAlias);
 
-            // Step 3: Enter → Done
+            // Step 2: Enter → Done
             handle
                 .terminal
                 .draw(|f| crate::ui::main_ui::render(f, &mut app))
                 .unwrap();
-            assert!(handle.contains("Step 3/3"));
+            assert!(handle.contains("Step 2/2"));
             let wizard = app.setup_wizard.as_ref().unwrap();
             assert!(wizard.aliases[0].model_id.contains("claude-opus"));
             let wizard = app.setup_wizard.as_mut().unwrap();
@@ -994,12 +985,9 @@ mod tests {
                 .unwrap();
             assert!(handle.contains("OpenAI Compatible"));
 
-            // Step 1 → Enter → Step 2
+            // Step 1: set api_key, Enter → ModelAlias
             let wizard = app.setup_wizard.as_mut().unwrap();
-            let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter));
-            assert_eq!(wizard.step, SetupStep::ApiKey);
-
-            // Type API key → Enter → Step 3
+            wizard.step1_focus = Step1Field::ApiKey;
             type_text(wizard, "sk-openai-test-key");
             let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter));
             assert_eq!(wizard.step, SetupStep::ModelAlias);
@@ -1056,27 +1044,23 @@ mod tests {
         async fn test_setup_wizard_esc_navigation() {
             let mut wizard = SetupWizardPanel::new();
 
-            // Step 1 → Enter → Step 2
+            // Step 1: empty api_key → Enter blocked (stays on Provider)
             assert_eq!(wizard.step, SetupStep::Provider);
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-            assert_eq!(wizard.step, SetupStep::ApiKey);
-
-            // Step 2 → Esc → Step 1
-            let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
             assert_eq!(wizard.step, SetupStep::Provider);
 
-            // Step 1 → Step 2 → type key → Step 3
-            let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
+            // Step 1: fill api_key → Enter → ModelAlias
+            wizard.step1_focus = Step1Field::ApiKey;
             type_text(&mut wizard, "test-key");
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
             assert_eq!(wizard.step, SetupStep::ModelAlias);
 
-            // Step 3 → Esc → Step 2 (api_key preserved)
+            // ModelAlias → Esc → Provider (api_key preserved)
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
-            assert_eq!(wizard.step, SetupStep::ApiKey);
+            assert_eq!(wizard.step, SetupStep::Provider);
             assert_eq!(wizard.api_key, "test-key");
 
-            // Step 2 → Step 3 → Done → Esc → Step 3
+            // Provider → ModelAlias → Done → Esc → ModelAlias
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
             assert_eq!(wizard.step, SetupStep::ModelAlias);
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
@@ -1095,16 +1079,14 @@ mod tests {
             assert!(matches!(action, Some(SetupWizardAction::Redraw)));
             assert_eq!(wizard.step, SetupStep::Provider);
 
-            // Restore and go to Step 2
+            // Empty api_key → Enter still blocked (both must be non-empty)
             wizard.provider_id = "anthropic".to_string();
-            let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-            assert_eq!(wizard.step, SetupStep::ApiKey);
-
-            // Empty api_key → Enter blocked
             let action = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-            assert_eq!(wizard.step, SetupStep::ApiKey);
+            assert!(matches!(action, Some(SetupWizardAction::Redraw)));
+            assert_eq!(wizard.step, SetupStep::Provider);
 
-            // Type key → Step 3
+            // Type key → Enter → ModelAlias
+            wizard.step1_focus = Step1Field::ApiKey;
             type_text(&mut wizard, "test-key");
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
             assert_eq!(wizard.step, SetupStep::ModelAlias);
@@ -1127,6 +1109,9 @@ mod tests {
             assert_eq!(wizard.step1_focus, Step1Field::BaseUrl);
 
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Tab));
+            assert_eq!(wizard.step1_focus, Step1Field::ApiKey);
+
+            let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Tab));
             assert_eq!(wizard.step1_focus, Step1Field::ProviderType);
 
             // Shift+Tab reverse
@@ -1139,7 +1124,7 @@ mod tests {
                     shift: true,
                 },
             );
-            assert_eq!(wizard.step1_focus, Step1Field::BaseUrl);
+            assert_eq!(wizard.step1_focus, Step1Field::ApiKey);
         }
 
         #[tokio::test]
@@ -1162,15 +1147,14 @@ mod tests {
         async fn test_setup_wizard_backspace_editing() {
             let mut wizard = SetupWizardPanel::new();
 
-            // Step 2: type + backspace
-            wizard.step = SetupStep::ApiKey;
+            // Step 1 ApiKey field: type + backspace
+            wizard.step1_focus = Step1Field::ApiKey;
             type_text(&mut wizard, "abc");
             assert_eq!(wizard.api_key, "abc");
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Backspace));
             assert_eq!(wizard.api_key, "ab");
 
             // Step 1 ProviderId: backspace
-            wizard.step = SetupStep::Provider;
             wizard.step1_focus = Step1Field::ProviderId;
             wizard.provider_id = "myprovider".to_string();
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Backspace));
@@ -1200,14 +1184,14 @@ mod tests {
                 .terminal
                 .draw(|f| crate::ui::main_ui::render(f, &mut app))
                 .unwrap();
-            assert!(handle.contains("Step 1/3"));
+            assert!(handle.contains("Step 1/2"));
 
-            // Quick complete
+            // Quick complete: set api_key, then Enter through all steps
             let wizard = app.setup_wizard.as_mut().unwrap();
-            let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter)); // Step 1 → 2
+            wizard.step1_focus = Step1Field::ApiKey;
             type_text(wizard, "sk-final-test");
-            let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter)); // Step 2 → 3
-            let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter)); // Step 3 → Done
+            let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter)); // Step 1 → ModelAlias
+            let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter)); // ModelAlias → Done
 
             // Done → SaveAndClose
             let action = handle_setup_wizard_key(wizard, make_key(Key::Enter));

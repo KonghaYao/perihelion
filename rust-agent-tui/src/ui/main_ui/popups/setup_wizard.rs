@@ -19,8 +19,7 @@ pub(crate) fn render_setup_wizard(f: &mut Frame, app: &crate::app::App) {
     // 居中内容区：宽度 60%，高度按内容自适应（最少 16 行）
     let content_width = (area.width * 3 / 5).max(50);
     let content_height = match wizard.step {
-        SetupStep::Provider => 16,
-        SetupStep::ApiKey => 12,
+        SetupStep::Provider => 20,
         SetupStep::ModelAlias => 16,
         SetupStep::Done => 14,
     }
@@ -29,7 +28,6 @@ pub(crate) fn render_setup_wizard(f: &mut Frame, app: &crate::app::App) {
 
     match wizard.step {
         SetupStep::Provider => render_step_provider(f, wizard, centered),
-        SetupStep::ApiKey => render_step_api_key(f, wizard, centered),
         SetupStep::ModelAlias => render_step_model_alias(f, wizard, centered),
         SetupStep::Done => render_step_done(f, wizard, centered),
     }
@@ -45,7 +43,7 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
     let block = Block::default()
         .title(Span::styled(
-            " ── Perihelion Setup ── Step 1/3: Provider ",
+            " ── Perihelion Setup ── Step 1/2: Provider & API Key ",
             Style::default()
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
@@ -119,6 +117,24 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
         Span::styled(format!(" {}", url_display), url_val),
     ]);
 
+    // 行 3: API Key 输入（掩码）
+    let key_active = wizard.step1_focus == Step1Field::ApiKey;
+    let (key_label, key_val) = focused(key_active);
+    let masked: String = if wizard.api_key.is_empty() {
+        String::new()
+    } else {
+        "•".repeat(wizard.api_key.len())
+    };
+    let key_display = if key_active {
+        format!("{}▏", masked)
+    } else {
+        masked
+    };
+    let line_key = Line::from(vec![
+        Span::styled(" API Key  ", key_label),
+        Span::styled(format!(" {}", key_display), key_val),
+    ]);
+
     // 底部提示
     let hint = Line::from(vec![
         Span::styled(
@@ -149,6 +165,7 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
         line_pt,
         line_pid,
         line_url,
+        line_key,
         Line::from(""),
         hint,
     ];
@@ -183,81 +200,10 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
-fn render_step_api_key(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
-    let block = Block::default()
-        .title(Span::styled(
-            " ── Step 2/3: API Key ",
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
-    f.render_widget(&block, area);
-    let inner = block.inner(area);
-
-    // Provider 名称
-    let line_provider = Line::from(vec![
-        Span::styled(" Provider: ", Style::default().fg(theme::MUTED)),
-        Span::styled(
-            wizard.provider_type.label(),
-            Style::default().fg(theme::TEXT),
-        ),
-    ]);
-
-    // API Key 掩码输入（密码模式）
-    let masked: String = if wizard.api_key.is_empty() {
-        "".to_string()
-    } else {
-        "•".repeat(wizard.api_key.len())
-    };
-    let line_key = Line::from(vec![
-        Span::styled(
-            " API Key:  ",
-            Style::default()
-                .fg(Color::White)
-                .bg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(" {}▏", masked),
-            Style::default().fg(Color::White).bg(theme::ACCENT),
-        ),
-    ]);
-
-    // 底部提示
-    let hint = Line::from(vec![
-        Span::styled(
-            " Enter",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":下一步  ", Style::default().fg(theme::MUTED)),
-        Span::styled(
-            "Esc",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":返回上一步", Style::default().fg(theme::MUTED)),
-    ]);
-
-    let lines = vec![
-        Line::from(""),
-        line_provider,
-        Line::from(""),
-        line_key,
-        Line::from(""),
-        hint,
-    ];
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
-}
-
 fn render_step_model_alias(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
     let block = Block::default()
         .title(Span::styled(
-            " ── Step 3/3: Model Aliases ",
+            " ── Step 2/2: Model Aliases ",
             Style::default()
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
@@ -433,28 +379,27 @@ mod tests {
         let wizard = SetupWizardPanel::new();
         let (_, handle) = render_headless(wizard);
         assert!(handle.contains("Perihelion Setup"), "should contain title");
-        assert!(handle.contains("Step 1/3"), "should contain step");
+        assert!(handle.contains("Step 1/2"), "should contain step");
         assert!(handle.contains("Anthropic"), "should contain provider");
+        assert!(handle.contains("API Key"), "should contain api key field");
     }
 
     #[tokio::test]
-    async fn test_render_step2_masked_api_key() {
+    async fn test_render_step1_masked_api_key() {
         let mut wizard = SetupWizardPanel::new();
-        wizard.step = SetupStep::ApiKey;
         wizard.api_key = "sk-abc123xyz789".to_string();
         let (_, handle) = render_headless(wizard);
-        assert!(handle.contains("Step 2/3"), "should contain step");
         // API key should be masked with bullets, not visible in plain text
         let snapshot = handle.snapshot().join("\n");
         assert!(!snapshot.contains("sk-abc123xyz789"), "should not show raw key");
     }
 
     #[tokio::test]
-    async fn test_render_step3_aliases() {
+    async fn test_render_step2_aliases() {
         let mut wizard = SetupWizardPanel::new();
         wizard.step = SetupStep::ModelAlias;
         let (_, handle) = render_headless(wizard);
-        assert!(handle.contains("Step 3/3"), "should contain step");
+        assert!(handle.contains("Step 2/2"), "should contain step");
     }
 
     #[tokio::test]
