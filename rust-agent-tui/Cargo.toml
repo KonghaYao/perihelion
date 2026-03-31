@@ -41,7 +41,7 @@ png = "0.18"
 base64 = { version = "0.22", features = ["alloc"] }
 pulldown-cmark = "0.12"
 langfuse-client = { path = "../langfuse-client" }
-reqwest = { version = "0.12", default-features = false, features = [
-    "rustls-tls",
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
     "json",
 ] }

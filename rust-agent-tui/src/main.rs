@@ -96,8 +96,7 @@ fn main() -> Result<()> {
         result
     });
 
-    // 先 drop rt（关闭所有 tokio 任务），再 drop _telemetry（flush + 关闭 OTel provider）
-    // 此时已无任何 tokio 上下文，reqwest::blocking 的内部 runtime 可以安全 drop。
+    // 先 drop rt（关闭所有 tokio 任务），再 drop _telemetry
     drop(rt);
     drop(_telemetry);
 
@@ -110,6 +109,16 @@ fn main() -> Result<()> {
 
 async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cli: Option<RelayCli>) -> Result<()> {
     let mut app = App::new();
+
+    // 检测是否需要 Setup 向导
+    if let Some(ref cfg) = app.zen_config {
+        if rust_agent_tui::app::setup_wizard::needs_setup(&cfg.config) {
+            app.setup_wizard = Some(rust_agent_tui::app::SetupWizardPanel::new());
+        }
+    } else {
+        // 无配置文件 → 必然需要 setup
+        app.setup_wizard = Some(rust_agent_tui::app::SetupWizardPanel::new());
+    }
 
     // 尝试连接 Relay Server（CLI 参数优先，其次读 settings.json）
     app.try_connect_relay(relay_cli.as_ref()).await;

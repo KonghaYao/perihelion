@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::app::model_panel::ModelPanelMode;
 use crate::app::{App, MessageViewModel, PendingAttachment};
+use rust_create_agent::messages::BaseMessage;
 use crate::ui::render_thread::RenderEvent;
 
 /// 将 RGBA 像素数据编码为 PNG，再返回 base64 字符串和 PNG 字节数
@@ -46,6 +47,35 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
             let input = Input::from(ev);
+
+            // Setup 向导：优先拦截所有按键事件
+            if app.setup_wizard.is_some() {
+                let input_clone = input.clone();
+                if let Some(ref mut wizard) = app.setup_wizard {
+                    if let Some(action) = crate::app::setup_wizard::handle_setup_wizard_key(wizard, input_clone) {
+                        match action {
+                            crate::app::setup_wizard::SetupWizardAction::SaveAndClose => {
+                                let wizard = app.setup_wizard.take().unwrap();
+                                match crate::app::setup_wizard::save_setup(&wizard) {
+                                    Ok(cfg) => app.refresh_after_setup(cfg),
+                                    Err(e) => {
+                                        let msg = MessageViewModel::from_base_message(
+                                            &BaseMessage::system(format!("Setup save failed: {}", e)),
+                                            &[],
+                                        );
+                                        let _ = app.core.render_tx.send(RenderEvent::AddMessage(msg));
+                                    }
+                                }
+                            }
+                            crate::app::setup_wizard::SetupWizardAction::Skip => {
+                                app.setup_wizard = None;
+                            }
+                            crate::app::setup_wizard::SetupWizardAction::Redraw => {}
+                        }
+                    }
+                }
+                return Ok(Some(Action::Redraw));
+            }
 
             // Thread 浏览面板优先处理
             if app.core.thread_browser.is_some() {

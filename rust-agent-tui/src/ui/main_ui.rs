@@ -17,6 +17,12 @@ use crate::ui::welcome;
 use rust_agent_middlewares::prelude::TodoStatus;
 
 pub fn render(f: &mut Frame, app: &mut App) {
+    // Setup 向导：全屏覆盖，优先于所有正常界面
+    if app.setup_wizard.is_some() {
+        popups::setup_wizard::render_setup_wizard(f, app);
+        return;
+    }
+
     let area = f.area();
 
     // 动态输入框高度：行数 + 边框（上下各 1），最少 3 行，最多 40%

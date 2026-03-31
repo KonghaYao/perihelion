@@ -22,9 +22,6 @@ cargo run -p rust-agent-tui -- -a    # 启用 HITL 审批模式
 cargo test                           # 全量测试
 cargo test -p rust-create-agent --lib -- test_name  # 运行单个测试
 RELAY_TOKEN=your-token cargo run -p rust-relay-server --features server  # 启动 Relay Server
-
-# OpenTelemetry（可选）
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p rust-agent-tui
 ```
 
 ## Workspace 依赖关系
@@ -406,7 +403,7 @@ ReActAgent::new(llm)
 | `YOLO_MODE=false` | 启用 HITL 审批 |
 | `RUST_LOG` | 日志级别（默认 `info`） |
 | `RUST_LOG_FILE` | 日志文件路径 |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | 启用 OTLP 导出 |
+| `RUST_LOG_FORMAT=json` | 使用 JSON 格式输出日志 |
 | `LANGFUSE_*` | Langfuse 追踪配置 |
 
 `.env` 文件已 gitignore，本地开发配置在 `rust-agent-tui/.env`。

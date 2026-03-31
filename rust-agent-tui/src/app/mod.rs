@@ -5,6 +5,7 @@ pub mod interaction_broker;
 pub mod model_panel;
 mod provider;
 pub mod relay_panel;
+pub mod setup_wizard;
 pub mod tool_display;
 
 mod core;
@@ -52,6 +53,7 @@ pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
 pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
 pub use relay_panel::RelayPanel;
+pub use setup_wizard::SetupWizardPanel;
 use std::sync::Arc;
 use tracing::Instrument;
 
@@ -81,6 +83,7 @@ pub struct App {
     pub todo_items: Vec<TodoItem>,
     pub cron: CronState,
     pub relay_panel: Option<RelayPanel>,
+    pub setup_wizard: Option<SetupWizardPanel>,
 }
 
 impl App {
@@ -156,6 +159,7 @@ impl App {
             todo_items: Vec::new(),
             cron: cron_state,
             relay_panel: None,
+            setup_wizard: None,
         }
     }
 
@@ -201,6 +205,16 @@ impl App {
             }
         } else {
             self.agent.last_task_duration
+        }
+    }
+
+    /// Setup 向导保存后刷新内存中的 Provider 状态
+    pub fn refresh_after_setup(&mut self, cfg: crate::config::ZenConfig) {
+        self.zen_config = Some(cfg);
+        let cfg_ref = self.zen_config.as_ref().unwrap();
+        if let Some(p) = agent::LlmProvider::from_config(cfg_ref) {
+            self.provider_name = p.display_name().to_string();
+            self.model_name = p.model_name().to_string();
         }
     }
 

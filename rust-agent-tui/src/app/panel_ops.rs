@@ -275,6 +275,7 @@ impl App {
             todo_items: Vec::new(),
             cron: super::CronState::default(),
             relay_panel: None,
+            setup_wizard: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

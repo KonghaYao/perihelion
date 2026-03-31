@@ -1,48 +1,66 @@
-//! 标准 tracing-subscriber 初始化（无 OTLP 导出）
+//! Tracing subscriber 初始化（基础日志输出）
 
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{fmt, EnvFilter, Registry, prelude::*};
 
-/// 初始化 tracing
-///
-/// - `RUST_LOG_FILE=<路径>`：日志写到文件（TUI 模式必须用，否则破坏画面）
-/// - 未设置 `RUST_LOG_FILE`：不添加任何文字输出 layer，完全静默
-/// - `RUST_LOG`：日志级别，仅在写文件时生效，默认 `info`
-/// - `RUST_LOG_FORMAT=json`：JSON 格式（默认纯文本）
-pub fn init_tracing(_service_name: &str) -> TracingGuard {
+pub struct TracingGuard;
+
+impl Drop for TracingGuard {
+    fn drop(&mut self) {
+        // 无需特殊清理逻辑
+    }
+}
+
+/// 初始化 tracing，输出到 stderr（避免干扰 TUI）
+pub fn init_tracing(service_name: &str) -> TracingGuard {
+    // 根据 RUST_LOG_FORMAT 环境变量决定输出格式
+    let is_json = std::env::var("RUST_LOG_FORMAT").as_deref() == Ok("json");
+
+    // 检查是否配置了日志文件
     let log_file = std::env::var("RUST_LOG_FILE").ok();
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
 
     match log_file {
         Some(path) => {
-            let filter = EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info"));
-            let use_json = std::env::var("RUST_LOG_FORMAT")
-                .map(|v| v.eq_ignore_ascii_case("json"))
-                .unwrap_or(false);
+            // 输出到日志文件
             let file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(&path)
                 .expect("cannot open log file");
 
-            if use_json {
-                tracing_subscriber::registry()
+            if is_json {
+                let subscriber = Registry::default()
                     .with(filter)
-                    .with(fmt::layer().json().with_writer(file))
-                    .init();
+                    .with(fmt::layer().json().with_writer(file));
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Unable to set global subscriber");
             } else {
-                tracing_subscriber::registry()
+                let subscriber = Registry::default()
                     .with(filter)
-                    .with(fmt::layer().with_ansi(false).with_writer(file))
-                    .init();
+                    .with(fmt::layer().with_writer(file).with_ansi(false));
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Unable to set global subscriber");
             }
         }
         None => {
-            // 没有日志文件目标，不添加任何 fmt layer，彻底静默
-            tracing_subscriber::registry().init();
+            // 输出到 stderr（避免干扰 TUI）
+            if is_json {
+                let subscriber = Registry::default()
+                    .with(filter)
+                    .with(fmt::layer().json().with_writer(std::io::stderr));
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Unable to set global subscriber");
+            } else {
+                let subscriber = Registry::default()
+                    .with(filter)
+                    .with(fmt::layer().with_writer(std::io::stderr).with_ansi(false));
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Unable to set global subscriber");
+            }
         }
     }
 
     TracingGuard
 }
-
-pub struct TracingGuard;
