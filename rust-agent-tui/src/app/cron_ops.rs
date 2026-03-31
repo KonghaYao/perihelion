@@ -1,5 +1,3 @@
-use super::cron_state::CronPanel;
-
 impl crate::app::App {
     /// CronPanel: 光标上移
     pub fn cron_panel_move_up(&mut self) {

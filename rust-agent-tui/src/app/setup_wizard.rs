@@ -197,7 +197,6 @@ pub fn handle_setup_wizard_key(
     wizard: &mut SetupWizardPanel,
     input: ratatui_textarea::Input,
 ) -> Option<SetupWizardAction> {
-    use ratatui_textarea::Key;
 
     // 跳过确认弹窗优先处理
     if wizard.confirm_skip {

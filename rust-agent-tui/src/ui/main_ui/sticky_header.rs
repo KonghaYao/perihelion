@@ -44,7 +44,7 @@ pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
     let lines: Vec<Line> = wrapped_lines
         .into_iter()
         .enumerate()
-        .map(|(idx, text)| {
+        .map(|(_idx, text)| {
             Line::from(vec![
                 Span::styled("> ", label_style),
                 Span::styled(text, text_style),

@@ -57,8 +57,6 @@ struct SubAgentContext {
     observation_id: String,
     /// SubAgent 的 agent_id（如 "code-reviewer"）
     agent_id: String,
-    /// 开始时间（RFC3339）
-    start_time: String,
     /// 当前 subagent 下的 tools batch 信息
     tools_batch_span_id: Option<String>,
     tools_batch_start_time: Option<String>,
@@ -342,8 +340,8 @@ impl LangfuseTracer {
             metadata: None,
         };
         // 在可变借用结束后再访问 self.session
-        drop(end_time_ref); // 显式结束借用
-        drop(pending_tools);
+        let _ = end_time_ref; // 显式结束借用
+        let _ = pending_tools;
         if let Err(e) = self.session.batcher.try_add(event) {
             tracing::warn!(error = %e, trace_id = %trace_id_for_log, tool = %tool_name, "langfuse: tool observation 入队失败（背压丢弃）");
         }
@@ -435,7 +433,6 @@ impl LangfuseTracer {
         self.subagent_stack.push(SubAgentContext {
             observation_id,
             agent_id: agent_id.to_string(),
-            start_time,
             tools_batch_span_id: None,
             tools_batch_start_time: None,
             tools_batch_end_time: None,
