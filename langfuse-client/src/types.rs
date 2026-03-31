@@ -248,6 +248,9 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                     OtelAttribute::string("langfuse.observation.type", "span"),
                 ];
                 append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                if let Some(ref session_id) = body.session_id {
+                    attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
+                }
                 if let Some(ref msg) = body.status_message {
                     attrs.push(OtelAttribute::string("langfuse.observation.status_message", msg));
                 }
@@ -273,6 +276,9 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 let mut attrs = vec![
                     OtelAttribute::string("langfuse.observation.type", "span"),
                 ];
+                if let Some(ref session_id) = body.session_id {
+                    attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
+                }
                 append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
@@ -697,6 +703,7 @@ pub struct SpanBody {
     pub parent_observation_id: Option<String>,
     pub version: Option<String>,
     pub environment: Option<String>,
+    pub session_id: Option<String>,
 }
 
 /// Generation Body（GenerationCreate/GenerationUpdate 共用）

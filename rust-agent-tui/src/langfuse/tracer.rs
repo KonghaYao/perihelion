@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use langfuse_client::{
     GenerationBody, IngestionEvent, ObservationBody, ObservationType,
-    SpanBody, TraceBody,
+    SpanBody,
 };
 use rust_create_agent::llm::types::TokenUsage;
 use rust_create_agent::messages::BaseMessage;
@@ -90,6 +90,7 @@ impl LangfuseTracer {
                 level: None,
                 version: None,
                 environment: None,
+                session_id: Some(self.session.session_id.clone()),
             };
             let event = IngestionEvent::SpanCreate {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -103,34 +104,16 @@ impl LangfuseTracer {
         }
     }
 
-    /// 对话轮次开始：同步创建 Trace + Agent Span（保证顺序）
+    /// 对话轮次开始：创建 agent-run Span（根 span）
     pub fn on_trace_start(&mut self, input: &str) {
         let batcher = &self.session.batcher;
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        // 1. 创建 Trace
-        let trace_body = TraceBody {
-            id: Some(self.trace_id.clone()),
-            name: Some("agent-run".to_string()),
-            input: Some(serde_json::json!(input)),
-            session_id: Some(self.session.session_id.clone()),
-            ..Default::default()
-        };
-        let trace_event = IngestionEvent::TraceCreate {
-            id: uuid::Uuid::now_v7().to_string(),
-            timestamp: start_time.clone(),
-            body: trace_body,
-            metadata: None,
-        };
-        if let Err(e) = batcher.try_add(trace_event) {
-            tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: trace 创建失败");
-        }
-
-        // 2. 创建 Agent Span（V4 API 不支持 observation-create，用 span-create 代替）
+        // 创建 agent-run Span（根 span，包含 session_id）
         let body = SpanBody {
             id: Some(self.agent_span_id.clone()),
             trace_id: Some(self.trace_id.clone()),
-            name: Some("Agent".to_string()),
+            name: Some("agent-run".to_string()),
             input: Some(serde_json::json!(input)),
             start_time: Some(start_time),
             end_time: None,
@@ -141,6 +124,7 @@ impl LangfuseTracer {
             status_message: None,
             version: None,
             environment: None,
+            session_id: Some(self.session.session_id.clone()),
         };
         let event = IngestionEvent::SpanCreate {
             id: uuid::Uuid::now_v7().to_string(),
@@ -149,7 +133,7 @@ impl LangfuseTracer {
             metadata: None,
         };
         if let Err(e) = batcher.try_add(event) {
-            tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: agent span 入队失败（背压丢弃）");
+            tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: agent-run span 入队失败（背压丢弃）");
         }
     }
 
@@ -294,12 +278,13 @@ impl LangfuseTracer {
         self.tools_batch_end_time = Some(end_time);
     }
 
-    /// 对话轮次结束：更新 Trace 输出，并强制 flush。
+    /// 对话轮次结束：更新 agent-run Span 输出和结束时间，并强制 flush。
     pub fn on_trace_end(&mut self, error_output: Option<&str>) -> tokio::task::JoinHandle<()> {
         self.flush_tools_batch();
 
         let batcher = Arc::clone(&self.session.batcher);
         let trace_id = self.trace_id.clone();
+        let agent_span_id = self.agent_span_id.clone();
         let output = if let Some(err) = error_output {
             err.to_string()
         } else {
@@ -307,20 +292,25 @@ impl LangfuseTracer {
         };
 
         tokio::spawn(async move {
-            let trace_body = TraceBody {
-                id: Some(trace_id.clone()),
+            let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+            // 更新 agent-run Span 的 output 和 end_time
+            let span_body = SpanBody {
+                id: Some(agent_span_id.clone()),
+                trace_id: Some(trace_id.clone()),
                 name: Some("agent-run".to_string()),
                 output: Some(serde_json::json!(output)),
+                end_time: Some(end_time.clone()),
                 ..Default::default()
             };
-            let trace_event = IngestionEvent::TraceCreate {
+            let span_event = IngestionEvent::SpanUpdate {
                 id: uuid::Uuid::now_v7().to_string(),
-                timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                body: trace_body,
+                timestamp: end_time,
+                body: span_body,
                 metadata: None,
             };
-            if let Err(e) = batcher.add(trace_event).await {
-                tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: trace 输出更新失败");
+            if let Err(e) = batcher.add(span_event).await {
+                tracing::warn!(error = %e, trace_id = %trace_id, span_id = %agent_span_id, "langfuse: agent-run span 更新失败");
             }
             if let Err(e) = batcher.flush().await {
                 tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: batcher flush 失败");
