@@ -10,7 +10,7 @@ impl Drop for TracingGuard {
     }
 }
 
-/// 初始化 tracing，输出到 stderr（避免干扰 TUI）
+/// 初始化 tracing，输出到日志文件（TUI 模式下避免干扰界面）
 pub fn init_tracing(service_name: &str) -> TracingGuard {
     // 根据 RUST_LOG_FORMAT 环境变量决定输出格式
     let is_json = std::env::var("RUST_LOG_FORMAT").as_deref() == Ok("json");
@@ -45,17 +45,24 @@ pub fn init_tracing(service_name: &str) -> TracingGuard {
             }
         }
         None => {
-            // 输出到 stderr（避免干扰 TUI）
+            // TUI 应用默认将日志写到 /tmp/{service_name}.log，避免干扰终端界面
+            let default_path = format!("/tmp/{}.log", service_name);
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&default_path)
+                .expect("cannot open default log file");
+
             if is_json {
                 let subscriber = Registry::default()
                     .with(filter)
-                    .with(fmt::layer().json().with_writer(std::io::stderr));
+                    .with(fmt::layer().json().with_writer(file));
                 tracing::subscriber::set_global_default(subscriber)
                     .expect("Unable to set global subscriber");
             } else {
                 let subscriber = Registry::default()
                     .with(filter)
-                    .with(fmt::layer().with_writer(std::io::stderr).with_ansi(false));
+                    .with(fmt::layer().with_writer(file).with_ansi(false));
                 tracing::subscriber::set_global_default(subscriber)
                     .expect("Unable to set global subscriber");
             }

@@ -109,15 +109,13 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
     // 行 2: Base URL 输入
     let url_active = wizard.step1_focus == Step1Field::BaseUrl;
     let (url_label, url_val) = focused(url_active);
-    let is_readonly = wizard.provider_type == ProviderType::Anthropic;
-    let url_display = if url_active && !is_readonly {
+    let url_display = if url_active {
         format!("{}▏", wizard.base_url)
     } else {
         wizard.base_url.clone()
     };
-    let readonly_tag = if is_readonly { " (readonly)" } else { "" };
     let line_url = Line::from(vec![
-        Span::styled(format!(" Base URL{} ", readonly_tag), url_label),
+        Span::styled(" Base URL ", url_label),
         Span::styled(format!(" {}", url_display), url_val),
     ]);
 

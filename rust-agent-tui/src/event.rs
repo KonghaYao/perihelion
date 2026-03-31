@@ -366,6 +366,13 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             // 某些终端（如 VSCode）在 bracketed paste 中使用 \r 而非 \n 作为换行符
             let text = text.replace('\r', "\n");
 
+            // setup_wizard 打开时粘贴到当前字段
+            if app.setup_wizard.is_some() {
+                let wizard = app.setup_wizard.as_mut().unwrap();
+                wizard.paste_text(&text);
+                return Ok(Some(Action::Redraw));
+            }
+
             // model_panel 打开时粘贴到面板当前字段
             if app.core.model_panel.is_some() {
                 app.core.model_panel.as_mut().unwrap().paste_text(&text);

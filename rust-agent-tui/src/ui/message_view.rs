@@ -302,15 +302,30 @@ impl MessageViewModel {
 
 }
 
-/// 按工具名分配颜色
+/// 按工具名分配颜色（按操作类型分色）
+///
+/// | 类别 | 颜色 | 色值 |
+/// |------|------|------|
+/// | 读取/搜索 | SAGE | #6EB56A |
+/// | 写入/编辑 | WARNING | #B09878 |
+/// | 执行(bash) | MODEL_INFO | #A0825F |
+/// | 代理/交互 | THINKING | #A78BFA |
+/// | 错误 | ERROR | #CC463E |
+/// | 其他 | MUTED | #8C7D78 |
 pub fn tool_color(name: &str) -> Color {
     match name {
-        "bash" => theme::WARNING,
+        // 读取/搜索 — 哑光绿
+        "read_file" | "glob_files" | "search_files_rg" => theme::SAGE,
+        // 写入/编辑 — 暖米灰
         "write_file" | "edit_file" | "folder_operations"
         | "delete_file" | "delete_folder" | "rm" | "rm_rf" => theme::WARNING,
-        "read_file" | "glob_files" | "search_files_rg"
-        | "launch_agent" | "ask_user_question" | "todo_write" => theme::MUTED,
+        // 执行 — 棕金
+        "bash" => theme::MODEL_INFO,
+        // 代理/交互 — 紫色
+        "launch_agent" | "ask_user_question" | "todo_write" => theme::THINKING,
+        // 错误
         _ if name.contains("error") => theme::ERROR,
+        // 其他
         _ => theme::MUTED,
     }
 }

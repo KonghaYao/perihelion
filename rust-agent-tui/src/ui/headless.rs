@@ -1176,11 +1176,11 @@ mod tests {
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Backspace));
             assert_eq!(wizard.provider_id, "myprovide");
 
-            // Step 1 BaseUrl (Anthropic): readonly
+            // Step 1 BaseUrl (Anthropic): editable
             wizard.step1_focus = Step1Field::BaseUrl;
-            let url_before = wizard.base_url.clone();
+            wizard.base_url = "https://api.anthropic.com".to_string();
             let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Backspace));
-            assert_eq!(wizard.base_url, url_before);
+            assert_eq!(wizard.base_url, "https://api.anthropic.co");
 
             // Step 1 BaseUrl (OpenAI): editable
             wizard.provider_type = ProviderType::OpenAiCompatible;

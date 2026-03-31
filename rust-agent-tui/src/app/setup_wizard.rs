@@ -124,6 +124,25 @@ impl SetupWizardPanel {
         }
     }
 
+    /// 粘贴文本到当前聚焦的字段
+    pub fn paste_text(&mut self, text: &str) {
+        let text = text.replace('\n', "");
+        match self.step {
+            SetupStep::Provider => match self.step1_focus {
+                Step1Field::ProviderId => self.provider_id.push_str(&text),
+                Step1Field::BaseUrl => self.base_url.push_str(&text),
+                _ => {}
+            },
+            SetupStep::ApiKey => self.api_key.push_str(&text),
+            SetupStep::ModelAlias => {
+                if self.step3_focus < 3 {
+                    self.aliases[self.step3_focus].model_id.push_str(&text);
+                }
+            }
+            SetupStep::Done => {}
+        }
+    }
+
     /// 切换 Provider 类型后刷新默认值
     pub fn refresh_provider_defaults(&mut self) {
         self.provider_id = self.provider_type.default_provider_id().to_string();
@@ -274,7 +293,7 @@ fn handle_step_provider(
                 Step1Field::ProviderId => {
                     wizard.provider_id.pop();
                 }
-                Step1Field::BaseUrl if wizard.provider_type != ProviderType::Anthropic => {
+                Step1Field::BaseUrl => {
                     wizard.base_url.pop();
                 }
                 _ => {}
@@ -290,7 +309,7 @@ fn handle_step_provider(
         } => {
             match wizard.step1_focus {
                 Step1Field::ProviderId => wizard.provider_id.push(c),
-                Step1Field::BaseUrl if wizard.provider_type != ProviderType::Anthropic => {
+                Step1Field::BaseUrl => {
                     wizard.base_url.push(c);
                 }
                 _ => {}
