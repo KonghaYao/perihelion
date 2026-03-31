@@ -182,11 +182,53 @@ impl App {
     /// 打开 thread 浏览面板（通过命令触发）
     pub fn open_thread_browser(&mut self) {
         let store = self.thread_store.clone();
+        let cwd = self.cwd.clone();
         let threads = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(store.list_threads())
                 .unwrap_or_default()
         });
-        self.core.thread_browser = Some(ThreadBrowser::new(threads, self.thread_store.clone()));
+        let filtered: Vec<_> = threads.into_iter().filter(|t| t.cwd == cwd).collect();
+        self.core.thread_browser = Some(ThreadBrowser::new(filtered, self.thread_store.clone()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_thread(cwd: &str) -> ThreadMeta {
+        ThreadMeta::new(cwd)
+    }
+
+    #[test]
+    fn filter_keeps_matching_cwd() {
+        let cwd = "/Users/alice/project";
+        let threads = vec![
+            make_thread(cwd),
+            make_thread("/Users/alice/other"),
+            make_thread(cwd),
+        ];
+        let filtered: Vec<_> = threads.into_iter().filter(|t| t.cwd == cwd).collect();
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn filter_returns_empty_when_no_match() {
+        let cwd = "/Users/alice/project";
+        let threads = vec![
+            make_thread("/Users/alice/other"),
+            make_thread("/Users/bob/project"),
+        ];
+        let filtered: Vec<_> = threads.into_iter().filter(|t| t.cwd == cwd).collect();
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn filter_keeps_all_when_all_match() {
+        let cwd = "/Users/alice/project";
+        let threads = vec![make_thread(cwd), make_thread(cwd), make_thread(cwd)];
+        let filtered: Vec<_> = threads.into_iter().filter(|t| t.cwd == cwd).collect();
+        assert_eq!(filtered.len(), 3);
     }
 }

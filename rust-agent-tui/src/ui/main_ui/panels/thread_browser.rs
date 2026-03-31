@@ -18,7 +18,7 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
 
     let block = Block::default()
         .title(Span::styled(
-            " 📝 选择对话  ↑↓:移动  Enter:确认  d:删除  Esc:关闭",
+            format!(" 📝 选择对话 [{}]  ↑↓:移动  Enter:确认  d:删除  Esc:关闭", app.cwd),
             Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
