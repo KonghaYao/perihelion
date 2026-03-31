@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use langfuse_client::{
-    GenerationBody, IngestionEvent, ObservationBody,
-    ObservationType, SpanBody, TraceBody,
+    GenerationBody, IngestionEvent, ObservationBody, ObservationType,
+    SpanBody, TraceBody,
 };
 use rust_create_agent::llm::types::TokenUsage;
 use rust_create_agent::messages::BaseMessage;
@@ -25,11 +25,14 @@ struct PendingTool {
 ///
 /// 持有对 LangfuseSession 的引用，复用 client/batcher/session_id。
 /// 生命周期：从 submit_message() 开始 → AgentEvent::Done/Error 时结束。
+///
+/// 所有事件通过 `batcher.try_add()` 同步入队，保证事件顺序与调用顺序一致，
+/// 确保 Langfuse 层级关系正确（父 span 先于子 span 入队）。
 pub struct LangfuseTracer {
     session: Arc<LangfuseSession>,
     /// 当前对话轮次的 Trace ID（提前生成，所有观测对象共享）
     trace_id: String,
-    /// Agent Observation 的 ID，所有子观测通过 parent_observation_id 挂在此下
+    /// Agent Span 的 ID，所有子观测通过 parent_observation_id 挂在此下
     agent_span_id: String,
     /// step → (generation_id, input_messages, tools, start_time_rfc3339)
     generation_data: HashMap<usize, (String, Vec<BaseMessage>, Vec<ToolDefinition>, String)>,
@@ -41,8 +44,6 @@ pub struct LangfuseTracer {
     tools_batch_start_time: Option<String>,
     /// 当前批次工具组最后一次 ToolEnd 时间
     tools_batch_end_time: Option<String>,
-    /// 所有后台 spawn 的 JoinHandle
-    pending_handles: Vec<tokio::task::JoinHandle<()>>,
     /// 累积的最终回答
     final_answer: String,
 }
@@ -59,7 +60,6 @@ impl LangfuseTracer {
             tools_batch_span_id: None,
             tools_batch_start_time: None,
             tools_batch_end_time: None,
-            pending_handles: Vec::new(),
             final_answer: String::new(),
         }
     }
@@ -76,99 +76,81 @@ impl LangfuseTracer {
             self.tools_batch_start_time.take(),
             self.tools_batch_end_time.take(),
         ) {
-            let batcher = Arc::clone(&self.session.batcher);
-            let trace_id = self.trace_id.clone();
-            let agent_span_id = self.agent_span_id.clone();
-            let handle = tokio::spawn(async move {
-                let body = SpanBody {
-                    id: Some(batch_id),
-                    trace_id: Some(trace_id.clone()),
-                    name: Some("Tools".to_string()),
-                    start_time: Some(batch_start),
-                    end_time: Some(batch_end.clone()),
-                    parent_observation_id: Some(agent_span_id),
-                    input: None,
-                    output: None,
-                    status_message: None,
-                    metadata: None,
-                    level: None,
-                    version: None,
-                    environment: None,
-                };
-                let event = IngestionEvent::SpanCreate {
-                    id: uuid::Uuid::now_v7().to_string(),
-                    timestamp: batch_end,
-                    body,
-                    metadata: None,
-                };
-                if let Err(e) = batcher.add(event).await {
-                    tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: tools batch span 入队失败（背压丢弃）");
-                }
-            });
-            self.pending_handles.push(handle);
-        }
-    }
-
-    /// 对话轮次开始：创建 Trace + Agent Observation
-    pub fn on_trace_start(&mut self, input: &str) {
-        let batcher = Arc::clone(&self.session.batcher);
-        let trace_id = self.trace_id.clone();
-        let agent_span_id = self.agent_span_id.clone();
-        let input = input.to_string();
-        let session_id = self.session.session_id.clone();
-        let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-
-        let handle = tokio::spawn(async move {
-            // 创建 Trace
-            let trace_body = TraceBody {
-                id: Some(trace_id.clone()),
-                name: Some("agent-run".to_string()),
-                input: Some(serde_json::json!(input.clone())),
-                session_id: Some(session_id),
-                ..Default::default()
-            };
-            let trace_event = IngestionEvent::TraceCreate {
-                id: uuid::Uuid::now_v7().to_string(),
-                timestamp: start_time.clone(),
-                body: trace_body,
-                metadata: None,
-            };
-            if let Err(e) = batcher.add(trace_event).await {
-                tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: trace 创建失败");
-            }
-
-            // 创建 Agent Observation
-            let timestamp_obs = start_time.clone();
-            let body = ObservationBody {
-                id: Some(agent_span_id),
-                trace_id: Some(trace_id.clone()),
-                r#type: ObservationType::Agent,
-                name: Some("Agent".to_string()),
-                input: Some(serde_json::json!(input)),
-                start_time: Some(start_time),
-                end_time: None,
-                completion_start_time: None,
-                parent_observation_id: None,
+            let body = SpanBody {
+                id: Some(batch_id),
+                trace_id: Some(self.trace_id.clone()),
+                name: Some("Tools".to_string()),
+                start_time: Some(batch_start),
+                end_time: Some(batch_end.clone()),
+                parent_observation_id: Some(self.agent_span_id.clone()),
+                input: None,
                 output: None,
-                metadata: None,
-                model: None,
-                model_parameters: None,
-                level: None,
                 status_message: None,
+                metadata: None,
+                level: None,
                 version: None,
                 environment: None,
             };
-            let event = IngestionEvent::ObservationCreate {
+            let event = IngestionEvent::SpanCreate {
                 id: uuid::Uuid::now_v7().to_string(),
-                timestamp: timestamp_obs,
+                timestamp: batch_end,
                 body,
                 metadata: None,
             };
-            if let Err(e) = batcher.add(event).await {
-                tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: agent observation 入队失败（背压丢弃）");
+            if let Err(e) = self.session.batcher.try_add(event) {
+                tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: tools batch span 入队失败（背压丢弃）");
             }
-        });
-        self.pending_handles.push(handle);
+        }
+    }
+
+    /// 对话轮次开始：同步创建 Trace + Agent Span（保证顺序）
+    pub fn on_trace_start(&mut self, input: &str) {
+        let batcher = &self.session.batcher;
+        let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+        // 1. 创建 Trace
+        let trace_body = TraceBody {
+            id: Some(self.trace_id.clone()),
+            name: Some("agent-run".to_string()),
+            input: Some(serde_json::json!(input)),
+            session_id: Some(self.session.session_id.clone()),
+            ..Default::default()
+        };
+        let trace_event = IngestionEvent::TraceCreate {
+            id: uuid::Uuid::now_v7().to_string(),
+            timestamp: start_time.clone(),
+            body: trace_body,
+            metadata: None,
+        };
+        if let Err(e) = batcher.try_add(trace_event) {
+            tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: trace 创建失败");
+        }
+
+        // 2. 创建 Agent Span（V4 API 不支持 observation-create，用 span-create 代替）
+        let body = SpanBody {
+            id: Some(self.agent_span_id.clone()),
+            trace_id: Some(self.trace_id.clone()),
+            name: Some("Agent".to_string()),
+            input: Some(serde_json::json!(input)),
+            start_time: Some(start_time),
+            end_time: None,
+            parent_observation_id: None,
+            output: None,
+            metadata: None,
+            level: None,
+            status_message: None,
+            version: None,
+            environment: None,
+        };
+        let event = IngestionEvent::SpanCreate {
+            id: uuid::Uuid::now_v7().to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            body,
+            metadata: None,
+        };
+        if let Err(e) = batcher.try_add(event) {
+            tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: agent span 入队失败（背压丢弃）");
+        }
     }
 
     /// LLM 调用开始：提交上一轮工具批次 Span，缓存本轮 input
@@ -180,7 +162,7 @@ impl LangfuseTracer {
             .insert(step, (gen_id, messages.to_vec(), tools.to_vec(), start_time));
     }
 
-    /// LLM 调用结束
+    /// LLM 调用结束：同步创建 Generation 事件
     pub fn on_llm_end(
         &mut self,
         step: usize,
@@ -193,19 +175,13 @@ impl LangfuseTracer {
             return;
         };
         let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let batcher = Arc::clone(&self.session.batcher);
-        let trace_id = self.trace_id.clone();
-        let agent_span_id = self.agent_span_id.clone();
-        let model = model.to_string();
-        let provider_name = provider.to_string();
-        let output = output.to_string();
 
         let messages_val = serde_json::to_value(&messages).unwrap_or_else(|e| {
-            tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: messages 序列化失败");
+            tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: messages 序列化失败");
             serde_json::json!({ "error": "serialization failed", "detail": e.to_string() })
         });
         let tools_val = serde_json::to_value(&tools).unwrap_or_else(|e| {
-            tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: tools 序列化失败");
+            tracing::warn!(error = %e, trace_id = %self.trace_id, "langfuse: tools 序列化失败");
             serde_json::json!({ "error": "serialization failed", "detail": e.to_string() })
         });
         let input_json = serde_json::json!({
@@ -230,32 +206,28 @@ impl LangfuseTracer {
             map
         });
 
-        let handle = tokio::spawn(async move {
-            let timestamp = end_time.clone();
-            let body = GenerationBody {
-                id: Some(gen_id.clone()),
-                trace_id: Some(trace_id.clone()),
-                name: Some(format!("Chat{}", provider_name)),
-                input: Some(input_json),
-                output: Some(serde_json::json!(output)),
-                model: Some(model),
-                usage_details: langfuse_usage_details,
-                parent_observation_id: Some(agent_span_id),
-                start_time: Some(start_time),
-                end_time: Some(end_time),
-                ..Default::default()
-            };
-            let event = IngestionEvent::GenerationCreate {
-                id: gen_id.clone(),
-                timestamp,
-                body,
-                metadata: None,
-            };
-            if let Err(e) = batcher.add(event).await {
-                tracing::warn!(error = %e, trace_id = %trace_id, gen_id = %gen_id, "langfuse: generation 入队失败（背压丢弃）");
-            }
-        });
-        self.pending_handles.push(handle);
+        let body = GenerationBody {
+            id: Some(gen_id.clone()),
+            trace_id: Some(self.trace_id.clone()),
+            name: Some(format!("Chat{}", provider)),
+            input: Some(input_json),
+            output: Some(serde_json::json!(output)),
+            model: Some(model.to_string()),
+            usage_details: langfuse_usage_details,
+            parent_observation_id: Some(self.agent_span_id.clone()),
+            start_time: Some(start_time),
+            end_time: Some(end_time.clone()),
+            ..Default::default()
+        };
+        let event = IngestionEvent::GenerationCreate {
+            id: gen_id.clone(),
+            timestamp: end_time,
+            body,
+            metadata: None,
+        };
+        if let Err(e) = self.session.batcher.try_add(event) {
+            tracing::warn!(error = %e, trace_id = %self.trace_id, gen_id = %gen_id, "langfuse: generation 入队失败（背压丢弃）");
+        }
     }
 
     /// 工具调用开始
@@ -281,49 +253,42 @@ impl LangfuseTracer {
         });
     }
 
-    /// 工具调用结束
+    /// 工具调用结束：同步创建 tool span
     pub fn on_tool_end(&mut self, tool_call_id: &str, output: &str, is_error: bool) {
         let Some(tool) = self.pending_tools.remove(tool_call_id) else {
             return;
         };
-        let batcher = Arc::clone(&self.session.batcher);
-        let trace_id = self.trace_id.clone();
-        let output = output.to_string();
         let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        {
-            let batcher = Arc::clone(&batcher);
-            let trace_id_log = trace_id.clone();
-            let tool_name_log = tool.name.clone();
-            let end_time = end_time.clone();
-            let handle = tokio::spawn(async move {
-                let status_msg = if is_error { Some("error".to_string()) } else { None };
-                let body = SpanBody {
-                    id: Some(tool.span_id),
-                    trace_id: Some(trace_id_log.clone()),
-                    name: Some(tool.name),
-                    input: Some(tool.input),
-                    output: Some(serde_json::json!(output)),
-                    start_time: Some(tool.start_time),
-                    end_time: Some(end_time.clone()),
-                    parent_observation_id: Some(tool.parent_span_id),
-                    status_message: status_msg,
-                    metadata: None,
-                    level: None,
-                    version: None,
-                    environment: None,
-                };
-                let event = IngestionEvent::SpanCreate {
-                    id: uuid::Uuid::now_v7().to_string(),
-                    timestamp: end_time,
-                    body,
-                    metadata: None,
-                };
-                if let Err(e) = batcher.add(event).await {
-                    tracing::warn!(error = %e, trace_id = %trace_id_log, tool = %tool_name_log, "langfuse: tool span 入队失败（背压丢弃）");
-                }
-            });
-            self.pending_handles.push(handle);
+        let status_msg = if is_error { Some("error".to_string()) } else { None };
+        let tool_name = tool.name.clone();
+        let body = ObservationBody {
+            id: Some(tool.span_id),
+            trace_id: Some(self.trace_id.clone()),
+            r#type: ObservationType::Tool,
+            name: Some(tool.name),
+            input: Some(tool.input),
+            output: Some(serde_json::json!(output)),
+            start_time: Some(tool.start_time),
+            end_time: Some(end_time.clone()),
+            completion_start_time: None,
+            parent_observation_id: Some(tool.parent_span_id),
+            metadata: None,
+            model: None,
+            model_parameters: None,
+            level: None,
+            status_message: status_msg,
+            version: None,
+            environment: None,
+        };
+        let event = IngestionEvent::ObservationCreate {
+            id: uuid::Uuid::now_v7().to_string(),
+            timestamp: end_time.clone(),
+            body,
+            metadata: None,
+        };
+        if let Err(e) = self.session.batcher.try_add(event) {
+            tracing::warn!(error = %e, trace_id = %self.trace_id, tool = %tool_name, "langfuse: tool observation 入队失败（背压丢弃）");
         }
 
         self.tools_batch_end_time = Some(end_time);
@@ -340,12 +305,8 @@ impl LangfuseTracer {
         } else {
             std::mem::take(&mut self.final_answer)
         };
-        let handles = std::mem::take(&mut self.pending_handles);
 
         tokio::spawn(async move {
-            for h in handles {
-                let _ = h.await;
-            }
             let trace_body = TraceBody {
                 id: Some(trace_id.clone()),
                 name: Some("agent-run".to_string()),
@@ -365,17 +326,5 @@ impl LangfuseTracer {
                 tracing::warn!(error = %e, trace_id = %trace_id, "langfuse: batcher flush 失败");
             }
         })
-    }
-}
-
-impl Drop for LangfuseTracer {
-    fn drop(&mut self) {
-        if !self.pending_handles.is_empty() {
-            tracing::warn!(
-                trace_id = %self.trace_id,
-                count = self.pending_handles.len(),
-                "LangfuseTracer dropped with pending handles — on_trace_end was not called, Langfuse data may be incomplete"
-            );
-        }
     }
 }

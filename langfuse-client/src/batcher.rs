@@ -102,36 +102,21 @@ impl Batcher {
         }
     }
 
-    /// 执行一次 flush：将 buffer 中的事件发送到 Langfuse API
+    /// 执行一次 flush：将 buffer 中的事件通过 OTLP 端点发送到 Langfuse API
     async fn do_flush(client: &LangfuseClient, buffer: &mut Vec<IngestionEvent>) {
         if buffer.is_empty() {
             return;
         }
 
         let events: Vec<IngestionEvent> = buffer.drain(..).collect();
-        debug!("Batcher flushing {} events", events.len());
+        debug!("Batcher flushing {} events via OTLP", events.len());
 
         match client.ingest(events).await {
-            Ok(response) => {
-                if response.errors.is_empty() {
-                    debug!(
-                        "Batcher flush successful: {} events accepted",
-                        response.successes.len()
-                    );
-                } else {
-                    warn!(
-                        "Batcher flush partial failure: {} succeeded, {} failed",
-                        response.successes.len(),
-                        response.errors.len()
-                    );
-                    for err in &response.errors {
-                        warn!("  Failed event id={}, status={}, message={:?}",
-                            err.id, err.status, err.message);
-                    }
-                }
+            Ok(()) => {
+                debug!("Batcher OTLP flush successful");
             }
             Err(e) => {
-                error!("Batcher flush failed: {}", e);
+                error!("Batcher OTLP flush failed: {}", e);
             }
         }
     }
@@ -159,6 +144,23 @@ impl Batcher {
                 })
             }
         }
+    }
+
+    /// 同步添加事件到批量队列（非阻塞，仅支持 DropNew 背压策略）
+    ///
+    /// 保证事件按调用顺序入队，适用于需要严格顺序的场景（如父 span 必须在子 span 之前）。
+    pub fn try_add(&self, event: IngestionEvent) -> Result<(), LangfuseError> {
+        let cmd = BatcherCommand::Add(event);
+        self.tx.try_send(cmd).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => {
+                warn!("Batcher queue full, dropping event (DropNew policy)");
+                LangfuseError::ChannelClosed
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                warn!("Batcher channel closed, event dropped");
+                LangfuseError::ChannelClosed
+            }
+        })
     }
 
     /// 手动触发 flush，等待所有待发送事件发送完毕
@@ -218,10 +220,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_add_and_manual_flush() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[{"id":"1","status":200}],"errors":[]}"#)
+            .with_body("{}")
             .expect(1)
             .create_async()
             .await;
@@ -246,10 +248,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_auto_flush_on_max_events() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[{"id":"1","status":200}],"errors":[]}"#)
+            .with_body("{}")
             .expect(1)
             .create_async()
             .await;
@@ -276,10 +278,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_periodic_flush() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[{"id":"1","status":200}],"errors":[]}"#)
+            .with_body("{}")
             .expect(1)
             .create_async()
             .await;
@@ -319,10 +321,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_backpressure_block() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[{"id":"1","status":200}],"errors":[]}"#)
+            .with_body("{}")
             .expect(1)
             .create_async()
             .await;
@@ -348,10 +350,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_graceful_shutdown_on_drop() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[],"errors":[]}"#)
+            .with_body("{}")
             .expect(1)
             .create_async()
             .await;
@@ -375,10 +377,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_multiple_flush_cycles() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[{"id":"1","status":200}],"errors":[]}"#)
+            .with_body("{}")
             .expect(2)
             .create_async()
             .await;
@@ -407,7 +409,7 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_handles_ingest_error() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
             .with_status(500)
             .with_body("error")
             .expect(1)
@@ -435,10 +437,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_with_large_batch() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[],"errors":[]}"#)
+            .with_body("{}")
             .expect(1)
             .create_async()
             .await;
@@ -464,10 +466,10 @@ mod tests {
     #[tokio::test]
     async fn test_batcher_backpressure_drop_new() {
         let mut server = mockito::Server::new_async().await;
-        let _mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let _mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[],"errors":[]}"#)
+            .with_body("{}")
             .create_async()
             .await;
 

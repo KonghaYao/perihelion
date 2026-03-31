@@ -1,12 +1,13 @@
 use crate::error::LangfuseError;
-use crate::types::{IngestionEvent, IngestionResponse};
+use crate::types::{ingestion_events_to_otel, IngestionEvent};
 use base64::Engine;
 use reqwest::Client;
 use std::time::Duration;
 use tracing::warn;
 
-/// Langfuse V4 Ingestion API 底层客户端
+/// Langfuse OTLP Ingestion 客户端
 ///
+/// 通过 OpenTelemetry OTLP 端点（/api/public/otel/v1/traces）发送追踪数据。
 /// 持有 reqwest::Client（复用连接池），封装认证、请求构建、重试逻辑。
 #[derive(Clone)]
 pub struct LangfuseClient {
@@ -48,23 +49,28 @@ impl LangfuseClient {
         Self::new(&config.public_key, &config.secret_key, &config.base_url, max_retries)
     }
 
-    /// 发送一批 ingestion 事件到 Langfuse API
+    /// 发送一批事件到 Langfuse OTLP 端点
     ///
-    /// POST /api/public/ingestion
+    /// POST /api/public/otel/v1/traces
+    /// 将 IngestionEvent 批量转换为 OTLP resourceSpans 格式发送。
     /// Headers:
     ///   - Authorization: Basic {base64(public_key:secret_key)}
     ///   - Content-Type: application/json
     ///   - x-langfuse-ingestion-version: 4
     ///
-    /// 响应: 207 Multi-Status → 解析 IngestionResponse
-    /// 错误重试: 网络错误（连接失败、超时等）自动重试 max_retries 次，指数退避（1s, 2s, 4s...）
+    /// 响应: 200 OK（空对象）表示成功
+    /// 错误重试: 网络错误和 5xx 自动重试 max_retries 次，指数退避（1s, 2s, 4s...）
     /// 4xx 错误不重试，直接返回 LangfuseError::IngestionApi
     pub async fn ingest(
         &self,
-        batch: Vec<IngestionEvent>,
-    ) -> Result<IngestionResponse, LangfuseError> {
-        let url = format!("{}/api/public/ingestion", self.base_url);
-        let body = serde_json::json!({ "batch": batch });
+        events: Vec<IngestionEvent>,
+    ) -> Result<(), LangfuseError> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        let url = format!("{}/api/public/otel/v1/traces", self.base_url);
+        let otel_payload = ingestion_events_to_otel(&events);
 
         let mut attempt = 0;
         loop {
@@ -74,62 +80,46 @@ impl LangfuseClient {
                 .header("Authorization", &self.auth_header)
                 .header("Content-Type", "application/json")
                 .header("x-langfuse-ingestion-version", "4")
-                .json(&body)
+                .json(&otel_payload)
                 .send()
                 .await;
 
             match result {
                 Ok(response) => {
                     let status = response.status();
-                    if status.is_success() || status.as_u16() == 207 {
-                        // 207 Multi-Status 或 2xx: 解析响应体
-                        let response_text = response.text().await?;
-                        let ingestion_response: IngestionResponse =
-                            serde_json::from_str(&response_text)?;
-
-                        // 如果有错误项，记录 warn 日志但仍返回
-                        if !ingestion_response.errors.is_empty() {
-                            warn!(
-                                "Langfuse ingestion partial failure: {} errors out of {} events",
-                                ingestion_response.errors.len(),
-                                ingestion_response.successes.len() + ingestion_response.errors.len()
-                            );
-                        }
-
-                        return Ok(ingestion_response);
+                    if status.is_success() {
+                        let _ = response.bytes().await;
+                        return Ok(());
                     } else if status.is_client_error() {
-                        // 4xx: 不重试
                         let error_text = response.text().await.unwrap_or_default();
                         return Err(LangfuseError::IngestionApi(format!(
-                            "HTTP {}: {}",
+                            "OTLP ingestion HTTP {}: {}",
                             status, error_text
                         )));
                     } else {
-                        // 5xx: 可重试
                         let error_text = response.text().await.unwrap_or_default();
                         if attempt < self.max_retries {
                             attempt += 1;
                             let delay = Duration::from_secs(1 << (attempt - 1));
                             warn!(
-                                "Langfuse ingestion server error (attempt {}/{}), retrying in {:?}: HTTP {} {}",
+                                "OTLP ingestion server error (attempt {}/{}), retrying in {:?}: HTTP {} {}",
                                 attempt, self.max_retries, delay, status, error_text
                             );
                             tokio::time::sleep(delay).await;
                             continue;
                         }
                         return Err(LangfuseError::IngestionApi(format!(
-                            "HTTP {} after {} retries: {}",
+                            "OTLP ingestion HTTP {} after {} retries: {}",
                             status, self.max_retries, error_text
                         )));
                     }
                 }
                 Err(e) => {
-                    // 网络错误: 可重试
                     if attempt < self.max_retries {
                         attempt += 1;
                         let delay = Duration::from_secs(1 << (attempt - 1));
                         warn!(
-                            "Langfuse ingestion network error (attempt {}/{}), retrying in {:?}: {}",
+                            "OTLP ingestion network error (attempt {}/{}), retrying in {:?}: {}",
                             attempt, self.max_retries, delay, e
                         );
                         tokio::time::sleep(delay).await;
@@ -139,14 +129,6 @@ impl LangfuseClient {
                 }
             }
         }
-    }
-
-    /// 便利方法：发送单个 ingestion 事件
-    pub async fn ingest_single(
-        &self,
-        event: IngestionEvent,
-    ) -> Result<IngestionResponse, LangfuseError> {
-        self.ingest(vec![event]).await
     }
 }
 
@@ -172,10 +154,6 @@ mod tests {
         }
     }
 
-    fn create_207_response() -> String {
-        r#"{"successes":[{"id":"evt-1","status":200}],"errors":[]}"#.to_string()
-    }
-
     #[test]
     fn test_new_creates_client_with_correct_auth() {
         let client = create_test_client("http://localhost", 3);
@@ -191,12 +169,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ingest_success_207() {
+    async fn test_ingest_success_200() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(create_207_response())
+            .with_body("{}")
             .match_header("Authorization", "Basic cGs6c2s=")
             .match_header("x-langfuse-ingestion-version", "4")
             .match_header("Content-Type", "application/json")
@@ -206,35 +184,20 @@ mod tests {
         let client = create_test_client(&server.url(), 0);
         let result = client.ingest(vec![create_test_event("evt-1")]).await;
         assert!(result.is_ok());
-        let resp = result.unwrap();
-        assert_eq!(resp.successes.len(), 1);
-        assert_eq!(resp.errors.len(), 0);
         mock.assert_async().await;
     }
 
     #[tokio::test]
-    async fn test_ingest_partial_failure_207() {
-        let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[{"id":"1","status":200}],"errors":[{"id":"2","status":400,"message":"invalid","error":null}]}"#)
-            .create_async()
-            .await;
-
-        let client = create_test_client(&server.url(), 0);
-        let result = client.ingest(vec![create_test_event("1"), create_test_event("2")]).await;
+    async fn test_ingest_empty_batch() {
+        let client = create_test_client("http://unused", 0);
+        let result = client.ingest(vec![]).await;
         assert!(result.is_ok());
-        let resp = result.unwrap();
-        assert_eq!(resp.successes.len(), 1);
-        assert_eq!(resp.errors.len(), 1);
-        mock.assert_async().await;
     }
 
     #[tokio::test]
     async fn test_ingest_4xx_no_retry() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
             .with_status(400)
             .with_body(r#"{"error":"bad request"}"#)
             .expect(1)
@@ -246,6 +209,7 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             LangfuseError::IngestionApi(msg) => {
+                assert!(msg.contains("OTLP"));
                 assert!(msg.contains("HTTP 400"));
             }
             other => panic!("Expected IngestionApi, got: {:?}", other),
@@ -256,22 +220,15 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_5xx_retries_then_success() {
         let mut server = mockito::Server::new_async().await;
-        let mock_fail1 = server.mock("POST", "/api/public/ingestion")
+        let mock_fail = server.mock("POST", "/api/public/otel/v1/traces")
             .with_status(500)
             .with_body("internal error")
             .expect(1)
             .create_async()
             .await;
-        let mock_fail2 = server.mock("POST", "/api/public/ingestion")
-            .with_status(500)
-            .with_body("internal error")
-            .expect(1)
-            .create_async()
-            .await;
-        let mock_success = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
-            .with_header("content-type", "application/json")
-            .with_body(create_207_response())
+        let mock_success = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
+            .with_body("{}")
             .expect(1)
             .create_async()
             .await;
@@ -279,15 +236,14 @@ mod tests {
         let client = create_test_client(&server.url(), 3);
         let result = client.ingest(vec![create_test_event("1")]).await;
         assert!(result.is_ok());
-        mock_fail1.assert_async().await;
-        mock_fail2.assert_async().await;
+        mock_fail.assert_async().await;
         mock_success.assert_async().await;
     }
 
     #[tokio::test]
     async fn test_ingest_5xx_retries_exhausted() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
             .with_status(500)
             .with_body("internal error")
             .expect(3) // 1 initial + 2 retries
@@ -308,7 +264,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_ingest_network_error_retries() {
-        // Connect to a port that's not listening
         let client = LangfuseClient::new("pk", "sk", "http://127.0.0.1:1", 1);
         let result = client.ingest(vec![create_test_event("1")]).await;
         assert!(result.is_err());
@@ -316,49 +271,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ingest_single_convenience() {
+    async fn test_ingest_payload_has_otel_format() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
-            .with_header("content-type", "application/json")
-            .with_body(create_207_response())
-            .match_body(mockito::Matcher::Regex("\"batch\":\\[".to_string()))
-            .create_async()
-            .await;
-
-        let client = create_test_client(&server.url(), 0);
-        let result = client.ingest_single(create_test_event("evt-1")).await;
-        assert!(result.is_ok());
-        mock.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn test_ingest_empty_batch() {
-        let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"successes":[],"errors":[]}"#)
-            .create_async()
-            .await;
-
-        let client = create_test_client(&server.url(), 0);
-        let result = client.ingest(vec![]).await;
-        assert!(result.is_ok());
-        let resp = result.unwrap();
-        assert!(resp.successes.is_empty());
-        assert!(resp.errors.is_empty());
-        mock.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn test_ingest_request_body_format() {
-        let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/ingestion")
-            .with_status(207)
-            .with_header("content-type", "application/json")
-            .with_body(create_207_response())
-            .match_body(mockito::Matcher::Regex("\"batch\".*\"type\":\"trace-create\"".to_string()))
+        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+            .with_status(200)
+            .with_body("{}")
+            .match_body(mockito::Matcher::Regex("\"resourceSpans\".*\"scopeSpans\".*\"spans\"".to_string()))
             .create_async()
             .await;
 

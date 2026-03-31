@@ -1,6 +1,582 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
+// ─── OTLP (OpenTelemetry Protocol) Types ───────────────────────────
+// These types represent the OTLP HTTP/JSON payload for trace ingestion.
+// Endpoint: POST /api/public/otel/v1/traces
+// Spec: https://opentelemetry.io/docs/specs/otlp/
+
+/// OTLP trace export request body
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtelTraceExportRequest {
+    #[serde(rename = "resourceSpans")]
+    pub resource_spans: Vec<OtelResourceSpan>,
+}
+
+/// A collection of spans from a single resource
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtelResourceSpan {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<OtelResource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_spans: Option<Vec<OtelScopeSpan>>,
+}
+
+/// Resource attributes identifying the source of telemetry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtelResource {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<Vec<OtelAttribute>>,
+}
+
+/// Collection of spans from a single instrumentation scope
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtelScopeSpan {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<OtelScope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spans: Option<Vec<OtelSpan>>,
+}
+
+/// Instrumentation scope information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtelScope {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<Vec<OtelAttribute>>,
+}
+
+/// Individual OTLP span representing a unit of work
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtelSpan {
+    /// Trace ID — 16 bytes hex-encoded (32 chars), must NOT contain hyphens
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    /// Span ID — 8 bytes hex-encoded (16 chars)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    /// Parent span ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
+    /// Span name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Span kind: 1=INTERNAL, 2=SERVER, 3=CLIENT, 4=PRODUCER, 5=CONSUMER
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<i32>,
+    /// Start time in nanoseconds since Unix epoch (string representation)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_time_unix_nano: Option<String>,
+    /// End time in nanoseconds since Unix epoch (string representation)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_time_unix_nano: Option<String>,
+    /// Span attributes (langfuse.* namespace for Langfuse-specific mapping)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<Vec<OtelAttribute>>,
+    /// Span status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<OtelStatus>,
+}
+
+/// Span status
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OtelStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Key-value attribute pair
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtelAttribute {
+    pub key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<OtelAttributeValue>,
+}
+
+/// Attribute value wrapper supporting different value types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtelAttributeValue {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub string_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub int_value: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub double_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bool_value: Option<bool>,
+}
+
+impl OtelAttributeValue {
+    pub fn string(v: impl Into<String>) -> Self {
+        Self {
+            string_value: Some(v.into()),
+            int_value: None,
+            double_value: None,
+            bool_value: None,
+        }
+    }
+
+    pub fn int(v: i64) -> Self {
+        Self {
+            string_value: None,
+            int_value: Some(v),
+            double_value: None,
+            bool_value: None,
+        }
+    }
+
+    pub fn bool(v: bool) -> Self {
+        Self {
+            string_value: None,
+            int_value: None,
+            double_value: None,
+            bool_value: Some(v),
+        }
+    }
+}
+
+/// Helper to build an attribute
+impl OtelAttribute {
+    pub fn new(key: impl Into<String>, value: OtelAttributeValue) -> Self {
+        Self {
+            key: key.into(),
+            value: Some(value),
+        }
+    }
+
+    pub fn string(key: impl Into<String>, val: impl Into<String>) -> Self {
+        Self::new(key, OtelAttributeValue::string(val))
+    }
+}
+
+/// OTLP trace export response (empty object = success)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtelTraceResponse {}
+
+// ─── IngestionEvent helpers ─────────────────────────────────────────
+
+impl IngestionEvent {
+    /// Get the event envelope timestamp (all variants have a `timestamp` field)
+    pub fn event_timestamp(&self) -> &str {
+        match self {
+            IngestionEvent::TraceCreate { timestamp, .. } => timestamp,
+            IngestionEvent::SpanCreate { timestamp, .. } => timestamp,
+            IngestionEvent::SpanUpdate { timestamp, .. } => timestamp,
+            IngestionEvent::GenerationCreate { timestamp, .. } => timestamp,
+            IngestionEvent::GenerationUpdate { timestamp, .. } => timestamp,
+            IngestionEvent::EventCreate { timestamp, .. } => timestamp,
+            IngestionEvent::ScoreCreate { timestamp, .. } => timestamp,
+            IngestionEvent::ObservationCreate { timestamp, .. } => timestamp,
+            IngestionEvent::ObservationUpdate { timestamp, .. } => timestamp,
+            IngestionEvent::SdkLog { timestamp, .. } => timestamp,
+        }
+    }
+}
+
+// ─── Conversion: IngestionEvent → OTLP Spans ───────────────────────
+
+/// Convert a batch of IngestionEvents into an OTLP trace export request.
+///
+/// Mapping strategy:
+/// - TraceCreate → root span with `langfuse.observation.type` = omitted (root is trace)
+/// - SpanCreate → span with `langfuse.observation.type` = "span"
+/// - GenerationCreate → span with `langfuse.observation.type` = "generation" + model/usage attrs
+/// - ObservationCreate → span with `langfuse.observation.type` from body.type
+/// - EventCreate → span with `langfuse.observation.type` = "event"
+/// - ScoreCreate → span with `langfuse.observation.type` = omitted (attached to trace)
+/// - Others → span with basic attributes
+pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportRequest {
+    let mut spans: Vec<OtelSpan> = Vec::with_capacity(events.len());
+
+    for event in events {
+        match event {
+            IngestionEvent::TraceCreate { body, .. } => {
+                let mut attrs = Vec::new();
+                if let Some(ref session_id) = body.session_id {
+                    attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
+                }
+                if let Some(ref user_id) = body.user_id {
+                    attrs.push(OtelAttribute::string("langfuse.user.id", user_id));
+                }
+                if let Some(ref release) = body.release {
+                    attrs.push(OtelAttribute::string("langfuse.release", release));
+                }
+                if let Some(ref version) = body.version {
+                    attrs.push(OtelAttribute::string("langfuse.version", version));
+                }
+                if let Some(ref env) = body.environment {
+                    attrs.push(OtelAttribute::string("langfuse.environment", env));
+                }
+                if let Some(ref tags) = body.tags {
+                    // Tags as comma-separated string
+                    attrs.push(OtelAttribute::string("langfuse.trace.tags", tags.join(",")));
+                }
+                if let Some(ref input) = body.input {
+                    attrs.push(OtelAttribute::string("langfuse.trace.input", input.to_string()));
+                }
+                if let Some(ref output) = body.output {
+                    attrs.push(OtelAttribute::string("langfuse.trace.output", output.to_string()));
+                }
+                if let Some(ref name) = body.name {
+                    attrs.push(OtelAttribute::string("langfuse.trace.name", name));
+                }
+                // trace.id becomes spanId for the root span; traceId is also set
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                spans.push(OtelSpan {
+                    trace_id: Some(span_id.clone()),
+                    span_id: Some(span_id),
+                    parent_span_id: None,
+                    name: body.name.clone().or_else(|| Some("trace".into())),
+                    kind: Some(1), // INTERNAL
+                    start_time_unix_nano: rfc3339_to_nano(event.event_timestamp()),
+                    end_time_unix_nano: body.timestamp.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    attributes: Some(attrs),
+                    status: Some(OtelStatus::default()),
+                });
+            }
+            IngestionEvent::SpanCreate { body, .. } => {
+                let mut attrs = vec![
+                    OtelAttribute::string("langfuse.observation.type", "span"),
+                ];
+                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                if let Some(ref msg) = body.status_message {
+                    attrs.push(OtelAttribute::string("langfuse.observation.status_message", msg));
+                }
+
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id,
+                    name: body.name.clone(),
+                    kind: Some(1),
+                    start_time_unix_nano: body.start_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    end_time_unix_nano: body.end_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    attributes: Some(attrs),
+                    status: build_status(body.level.as_ref(), body.status_message.as_deref()),
+                });
+            }
+            IngestionEvent::SpanUpdate { body, .. } => {
+                // For updates, we still create a span — Langfuse OTel deduplicates by spanId
+                let mut attrs = vec![
+                    OtelAttribute::string("langfuse.observation.type", "span"),
+                ];
+                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id,
+                    name: body.name.clone(),
+                    kind: Some(1),
+                    start_time_unix_nano: body.start_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    end_time_unix_nano: body.end_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    attributes: Some(attrs),
+                    status: build_status(body.level.as_ref(), body.status_message.as_deref()),
+                });
+            }
+            IngestionEvent::GenerationCreate { body, .. } => {
+                let mut attrs = vec![
+                    OtelAttribute::string("langfuse.observation.type", "generation"),
+                ];
+                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                if let Some(ref model) = body.model {
+                    attrs.push(OtelAttribute::string("langfuse.observation.model.name", model));
+                }
+                if let Some(ref params) = body.model_parameters {
+                    if let Ok(json) = serde_json::to_string(params) {
+                        attrs.push(OtelAttribute::string("langfuse.observation.model.parameters", json));
+                    }
+                }
+                if let Some(ref usage) = body.usage {
+                    if let Ok(json) = serde_json::to_string(usage) {
+                        attrs.push(OtelAttribute::string("langfuse.observation.usage_details", json));
+                    }
+                }
+                if let Some(ref usage_details) = body.usage_details {
+                    for (k, v) in usage_details {
+                        attrs.push(OtelAttribute::new(format!("gen_ai.usage.{}", k), OtelAttributeValue::int(*v as i64)));
+                    }
+                }
+                if let Some(ref cost_details) = body.cost_details {
+                    if let Ok(json) = serde_json::to_string(cost_details) {
+                        attrs.push(OtelAttribute::string("langfuse.observation.cost_details", json));
+                    }
+                }
+                if let Some(ref prompt_name) = body.prompt_name {
+                    attrs.push(OtelAttribute::string("langfuse.observation.prompt.name", prompt_name));
+                }
+                if let Some(ref completion_start) = body.completion_start_time {
+                    attrs.push(OtelAttribute::string("langfuse.observation.completion_start_time", completion_start));
+                }
+
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id,
+                    name: body.name.clone(),
+                    kind: Some(1),
+                    start_time_unix_nano: body.start_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    end_time_unix_nano: body.end_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    attributes: Some(attrs),
+                    status: build_status(body.level.as_ref(), body.status_message.as_deref()),
+                });
+            }
+            IngestionEvent::GenerationUpdate { body, .. } => {
+                let mut attrs = vec![
+                    OtelAttribute::string("langfuse.observation.type", "generation"),
+                ];
+                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                if let Some(ref model) = body.model {
+                    attrs.push(OtelAttribute::string("langfuse.observation.model.name", model));
+                }
+                if let Some(ref usage_details) = body.usage_details {
+                    for (k, v) in usage_details {
+                        attrs.push(OtelAttribute::new(format!("gen_ai.usage.{}", k), OtelAttributeValue::int(*v as i64)));
+                    }
+                }
+
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id,
+                    name: body.name.clone(),
+                    kind: Some(1),
+                    start_time_unix_nano: body.start_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    end_time_unix_nano: body.end_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    attributes: Some(attrs),
+                    status: build_status(body.level.as_ref(), body.status_message.as_deref()),
+                });
+            }
+            IngestionEvent::EventCreate { body, .. } => {
+                let mut attrs = vec![
+                    OtelAttribute::string("langfuse.observation.type", "event"),
+                ];
+                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id,
+                    name: body.name.clone(),
+                    kind: Some(1),
+                    start_time_unix_nano: body.start_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    end_time_unix_nano: None, // Events don't have end_time
+                    attributes: Some(attrs),
+                    status: build_status(body.level.as_ref(), body.status_message.as_deref()),
+                });
+            }
+            IngestionEvent::ObservationCreate { body, .. } => {
+                let obs_type_str = serde_json::to_value(&body.r#type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .unwrap_or_else(|| "span".to_string());
+                let mut attrs = vec![
+                    OtelAttribute::string("langfuse.observation.type", &obs_type_str),
+                ];
+                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                if let Some(ref model) = body.model {
+                    attrs.push(OtelAttribute::string("langfuse.observation.model.name", model));
+                }
+                if let Some(ref msg) = body.status_message {
+                    attrs.push(OtelAttribute::string("langfuse.observation.status_message", msg));
+                }
+
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id,
+                    name: body.name.clone(),
+                    kind: Some(1),
+                    start_time_unix_nano: body.start_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    end_time_unix_nano: body.end_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    attributes: Some(attrs),
+                    status: build_status(body.level.as_ref(), body.status_message.as_deref()),
+                });
+            }
+            IngestionEvent::ObservationUpdate { body, .. } => {
+                let obs_type_str = serde_json::to_value(&body.r#type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .unwrap_or_else(|| "span".to_string());
+                let mut attrs = vec![
+                    OtelAttribute::string("langfuse.observation.type", &obs_type_str),
+                ];
+                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id,
+                    name: body.name.clone(),
+                    kind: Some(1),
+                    start_time_unix_nano: body.start_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    end_time_unix_nano: body.end_time.as_ref().and_then(|t| rfc3339_to_nano(t)),
+                    attributes: Some(attrs),
+                    status: build_status(body.level.as_ref(), body.status_message.as_deref()),
+                });
+            }
+            IngestionEvent::ScoreCreate { body, .. } => {
+                // Scores are attached via attributes on the trace
+                let mut attrs = vec![];
+                attrs.push(OtelAttribute::string("langfuse.score.name", &body.name));
+                attrs.push(OtelAttribute::new("langfuse.score.value", match &body.value {
+                    serde_json::Value::Number(n) => {
+                        if let Some(f) = n.as_f64() {
+                            OtelAttributeValue { string_value: None, int_value: None, double_value: Some(f), bool_value: None }
+                        } else if let Some(i) = n.as_i64() {
+                            OtelAttributeValue::int(i)
+                        } else {
+                            OtelAttributeValue::string(body.value.to_string())
+                        }
+                    }
+                    serde_json::Value::Bool(b) => OtelAttributeValue::bool(*b),
+                    _ => OtelAttributeValue::string(body.value.to_string()),
+                }));
+                if let Some(ref trace_id) = body.trace_id {
+                    attrs.push(OtelAttribute::string("langfuse.trace.id", trace_id));
+                }
+                if let Some(ref obs_id) = body.observation_id {
+                    attrs.push(OtelAttribute::string("langfuse.observation.id", obs_id));
+                }
+
+                let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
+                let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
+
+                spans.push(OtelSpan {
+                    trace_id: Some(trace_id),
+                    span_id: Some(span_id),
+                    parent_span_id: body.observation_id.as_deref().map(|s| s.replace('-', "")),
+                    name: Some(format!("score:{}", body.name)),
+                    kind: Some(1),
+                    start_time_unix_nano: None,
+                    end_time_unix_nano: None,
+                    attributes: Some(attrs),
+                    status: Some(OtelStatus::default()),
+                });
+            }
+            IngestionEvent::SdkLog { body, .. } => {
+                // SDK logs are metadata; we skip them in OTLP as there's no natural mapping
+                let attrs = vec![
+                    OtelAttribute::string("langfuse.sdk.log", body.log.to_string()),
+                ];
+                spans.push(OtelSpan {
+                    trace_id: None,
+                    span_id: None,
+                    parent_span_id: None,
+                    name: Some("sdk-log".into()),
+                    kind: Some(1),
+                    start_time_unix_nano: None,
+                    end_time_unix_nano: None,
+                    attributes: Some(attrs),
+                    status: Some(OtelStatus::default()),
+                });
+            }
+        }
+    }
+
+    OtelTraceExportRequest {
+        resource_spans: vec![OtelResourceSpan {
+            resource: Some(OtelResource {
+                attributes: Some(vec![
+                    OtelAttribute::string("service.name", "perihelion-agent"),
+                    OtelAttribute::string("service.version", env!("CARGO_PKG_VERSION")),
+                ]),
+            }),
+            scope_spans: Some(vec![OtelScopeSpan {
+                scope: Some(OtelScope {
+                    name: Some("langfuse-client".into()),
+                    version: Some(env!("CARGO_PKG_VERSION").into()),
+                    attributes: None,
+                }),
+                spans: Some(spans),
+            }]),
+        }],
+    }
+}
+
+/// Helper: append common observation-level attributes
+fn append_common_obs_attrs(
+    attrs: &mut Vec<OtelAttribute>,
+    input: Option<&serde_json::Value>,
+    output: Option<&serde_json::Value>,
+    metadata: Option<&serde_json::Value>,
+    version: Option<&String>,
+    environment: Option<&String>,
+) {
+    if let Some(ref input) = input {
+        attrs.push(OtelAttribute::string("langfuse.observation.input", input.to_string()));
+    }
+    if let Some(ref output) = output {
+        attrs.push(OtelAttribute::string("langfuse.observation.output", output.to_string()));
+    }
+    if let Some(ref metadata) = metadata {
+        if let Ok(json) = serde_json::to_string(metadata) {
+            attrs.push(OtelAttribute::string("langfuse.observation.metadata", json));
+        }
+    }
+    if let Some(v) = version {
+        attrs.push(OtelAttribute::string("langfuse.version", v.as_str()));
+    }
+    if let Some(env) = environment {
+        attrs.push(OtelAttribute::string("langfuse.environment", env.as_str()));
+    }
+}
+
+/// Helper: build OTel status from Langfuse observation level + status message
+fn build_status(level: Option<&ObservationLevel>, status_message: Option<&str>) -> Option<OtelStatus> {
+    match level {
+        Some(ObservationLevel::Error) => Some(OtelStatus {
+            code: Some(2), // ERROR
+            message: status_message.map(|s| s.to_string()),
+        }),
+        _ => Some(OtelStatus::default()),
+    }
+}
+
+/// Convert RFC 3339 timestamp to Unix nanoseconds string
+fn rfc3339_to_nano(rfc3339: &str) -> Option<String> {
+    // Parse common RFC 3339 formats
+    let ts = chrono::DateTime::parse_from_rfc3339(rfc3339).ok()?;
+    Some(ts.timestamp_nanos_opt()?.to_string())
+}
+
 /// 观测类型（V4 扩展，含 10 种变体）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -275,29 +851,6 @@ pub enum IngestionEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         metadata: Option<serde_json::Value>,
     },
-}
-
-/// 207 Multi-Status 响应中的成功项
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IngestionSuccess {
-    pub id: String,
-    pub status: i32,
-}
-
-/// 207 Multi-Status 响应中的错误项
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IngestionError {
-    pub id: String,
-    pub status: i32,
-    pub message: Option<String>,
-    pub error: Option<serde_json::Value>,
-}
-
-/// Ingestion API 的 207 Multi-Status 响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IngestionResponse {
-    pub successes: Vec<IngestionSuccess>,
-    pub errors: Vec<IngestionError>,
 }
 
 #[cfg(test)]
@@ -724,36 +1277,6 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"metadata\":{\"sdk\":\"rust\"}"));
-    }
-
-    #[test]
-    fn test_ingestion_response() {
-        let resp = IngestionResponse {
-            successes: vec![IngestionSuccess { id: "1".into(), status: 200 }],
-            errors: vec![IngestionError {
-                id: "2".into(),
-                status: 400,
-                message: Some("bad".into()),
-                error: None,
-            }],
-        };
-        let json = serde_json::to_string(&resp).unwrap();
-        let back: IngestionResponse = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.successes.len(), 1);
-        assert_eq!(back.errors.len(), 1);
-        assert_eq!(back.errors[0].message, Some("bad".into()));
-    }
-
-    #[test]
-    fn test_ingestion_response_empty() {
-        let resp = IngestionResponse {
-            successes: vec![],
-            errors: vec![],
-        };
-        let json = serde_json::to_string(&resp).unwrap();
-        let back: IngestionResponse = serde_json::from_str(&json).unwrap();
-        assert!(back.successes.is_empty());
-        assert!(back.errors.is_empty());
     }
 
     #[test]
