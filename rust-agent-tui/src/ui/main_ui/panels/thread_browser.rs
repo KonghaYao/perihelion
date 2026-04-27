@@ -2,9 +2,10 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
+
+use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
 use crate::app::App;
 use crate::ui::theme;
@@ -14,18 +15,15 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
     let Some(browser) = &app.core.thread_browser else { return };
 
     let popup_area = area;
-    f.render_widget(Clear, popup_area);
 
-    let block = Block::default()
-        .title(Span::styled(
+    let inner = BorderedPanel::new(
+        Span::styled(
             format!(" 📝 选择对话 [{}]  ↑↓:移动  Enter:确认  d:删除  Esc:关闭", app.cwd),
             Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::MUTED));
-    f.render_widget(&block, popup_area);
-
-    let inner = block.inner(popup_area);
+        )
+    )
+        .border_style(Style::default().fg(theme::MUTED))
+        .render(f, popup_area);
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -70,9 +68,8 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
-    f.render_widget(
-        Paragraph::new(Text::from(lines))
-            .scroll((browser.scroll_offset, 0)),
-        inner,
-    );
+    let mut scroll_state = ScrollState::with_offset(browser.scroll_offset);
+    ScrollableArea::new(Text::from(lines))
+        .scrollbar_style(Style::default().fg(theme::MUTED))
+        .render(f, inner, &mut scroll_state);
 }

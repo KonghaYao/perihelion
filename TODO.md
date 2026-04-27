@@ -11,6 +11,7 @@
 - [x] 替换默认提示词
 - [x] Model 定位 Opus\Sonnet\Haiku -> provider -> model
 - [ ] Token 用量追踪与预算控制
+- [ ] auto compact 机制需要借鉴 CC
 - [ ] 结构化输出（强制 Agent 按 JSON Schema 返回）
 
 ### Agent 能力与架构
@@ -46,7 +47,7 @@
 - [x] ai messages 的工具调用不用显示, 多余了
 - [x] compact 的信息应该是 ai messages 的形式
 - [x] compact thread 的名称应该
-- [ ] compact 的模型应该固定为 haiku
+- [ ] compact 的模型应该固定为 haiku(会有上下文缓存问题)
 - [ ] 弹窗 /AskUserQuestion 有时候不够长度显示
 - [ ] i18n 文件整合替换能力; 默认中文, 但是检测到 ./i18n/ 里面的 json 时, 会进行替换. /i18n 会进入选择面板, 即文件, 选中即可替换.
 - [ ] theme.json 然后注入默认的颜色, 支持列举面板和 theme 切换, 写入
@@ -57,14 +58,14 @@
 - [x] /loop 命令 和 /cron, cron 可以看到定时任务, loop 是一个 command 指示 ai 如何添加 cron , cron 只存储在内存中; cron 会定时 新建会话, 然后把用户的提示词作为用户输入开始执行
 - [ ] /cron 需要添加是否清理上下文参数
 
-### 远程控制 (Relay Server)
+### 远程控制 (Relay Server) 废弃, 我们以后将会使用 acp link 统一输出, 界面不由我们进行考虑
 
 - [x] remote control panel: 能够配置远程地址和密钥,然后存储到 settings.json, 命令只需要 --remote-control 即可
 - [x] 没有 --remote-control 参数时, 就算有配置也不进行远程链接
 - [x] Relay server 添加日志打印
 - [x] /clear relay serve 的前端没有进行清理
 
-### Relay 前端（Web UI）
+### Relay 前端（Web UI）删除
 
 - [x] 架构更改到 preact
 - [x] 前端拼音模式直接enter提交了

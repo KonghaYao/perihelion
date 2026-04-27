@@ -2,9 +2,10 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
+
+use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
 use crate::app::App;
 use crate::ui::theme;
@@ -13,19 +14,12 @@ use crate::ui::theme;
 pub(crate) fn render_cron_panel(f: &mut Frame, app: &App, area: Rect) {
     let Some(panel) = &app.cron.cron_panel else { return };
 
-    f.render_widget(Clear, area);
-
     let title = " 定时任务 ";
-    let block = Block::default()
-        .title(Span::styled(
-            title,
-            Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::MUTED));
-    f.render_widget(&block, area);
-
-    let inner = block.inner(area);
+    let inner = BorderedPanel::new(
+        Span::styled(title, Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD)),
+    )
+        .border_style(Style::default().fg(theme::MUTED))
+        .render(f, area);
     let mut lines: Vec<Line> = Vec::new();
 
     for (i, task) in panel.tasks.iter().enumerate() {
@@ -92,8 +86,8 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));
 
-    f.render_widget(
-        Paragraph::new(Text::from(lines)).scroll((panel.scroll_offset, 0)),
-        inner,
-    );
+    let mut scroll_state = ScrollState::with_offset(panel.scroll_offset);
+    ScrollableArea::new(Text::from(lines))
+        .scrollbar_style(Style::default().fg(theme::MUTED))
+        .render(f, inner, &mut scroll_state);
 }

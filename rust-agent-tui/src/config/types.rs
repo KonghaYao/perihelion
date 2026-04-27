@@ -245,24 +245,24 @@ mod tests {
 
     #[test]
     fn test_model_panel_from_config_loads_thinking() {
-        use crate::app::model_panel::ModelPanel;
+        use crate::app::model_panel::{EditField, ModelPanel};
 
         let mut cfg = ZenConfig::default();
         cfg.config.thinking = Some(ThinkingConfig { enabled: true, budget_tokens: 4000 });
 
         let panel = ModelPanel::from_config(&cfg);
         assert!(panel.buf_thinking_enabled);
-        assert_eq!(panel.buf_thinking_budget, "4000");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "4000");
     }
 
     #[test]
     fn test_model_panel_from_config_defaults_when_no_thinking() {
-        use crate::app::model_panel::ModelPanel;
+        use crate::app::model_panel::{EditField, ModelPanel};
 
         let cfg = ZenConfig::default();
         let panel = ModelPanel::from_config(&cfg);
         assert!(!panel.buf_thinking_enabled);
-        assert_eq!(panel.buf_thinking_budget, "8000");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "8000");
     }
 
     #[test]
@@ -271,7 +271,7 @@ mod tests {
 
         let cfg = ZenConfig::default();
         let mut panel = ModelPanel::from_config(&cfg);
-        panel.edit_field = EditField::ThinkingBudget;
+        panel.form.set_active(EditField::ThinkingBudget);
 
         assert!(!panel.buf_thinking_enabled);
         panel.toggle_thinking();
@@ -286,22 +286,22 @@ mod tests {
 
         let cfg = ZenConfig::default();
         let mut panel = ModelPanel::from_config(&cfg);
-        panel.edit_field = EditField::ThinkingBudget;
-        panel.buf_thinking_budget = String::new();
+        panel.form.set_active(EditField::ThinkingBudget);
+        panel.form.input_mut(EditField::ThinkingBudget).set_value(String::new());
 
         panel.push_char('1');
         panel.push_char('a'); // 非数字，应忽略
         panel.push_char('2');
         panel.push_char('0');
-        assert_eq!(panel.buf_thinking_budget, "120");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "120");
 
         panel.pop_char();
-        assert_eq!(panel.buf_thinking_budget, "12");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "12");
     }
 
     #[test]
     fn test_model_panel_apply_edit_saves_thinking() {
-        use crate::app::model_panel::{ModelPanel, ModelPanelMode};
+        use crate::app::model_panel::{EditField, ModelPanel, ModelPanelMode};
 
         let mut cfg = ZenConfig::default();
         cfg.config.providers.push(ProviderConfig {
@@ -317,7 +317,7 @@ mod tests {
         let mut panel = ModelPanel::from_config(&cfg);
         panel.mode = ModelPanelMode::Edit;
         panel.buf_thinking_enabled = true;
-        panel.buf_thinking_budget = "5000".to_string();
+        panel.form.input_mut(EditField::ThinkingBudget).set_value("5000".to_string());
 
         let ok = panel.apply_edit(&mut cfg);
         assert!(ok);

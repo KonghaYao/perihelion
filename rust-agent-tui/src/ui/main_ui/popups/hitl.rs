@@ -2,9 +2,11 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
+
+use perihelion_widgets::BorderedPanel;
 
 use crate::app::App;
 use crate::ui::theme;
@@ -16,21 +18,17 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
     let item_count = prompt.items.len();
     let popup_area = area;
 
-    f.render_widget(Clear, popup_area);
-
     let title = if item_count == 1 {
         " ⚠ 工具审批 (1 项) "
     } else {
         " ⚠ 批量工具审批 "
     };
 
-    let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::WARNING));
-    f.render_widget(&block, popup_area);
-
-    let inner = block.inner(popup_area);
+    let inner = BorderedPanel::new(
+        Span::styled(title, Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+    )
+        .border_style(Style::default().fg(theme::WARNING))
+        .render(f, popup_area);
     let max_width = inner.width as usize;
 
     // 渲染每个工具调用项

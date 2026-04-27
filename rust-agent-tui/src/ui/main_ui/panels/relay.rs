@@ -2,11 +2,13 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
-use crate::app::relay_panel::{RelayEditField, RelayPanelMode};
+use perihelion_widgets::BorderedPanel;
+
+use crate::app::relay_panel::{RelayEditField, RelayPanel, RelayPanelMode};
 use crate::ui::theme;
 
 /// /relay 面板渲染（底部展开区）
@@ -14,20 +16,17 @@ pub(crate) fn render_relay_panel(f: &mut Frame, app: &crate::app::App, area: Rec
     let Some(panel) = &app.relay_panel else { return };
 
     let popup_area = area;
-    f.render_widget(Clear, popup_area);
 
     let (border_color, title) = match &panel.mode {
         RelayPanelMode::View => (theme::MUTED, " 远程控制配置 "),
         RelayPanelMode::Edit => (theme::WARNING, " 远程控制配置 (编辑) "),
     };
 
-    let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(border_color).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color));
-    f.render_widget(&block, popup_area);
-
-    let inner = block.inner(popup_area);
+    let inner = BorderedPanel::new(
+        Span::styled(title, Style::default().fg(border_color).add_modifier(Modifier::BOLD))
+    )
+        .border_style(Style::default().fg(border_color))
+        .render(f, popup_area);
 
     match &panel.mode {
         RelayPanelMode::View => {
@@ -39,17 +38,17 @@ pub(crate) fn render_relay_panel(f: &mut Frame, app: &crate::app::App, area: Rec
     }
 }
 
-fn render_relay_view(f: &mut Frame, panel: &crate::app::RelayPanel, inner: Rect) {
+fn render_relay_view(f: &mut Frame, panel: &RelayPanel, inner: Rect) {
     let mut lines = Vec::new();
 
     // URL
     lines.push(Line::from(vec![
         Span::styled(" URL:    ", Style::default().fg(theme::MUTED)),
         Span::styled(
-            if panel.buf_url.is_empty() {
+            if panel.field_value(RelayEditField::Url).is_empty() {
                 "(未设置)".to_string()
             } else {
-                panel.buf_url.clone()
+                panel.field_value(RelayEditField::Url).to_string()
             },
             Style::default().fg(theme::TEXT),
         ),
@@ -65,10 +64,10 @@ fn render_relay_view(f: &mut Frame, panel: &crate::app::RelayPanel, inner: Rect)
     lines.push(Line::from(vec![
         Span::styled(" Name:   ", Style::default().fg(theme::MUTED)),
         Span::styled(
-            if panel.buf_name.is_empty() {
+            if panel.field_value(RelayEditField::Name).is_empty() {
                 "(未设置)".to_string()
             } else {
-                panel.buf_name.clone()
+                panel.field_value(RelayEditField::Name).to_string()
             },
             Style::default().fg(theme::TEXT),
         ),
@@ -103,35 +102,36 @@ fn render_relay_view(f: &mut Frame, panel: &crate::app::RelayPanel, inner: Rect)
     f.render_widget(paragraph, inner);
 }
 
-fn render_relay_edit(f: &mut Frame, panel: &crate::app::RelayPanel, inner: Rect) {
+fn render_relay_edit(f: &mut Frame, panel: &RelayPanel, inner: Rect) {
     let mut lines = Vec::new();
+    let active = panel.edit_field();
 
     // URL
-    let url_focused = panel.edit_field == RelayEditField::Url;
+    let url_focused = active == RelayEditField::Url;
     lines.push(Line::from(vec![
         Span::styled(" URL:    ", Style::default().fg(theme::MUTED)),
         Span::styled(
-            format_input_field(&panel.buf_url, url_focused, panel.cursor),
+            format_input_field(panel.field_value(RelayEditField::Url), url_focused, panel.cursor()),
             Style::default().fg(if url_focused { theme::WARNING } else { theme::TEXT }),
         ),
     ]));
 
     // Token
-    let token_focused = panel.edit_field == RelayEditField::Token;
+    let token_focused = active == RelayEditField::Token;
     lines.push(Line::from(vec![
         Span::styled(" Token:  ", Style::default().fg(theme::MUTED)),
         Span::styled(
-            format_input_field(&panel.buf_token, token_focused, panel.cursor),
+            format_input_field(panel.field_value(RelayEditField::Token), token_focused, panel.cursor()),
             Style::default().fg(if token_focused { theme::WARNING } else { theme::TEXT }),
         ),
     ]));
 
     // Name
-    let name_focused = panel.edit_field == RelayEditField::Name;
+    let name_focused = active == RelayEditField::Name;
     lines.push(Line::from(vec![
         Span::styled(" Name:   ", Style::default().fg(theme::MUTED)),
         Span::styled(
-            format_input_field(&panel.buf_name, name_focused, panel.cursor),
+            format_input_field(panel.field_value(RelayEditField::Name), name_focused, panel.cursor()),
             Style::default().fg(if name_focused { theme::WARNING } else { theme::TEXT }),
         ),
     ]));

@@ -5,6 +5,7 @@ members = [
     "rust-agent-tui",
     "rust-relay-server",
     "langfuse-client",
+    "perihelion-widgets",
 ]
 resolver = "2"
 

@@ -382,7 +382,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             // relay_panel 编辑模式下粘贴到面板
             if let Some(panel) = app.relay_panel.as_mut() {
                 if panel.mode == crate::app::relay_panel::RelayPanelMode::Edit {
-                    panel.paste_text(&text);
+                    panel.form.handle_paste(&text);
                     return Ok(Some(Action::Redraw));
                 }
             }
@@ -608,7 +608,7 @@ fn handle_model_panel(app: &mut App, input: Input) {
                 app.core.model_panel.as_mut().unwrap().field_prev();
             }
             Input { key: Key::Char(' '), .. } => {
-                let field = app.core.model_panel.as_ref().unwrap().edit_field.clone();
+                let field = app.core.model_panel.as_ref().unwrap().edit_field();
                 if field == EditField::ProviderType {
                     app.core.model_panel.as_mut().unwrap().cycle_type();
                 } else if field == EditField::ThinkingBudget {
@@ -668,34 +668,34 @@ fn handle_relay_panel(app: &mut App, input: Input) {
                 app.relay_panel.as_mut().unwrap().mode = RelayPanelMode::View;
             }
             Input { key: Key::Tab, shift: false, .. } => {
-                app.relay_panel.as_mut().unwrap().field_next();
+                app.relay_panel.as_mut().unwrap().form.next_field();
             }
             Input { key: Key::Tab, shift: true, .. } => {
-                app.relay_panel.as_mut().unwrap().field_prev();
+                app.relay_panel.as_mut().unwrap().form.prev_field();
             }
             Input { key: Key::Enter, .. } => {
                 app.relay_panel_apply_edit();
             }
             Input { key: Key::Backspace, .. } => {
-                app.relay_panel.as_mut().unwrap().pop_char();
+                app.relay_panel.as_mut().unwrap().form.handle_backspace();
             }
             Input { key: Key::Delete, .. } => {
-                app.relay_panel.as_mut().unwrap().delete_char();
+                app.relay_panel.as_mut().unwrap().form.handle_delete();
             }
             Input { key: Key::Left, .. } => {
-                app.relay_panel.as_mut().unwrap().cursor_left();
+                app.relay_panel.as_mut().unwrap().form.handle_cursor_left();
             }
             Input { key: Key::Right, .. } => {
-                app.relay_panel.as_mut().unwrap().cursor_right();
+                app.relay_panel.as_mut().unwrap().form.handle_cursor_right();
             }
             Input { key: Key::Home, .. } => {
-                app.relay_panel.as_mut().unwrap().cursor_home();
+                app.relay_panel.as_mut().unwrap().form.handle_cursor_home();
             }
             Input { key: Key::End, .. } => {
-                app.relay_panel.as_mut().unwrap().cursor_end();
+                app.relay_panel.as_mut().unwrap().form.handle_cursor_end();
             }
             Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
-                app.relay_panel.as_mut().unwrap().push_char(c);
+                app.relay_panel.as_mut().unwrap().form.handle_char(c);
             }
             _ => {}
         },

@@ -858,6 +858,73 @@ mod tests {
         assert!(handle.contains("* * * * *"), "should contain cron expression");
     }
 
+    #[tokio::test]
+    async fn test_bordered_panel_integration() {
+        // BorderedPanel 集成冒烟测试：渲染 agent panel 验证无 panic 且输出正确
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        app.core.agent_panel = Some(crate::app::AgentPanel::new(vec![], None));
+
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        assert!(
+            handle.contains("Agent"),
+            "BorderedPanel integration should render agent panel title"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tab_bar_integration() {
+        // TabBar 集成冒烟测试：渲染 ask_user popup 验证 TabBar widget 正确工作
+        use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserQuestionData, AskUserOption};
+        use crate::app::AskUserBatchPrompt;
+
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        let (req, _rx) = AskUserBatchRequest::new(vec![
+            AskUserQuestionData {
+                tool_call_id: "t1".into(),
+                question: "Choose a language?".into(),
+                header: "Language".into(),
+                multi_select: false,
+                options: vec![
+                    AskUserOption { label: "Rust".into(), description: Some("Systems language".into()) },
+                    AskUserOption { label: "Go".into(), description: None },
+                ],
+            },
+            AskUserQuestionData {
+                tool_call_id: "t1".into(),
+                question: "Choose a framework?".into(),
+                header: "Framework".into(),
+                multi_select: true,
+                options: vec![
+                    AskUserOption { label: "Axum".into(), description: None },
+                ],
+            },
+        ]);
+        let prompt = AskUserBatchPrompt::from_request(req);
+        app.agent.interaction_prompt = Some(crate::app::InteractionPrompt::Questions(prompt));
+
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
+        let snap = handle.snapshot();
+        // TabBar should render the tab labels
+        assert!(
+            snap.iter().any(|l| l.contains("Language")),
+            "TabBar should render 'Language' tab label, got:\n{}",
+            snap.join("\n")
+        );
+        assert!(
+            snap.iter().any(|l| l.contains("Framework")),
+            "TabBar should render 'Framework' tab label, got:\n{}",
+            snap.join("\n")
+        );
+    }
+
     mod setup_wizard_e2e {
         use super::*;
         use crate::app::setup_wizard::{

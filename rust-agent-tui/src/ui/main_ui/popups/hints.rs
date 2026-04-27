@@ -2,9 +2,11 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
+
+use perihelion_widgets::BorderedPanel;
 
 use crate::app::App;
 use crate::ui::theme;
@@ -38,15 +40,11 @@ pub(crate) fn render_command_hint(f: &mut Frame, app: &App, input_area: Rect) {
         height: hint_height,
     };
 
-    f.render_widget(Clear, hint_area);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
+    let inner = BorderedPanel::new(
+        Span::styled(" 命令 ", Style::default().fg(theme::MUTED)),
+    )
         .border_style(Style::default().fg(theme::MUTED))
-        .title(Span::styled(" 命令 ", Style::default().fg(theme::MUTED)));
-    f.render_widget(&block, hint_area);
-
-    let inner = block.inner(hint_area);
+        .render(f, hint_area);
 
     let selected = if first_line.starts_with('/') { app.core.hint_cursor } else { None };
 
@@ -100,15 +98,11 @@ pub(crate) fn render_skill_hint(f: &mut Frame, app: &App, input_area: Rect) {
         height: hint_height,
     };
 
-    f.render_widget(Clear, hint_area);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
+    let inner = BorderedPanel::new(
+        Span::styled(" Skills ", Style::default().fg(theme::MUTED)),
+    )
         .border_style(Style::default().fg(theme::MUTED))
-        .title(Span::styled(" Skills ", Style::default().fg(theme::MUTED)));
-    f.render_widget(&block, hint_area);
-
-    let inner = block.inner(hint_area);
+        .render(f, hint_area);
 
     let selected = if first_line.starts_with('#') { app.core.hint_cursor } else { None };
 

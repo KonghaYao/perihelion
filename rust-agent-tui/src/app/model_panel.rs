@@ -1,3 +1,4 @@
+use perihelion_widgets::{FormField, FormState};
 use crate::config::{ModelAliasConfig, ProviderConfig, ThinkingConfig, ZenConfig};
 
 // ─── AliasTab 枚举 ─────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ pub enum ModelPanelMode {
     ConfirmDelete,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EditField {
     Name,
     ProviderType,
@@ -105,8 +106,8 @@ pub enum EditField {
     ThinkingBudget,
 }
 
-impl EditField {
-    pub fn next(&self) -> Self {
+impl FormField for EditField {
+    fn next(self) -> Self {
         match self {
             Self::Name => Self::ProviderType,
             Self::ProviderType => Self::ApiKey,
@@ -116,7 +117,8 @@ impl EditField {
             Self::ThinkingBudget => Self::Name,
         }
     }
-    pub fn prev(&self) -> Self {
+
+    fn prev(self) -> Self {
         match self {
             Self::Name => Self::ThinkingBudget,
             Self::ProviderType => Self::Name,
@@ -126,7 +128,8 @@ impl EditField {
             Self::ThinkingBudget => Self::BaseUrl,
         }
     }
-    pub fn label(&self) -> &str {
+
+    fn label(self) -> &'static str {
         match self {
             Self::Name => "Name    ",
             Self::ProviderType => "Type    ",
@@ -135,6 +138,19 @@ impl EditField {
             Self::BaseUrl => "Base URL",
             Self::ThinkingBudget => "Thinking",
         }
+    }
+}
+
+impl EditField {
+    pub fn all() -> &'static [EditField] {
+        &[
+            Self::Name,
+            Self::ProviderType,
+            Self::ModelId,
+            Self::ApiKey,
+            Self::BaseUrl,
+            Self::ThinkingBudget,
+        ]
     }
 }
 
@@ -166,17 +182,10 @@ pub struct ModelPanel {
     pub cursor: usize,
     /// 当前激活的 provider_id（旧字段，仍在 Browse 模式下展示信息用）
     pub active_id: String,
-    /// 正在编辑的字段
-    pub edit_field: EditField,
-    /// 编辑缓冲区（新建/编辑时使用）
-    pub buf_name: String,
-    pub buf_type: String,
-    pub buf_model: String,
-    pub buf_api_key: String,
-    pub buf_base_url: String,
-    /// Thinking 配置缓冲（全局，不属于单个 provider）
+    /// 表单状态（管理 Name/ProviderType/ModelId/ApiKey/BaseUrl/ThinkingBudget 字段）
+    pub form: FormState<EditField>,
+    /// Thinking 配置缓冲（全局，不属于单个 provider，bool toggle 不在 FormState 中）
     pub buf_thinking_enabled: bool,
-    pub buf_thinking_budget: String,
     /// 内容滚动偏移
     #[allow(dead_code)]
     pub scroll_offset: u16,
@@ -210,6 +219,10 @@ impl ModelPanel {
         };
         let cursor = providers.iter().position(|p| p.id == active_id).unwrap_or(0);
 
+        let mut form = FormState::new(EditField::all().iter().copied());
+        form.set_active(EditField::Name);
+        form.input_mut(EditField::ThinkingBudget).set_value(thinking_budget);
+
         Self {
             providers,
             mode: ModelPanelMode::AliasConfig,
@@ -219,16 +232,27 @@ impl ModelPanel {
             alias_edit_field: AliasEditField::Provider,
             cursor,
             active_id,
-            edit_field: EditField::Name,
-            buf_name: String::new(),
-            buf_type: String::new(),
-            buf_model: String::new(),
-            buf_api_key: String::new(),
-            buf_base_url: String::new(),
+            form,
             buf_thinking_enabled: thinking_enabled,
-            buf_thinking_budget: thinking_budget,
             scroll_offset: 0,
         }
+    }
+
+    // ── EditField / FormState 访问方法 ─────────────────────────────────────────
+
+    /// 获取当前编辑字段
+    pub fn edit_field(&self) -> EditField {
+        self.form.active_field()
+    }
+
+    /// 获取指定字段的值
+    pub fn field_value(&self, field: EditField) -> &str {
+        self.form.input(field).value()
+    }
+
+    /// 设置指定字段的值
+    fn set_field_value(&mut self, field: EditField, value: String) {
+        self.form.input_mut(field).set_value(value);
     }
 
     // ── AliasConfig 模式操作 ─────────────────────────────────────────────────
@@ -301,31 +325,31 @@ impl ModelPanel {
 
     /// 进入编辑模式（编辑光标处的 provider）
     pub fn enter_edit(&mut self) {
-        if let Some(p) = self.providers.get(self.cursor) {
-            self.buf_name = p.display_name().to_string();
-            self.buf_type = p.provider_type.clone();
-            self.buf_model = String::new();
-            self.buf_api_key = p.api_key.clone();
-            self.buf_base_url = p.base_url.clone();
-            self.edit_field = EditField::Name;
+        if let Some(p) = self.providers.get(self.cursor).cloned() {
+            self.set_field_value(EditField::Name, p.display_name().to_string());
+            self.set_field_value(EditField::ProviderType, p.provider_type);
+            self.set_field_value(EditField::ModelId, String::new());
+            self.set_field_value(EditField::ApiKey, p.api_key);
+            self.set_field_value(EditField::BaseUrl, p.base_url);
+            self.form.set_active(EditField::Name);
             self.mode = ModelPanelMode::Edit;
         }
     }
 
     /// 进入新建模式
     pub fn enter_new(&mut self) {
-        self.buf_name = String::new();
-        self.buf_type = "openai".to_string();
-        self.buf_model = String::new();
-        self.buf_api_key = String::new();
-        self.buf_base_url = String::new();
-        self.edit_field = EditField::Name;
+        self.set_field_value(EditField::Name, String::new());
+        self.set_field_value(EditField::ProviderType, "openai".to_string());
+        self.set_field_value(EditField::ModelId, String::new());
+        self.set_field_value(EditField::ApiKey, String::new());
+        self.set_field_value(EditField::BaseUrl, String::new());
+        self.form.set_active(EditField::Name);
         self.mode = ModelPanelMode::New;
     }
 
     /// 切换 thinking enabled（空格键，当 edit_field == ThinkingBudget 时）
     pub fn toggle_thinking(&mut self) {
-        if self.edit_field == EditField::ThinkingBudget {
+        if self.edit_field() == EditField::ThinkingBudget {
             self.buf_thinking_enabled = !self.buf_thinking_enabled;
         }
     }
@@ -345,44 +369,45 @@ impl ModelPanel {
     // ── 编辑模式操作 ──────────────────────────────────────────────────────────
 
     pub fn field_next(&mut self) {
-        self.edit_field = self.edit_field.next();
+        self.form.next_field();
     }
 
     pub fn field_prev(&mut self) {
-        self.edit_field = self.edit_field.prev();
+        self.form.prev_field();
     }
 
     /// 循环切换 provider_type（空格键）
     pub fn cycle_type(&mut self) {
-        if self.edit_field == EditField::ProviderType {
-            let cur = PROVIDER_TYPES.iter().position(|&t| t == self.buf_type).unwrap_or(0);
-            self.buf_type = PROVIDER_TYPES[(cur + 1) % PROVIDER_TYPES.len()].to_string();
+        if self.edit_field() == EditField::ProviderType {
+            let cur = PROVIDER_TYPES.iter().position(|&t| t == self.field_value(EditField::ProviderType)).unwrap_or(0);
+            let next = PROVIDER_TYPES[(cur + 1) % PROVIDER_TYPES.len()].to_string();
+            self.set_field_value(EditField::ProviderType, next);
         }
     }
 
     pub fn push_char(&mut self, c: char) {
-        match self.edit_field {
-            EditField::Name => self.buf_name.push(c),
+        match self.edit_field() {
+            EditField::Name => self.form.input_mut(EditField::Name).insert(c),
             EditField::ProviderType => {} // 只能 cycle，不能直接输入
-            EditField::ModelId => self.buf_model.push(c),
-            EditField::ApiKey => self.buf_api_key.push(c),
-            EditField::BaseUrl => self.buf_base_url.push(c),
+            EditField::ModelId => self.form.input_mut(EditField::ModelId).insert(c),
+            EditField::ApiKey => self.form.input_mut(EditField::ApiKey).insert(c),
+            EditField::BaseUrl => self.form.input_mut(EditField::BaseUrl).insert(c),
             EditField::ThinkingBudget => {
                 if c.is_ascii_digit() {
-                    self.buf_thinking_budget.push(c);
+                    self.form.input_mut(EditField::ThinkingBudget).insert(c);
                 }
             }
         }
     }
 
     pub fn pop_char(&mut self) {
-        match self.edit_field {
-            EditField::Name => { self.buf_name.pop(); }
+        match self.edit_field() {
+            EditField::Name => { self.form.input_mut(EditField::Name).backspace(); }
             EditField::ProviderType => {}
-            EditField::ModelId => { self.buf_model.pop(); }
-            EditField::ApiKey => { self.buf_api_key.pop(); }
-            EditField::BaseUrl => { self.buf_base_url.pop(); }
-            EditField::ThinkingBudget => { self.buf_thinking_budget.pop(); }
+            EditField::ModelId => { self.form.input_mut(EditField::ModelId).backspace(); }
+            EditField::ApiKey => { self.form.input_mut(EditField::ApiKey).backspace(); }
+            EditField::BaseUrl => { self.form.input_mut(EditField::BaseUrl).backspace(); }
+            EditField::ThinkingBudget => { self.form.input_mut(EditField::ThinkingBudget).backspace(); }
         }
     }
 
@@ -398,15 +423,15 @@ impl ModelPanel {
                 }
             }
             ModelPanelMode::Edit | ModelPanelMode::New => {
-                match self.edit_field {
-                    EditField::Name => self.buf_name.push_str(&text),
+                match self.edit_field() {
+                    EditField::Name => self.form.input_mut(EditField::Name).paste(&text),
                     EditField::ProviderType => {}
-                    EditField::ModelId => self.buf_model.push_str(&text),
-                    EditField::ApiKey => self.buf_api_key.push_str(&text),
-                    EditField::BaseUrl => self.buf_base_url.push_str(&text),
+                    EditField::ModelId => self.form.input_mut(EditField::ModelId).paste(&text),
+                    EditField::ApiKey => self.form.input_mut(EditField::ApiKey).paste(&text),
+                    EditField::BaseUrl => self.form.input_mut(EditField::BaseUrl).paste(&text),
                     EditField::ThinkingBudget => {
                         let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
-                        self.buf_thinking_budget.push_str(&digits);
+                        self.form.input_mut(EditField::ThinkingBudget).paste(&digits);
                     }
                 }
             }
@@ -422,10 +447,10 @@ impl ModelPanel {
     pub fn apply_edit(&mut self, cfg: &mut ZenConfig) -> bool {
         let is_new = self.mode == ModelPanelMode::New;
         let id = if is_new {
-            if self.buf_name.trim().is_empty() {
+            if self.field_value(EditField::Name).trim().is_empty() {
                 return false;
             }
-            self.buf_name.trim().to_lowercase().replace(' ', "_")
+            self.field_value(EditField::Name).trim().to_lowercase().replace(' ', "_")
         } else {
             self.providers.get(self.cursor).map(|p| p.id.clone()).unwrap_or_default()
         };
@@ -434,10 +459,10 @@ impl ModelPanel {
 
         let mut p = ProviderConfig {
             id: id.clone(),
-            provider_type: self.buf_type.clone(),
-            api_key: self.buf_api_key.clone(),
-            base_url: self.buf_base_url.clone(),
-            name: if self.buf_name.trim().is_empty() { None } else { Some(self.buf_name.trim().to_string()) },
+            provider_type: self.field_value(EditField::ProviderType).to_string(),
+            api_key: self.field_value(EditField::ApiKey).to_string(),
+            base_url: self.field_value(EditField::BaseUrl).to_string(),
+            name: if self.field_value(EditField::Name).trim().is_empty() { None } else { Some(self.field_value(EditField::Name).trim().to_string()) },
             extra: Default::default(),
         };
 
@@ -456,7 +481,7 @@ impl ModelPanel {
         }
 
         // 保存 thinking 配置（全局，不属于单个 provider）
-        let budget_tokens = self.buf_thinking_budget.trim().parse::<u32>().unwrap_or(8000);
+        let budget_tokens = self.field_value(EditField::ThinkingBudget).trim().parse::<u32>().unwrap_or(8000);
         cfg.config.thinking = Some(ThinkingConfig {
             enabled: self.buf_thinking_enabled,
             budget_tokens,
@@ -615,7 +640,7 @@ mod tests {
 
         let panel = ModelPanel::from_config(&cfg);
         assert!(panel.buf_thinking_enabled);
-        assert_eq!(panel.buf_thinking_budget, "4000");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "4000");
     }
 
     #[test]
@@ -623,14 +648,14 @@ mod tests {
         let cfg = ZenConfig::default();
         let panel = ModelPanel::from_config(&cfg);
         assert!(!panel.buf_thinking_enabled);
-        assert_eq!(panel.buf_thinking_budget, "8000");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "8000");
     }
 
     #[test]
     fn test_model_panel_toggle_thinking() {
         let cfg = ZenConfig::default();
         let mut panel = ModelPanel::from_config(&cfg);
-        panel.edit_field = EditField::ThinkingBudget;
+        panel.form.set_active(EditField::ThinkingBudget);
 
         assert!(!panel.buf_thinking_enabled);
         panel.toggle_thinking();
@@ -643,17 +668,17 @@ mod tests {
     fn test_model_panel_thinking_budget_input_only_digits() {
         let cfg = ZenConfig::default();
         let mut panel = ModelPanel::from_config(&cfg);
-        panel.edit_field = EditField::ThinkingBudget;
-        panel.buf_thinking_budget = String::new();
+        panel.form.set_active(EditField::ThinkingBudget);
+        panel.set_field_value(EditField::ThinkingBudget, String::new());
 
         panel.push_char('1');
         panel.push_char('a'); // 非数字，应忽略
         panel.push_char('2');
         panel.push_char('0');
-        assert_eq!(panel.buf_thinking_budget, "120");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "120");
 
         panel.pop_char();
-        assert_eq!(panel.buf_thinking_budget, "12");
+        assert_eq!(panel.field_value(EditField::ThinkingBudget), "12");
     }
 
     #[test]
@@ -663,7 +688,7 @@ mod tests {
         let mut panel = ModelPanel::from_config(&cfg);
         panel.mode = ModelPanelMode::Edit;
         panel.buf_thinking_enabled = true;
-        panel.buf_thinking_budget = "5000".to_string();
+        panel.set_field_value(EditField::ThinkingBudget, "5000".to_string());
 
         let ok = panel.apply_edit(&mut cfg);
         assert!(ok);
@@ -671,5 +696,55 @@ mod tests {
         let t = cfg.config.thinking.as_ref().unwrap();
         assert_eq!(t.enabled, true);
         assert_eq!(t.budget_tokens, 5000);
+    }
+
+    #[test]
+    fn test_model_panel_form_state_text_editing() {
+        let cfg = make_cfg_with_providers();
+        let mut panel = ModelPanel::from_config(&cfg);
+        panel.mode = ModelPanelMode::Edit;
+        panel.form.set_active(EditField::Name);
+
+        panel.push_char('t');
+        panel.push_char('e');
+        panel.push_char('s');
+        panel.push_char('t');
+        assert_eq!(panel.field_value(EditField::Name), "test");
+
+        panel.form.next_field(); // → ProviderType
+        panel.cycle_type();
+        assert_eq!(panel.field_value(EditField::ProviderType), "anthropic");
+
+        panel.form.next_field(); // → ApiKey (ProviderType.next = ApiKey)
+        panel.push_char('k');
+        panel.push_char('e');
+        panel.push_char('y');
+        assert_eq!(panel.field_value(EditField::ApiKey), "key");
+
+        // 切回 Name，值保持
+        panel.form.set_active(EditField::Name);
+        assert_eq!(panel.field_value(EditField::Name), "test");
+    }
+
+    #[test]
+    fn test_model_panel_form_state_field_navigation() {
+        let cfg = ZenConfig::default();
+        let mut panel = ModelPanel::from_config(&cfg);
+        assert_eq!(panel.edit_field(), EditField::Name);
+
+        panel.field_next();
+        assert_eq!(panel.edit_field(), EditField::ProviderType);
+
+        panel.field_next();
+        assert_eq!(panel.edit_field(), EditField::ApiKey);
+
+        panel.field_next();
+        assert_eq!(panel.edit_field(), EditField::BaseUrl);
+
+        panel.field_next();
+        assert_eq!(panel.edit_field(), EditField::ThinkingBudget);
+
+        panel.field_next();
+        assert_eq!(panel.edit_field(), EditField::Name); // wrap
     }
 }

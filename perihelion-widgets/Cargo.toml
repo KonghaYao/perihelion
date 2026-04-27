@@ -1,0 +1,14 @@
+[package]
+name = "perihelion-widgets"
+version = "0.1.0"
+edition = "2021"
+description = "Reusable ratatui widget library for Perihelion"
+
+[dependencies]
+ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info"] }
+pulldown-cmark = { version = "0.12", optional = true }
+unicode-width = "0.2"
+
+[features]
+default = []
+markdown = ["pulldown-cmark"]

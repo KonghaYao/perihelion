@@ -2,9 +2,11 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
+
+use perihelion_widgets::{BorderedPanel, FormField};
 
 use crate::app::App;
 use crate::app::model_panel::{AliasEditField, AliasTab, EditField, ModelPanelMode, PROVIDER_TYPES};
@@ -15,7 +17,6 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     let Some(panel) = &app.core.model_panel else { return };
 
     let popup_area = area;
-    f.render_widget(Clear, popup_area);
 
     // 根据模式选颜色/标题
     let (border_color, title) = match &panel.mode {
@@ -26,13 +27,11 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         ModelPanelMode::ConfirmDelete => (theme::ERROR,    " /model — 确认删除 "),
     };
 
-    let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(border_color).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color));
-    f.render_widget(&block, popup_area);
-
-    let inner = block.inner(popup_area);
+    let inner = BorderedPanel::new(
+        Span::styled(title, Style::default().fg(border_color).add_modifier(Modifier::BOLD))
+    )
+        .border_style(Style::default().fg(border_color))
+        .render(f, popup_area);
 
     match &panel.mode {
         // ── 别名配置主界面 ─────────────────────────────────────────────────────
@@ -211,7 +210,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
                             ]),
                         ];
                         let thinking_status = if panel.buf_thinking_enabled {
-                            format!(" ON  (budget: {} tokens)", panel.buf_thinking_budget)
+                            format!(" ON  (budget: {} tokens)", panel.field_value(EditField::ThinkingBudget))
                         } else {
                             " OFF".to_string()
                         };
@@ -236,19 +235,20 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
                     }
                 }
                 ModelPanelMode::Edit | ModelPanelMode::New => {
-                    let fields: &[(EditField, &str)] = &[
-                        (EditField::Name,          &panel.buf_name),
-                        (EditField::ProviderType,  &panel.buf_type),
-                        (EditField::ApiKey,        &panel.buf_api_key),
-                        (EditField::BaseUrl,       &panel.buf_base_url),
+                    let fields: &[EditField] = &[
+                        EditField::Name,
+                        EditField::ProviderType,
+                        EditField::ApiKey,
+                        EditField::BaseUrl,
                     ];
                     let mut form_lines: Vec<Line> = Vec::new();
-                    for (field, buf) in fields {
-                        let is_active = *field == panel.edit_field;
+                    for field in fields {
+                        let is_active = *field == panel.edit_field();
+                        let buf = panel.field_value(*field);
                         let label = field.label();
                         let value_display = if *field == EditField::ProviderType {
                             PROVIDER_TYPES.iter()
-                                .map(|t| if *t == *buf { format!("[{}]", t) } else { t.to_string() })
+                                .map(|t| if *t == buf { format!("[{}]", t) } else { t.to_string() })
                                 .collect::<Vec<_>>()
                                 .join("  ")
                         } else if is_active {
@@ -269,13 +269,13 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
                     }
                     // ThinkingBudget 字段
                     {
-                        let is_active = panel.edit_field == EditField::ThinkingBudget;
+                        let is_active = panel.edit_field() == EditField::ThinkingBudget;
                         let label = EditField::ThinkingBudget.label();
                         let enabled_tag = if panel.buf_thinking_enabled { "[ON] " } else { "[OFF]" };
                         let budget_display = if is_active {
-                            format!("{}█", panel.buf_thinking_budget)
+                            format!("{}█", panel.field_value(EditField::ThinkingBudget))
                         } else {
-                            panel.buf_thinking_budget.clone()
+                            panel.field_value(EditField::ThinkingBudget).to_string()
                         };
                         let enabled_color = if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED };
                         let (label_style, enabled_style, budget_style) = if is_active {

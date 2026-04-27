@@ -2,9 +2,11 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::Paragraph,
     Frame,
 };
+
+use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea, TabBar, TabState, TabStyle};
 
 use crate::app::App;
 use crate::ui::theme;
@@ -15,44 +17,38 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
 
     let cur = &prompt.questions[prompt.active_tab];
     let popup_area = area;
-    f.render_widget(Clear, popup_area);
 
-    let block = Block::default()
-        .title(Span::styled(
+    let inner = BorderedPanel::new(
+        Span::styled(
             " ? Agent 提问 ",
             Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::WARNING));
-    f.render_widget(&block, popup_area);
-
-    let inner = block.inner(popup_area);
+        ),
+    )
+        .border_style(Style::default().fg(theme::WARNING))
+        .render(f, popup_area);
 
     // ── header 行：每个问题一个 tab，激活的反色，已确认的显示 ✓ ──────────────
     let header_area = Rect { height: 1, ..inner };
-    let mut tab_spans: Vec<Span> = Vec::new();
-    for (i, q) in prompt.questions.iter().enumerate() {
-        let label_text: String = if q.data.header.is_empty() {
+    let labels: Vec<String> = prompt.questions.iter().enumerate().map(|(i, q)| {
+        if q.data.header.is_empty() {
             format!("Q{}", i + 1)
         } else {
             q.data.header.chars().take(12).collect()
-        };
-        let done = prompt.confirmed.get(i).copied().unwrap_or(false);
-        let check = if done { "✓" } else { " " };
-        let label = format!(" {check} {} ", label_text);
-        let style = if i == prompt.active_tab {
-            Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
-        } else if done {
-            Style::default().fg(theme::SAGE)
-        } else {
-            Style::default().fg(theme::MUTED)
-        };
-        tab_spans.push(Span::styled(label, style));
-        if i + 1 < prompt.questions.len() {
-            tab_spans.push(Span::raw(" "));
         }
+    }).collect();
+    let mut tab_state = TabState::new(labels);
+    tab_state.set_active(prompt.active_tab);
+    for (i, _) in prompt.questions.iter().enumerate() {
+        let done = prompt.confirmed.get(i).copied().unwrap_or(false);
+        tab_state.set_indicator(i, if done { Some('✓') } else { None });
     }
-    f.render_widget(Paragraph::new(Line::from(tab_spans)), header_area);
+    let tab_bar = TabBar::new().style(TabStyle {
+        active: Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        completed: Style::default().fg(theme::SAGE),
+        incomplete: Style::default().fg(theme::MUTED),
+        separator: " ",
+    });
+    f.render_stateful_widget(tab_bar, header_area, &mut tab_state);
 
     // ── 分隔线 ────────────────────────────────────────────────────────────────
     let sep_area = Rect { y: inner.y + 1, height: 1, ..inner };
@@ -126,10 +122,8 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(display, style),
     ]));
 
-    f.render_widget(
-        Paragraph::new(Text::from(lines))
-            .scroll((prompt.scroll_offset, 0))
-            .wrap(Wrap { trim: false }),
-        content_area,
-    );
+    let mut scroll_state = ScrollState::with_offset(prompt.scroll_offset);
+    ScrollableArea::new(Text::from(lines))
+        .scrollbar_style(Style::default().fg(theme::MUTED))
+        .render(f, content_area, &mut scroll_state);
 }

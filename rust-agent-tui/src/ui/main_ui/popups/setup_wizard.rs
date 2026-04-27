@@ -2,9 +2,11 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
+
+use perihelion_widgets::BorderedPanel;
 
 use crate::app::setup_wizard::{ProviderType, SetupStep, SetupWizardPanel, Step1Field};
 use crate::ui::theme;
@@ -12,7 +14,6 @@ use crate::ui::theme;
 /// Setup 向导全屏渲染入口
 pub(crate) fn render_setup_wizard(f: &mut Frame, app: &crate::app::App) {
     let area = f.area();
-    f.render_widget(Clear, area);
 
     let wizard = app.setup_wizard.as_ref().unwrap();
 
@@ -41,17 +42,16 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
-    let block = Block::default()
-        .title(Span::styled(
+    let inner = BorderedPanel::new(
+        Span::styled(
             " ── Perihelion Setup ── Step 1/2: Provider & API Key ",
             Style::default()
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
-    f.render_widget(&block, area);
-    let inner = block.inner(area);
+        ),
+    )
+        .border_style(Style::default().fg(theme::ACCENT))
+        .render(f, area);
 
     // 焦点样式辅助
     let focused = |is_active: bool| -> (Style, Style) {
@@ -201,17 +201,16 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
 }
 
 fn render_step_model_alias(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
-    let block = Block::default()
-        .title(Span::styled(
+    let inner = BorderedPanel::new(
+        Span::styled(
             " ── Step 2/2: Model Aliases ",
             Style::default()
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
-    f.render_widget(&block, area);
-    let inner = block.inner(area);
+        ),
+    )
+        .border_style(Style::default().fg(theme::ACCENT))
+        .render(f, area);
 
     let alias_labels = ["Opus ", "Sonnet", "Haiku "];
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -274,17 +273,16 @@ fn render_step_model_alias(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect)
 }
 
 fn render_step_done(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
-    let block = Block::default()
-        .title(Span::styled(
+    let inner = BorderedPanel::new(
+        Span::styled(
             " ── Setup Complete ✓ ",
             Style::default()
                 .fg(theme::SAGE)
                 .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::SAGE));
-    f.render_widget(&block, area);
-    let inner = block.inner(area);
+        ),
+    )
+        .border_style(Style::default().fg(theme::SAGE))
+        .render(f, area);
 
     let alias_labels = ["Opus", "Sonnet", "Haiku"];
 

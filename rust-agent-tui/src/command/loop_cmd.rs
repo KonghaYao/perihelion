@@ -67,7 +67,7 @@ mod tests {
         assert!(text.contains("用法"), "纯空格参数应显示用法提示");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_loop_cmd_valid_args_submits_message() {
         let mut app = headless_app();
         let initial_len = app.core.view_messages.len();
