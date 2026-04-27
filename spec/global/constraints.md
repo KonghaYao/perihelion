@@ -9,7 +9,8 @@
 - **HTTP 客户端:** reqwest 0.12（json + stream features）
 - **序列化:** serde 1.x + serde_json 1.x
 - **数据库:** rusqlite 0.31（bundled SQLite，WAL 模式）
-- **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-ergonomic 0.6.3（可观测性，仅 rust-agent-tui）
+- **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic）
+- **定时任务:** croner 2（cron 表达式解析与下次触发时间计算，仅 rust-agent-middlewares）
 - **Web 框架（Relay Server）:** axum 0.8（WebSocket feature）
 - **错误处理:** thiserror 2.0（库 crate）/ anyhow 1.0（应用层）
 - **日志/追踪:** tracing 0.1 + tracing-subscriber 0.3 + opentelemetry 0.31 + tracing-opentelemetry 0.32
@@ -60,4 +61,4 @@
 - **SubAgent 防递归:** `launch_agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 
 ---
-*最后更新: 2026-03-28 — 由批量归档（9 个 feature）更新：Web 前端迁移到 Preact+Signals+htm（esm.sh CDN），新增 Signal 订阅规则*
+*最后更新: 2026-04-27 — 由 13 个 feature 归档更新：langfuse-client 替代 langfuse-ergonomic，新增 croner 定时任务库，新增 /loop /cron 命令，新增 Setup Wizard 首次配置引导*

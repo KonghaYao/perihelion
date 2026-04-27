@@ -199,3 +199,4 @@ BaseMessage 格式: { "role": "user"|"assistant"|"tool"|"system", "content": "..
 ## 相关 Feature
 - → [agent.md#feature_20260328_F001_ask-user-question-align](./agent.md#feature_20260328_F001_ask-user-question-align) — AskUser 协议字段对齐（agent 为主域，relay-server 前端同步更新）
 - → [tui.md#feature_20260328_F003_test-coverage-improvement](./tui.md#feature_20260328_F003_test-coverage-improvement) — auth.rs 5 个 + client/mod.rs 7 个单元测试
+- → [tui.md#feature_20260329_F003_compact-thread-migration](./tui.md#feature_20260329_F003_compact-thread-migration) — /compact Thread 迁移，CompactDone 事件同步到 Web 前端

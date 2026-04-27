@@ -39,8 +39,17 @@
 - **Bracketed Paste Mode:** `Ctrl+V` 粘贴多行文本，保留换行不触发 Enter 提交
 - **Loading 输入缓冲:** Agent 运行中可继续输入，消息自动缓存，完成后合并发送
 - **TODO 状态面板:** 输入框上方固定面板，颜色分类（InProgress 黄/Completed 暗灰/Pending 白）
+- **Welcome Card:** 空消息时显示品牌 ASCII Art Logo + 功能亮点 + 命令提示，发送消息后自动消失，窄屏降级为文字标题
+- **Sticky Human Message Header:** 聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动，/clear 后消失，打开历史 Thread 自动恢复
+- **配色系统（v1.1）:** 橙色仅保留最高优先级交互（命令输入框）；工具名三级分级（bash=ACCENT / 写操作=WARNING / 只读=MUTED）；配置面板边框 MUTED 降噪；HITL/AskUser 弹窗 WARNING
+- **Setup Wizard:** 首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），支持 Anthropic/OpenAI Compatible，save_setup() 原子写回 settings.json
+- **历史面板工作区过滤:** /history 面板按 cwd 过滤 ThreadMeta，只显示当前工作区的对话，标题包含工作区路径
+- **定时任务（cron）:** /loop 注册定时任务（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用）；AI 通过 cron_register/cron_list/cron_remove 工具创建管理；内存任务表上限 20，TUI 重启后清空
+- **子 Agent 模型切换:** agent.md 的 model 字段生效，LLM Factory 签名升级为 Fn(Option<&str>)，alias 解析在 TUI 层；SkillFrontmatter 增加 model 文档字段
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
 - **Relay 集成:** 可选连接 Relay Server，事件实时转发，支持远程操控；Web 端支持 `/compact` 命令触发压缩；Agent thread 状态变更（clear/history/compact）通过 `ThreadReset` 消息自动同步到 Web 前端；Web 端支持"停止"按钮（`CancelAgent` 消息）中断 Agent 运行
+- **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头；Relay Web 前端收到 CompactDone 事件并切换
+- **App 结构体拆分:** App 拆分为 AppCore/AgentComm/RelayState/LangfuseState 四个子结构体（共 37 字段），对外 API 通过转发方法保持不变
 
 ## 基础设施
 
@@ -51,4 +60,4 @@
 - **Relay Server:** axum + tokio-tungstenite，支持 WebSocket 多 Agent 会话管理、心跳、Tab 状态广播；可选 client feature 仅引入 tungstenite；多用户隔离（UserNamespace + 匿名注册 /register）
 
 ---
-*最后更新: 2026-03-29 — 由 F004/F003/F002 归档更新：settings.json env 注入、Relay 多用户隔离*
+*最后更新: 2026-04-27 — 由 13 个 feature 归档批量更新：Setup Wizard、cron 定时任务、sticky header、配色降噪、子 Agent 模型切换等*

@@ -12,6 +12,19 @@
 
 | Feature ID | 摘要 | 领域 | 归档日期 |
 |-----------|------|------|----------|
+| [20260408_F001_askuser-dialog-height](../archive/feature_20260408_F001_askuser-dialog-height/) | AskUser 弹窗高度计算修复，滚动可见高度动态化 | tui | 2026-04-27 |
+| [20260331_F001_history-workspace-tag](../archive/feature_20260331_F001_history-workspace-tag/) | /history 面板按 cwd 过滤只显示当前工作区对话 | tui | 2026-04-27 |
+| [20260330_F005_tui-setup-wizard](../archive/feature_20260330_F005_tui-setup-wizard/) | 首次启动三步引导（Provider → API Key → Model Alias） | tui | 2026-04-27 |
+| [20260330_F004_langfuse-client](../archive/feature_20260330_F004_langfuse-client/) | workspace 内 langfuse-client crate 替代 langfuse-ergonomic | langfuse | 2026-04-27 |
+| [20260330_F003_cron-loop-command](../archive/feature_20260330_F003_cron-loop-command/) | /loop /cron 定时任务系统，cron 表达式注册管理 | agent | 2026-04-27 |
+| [20260330_F002_tui-color-refresh](../archive/feature_20260330_F002_tui-color-refresh/) | 配色系统 v1.1 降噪，橙色聚焦交互，工具名三级分层 | tui | 2026-04-27 |
+| [20260330_F001_sticky-human-message-header](../archive/feature_20260330_F001_sticky-human-message-header/) | 聊天区顶部固定最后一条 Human 消息摘要 | tui | 2026-04-27 |
+| [20260329_F005_legacy-cleanup](../archive/feature_20260329_F005_legacy-cleanup/) | Agent trait 层级清理与废弃 API 移除 | agent | 2026-04-27 |
+| [20260329_F004_app-refactor](../archive/feature_20260329_F004_app-refactor/) | App 结构体拆分为 AppCore/AgentComm/RelayState/LangfuseState | tui | 2026-04-27 |
+| [20260329_F003_compact-thread-migration](../archive/feature_20260329_F003_compact-thread-migration/) | /compact 执行后创建新 Thread 保留旧历史 | tui | 2026-04-27 |
+| [20260329_F003_ui-display-fixes](../archive/feature_20260329_F003_ui-display-fixes/) | 修复空消息欢迎页、长文本截断、子 Agent 空状态显示 | tui | 2026-04-27 |
+| [20260329_F002_subagent-model-switch](../archive/feature_20260329_F002_subagent-model-switch/) | 子 Agent 支持独立模型配置，LLM Factory 签名升级 | agent | 2026-04-27 |
+| [20260329_F001_tui-welcome-card](../archive/feature_20260329_F001_tui-welcome-card/) | 空消息时显示品牌 ASCII Art Logo + 功能亮点 | tui | 2026-04-27 |
 | [20260328_F004_settings-env-injection](../archive/feature_20260328_F004_settings-env-injection/) | settings.json env 字段替代 .env 注入环境变量 | tui | 2026-03-29 |
 | [20260328_F003_test-coverage-improvement](../archive/feature_20260328_F003_test-coverage-improvement/) | 四高风险区域补充 55+ 单元测试提升覆盖率 | tui | 2026-03-29 |
 | [20260328_F002_relay-multi-user-isolation](../archive/feature_20260328_F002_relay-multi-user-isolation/) | UserNamespace 分层实现多用户完全隔离 | relay-server | 2026-03-29 |
@@ -64,10 +77,10 @@
 
 ## 领域索引
 
-- [agent](./domains/agent.md) — Agent 核心（ReAct 执行器、消息系统、工具抽象、持久化）
-- [tui](./domains/tui.md) — TUI 界面（渲染、交互、命令、面板）
-- [relay-server](./domains/relay-server.md) — Relay Server（WebSocket 中继、远程控制）
-- [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）
+- [agent](./domains/agent.md) — Agent 核心（ReAct 执行器、消息系统、工具抽象、持久化）— 13 features
+- [tui](./domains/tui.md) — TUI 界面（渲染、交互、命令、面板）— 26 features
+- [relay-server](./domains/relay-server.md) — Relay Server（WebSocket 中继、远程控制）— 12 features
+- [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）— 8 features
 
 ---
-*最后更新: 2026-03-29 — 由 F004/F003/F002 归档更新（settings-env-injection、test-coverage、relay-multi-user-isolation）*
+*最后更新: 2026-04-27 — 由 13 个 feature 归档批量更新*

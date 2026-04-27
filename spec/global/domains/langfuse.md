@@ -57,8 +57,9 @@ new_thread() / open_thread():
 
 | 维度 | 选型 |
 |------|------|
-| 客户端库 | langfuse-ergonomic 0.6.3（Batcher 异步批量上报） |
-| 背压策略 | BackpressurePolicy::Drop，避免 OOM |
+| 客户端库 | langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic） |
+| Batcher | 自定义 Batcher 实现，异步批量上报，BackpressurePolicy::Drop 避免 OOM |
+| 重试机制 | 指数退避重试，最大 3 次，网络错误自动恢复 |
 | 线程安全 | `Arc<parking_lot::Mutex<LangfuseTracer>>`，FnEventHandler 闭包与主线程共享 |
 | Session 级别 | LangfuseSession 持有 Arc<LangfuseClient> + Arc<Batcher>，跨多轮复用 |
 | Observation 类型 | Agent/Tool/Generation via IngestionEventOneOf8（observation-create API） |
@@ -120,6 +121,17 @@ new_thread() / open_thread():
 **关键决策:** — （迭代探索版本）
 **归档:** [链接](../../archive/feature_20260325_F004_subagent-langfuse-nesting/)
 **归档日期:** 2026-03-27
+
+### feature_20260330_F004_langfuse-client
+**摘要:** workspace 内 langfuse-client crate 替代 langfuse-ergonomic
+**关键决策:**
+- 新建 workspace crate langfuse-client，实现 Langfuse V4 API 客户端
+- 替代 langfuse-ergonomic 0.6.3 外部依赖，完全自主可控
+- Batcher 异步批量上报 + 指数退避重试（最大 3 次）
+- 保持与现有 LangfuseTracer/LangfuseSession 接口兼容
+- TUI 层依赖从 langfuse-ergonomic 切换到 langfuse-client
+**归档:** [链接](../../archive/feature_20260330_F004_langfuse-client/)
+**归档日期:** 2026-04-27
 
 ---
 
