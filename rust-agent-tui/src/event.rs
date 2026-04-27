@@ -4,7 +4,7 @@ use ratatui::crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
 use ratatui_textarea::{Input, Key};
 use std::time::Duration;
 
-use crate::app::model_panel::ModelPanelMode;
+use crate::app::model_panel::{AliasTab, ROW_HAIKU, ROW_LOGIN, ROW_OPUS, ROW_SONNET, ROW_THINKING};
 use crate::app::{App, MessageViewModel, PendingAttachment};
 use rust_create_agent::messages::BaseMessage;
 use crate::ui::render_thread::RenderEvent;
@@ -102,6 +102,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             // /agents 面板优先处理
             if app.core.agent_panel.is_some() {
                 handle_agent_panel(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
+            // /login 面板优先处理
+            if app.core.login_panel.is_some() {
+                handle_login_panel(app, input);
                 return Ok(Some(Action::Redraw));
             }
 
@@ -377,6 +383,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // login_panel 打开时粘贴到面板当前字段
+            if app.core.login_panel.is_some() {
+                app.core.login_panel.as_mut().unwrap().paste_text(&text);
+                return Ok(Some(Action::Redraw));
+            }
+
             // model_panel 打开时粘贴到面板当前字段
             if app.core.model_panel.is_some() {
                 app.core.model_panel.as_mut().unwrap().paste_text(&text);
@@ -489,152 +501,157 @@ fn handle_agent_panel(app: &mut App, input: Input) {
     }
 }
 
-// ─── /model 面板键盘处理 ──────────────────────────────────────────────────────
+// ─── /login 面板键盘处理 ──────────────────────────────────────────────────────
 
-fn handle_model_panel(app: &mut App, input: Input) {
-    use crate::app::model_panel::{AliasEditField, EditField};
+fn handle_login_panel(app: &mut App, input: Input) {
+    use crate::app::login_panel::LoginPanelMode;
 
-    // 用只读借用提前获取 mode（借用立即释放），后续各分支可自由重借 app.core.model_panel
-    let mode = match app.core.model_panel.as_ref() {
+    let mode = match app.core.login_panel.as_ref() {
         Some(p) => p.mode.clone(),
         None => return,
     };
 
     match mode {
-        // ── 别名配置主界面 ────────────────────────────────────────────────────
-        ModelPanelMode::AliasConfig => match input {
+        LoginPanelMode::Browse => match input {
             Input { key: Key::Esc, .. } => {
-                app.close_model_panel();
+                app.close_login_panel();
+            }
+            Input { key: Key::Up, .. } | Input { key: Key::Char('k'), .. } => {
+                app.core.login_panel.as_mut().unwrap().move_cursor(-1);
+            }
+            Input { key: Key::Down, .. } | Input { key: Key::Char('j'), .. } => {
+                app.core.login_panel.as_mut().unwrap().move_cursor(1);
+            }
+            Input { key: Key::Char('e'), ctrl: false, alt: false, .. }
+            | Input { key: Key::Enter, .. } => {
+                app.core.login_panel.as_mut().unwrap().enter_edit();
+            }
+            Input { key: Key::Char('n'), ctrl: false, alt: false, .. } => {
+                app.core.login_panel.as_mut().unwrap().enter_new();
+            }
+            Input { key: Key::Char(' '), .. } => {
+                app.login_panel_select_provider();
+            }
+            Input { key: Key::Char('d'), ctrl: false, alt: false, .. } => {
+                app.core.login_panel.as_mut().unwrap().request_delete();
+            }
+            _ => {}
+        },
+        LoginPanelMode::Edit | LoginPanelMode::New => match input {
+            Input { key: Key::Esc, .. } => {
+                app.core.login_panel.as_mut().unwrap().mode = LoginPanelMode::Browse;
             }
             Input { key: Key::Char('v'), ctrl: true, .. } => {
                 if let Ok(mut clipboard) = arboard::Clipboard::new() {
                     if let Ok(text) = clipboard.get_text() {
-                        app.core.model_panel.as_mut().unwrap().paste_text(&text);
+                        app.core.login_panel.as_mut().unwrap().paste_text(&text);
                     }
                 }
             }
-            // Tab / Shift+Tab：切换 Alias Tab（Opus / Sonnet / Haiku）
-            Input { key: Key::Tab, shift: false, .. } => {
-                app.core.model_panel.as_mut().unwrap().tab_next();
-            }
-            Input { key: Key::Tab, shift: true, .. } => {
-                app.core.model_panel.as_mut().unwrap().tab_prev();
-            }
-            // ↓：切换到下一个编辑字段（Provider → ModelId）
-            Input { key: Key::Down, .. } => {
-                app.core.model_panel.as_mut().unwrap().alias_field_next();
-            }
-            // ↑：切换到上一个编辑字段（ModelId → Provider）
             Input { key: Key::Up, .. } => {
-                app.core.model_panel.as_mut().unwrap().alias_field_prev();
+                app.core.login_panel.as_mut().unwrap().field_prev();
             }
-            // Space：循环切换 Provider（当 alias_edit_field == Provider 时）
-            Input { key: Key::Char(' '), .. } => {
-                let field = app.core.model_panel.as_ref().unwrap().alias_edit_field.clone();
-                if field == AliasEditField::Provider {
-                    app.core.model_panel.as_mut().unwrap().cycle_alias_provider();
-                }
-            }
-            // Enter：激活当前 Tab（写入 active_alias）并保存
-            Input { key: Key::Enter, .. } => {
-                app.model_panel_activate_tab();
-            }
-            // s：保存当前 Tab 的 provider/model 配置
-            Input { key: Key::Char('s'), ctrl: false, alt: false, .. } => {
-                app.model_panel_save_alias();
-            }
-            // p：进入 provider 管理子面板
-            Input { key: Key::Char('p'), ctrl: false, alt: false, .. } => {
-                app.core.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
-            }
-            // Backspace：删除当前 Tab 的 model_id 末字符
-            Input { key: Key::Backspace, .. } => {
-                app.core.model_panel.as_mut().unwrap().pop_alias_char();
-            }
-            // 字符输入：写入 model_id 缓冲（当 alias_edit_field == ModelId 时）
-            Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
-                app.core.model_panel.as_mut().unwrap().push_alias_char(c);
-            }
-            _ => {}
-        },
-        // ── Provider 管理浏览 ─────────────────────────────────────────────────
-        ModelPanelMode::Browse => match input {
-            Input { key: Key::Esc, .. } => {
-                // 回到别名配置主界面
-                app.core.model_panel.as_mut().unwrap().mode = ModelPanelMode::AliasConfig;
-            }
-            Input { key: Key::Up, .. }
-            | Input { key: Key::Char('k'), .. } => {
-                app.core.model_panel.as_mut().unwrap().move_cursor(-1);
-            }
-            Input { key: Key::Down, .. }
-            | Input { key: Key::Char('j'), .. } => {
-                app.core.model_panel.as_mut().unwrap().move_cursor(1);
-            }
-            Input { key: Key::Enter, .. } => {
-                app.model_panel_confirm_select();
-            }
-            Input { key: Key::Char('e'), .. } => {
-                app.core.model_panel.as_mut().unwrap().enter_edit();
-            }
-            Input { key: Key::Char('n'), .. } => {
-                app.core.model_panel.as_mut().unwrap().enter_new();
-            }
-            Input { key: Key::Char('d'), .. } => {
-                app.core.model_panel.as_mut().unwrap().request_delete();
-            }
-            _ => {}
-        },
-        // ── Provider 编辑/新建 ────────────────────────────────────────────────
-        ModelPanelMode::Edit | ModelPanelMode::New => match input {
-            Input { key: Key::Esc, .. } => {
-                app.core.model_panel.as_mut().unwrap().mode = ModelPanelMode::Browse;
-            }
-            Input { key: Key::Char('v'), ctrl: true, .. } => {
-                if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                    if let Ok(text) = clipboard.get_text() {
-                        app.core.model_panel.as_mut().unwrap().paste_text(&text);
-                    }
-                }
+            Input { key: Key::Down, .. } => {
+                app.core.login_panel.as_mut().unwrap().field_next();
             }
             Input { key: Key::Tab, shift: false, .. } => {
-                app.core.model_panel.as_mut().unwrap().field_next();
+                app.core.login_panel.as_mut().unwrap().field_next();
             }
             Input { key: Key::Tab, shift: true, .. } => {
-                app.core.model_panel.as_mut().unwrap().field_prev();
+                app.core.login_panel.as_mut().unwrap().field_prev();
+            }
+            Input { key: Key::Left, .. } | Input { key: Key::Right, .. } => {
+                let field = app.core.login_panel.as_ref().unwrap().edit_field.clone();
+                if field == crate::app::login_panel::LoginEditField::Type {
+                    app.core.login_panel.as_mut().unwrap().cycle_type();
+                }
             }
             Input { key: Key::Char(' '), .. } => {
-                let field = app.core.model_panel.as_ref().unwrap().edit_field();
-                if field == EditField::ProviderType {
-                    app.core.model_panel.as_mut().unwrap().cycle_type();
-                } else if field == EditField::ThinkingBudget {
-                    app.core.model_panel.as_mut().unwrap().toggle_thinking();
+                let field = app.core.login_panel.as_ref().unwrap().edit_field.clone();
+                if field == crate::app::login_panel::LoginEditField::Type {
+                    app.core.login_panel.as_mut().unwrap().cycle_type();
                 } else {
-                    app.core.model_panel.as_mut().unwrap().push_char(' ');
+                    app.core.login_panel.as_mut().unwrap().push_char(' ');
                 }
             }
             Input { key: Key::Enter, .. } => {
-                app.model_panel_apply_edit();
+                app.login_panel_apply_edit();
             }
             Input { key: Key::Backspace, .. } => {
-                app.core.model_panel.as_mut().unwrap().pop_char();
+                app.core.login_panel.as_mut().unwrap().pop_char();
             }
             Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
-                app.core.model_panel.as_mut().unwrap().push_char(c);
+                app.core.login_panel.as_mut().unwrap().push_char(c);
             }
             _ => {}
         },
-        // ── 删除确认 ──────────────────────────────────────────────────────────
-        ModelPanelMode::ConfirmDelete => match input {
-            Input { key: Key::Char('y'), .. } => {
-                app.model_panel_confirm_delete();
+        LoginPanelMode::ConfirmDelete => match input {
+            Input { key: Key::Enter, .. } => {
+                app.login_panel_confirm_delete();
             }
-            Input { key: Key::Char('n'), .. }
-            | Input { key: Key::Esc, .. } => {
-                app.core.model_panel.as_mut().unwrap().cancel_delete();
+            Input { key: Key::Esc, .. } => {
+                app.core.login_panel.as_mut().unwrap().cancel_delete();
             }
             _ => {}
         },
+    }
+}
+
+// ─── /model 面板键盘处理 ──────────────────────────────────────────────────────
+
+fn handle_model_panel(app: &mut App, input: Input) {
+    match input {
+        Input { key: Key::Esc, .. } => {
+            app.close_model_panel();
+        }
+        Input { key: Key::Up, .. } | Input { key: Key::Char('k'), .. } => {
+            app.core.model_panel.as_mut().unwrap().move_cursor(-1);
+        }
+        Input { key: Key::Down, .. } | Input { key: Key::Char('j'), .. } => {
+            app.core.model_panel.as_mut().unwrap().move_cursor(1);
+        }
+        Input { key: Key::Char(' '), .. } => {
+            app.core.model_panel.as_mut().unwrap().toggle_thinking();
+        }
+        Input { key: Key::Enter, .. } => {
+            let cursor = app.core.model_panel.as_ref().unwrap().cursor;
+            match cursor {
+                ROW_LOGIN => {
+                    app.close_model_panel();
+                    app.open_login_panel();
+                }
+                ROW_THINKING => {
+                    app.core.model_panel.as_mut().unwrap().toggle_thinking();
+                }
+                ROW_OPUS => {
+                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Opus;
+                    app.model_panel_confirm();
+                }
+                ROW_SONNET => {
+                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Sonnet;
+                    app.model_panel_confirm();
+                }
+                ROW_HAIKU => {
+                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Haiku;
+                    app.model_panel_confirm();
+                }
+                _ => {}
+            }
+        }
+        Input { key: Key::Char('v'), ctrl: true, .. } => {
+            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                if let Ok(text) = clipboard.get_text() {
+                    app.core.model_panel.as_mut().unwrap().paste_text(&text);
+                }
+            }
+        }
+        Input { key: Key::Backspace, .. } => {
+            app.core.model_panel.as_mut().unwrap().pop_char();
+        }
+        Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
+            app.core.model_panel.as_mut().unwrap().push_char(c);
+        }
+        _ => {}
     }
 }
 

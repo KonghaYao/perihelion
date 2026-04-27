@@ -419,17 +419,16 @@ pub fn save_setup_to(
         provider_type: provider_type_str.to_string(),
         api_key: wizard.api_key.clone(),
         base_url: wizard.base_url.clone(),
+        models: crate::config::types::ProviderModels {
+            opus: wizard.aliases[0].model_id.clone(),
+            sonnet: wizard.aliases[1].model_id.clone(),
+            haiku: wizard.aliases[2].model_id.clone(),
+        },
         ..Default::default()
     };
     cfg.config.providers.push(provider);
     cfg.config.active_alias = "opus".to_string();
-    // 设置三个别名
-    cfg.config.model_aliases.opus.provider_id = wizard.provider_id.clone();
-    cfg.config.model_aliases.opus.model_id = wizard.aliases[0].model_id.clone();
-    cfg.config.model_aliases.sonnet.provider_id = wizard.provider_id.clone();
-    cfg.config.model_aliases.sonnet.model_id = wizard.aliases[1].model_id.clone();
-    cfg.config.model_aliases.haiku.provider_id = wizard.provider_id.clone();
-    cfg.config.model_aliases.haiku.model_id = wizard.aliases[2].model_id.clone();
+    cfg.config.active_provider_id = wizard.provider_id.clone();
 
     let content = serde_json::to_string_pretty(&cfg)?;
     if let Some(parent) = path.parent() {
@@ -453,7 +452,7 @@ pub fn save_setup(wizard: &SetupWizardPanel) -> anyhow::Result<crate::config::Ze
             merged.config.providers.push(new_provider.clone());
         }
         merged.config.active_alias = cfg.config.active_alias;
-        merged.config.model_aliases = cfg.config.model_aliases;
+        merged.config.active_provider_id = cfg.config.active_provider_id;
         crate::config::save(&merged)?;
         return Ok(merged);
     }
@@ -729,8 +728,8 @@ mod tests {
         assert_eq!(cfg.config.providers[0].provider_type, "anthropic");
         assert_eq!(cfg.config.providers[0].api_key, "sk-test-key");
         assert_eq!(cfg.config.active_alias, "opus");
-        assert_eq!(cfg.config.model_aliases.opus.provider_id, "anthropic");
-        assert!(cfg.config.model_aliases.opus.model_id.contains("claude-opus"));
+        assert_eq!(cfg.config.active_provider_id, "anthropic");
+        assert!(cfg.config.providers[0].models.opus.contains("claude-opus"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

@@ -4,6 +4,7 @@ pub mod compact;
 pub mod cron;
 pub mod help;
 pub mod history;
+pub mod login;
 pub mod loop_cmd;
 pub mod model;
 
@@ -11,6 +12,7 @@ pub mod model;
 pub fn default_registry() -> CommandRegistry {
     let mut r = CommandRegistry::new();
     r.register(Box::new(agents::AgentsCommand));
+    r.register(Box::new(login::LoginCommand));
     r.register(Box::new(model::ModelCommand));
     r.register(Box::new(clear::ClearCommand));
     r.register(Box::new(compact::CompactCommand));

@@ -9,7 +9,7 @@ impl Command for ModelCommand {
     }
 
     fn description(&self) -> &str {
-        "打开 Provider / Model 配置面板；带参数时直接切换别名（opus/sonnet/haiku）"
+        "打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名（opus/sonnet/haiku）"
     }
 
     fn execute(&self, app: &mut App, args: &str) {

@@ -6,341 +6,160 @@ use ratatui::{
     Frame,
 };
 
-use perihelion_widgets::{BorderedPanel, FormField};
+use perihelion_widgets::BorderedPanel;
 
+use crate::app::model_panel::{AliasTab, ROW_HAIKU, ROW_LOGIN, ROW_OPUS, ROW_SONNET, ROW_THINKING};
 use crate::app::App;
-use crate::app::model_panel::{AliasEditField, AliasTab, EditField, ModelPanelMode, PROVIDER_TYPES};
 use crate::ui::theme;
 
-/// /model 面板渲染（底部展开区）
 pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     let Some(panel) = &app.core.model_panel else { return };
 
-    let popup_area = area;
-
-    // 根据模式选颜色/标题
-    let (border_color, title) = match &panel.mode {
-        ModelPanelMode::AliasConfig   => (theme::MUTED,    " /model — 模型别名配置 "),
-        ModelPanelMode::Browse        => (theme::MUTED,    " /model — Provider 管理 "),
-        ModelPanelMode::Edit          => (theme::WARNING, " /model — 编辑 Provider "),
-        ModelPanelMode::New           => (theme::SAGE,  " /model — 新建 Provider "),
-        ModelPanelMode::ConfirmDelete => (theme::ERROR,    " /model — 确认删除 "),
-    };
-
     let inner = BorderedPanel::new(
-        Span::styled(title, Style::default().fg(border_color).add_modifier(Modifier::BOLD))
+        Span::styled(" /model — 模型选择 ", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
     )
-        .border_style(Style::default().fg(border_color))
-        .render(f, popup_area);
+        .border_style(Style::default().fg(theme::ACCENT))
+        .render(f, area);
 
-    match &panel.mode {
-        // ── 别名配置主界面 ─────────────────────────────────────────────────────
-        ModelPanelMode::AliasConfig => {
-            // 获取激活别名（从 ZenConfig 读取）
-            let active_alias = app.zen_config.as_ref()
-                .map(|c| c.config.active_alias.as_str())
-                .unwrap_or("opus");
+    let active_alias = app.zen_config.as_ref()
+        .map(|c| c.config.active_alias.as_str())
+        .unwrap_or("opus");
 
-            // Tab 栏（第 0 行）
-            let tabs_line = {
-                let tabs = [AliasTab::Opus, AliasTab::Sonnet, AliasTab::Haiku];
-                let mut spans: Vec<Span> = Vec::new();
-                spans.push(Span::styled(" ", Style::default()));
-                for tab in &tabs {
-                    let is_current = *tab == panel.active_tab;
-                    let is_active_alias = tab.to_key() == active_alias;
-                    let label = if is_active_alias {
-                        format!("[★ {}]", tab.label())
-                    } else {
-                        format!("[ {} ]", tab.label())
-                    };
-                    let style = if is_current {
-                        Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
-                    } else if is_active_alias {
-                        Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(theme::MUTED)
-                    };
-                    spans.push(Span::styled(label, style));
-                    spans.push(Span::styled("  ", Style::default()));
-                }
-                Line::from(spans)
-            };
+    let models = app.zen_config.as_ref()
+        .and_then(|c| c.config.providers.iter().find(|p| p.id == c.config.active_provider_id))
+        .map(|p| &p.models);
 
-            // 当前 Tab 的 provider/model 编辑区
-            let tab_idx = panel.active_tab.index();
-            let cur_provider = &panel.buf_alias_provider[tab_idx];
-            let cur_model = &panel.buf_alias_model[tab_idx];
+    let mut lines: Vec<Line> = Vec::new();
 
-            // Provider 行：显示所有 provider，当前选中用 [name] 包裹
-            let provider_is_active = panel.alias_edit_field == AliasEditField::Provider;
-            let model_is_active = panel.alias_edit_field == AliasEditField::ModelId;
+    // Provider header
+    if panel.provider_name.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  未选择 Provider",
+            Style::default().fg(theme::MUTED),
+        )));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("  Provider: ", Style::default().fg(theme::MUTED)),
+            Span::styled(panel.provider_name.clone(), Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+        ]));
+    }
+    lines.push(Line::from(""));
 
-            let provider_display: String = if panel.providers.is_empty() {
-                "（无，按 p 管理）".to_string()
-            } else {
-                panel.providers.iter()
-                    .map(|p| {
-                        if &p.id == cur_provider {
-                            format!("[{}]", p.display_name())
-                        } else {
-                            p.display_name().to_string()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("  ")
-            };
+    // Model rows: Opus / Sonnet / Haiku
+    let rows: [(usize, &AliasTab, &str); 3] = [
+        (ROW_OPUS, &AliasTab::Opus, "Opus"),
+        (ROW_SONNET, &AliasTab::Sonnet, "Sonnet"),
+        (ROW_HAIKU, &AliasTab::Haiku, "Haiku"),
+    ];
 
-            let model_display = if model_is_active {
-                format!("{}█", cur_model)
-            } else if cur_model.is_empty() {
-                "（空，使用 Provider 默认）".to_string()
-            } else {
-                cur_model.clone()
-            };
+    for (row_idx, alias, label) in &rows {
+        let is_active = alias.to_key() == active_alias;
+        let is_cursor = panel.cursor == *row_idx;
+        let model_name = models
+            .and_then(|m| m.get_model(alias.to_key()))
+            .unwrap_or("");
 
-            let (prov_label_style, prov_val_style) = if provider_is_active {
-                (
-                    Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
-                    Style::default().fg(Color::White).bg(theme::ACCENT),
-                )
-            } else {
-                (Style::default().fg(theme::MUTED), Style::default().fg(theme::TEXT))
-            };
+        let bullet = if is_active { "●" } else { "○" };
+        let cursor_char = if is_cursor { "▶" } else { " " };
 
-            let (model_label_style, model_val_style) = if model_is_active {
-                (
-                    Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
-                    Style::default().fg(Color::White).bg(theme::ACCENT),
-                )
-            } else {
-                (Style::default().fg(theme::MUTED), Style::default().fg(theme::TEXT))
-            };
+        let row_style = if is_cursor {
+            Style::default().fg(Color::White).bg(theme::ACCENT)
+        } else if is_active {
+            Style::default().fg(theme::ACCENT)
+        } else {
+            Style::default().fg(theme::TEXT)
+        };
 
-            let provider_line = Line::from(vec![
-                Span::styled("  Provider", prov_label_style),
-                Span::styled(format!("  {}", provider_display), prov_val_style),
-            ]);
-            let model_line = Line::from(vec![
-                Span::styled("  Model ID", model_label_style),
-                Span::styled(format!("  {}", model_display), model_val_style),
-            ]);
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {} {} ", cursor_char, bullet), row_style),
+            Span::styled(format!("{:8} ", label), row_style.add_modifier(Modifier::BOLD)),
+            Span::styled(
+                model_name.to_string(),
+                row_style.fg(if is_cursor { Color::White } else { theme::MUTED }),
+            ),
+        ]));
+    }
 
-            let hint_line = Line::from(vec![
-                Span::styled(" Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换Tab  ", Style::default().fg(theme::MUTED)),
-                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                Span::styled(":激活  ", Style::default().fg(theme::MUTED)),
-                Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换字段  ", Style::default().fg(theme::MUTED)),
-                Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                Span::styled(":切换Provider  ", Style::default().fg(theme::MUTED)),
-                Span::styled("p", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                Span::styled(":管理  ", Style::default().fg(theme::MUTED)),
-                Span::styled("s", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                Span::styled(":保存  ", Style::default().fg(theme::MUTED)),
-                Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                Span::styled(":关闭", Style::default().fg(theme::MUTED)),
-            ]);
+    // Thinking row
+    {
+        let is_cursor = panel.cursor == ROW_THINKING;
+        let enabled_tag = if panel.buf_thinking_enabled { "[ON] " } else { "[OFF]" };
+        let budget_display = if is_cursor {
+            format!("{}█", panel.buf_thinking_budget)
+        } else {
+            panel.buf_thinking_budget.clone()
+        };
+        let enabled_color = if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED };
+        let row_style = if is_cursor {
+            Style::default().fg(Color::White).bg(theme::ACCENT)
+        } else {
+            Style::default().fg(theme::TEXT)
+        };
 
-            let mut lines = vec![
-                tabs_line,
-                Line::from(""),
-                provider_line,
-                model_line,
-                Line::from(""),
-                hint_line,
-            ];
-            lines.truncate(inner.height as usize);
-            f.render_widget(Paragraph::new(Text::from(lines)), inner);
-        }
-        // ── Provider 管理子面板 ────────────────────────────────────────────────
-        ModelPanelMode::Browse | ModelPanelMode::Edit | ModelPanelMode::New | ModelPanelMode::ConfirmDelete => {
-            let half = inner.height / 2;
-            let list_area = Rect { height: half.max(3), ..inner };
-            let form_area = Rect {
-                y: inner.y + list_area.height,
-                height: inner.height.saturating_sub(list_area.height),
-                ..inner
-            };
-
-            // 上半：provider 列表
-            let mut list_lines: Vec<Line> = Vec::new();
-            for (i, p) in panel.providers.iter().enumerate() {
-                let is_cursor = i == panel.cursor;
-                let is_active = p.id == panel.active_id;
-                let bullet = if is_active { "●" } else { "○" };
-                let cursor_char = if is_cursor { "▶" } else { " " };
-                let name = p.display_name().to_string();
-                let type_tag = format!("({})", p.provider_type);
-                let row_style = if is_cursor {
+        lines.push(Line::from(vec![
+            Span::styled(
+                if is_cursor { " ▶   " } else { "     " },
+                row_style,
+            ),
+            Span::styled("Thinking ", row_style.add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{} ", enabled_tag),
+                if is_cursor {
+                    Style::default().fg(enabled_color).bg(theme::ACCENT)
+                } else {
+                    Style::default().fg(enabled_color)
+                },
+            ),
+            Span::styled(
+                format!("budget: {}", budget_display),
+                if is_cursor {
                     Style::default().fg(Color::White).bg(theme::ACCENT)
-                } else if is_active {
-                    Style::default().fg(theme::ACCENT)
                 } else {
                     Style::default().fg(theme::TEXT)
-                };
-                list_lines.push(Line::from(vec![
-                    Span::styled(format!("{} {} ", cursor_char, bullet), row_style),
-                    Span::styled(format!("{} ", name), row_style.add_modifier(Modifier::BOLD)),
-                    Span::styled(type_tag, row_style.fg(if is_cursor { Color::White } else { theme::MUTED })),
-                ]));
-            }
-            if panel.providers.is_empty() {
-                list_lines.push(Line::from(Span::styled(
-                    "  （无 provider，按 n 新建）",
-                    Style::default().fg(theme::MUTED),
-                )));
-            }
-            f.render_widget(Paragraph::new(Text::from(list_lines)), list_area);
-
-            // 下半：表单或确认删除
-            match &panel.mode {
-                ModelPanelMode::Browse => {
-                    if let Some(p) = panel.providers.get(panel.cursor) {
-                        let key_masked = mask_api_key(&p.api_key);
-                        let mut info_lines = vec![
-                            Line::from(vec![
-                                Span::styled("  API Key ", Style::default().fg(theme::MUTED)),
-                                Span::styled(key_masked, Style::default().fg(theme::TEXT)),
-                            ]),
-                            Line::from(vec![
-                                Span::styled("  Base URL", Style::default().fg(theme::MUTED)),
-                                Span::styled(format!(" {}", p.base_url), Style::default().fg(theme::TEXT)),
-                            ]),
-                        ];
-                        let thinking_status = if panel.buf_thinking_enabled {
-                            format!(" ON  (budget: {} tokens)", panel.field_value(EditField::ThinkingBudget))
-                        } else {
-                            " OFF".to_string()
-                        };
-                        let thinking_color = if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED };
-                        info_lines.push(Line::from(vec![
-                            Span::styled("  Thinking", Style::default().fg(theme::MUTED)),
-                            Span::styled(thinking_status, Style::default().fg(thinking_color)),
-                        ]));
-                        info_lines.push(Line::from(""));
-                        info_lines.push(Line::from(vec![
-                            Span::styled(" e", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                            Span::styled(":编辑  ", Style::default().fg(theme::MUTED)),
-                            Span::styled("n", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
-                            Span::styled(":新建  ", Style::default().fg(theme::MUTED)),
-                            Span::styled("d", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
-                            Span::styled(":删除  ", Style::default().fg(theme::MUTED)),
-                            Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                            Span::styled(":返回", Style::default().fg(theme::MUTED)),
-                        ]));
-                        info_lines.truncate(form_area.height as usize);
-                        f.render_widget(Paragraph::new(Text::from(info_lines)), form_area);
-                    }
-                }
-                ModelPanelMode::Edit | ModelPanelMode::New => {
-                    let fields: &[EditField] = &[
-                        EditField::Name,
-                        EditField::ProviderType,
-                        EditField::ApiKey,
-                        EditField::BaseUrl,
-                    ];
-                    let mut form_lines: Vec<Line> = Vec::new();
-                    for field in fields {
-                        let is_active = *field == panel.edit_field();
-                        let buf = panel.field_value(*field);
-                        let label = field.label();
-                        let value_display = if *field == EditField::ProviderType {
-                            PROVIDER_TYPES.iter()
-                                .map(|t| if *t == buf { format!("[{}]", t) } else { t.to_string() })
-                                .collect::<Vec<_>>()
-                                .join("  ")
-                        } else if is_active {
-                            format!("{}█", buf)
-                        } else if *field == EditField::ApiKey { mask_api_key(buf) } else { buf.to_string() };
-                        let (label_style, value_style) = if is_active {
-                            (
-                                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
-                                Style::default().fg(Color::White).bg(theme::ACCENT),
-                            )
-                        } else {
-                            (Style::default().fg(theme::MUTED), Style::default().fg(theme::TEXT))
-                        };
-                        form_lines.push(Line::from(vec![
-                            Span::styled(format!("  {} ", label), label_style),
-                            Span::styled(format!(" {}", value_display), value_style),
-                        ]));
-                    }
-                    // ThinkingBudget 字段
-                    {
-                        let is_active = panel.edit_field() == EditField::ThinkingBudget;
-                        let label = EditField::ThinkingBudget.label();
-                        let enabled_tag = if panel.buf_thinking_enabled { "[ON] " } else { "[OFF]" };
-                        let budget_display = if is_active {
-                            format!("{}█", panel.field_value(EditField::ThinkingBudget))
-                        } else {
-                            panel.field_value(EditField::ThinkingBudget).to_string()
-                        };
-                        let enabled_color = if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED };
-                        let (label_style, enabled_style, budget_style) = if is_active {
-                            (
-                                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD),
-                                Style::default().fg(if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED }).bg(theme::ACCENT),
-                                Style::default().fg(Color::White).bg(theme::ACCENT),
-                            )
-                        } else {
-                            (Style::default().fg(theme::MUTED), Style::default().fg(enabled_color), Style::default().fg(theme::TEXT))
-                        };
-                        form_lines.push(Line::from(vec![
-                            Span::styled(format!("  {} ", label), label_style),
-                            Span::styled(format!(" {} ", enabled_tag), enabled_style),
-                            Span::styled(format!("budget:{}", budget_display), budget_style),
-                        ]));
-                    }
-                    form_lines.push(Line::from(""));
-                    form_lines.push(Line::from(vec![
-                        Span::styled(" Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                        Span::styled(":切换字段  ", Style::default().fg(theme::MUTED)),
-                        Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                        Span::styled(":切换/开关  ", Style::default().fg(theme::MUTED)),
-                        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                        Span::styled(":保存  ", Style::default().fg(theme::MUTED)),
-                        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-                        Span::styled(":取消", Style::default().fg(theme::MUTED)),
-                    ]));
-                    form_lines.truncate(form_area.height as usize);
-                    f.render_widget(Paragraph::new(Text::from(form_lines)), form_area);
-                }
-                ModelPanelMode::ConfirmDelete => {
-                    if let Some(p) = panel.providers.get(panel.cursor) {
-                        let confirm_lines = vec![
-                            Line::from(""),
-                            Line::from(vec![
-                                Span::styled("  确认删除 ", Style::default().fg(theme::TEXT)),
-                                Span::styled(p.display_name().to_string(), Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
-                                Span::styled(" ？", Style::default().fg(theme::TEXT)),
-                            ]),
-                            Line::from(""),
-                            Line::from(vec![
-                                Span::styled(" y", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
-                                Span::styled(":确认删除  ", Style::default().fg(theme::MUTED)),
-                                Span::styled("n/Esc", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
-                                Span::styled(":取消", Style::default().fg(theme::MUTED)),
-                            ]),
-                        ];
-                        f.render_widget(Paragraph::new(Text::from(confirm_lines)), form_area);
-                    }
-                }
-                _ => {}
-            }
-        }
+                },
+            ),
+        ]));
     }
-}
 
-/// 遮盖 API Key 中间部分
-fn mask_api_key(key: &str) -> String {
-    let chars: Vec<char> = key.chars().collect();
-    let len = chars.len();
-    if len <= 8 {
-        return "*".repeat(len);
+    // /login row
+    {
+        let is_cursor = panel.cursor == ROW_LOGIN;
+        let row_style = if is_cursor {
+            Style::default().fg(theme::WARNING).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::WARNING)
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                if is_cursor { " ▶   " } else { "     " },
+                if is_cursor { row_style } else { Style::default().fg(theme::MUTED) },
+            ),
+            Span::styled("/login", row_style),
+            Span::styled(
+                "  管理 Provider…",
+                if is_cursor {
+                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                } else {
+                    Style::default().fg(theme::MUTED)
+                },
+            ),
+        ]));
     }
-    let prefix: String = chars[..4].iter().collect();
-    let suffix: String = chars[len - 4..].iter().collect();
-    format!("{}****{}", prefix, suffix)
+
+    // Help line
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(" ↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":导航  ", Style::default().fg(theme::MUTED)),
+        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":确认  ", Style::default().fg(theme::MUTED)),
+        Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
+        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":关闭", Style::default().fg(theme::MUTED)),
+    ]));
+
+    lines.truncate(inner.height as usize);
+    f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }

@@ -58,31 +58,25 @@ impl LlmProvider {
         }
     }
 
-    /// 从 ZenConfig 构造 LlmProvider（按 active_alias 查 model_aliases 表）
+    /// 从 ZenConfig 构造 LlmProvider（按 active_provider_id 查找 Provider，再按 active_alias 取模型名）
     pub fn from_config(cfg: &ZenConfig) -> Option<Self> {
         let app = &cfg.config;
-        let alias = app.active_alias.as_str();
-        let mapping = match alias {
-            "opus"   => &app.model_aliases.opus,
-            "sonnet" => &app.model_aliases.sonnet,
-            "haiku"  => &app.model_aliases.haiku,
-            _        => &app.model_aliases.opus,  // 未知别名 fallback
-        };
-
-        let provider = app.providers.iter().find(|p| p.id == mapping.provider_id)?;
+        let provider = app.providers.iter().find(|p| p.id == app.active_provider_id)?;
 
         if provider.api_key.is_empty() {
             return None;
         }
 
-        let model = if !mapping.model_id.is_empty() {
-            mapping.model_id.clone()
-        } else {
-            match provider.provider_type.as_str() {
-                "anthropic" => "claude-sonnet-4-6".to_string(),
-                _ => "gpt-4o".to_string(),
-            }
-        };
+        let alias = app.active_alias.as_str();
+        let model = provider.models.get_model(alias)
+            .filter(|m| !m.is_empty())
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| {
+                match provider.provider_type.as_str() {
+                    "anthropic" => "claude-sonnet-4-6".to_string(),
+                    _ => "gpt-4o".to_string(),
+                }
+            });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);
 
@@ -107,25 +101,24 @@ impl LlmProvider {
     }
 
     /// 从 ZenConfig 按指定 alias（如 "haiku"/"sonnet"/"opus"）构造 LlmProvider
-    /// 大小写不敏感；未知 alias 返回 None
+    /// 大小写不敏感；未知 alias fallback 到默认模型
     pub fn from_config_for_alias(cfg: &ZenConfig, alias: &str) -> Option<Self> {
         let app = &cfg.config;
-        let mapping = app.model_aliases.get_alias(alias)?;
-
-        let provider = app.providers.iter().find(|p| p.id == mapping.provider_id)?;
+        let provider = app.providers.iter().find(|p| p.id == app.active_provider_id)?;
 
         if provider.api_key.is_empty() {
             return None;
         }
 
-        let model = if !mapping.model_id.is_empty() {
-            mapping.model_id.clone()
-        } else {
-            match provider.provider_type.as_str() {
-                "anthropic" => "claude-sonnet-4-6".to_string(),
-                _ => "gpt-4o".to_string(),
-            }
-        };
+        let model = provider.models.get_model(alias)
+            .filter(|m| !m.is_empty())
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| {
+                match provider.provider_type.as_str() {
+                    "anthropic" => "claude-sonnet-4-6".to_string(),
+                    _ => "gpt-4o".to_string(),
+                }
+            });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);
 
@@ -189,114 +182,105 @@ impl LlmProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ModelAliasConfig, ProviderConfig, ZenConfig};
+    use crate::config::{ProviderConfig, ProviderModels, ZenConfig};
 
-    fn make_config_with_alias(alias: &str, provider_id: &str, model_id: &str, provider_type: &str) -> ZenConfig {
+    fn make_config(alias: &str, provider_id: &str, model_id: &str, provider_type: &str) -> ZenConfig {
         let mut cfg = ZenConfig::default();
         cfg.config.active_alias = alias.to_string();
+        cfg.config.active_provider_id = provider_id.to_string();
         cfg.config.providers.push(ProviderConfig {
             id: provider_id.to_string(),
             provider_type: provider_type.to_string(),
             api_key: "test-key".to_string(),
+            models: ProviderModels {
+                opus: if alias == "opus" { model_id.to_string() } else { String::new() },
+                sonnet: if alias == "sonnet" { model_id.to_string() } else { String::new() },
+                haiku: if alias == "haiku" { model_id.to_string() } else { String::new() },
+            },
             ..Default::default()
         });
-        let alias_cfg = ModelAliasConfig {
-            provider_id: provider_id.to_string(),
-            model_id: model_id.to_string(),
-        };
-        match alias {
-            "opus"   => cfg.config.model_aliases.opus = alias_cfg,
-            "sonnet" => cfg.config.model_aliases.sonnet = alias_cfg,
-            "haiku"  => cfg.config.model_aliases.haiku = alias_cfg,
-            _ => {}
-        }
         cfg
     }
 
     #[test]
     fn test_from_config_opus_alias() {
-        let cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        let cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
         let provider = LlmProvider::from_config(&cfg).expect("应成功解析");
         assert_eq!(provider.model_name(), "claude-opus-4-6");
     }
 
     #[test]
     fn test_from_config_sonnet_alias() {
-        let cfg = make_config_with_alias("sonnet", "openrouter", "gpt-5.4", "openai");
+        let cfg = make_config("sonnet", "openrouter", "gpt-5.4", "openai");
         let provider = LlmProvider::from_config(&cfg).expect("应成功解析");
         assert_eq!(provider.model_name(), "gpt-5.4");
     }
 
     #[test]
-    fn test_provider_default() {
-        // 空 model_id 时回退到默认 model，不 panic
-        let cfg = make_config_with_alias("opus", "anthropic", "", "anthropic");
-        let provider = LlmProvider::from_config(&cfg).expect("空 model_id 不应 panic");
+    fn test_from_config_empty_model_fallback_anthropic() {
+        let cfg = make_config("opus", "anthropic", "", "anthropic");
+        let provider = LlmProvider::from_config(&cfg).expect("空 model 不应 panic");
         assert_eq!(provider.model_name(), "claude-sonnet-4-6");
     }
 
     #[test]
-    fn test_provider_default_openai() {
-        let cfg = make_config_with_alias("haiku", "openai", "", "openai");
-        let provider = LlmProvider::from_config(&cfg).expect("空 model_id openai 不应 panic");
+    fn test_from_config_empty_model_fallback_openai() {
+        let cfg = make_config("haiku", "openai", "", "openai");
+        let provider = LlmProvider::from_config(&cfg).expect("空 model openai 不应 panic");
         assert_eq!(provider.model_name(), "gpt-4o");
     }
 
     #[test]
-    fn test_from_config_unknown_alias_fallback_to_opus() {
-        // 未知 alias 应 fallback 到 opus
-        let mut cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
-        cfg.config.active_alias = "ultra".to_string(); // 未知别名
-        let provider = LlmProvider::from_config(&cfg).expect("未知别名应 fallback 到 opus");
-        assert_eq!(provider.model_name(), "claude-opus-4-6");
+    fn test_from_config_unknown_alias_fallback() {
+        let mut cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        cfg.config.active_alias = "ultra".to_string();
+        let provider = LlmProvider::from_config(&cfg).expect("未知别名应 fallback");
+        assert_eq!(provider.model_name(), "claude-sonnet-4-6");
     }
 
     #[test]
     fn test_from_config_empty_api_key_returns_none() {
-        let mut cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        let mut cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
         cfg.config.providers[0].api_key = String::new();
         let result = LlmProvider::from_config(&cfg);
         assert!(result.is_none(), "空 api_key 应返回 None");
     }
 
+    #[test]
+    fn test_from_config_provider_not_found_returns_none() {
+        let mut cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        cfg.config.active_provider_id = "nonexistent".to_string();
+        let result = LlmProvider::from_config(&cfg);
+        assert!(result.is_none(), "不存在的 provider 应返回 None");
+    }
+
     // ── from_config_for_alias 测试 ─────────────────────────────────────────────
 
     #[test]
-    fn test_from_config_for_alias_known_aliases() {
-        // opus
-        let cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
+    fn test_from_config_for_alias_known() {
+        let cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
         let p = LlmProvider::from_config_for_alias(&cfg, "opus").unwrap();
         assert_eq!(p.model_name(), "claude-opus-4-6");
 
-        // sonnet
-        let cfg = make_config_with_alias("sonnet", "openrouter", "gpt-5.4", "openai");
+        let cfg = make_config("sonnet", "openrouter", "gpt-5.4", "openai");
         let p = LlmProvider::from_config_for_alias(&cfg, "sonnet").unwrap();
         assert_eq!(p.model_name(), "gpt-5.4");
 
-        // haiku
-        let cfg = make_config_with_alias("haiku", "anthropic", "claude-haiku-4", "anthropic");
+        let cfg = make_config("haiku", "anthropic", "claude-haiku-4", "anthropic");
         let p = LlmProvider::from_config_for_alias(&cfg, "haiku").unwrap();
         assert_eq!(p.model_name(), "claude-haiku-4");
     }
 
     #[test]
-    fn test_from_config_for_alias_unknown_returns_none() {
-        let cfg = make_config_with_alias("opus", "anthropic", "claude-opus-4-6", "anthropic");
-        let result = LlmProvider::from_config_for_alias(&cfg, "turbo");
-        assert!(result.is_none(), "未知 alias 应返回 None");
-    }
-
-    #[test]
-    fn test_from_config_for_alias_empty_api_key_returns_none() {
-        let mut cfg = make_config_with_alias("haiku", "anthropic", "claude-haiku-4", "anthropic");
-        cfg.config.providers[0].api_key = String::new();
-        let result = LlmProvider::from_config_for_alias(&cfg, "haiku");
-        assert!(result.is_none(), "空 api_key 应返回 None");
+    fn test_from_config_for_alias_unknown_returns_fallback() {
+        let cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
+        let p = LlmProvider::from_config_for_alias(&cfg, "turbo").unwrap();
+        assert_eq!(p.model_name(), "claude-sonnet-4-6");
     }
 
     #[test]
     fn test_from_config_for_alias_case_insensitive() {
-        let cfg = make_config_with_alias("haiku", "anthropic", "claude-haiku-4", "anthropic");
+        let cfg = make_config("haiku", "anthropic", "claude-haiku-4", "anthropic");
         let p = LlmProvider::from_config_for_alias(&cfg, "Haiku").unwrap();
         assert_eq!(p.model_name(), "claude-haiku-4");
         let p2 = LlmProvider::from_config_for_alias(&cfg, "HAIKU").unwrap();

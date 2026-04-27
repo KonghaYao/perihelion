@@ -9,33 +9,20 @@ pub struct ZenConfig {
     pub config: AppConfig,
 }
 
-/// 单个别名的目标绑定（provider_id + model_id）
+/// Provider 内的三级别模型名映射
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModelAliasConfig {
+pub struct ProviderModels {
     #[serde(default)]
-    pub provider_id: String,
+    pub opus: String,
     #[serde(default)]
-    pub model_id: String,
+    pub sonnet: String,
+    #[serde(default)]
+    pub haiku: String,
 }
 
-fn default_alias() -> String {
-    "opus".to_string()
-}
-
-/// 三级别名映射表（opus / sonnet / haiku）
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModelAliasMap {
-    #[serde(default)]
-    pub opus: ModelAliasConfig,
-    #[serde(default)]
-    pub sonnet: ModelAliasConfig,
-    #[serde(default)]
-    pub haiku: ModelAliasConfig,
-}
-
-impl ModelAliasMap {
-    /// 大小写不敏感地按别名获取配置（"opus"/"sonnet"/"haiku"）
-    pub fn get_alias(&self, alias: &str) -> Option<&ModelAliasConfig> {
+impl ProviderModels {
+    /// 按 alias 名（大小写不敏感）获取对应模型名
+    pub fn get_model(&self, alias: &str) -> Option<&str> {
         match alias.to_lowercase().as_str() {
             "opus" => Some(&self.opus),
             "sonnet" => Some(&self.sonnet),
@@ -43,6 +30,10 @@ impl ModelAliasMap {
             _ => None,
         }
     }
+}
+
+fn default_alias() -> String {
+    "opus".to_string()
 }
 
 /// Thinking / 推理模式配置
@@ -80,18 +71,12 @@ impl ThinkingConfig {
 /// 应用配置（只映射用到的字段，其余字段用 extra 保留）
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
-    /// 旧格式兼容字段（只读，不写回），用于迁移检测
-    #[serde(default, skip_serializing)]
-    pub provider_id: String,
-    /// 旧格式兼容字段（只读，不写回），用于迁移检测
-    #[serde(default, skip_serializing)]
-    pub model_id: String,
     /// 当前激活的模型别名（"opus" | "sonnet" | "haiku"）
     #[serde(default = "default_alias")]
     pub active_alias: String,
-    /// 三级别名映射表
+    /// 当前激活的 provider ID（直接指向 providers 列表中的某个 Provider）
     #[serde(default)]
-    pub model_aliases: ModelAliasMap,
+    pub active_provider_id: String,
     #[serde(default)]
     pub providers: Vec<ProviderConfig>,
     /// 全局 skills 目录路径
@@ -122,6 +107,8 @@ pub struct ProviderConfig {
     pub base_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default)]
+    pub models: ProviderModels,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -182,7 +169,7 @@ mod tests {
     #[test]
     fn test_app_config_thinking_optional() {
         // thinking 字段缺失时应为 None（使用新格式字段）
-        let json = r#"{"active_alias": "opus", "model_aliases": {}, "providers": []}"#;
+        let json = r#"{"active_alias": "opus", "active_provider_id": "", "providers": []}"#;
         let cfg: AppConfig = serde_json::from_str(json).unwrap();
         assert!(cfg.thinking.is_none());
     }
@@ -214,90 +201,75 @@ mod tests {
         assert!(!out.contains("thinking"), "thinking should be absent when None");
     }
 
-    // ── ModelPanel thinking 缓冲逻辑 ─────────────────────────────────────────
+    // ── ModelPanel thinking 缓冲逻辑（已迁移至 model_panel.rs）─────────────────
+
+    // ── ProviderModels 测试 ───────────────────────────────────────────────────
 
     #[test]
-    fn test_model_panel_from_config_loads_thinking() {
-        use crate::app::model_panel::{EditField, ModelPanel};
-
-        let mut cfg = ZenConfig::default();
-        cfg.config.thinking = Some(ThinkingConfig { enabled: true, budget_tokens: 4000 });
-
-        let panel = ModelPanel::from_config(&cfg);
-        assert!(panel.buf_thinking_enabled);
-        assert_eq!(panel.field_value(EditField::ThinkingBudget), "4000");
+    fn test_provider_models_get_model_known_aliases() {
+        let models = ProviderModels { opus: "o".to_string(), sonnet: "s".to_string(), haiku: "h".to_string() };
+        assert_eq!(models.get_model("opus"), Some("o"));
+        assert_eq!(models.get_model("sonnet"), Some("s"));
+        assert_eq!(models.get_model("haiku"), Some("h"));
     }
 
     #[test]
-    fn test_model_panel_from_config_defaults_when_no_thinking() {
-        use crate::app::model_panel::{EditField, ModelPanel};
-
-        let cfg = ZenConfig::default();
-        let panel = ModelPanel::from_config(&cfg);
-        assert!(!panel.buf_thinking_enabled);
-        assert_eq!(panel.field_value(EditField::ThinkingBudget), "8000");
+    fn test_provider_models_get_model_case_insensitive() {
+        let models = ProviderModels { opus: "o".to_string(), sonnet: "s".to_string(), haiku: "h".to_string() };
+        assert_eq!(models.get_model("Opus"), Some("o"));
+        assert_eq!(models.get_model("SONNET"), Some("s"));
+        assert_eq!(models.get_model("Haiku"), Some("h"));
     }
 
     #[test]
-    fn test_model_panel_toggle_thinking() {
-        use crate::app::model_panel::{EditField, ModelPanel};
-
-        let cfg = ZenConfig::default();
-        let mut panel = ModelPanel::from_config(&cfg);
-        panel.form.set_active(EditField::ThinkingBudget);
-
-        assert!(!panel.buf_thinking_enabled);
-        panel.toggle_thinking();
-        assert!(panel.buf_thinking_enabled);
-        panel.toggle_thinking();
-        assert!(!panel.buf_thinking_enabled);
+    fn test_provider_models_get_model_unknown_returns_none() {
+        let models = ProviderModels { opus: "o".to_string(), sonnet: "s".to_string(), haiku: "h".to_string() };
+        assert_eq!(models.get_model("turbo"), None);
     }
 
     #[test]
-    fn test_model_panel_thinking_budget_input_only_digits() {
-        use crate::app::model_panel::{EditField, ModelPanel};
-
-        let cfg = ZenConfig::default();
-        let mut panel = ModelPanel::from_config(&cfg);
-        panel.form.set_active(EditField::ThinkingBudget);
-        panel.form.input_mut(EditField::ThinkingBudget).set_value(String::new());
-
-        panel.push_char('1');
-        panel.push_char('a'); // 非数字，应忽略
-        panel.push_char('2');
-        panel.push_char('0');
-        assert_eq!(panel.field_value(EditField::ThinkingBudget), "120");
-
-        panel.pop_char();
-        assert_eq!(panel.field_value(EditField::ThinkingBudget), "12");
+    fn test_provider_models_default() {
+        let models = ProviderModels::default();
+        assert!(models.opus.is_empty());
+        assert!(models.sonnet.is_empty());
+        assert!(models.haiku.is_empty());
     }
 
     #[test]
-    fn test_model_panel_apply_edit_saves_thinking() {
-        use crate::app::model_panel::{EditField, ModelPanel, ModelPanelMode};
-
-        let mut cfg = ZenConfig::default();
-        cfg.config.providers.push(ProviderConfig {
-            id: "p1".to_string(),
-            provider_type: "openai".to_string(),
+    fn test_provider_config_models_serde_roundtrip() {
+        let p = ProviderConfig {
+            id: "test".to_string(),
+            provider_type: "anthropic".to_string(),
             api_key: "key".to_string(),
-            ..Default::default()
-        });
-        // 使用新格式：active_alias + model_aliases 设置激活的 provider
-        cfg.config.active_alias = "opus".to_string();
-        cfg.config.model_aliases.opus.provider_id = "p1".to_string();
+            base_url: String::new(),
+            name: Some("Test".to_string()),
+            models: ProviderModels {
+                opus: "claude-opus-4-7".to_string(),
+                sonnet: "claude-sonnet-4-6".to_string(),
+                haiku: "claude-haiku-4-5".to_string(),
+            },
+            extra: Default::default(),
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        let back: ProviderConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.models.opus, "claude-opus-4-7");
+        assert_eq!(back.models.sonnet, "claude-sonnet-4-6");
+        assert_eq!(back.models.haiku, "claude-haiku-4-5");
+    }
 
-        let mut panel = ModelPanel::from_config(&cfg);
-        panel.mode = ModelPanelMode::Edit;
-        panel.buf_thinking_enabled = true;
-        panel.form.input_mut(EditField::ThinkingBudget).set_value("5000".to_string());
+    #[test]
+    fn test_app_config_active_provider_id_serde() {
+        let json = r#"{"active_alias": "opus", "active_provider_id": "anthropic", "providers": []}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.active_provider_id, "anthropic");
+    }
 
-        let ok = panel.apply_edit(&mut cfg);
-        assert!(ok);
-
-        let t = cfg.config.thinking.as_ref().unwrap();
-        assert_eq!(t.enabled, true);
-        assert_eq!(t.budget_tokens, 5000);
+    #[test]
+    fn test_app_config_old_fields_ignored() {
+        let json = r#"{"provider_id": "old", "model_id": "old-model", "model_aliases": {"opus": {"provider_id": "x", "model_id": "y"}}, "providers": []}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        // 旧字段被 extra 吸收，active_provider_id 为默认空字符串
+        assert_eq!(cfg.active_provider_id, "");
     }
 
     // ── AppConfig env 字段测试 ─────────────────────────────────────────────────

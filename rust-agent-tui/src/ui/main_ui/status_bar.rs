@@ -64,16 +64,17 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     {
         let alias_display = app.zen_config.as_ref().map(|c| {
             let alias = &c.config.active_alias;
-            let mapping = match alias.as_str() {
-                "opus"   => &c.config.model_aliases.opus,
-                "sonnet" => &c.config.model_aliases.sonnet,
-                "haiku"  => &c.config.model_aliases.haiku,
-                _        => &c.config.model_aliases.opus,
-            };
             let alias_cap = alias.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()
                 + &alias[alias.char_indices().nth(1).map(|(i,_)|i).unwrap_or(alias.len())..];
-            let model_part = if mapping.model_id.is_empty() { app.model_name.as_str() } else { mapping.model_id.as_str() };
-            format!("★{} → {}/{}", alias_cap, mapping.provider_id, model_part)
+            let provider = c.config.providers.iter().find(|p| p.id == c.config.active_provider_id);
+            let model_name = provider
+                .and_then(|p| p.models.get_model(alias).map(|m| m.to_string()))
+                .filter(|m| !m.is_empty())
+                .unwrap_or_else(|| app.model_name.clone());
+            let provider_display = provider
+                .map(|p| p.display_name().to_string())
+                .unwrap_or_else(|| app.provider_name.clone());
+            format!("★{} → {}/{}", alias_cap, provider_display, model_name)
         }).unwrap_or_else(|| format!(" {} {}", app.provider_name, app.model_name));
         left_spans.push(Span::styled(
             format!(" {}", alias_display),

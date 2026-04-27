@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_panel;
 pub mod events;
 pub mod interaction_broker;
+pub mod login_panel;
 pub mod model_panel;
 mod provider;
 pub mod setup_wizard;

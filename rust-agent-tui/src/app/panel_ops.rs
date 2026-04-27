@@ -7,11 +7,89 @@ impl App {
     pub fn open_model_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
         self.core.model_panel = Some(ModelPanel::from_config(cfg));
+        // 互斥：关闭 login 面板
+        self.core.login_panel = None;
     }
 
     /// 关闭 /model 面板（不保存）
     pub fn close_model_panel(&mut self) {
         self.core.model_panel = None;
+    }
+
+    /// 确认选择并保存（Enter 键）：写入 active_provider_id + active_alias + thinking，更新状态栏
+    pub fn model_panel_confirm(&mut self) {
+        let Some(panel) = self.core.model_panel.as_ref() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
+        panel.apply_to_config(cfg);
+        let _ = crate::config::save(cfg);
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
+            self.provider_name = p.display_name().to_string();
+            self.model_name = p.model_name().to_string();
+        }
+        self.core.model_panel = None;
+    }
+
+    // ─── Login 面板操作 ───────────────────────────────────────────────────────
+
+    /// 打开 /login 面板（同时关闭 model 面板，实现互斥）
+    pub fn open_login_panel(&mut self) {
+        let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
+        self.core.login_panel = Some(login_panel::LoginPanel::from_config(cfg));
+        // 互斥：关闭 model 面板
+        self.core.model_panel = None;
+    }
+
+    /// 关闭 /login 面板（不保存）
+    pub fn close_login_panel(&mut self) {
+        self.core.login_panel = None;
+    }
+
+    /// 选中（激活）光标处的 Provider
+    pub fn login_panel_select_provider(&mut self) {
+        let Some(panel) = self.core.login_panel.as_mut() else { return };
+        let Some(cfg) = self.zen_config.as_mut() else { return };
+        panel.select_provider(cfg);
+        let _ = crate::config::save(cfg);
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
+            self.provider_name = p.display_name().to_string();
+            self.model_name = p.model_name().to_string();
+        }
+    }
+
+    /// 保存 Login 面板的编辑/新建内容到 ZenConfig
+    pub fn login_panel_apply_edit(&mut self) {
+        let Some(panel) = self.core.login_panel.as_mut() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
+        panel.apply_edit(cfg);
+        let _ = crate::config::save(cfg);
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
+            self.provider_name = p.display_name().to_string();
+            self.model_name = p.model_name().to_string();
+        }
+    }
+
+    /// 确认删除光标处的 Provider
+    pub fn login_panel_confirm_delete(&mut self) {
+        let Some(panel) = self.core.login_panel.as_mut() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
+        panel.confirm_delete(cfg);
+        let _ = crate::config::save(cfg);
+        if let Some(p) = agent::LlmProvider::from_config(cfg) {
+            self.provider_name = p.display_name().to_string();
+            self.model_name = p.model_name().to_string();
+        }
     }
 
     // ─── Agent 面板操作 ───────────────────────────────────────────────────────
@@ -83,84 +161,6 @@ impl App {
     #[allow(dead_code)]
     pub fn agent_panel_clear(&mut self) {
         self.core.agent_panel = None;
-    }
-
-    /// 在面板中确认选择当前 provider（Browse 模式下，仅更新 active_id 显示）
-    pub fn model_panel_confirm_select(&mut self) {
-        let Some(panel) = self.core.model_panel.as_mut() else {
-            return;
-        };
-        let Some(cfg) = self.zen_config.as_mut() else {
-            return;
-        };
-        panel.confirm_select(cfg);
-        let _ = crate::config::save(cfg);
-    }
-
-    /// 在面板中保存编辑/新建，写回配置
-    /// 新建 provider 时自动关联到当前 alias
-    pub fn model_panel_apply_edit(&mut self) {
-        let Some(panel) = self.core.model_panel.as_mut() else {
-            return;
-        };
-        let Some(cfg) = self.zen_config.as_mut() else {
-            return;
-        };
-        panel.apply_edit(cfg);
-        // 将 buf_alias_provider 写入 cfg.config.model_aliases
-        panel.apply_alias_edit(cfg);
-        let _ = crate::config::save(cfg);
-    }
-
-    /// 删除光标处的 provider
-    pub fn model_panel_confirm_delete(&mut self) {
-        let Some(panel) = self.core.model_panel.as_mut() else {
-            return;
-        };
-        let Some(cfg) = self.zen_config.as_mut() else {
-            return;
-        };
-        panel.confirm_delete(cfg);
-        let _ = crate::config::save(cfg);
-        if let Some(p) = agent::LlmProvider::from_config(cfg) {
-            self.provider_name = p.display_name().to_string();
-            self.model_name = p.model_name().to_string();
-        }
-    }
-
-    /// 激活当前 Tab（写入 active_alias），保存配置，更新状态栏
-    pub fn model_panel_activate_tab(&mut self) {
-        let Some(panel) = self.core.model_panel.as_ref() else {
-            return;
-        };
-        let Some(cfg) = self.zen_config.as_mut() else {
-            return;
-        };
-        panel.activate_current_tab(cfg);
-        panel.apply_alias_edit(cfg);
-        let _ = crate::config::save(cfg);
-        if let Some(p) = agent::LlmProvider::from_config(cfg) {
-            self.provider_name = p.display_name().to_string();
-            self.model_name = p.model_name().to_string();
-        }
-        self.core.model_panel = None;
-    }
-
-    /// 保存当前 Tab 的 provider/model 配置（不改变 active_alias）
-    pub fn model_panel_save_alias(&mut self) {
-        let Some(panel) = self.core.model_panel.as_ref() else {
-            return;
-        };
-        let Some(cfg) = self.zen_config.as_mut() else {
-            return;
-        };
-        panel.apply_alias_edit(cfg);
-        let _ = crate::config::save(cfg);
-        // 更新状态栏（在 active_alias 对应的别名配置改变时）
-        if let Some(p) = agent::LlmProvider::from_config(cfg) {
-            self.provider_name = p.display_name().to_string();
-            self.model_name = p.model_name().to_string();
-        }
     }
 
 }

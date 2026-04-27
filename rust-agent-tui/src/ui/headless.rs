@@ -993,8 +993,8 @@ mod tests {
             assert_eq!(cfg.config.providers[0].provider_type, "anthropic");
             assert_eq!(cfg.config.providers[0].api_key, "sk-ant-test-key-12345");
             assert_eq!(cfg.config.active_alias, "opus");
-            assert_eq!(cfg.config.model_aliases.opus.provider_id, "anthropic");
-            assert!(cfg.config.model_aliases.opus.model_id.contains("claude-opus"));
+            assert_eq!(cfg.config.active_provider_id, "anthropic");
+            assert!(cfg.config.providers[0].models.opus.contains("claude-opus"));
 
             let content = std::fs::read_to_string(&config_path).expect("config file should exist");
             assert!(content.contains("anthropic"));
@@ -1048,7 +1048,7 @@ mod tests {
             let cfg = save_setup_to(wizard, &config_path).expect("save_setup_to should succeed");
             assert_eq!(cfg.config.providers[0].provider_type, "openai");
             assert_eq!(cfg.config.providers[0].api_key, "sk-openai-test-key");
-            assert_eq!(cfg.config.model_aliases.opus.model_id, "o3");
+            assert_eq!(cfg.config.providers[0].models.opus, "o3");
 
             let _ = std::fs::remove_dir_all(&temp_dir);
         }

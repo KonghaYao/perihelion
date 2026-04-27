@@ -87,6 +87,9 @@ pub fn render(f: &mut Frame, app: &mut App) {
             }
             None => {}
         }
+        if app.core.login_panel.is_some() {
+            panels::login::render_login_panel(f, app, panel_area);
+        }
         if app.core.model_panel.is_some() {
             panels::model::render_model_panel(f, app, panel_area);
         }
@@ -114,6 +117,10 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
     let max_h = screen_height * 3 / 5; // 最多占 60% 屏高
     let raw = if let Some(panel) = &app.core.thread_browser {
         (panel.total() as u16 + 4).max(6)
+    } else if app.core.login_panel.is_some() {
+        // 每个 Provider 占 2 行（1 头 + 1 模型概览）+ 2 行帮助/空行 + 2 行边框
+        let n = app.core.login_panel.as_ref().map(|p| p.providers.len()).unwrap_or(0);
+        (n as u16 * 2 + 4).max(6)
     } else if app.core.model_panel.is_some() {
         14
     } else if let Some(panel) = &app.core.agent_panel {

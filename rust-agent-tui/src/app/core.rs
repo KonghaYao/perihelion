@@ -11,6 +11,7 @@ use crate::ui::render_thread::{RenderCache, RenderEvent};
 
 use super::agent_panel::AgentPanel;
 use super::hitl_prompt::PendingAttachment;
+use super::login_panel::LoginPanel;
 use super::model_panel::ModelPanel;
 use crate::thread::ThreadBrowser;
 
@@ -35,6 +36,7 @@ pub struct AppCore {
     pub pending_attachments: Vec<PendingAttachment>,
     pub last_human_message: Option<String>,
     pub model_panel: Option<ModelPanel>,
+    pub login_panel: Option<LoginPanel>,
     pub agent_panel: Option<AgentPanel>,
     pub thread_browser: Option<ThreadBrowser>,
 }
@@ -71,6 +73,7 @@ impl AppCore {
             pending_attachments: Vec::new(),
             last_human_message: None,
             model_panel: None,
+            login_panel: None,
             agent_panel: None,
             thread_browser: None,
         }
