@@ -1,19 +1,30 @@
 use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
-use ratatui::layout::Rect;
 
 use crate::app::App;
 use crate::ui::theme;
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
-    // ── 左侧：权限模式 | 工作目录 | Agent 状态 | 运行时长 ────────────────────────────────
-    let mut left_spans: Vec<Span> = Vec::new();
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+        .split(area);
 
-    // 权限模式标签（第一位，最显眼）
+    render_first_row(f, app, rows[0]);
+    render_second_row(f, app, rows[1]);
+    // 第三行留空，作为视觉缓冲
+}
+
+/// 第一行：权限模式 │ 工作目录 │ 模型名
+fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
+    let mut spans: Vec<Span> = Vec::new();
+
+    // 权限模式标签
     {
         use rust_agent_middlewares::prelude::PermissionMode;
         let mode = app.permission_mode.load();
@@ -30,64 +41,52 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         if is_highlight {
             style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
         }
-        left_spans.push(Span::styled(format!(" {}", label), style));
+        spans.push(Span::styled(format!(" {}", label), style));
     }
 
-    // 工作目录（只显示最后一个文件夹名）
-    left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+    // 工作目录
+    spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
     let cwd_short = std::path::Path::new(&app.cwd)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&app.cwd);
-    left_spans.push(Span::styled(
+    spans.push(Span::styled(
         format!("📁 {}", cwd_short),
         Style::default().fg(theme::MUTED),
     ));
-    // Agent 状态（loading 时显示分隔符和状态，空闲时不显示）
-    if app.core.loading {
-        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
-        left_spans.push(Span::styled("⠿ 运行中", Style::default().fg(theme::LOADING).add_modifier(Modifier::BOLD)));
-    }
 
-    // 运行时长
+    // 模型名（只显示 model name）
+    spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+    spans.push(Span::styled(
+        format!(" {}", app.model_name),
+        Style::default().fg(theme::MODEL_INFO),
+    ));
+
+    render_truncated_line(f, spans, Vec::new(), area);
+}
+
+/// 第二行：上下文使用率 │ [Agent 面板信息] │ [快捷键提示]
+fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
+    let mut left_spans: Vec<Span> = Vec::new();
+    let mut has_content = false;
+
+    // 计时器（优先显示）
     if let Some(duration) = app.get_current_task_duration() {
         let timer_color = if app.core.loading { theme::LOADING } else { theme::MUTED };
-        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         left_spans.push(Span::styled(
-            format!("⏱ {}", format_duration(duration)),
+            format!(" ⏱ {}", format_duration(duration)),
             Style::default().fg(timer_color),
         ));
+        has_content = true;
     }
 
-    // 模型信息（始终显示在右侧）：★Alias → provider/model
-    left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
-    {
-        let alias_display = app.zen_config.as_ref().map(|c| {
-            let alias = &c.config.active_alias;
-            let alias_cap = alias.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()
-                + &alias[alias.char_indices().nth(1).map(|(i,_)|i).unwrap_or(alias.len())..];
-            let provider = c.config.providers.iter().find(|p| p.id == c.config.active_provider_id);
-            let model_name = provider
-                .and_then(|p| p.models.get_model(alias).map(|m| m.to_string()))
-                .filter(|m| !m.is_empty())
-                .unwrap_or_else(|| app.model_name.clone());
-            let provider_display = provider
-                .map(|p| p.display_name().to_string())
-                .unwrap_or_else(|| app.provider_name.clone());
-            format!("★{} → {}/{}", alias_cap, provider_display, model_name)
-        }).unwrap_or_else(|| format!(" {} {}", app.provider_name, app.model_name));
-        left_spans.push(Span::styled(
-            format!(" {}", alias_display),
-            Style::default().fg(theme::MODEL_INFO),
-        ));
-    }
-
-    // 消息计数
-    left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
-    // 上下文使用百分比
+    // 上下文使用率
     {
         let tracker = &app.agent.session_token_tracker;
         if let Some(pct) = tracker.context_usage_percent(app.agent.context_window) {
+            if has_content {
+                left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+            }
             let used = tracker.estimated_context_tokens().unwrap_or(0);
             let total = app.agent.context_window;
             let color = if pct >= 85.0 {
@@ -101,17 +100,15 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
                 format!("ctx: {:.0}% ({:.0}K/{:.0}K)", pct, used as f64 / 1000.0, total as f64 / 1000.0),
                 Style::default().fg(color),
             ));
-            left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+            has_content = true;
         }
     }
-    left_spans.push(Span::styled(
-        format!("🗨 {} 条", app.core.view_messages.len()),
-        Style::default().fg(theme::MUTED),
-    ));
 
-    // Agent 面板选中信息
+    // Agent 面板信息（仅面板激活时）
     if let Some(panel) = &app.core.agent_panel {
-        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        if has_content {
+            left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        }
         if let Some(agent) = panel.current_agent() {
             left_spans.push(Span::styled(
                 format!(" 🤖 {}", agent.name),
@@ -121,15 +118,16 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
             left_spans.push(Span::styled(" 🤖 无", Style::default().fg(theme::MUTED)));
         }
     } else if let Some(id) = app.get_agent_id() {
-        // 已在运行中的 agent（非面板模式）
-        left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        if has_content {
+            left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        }
         left_spans.push(Span::styled(
             format!(" 🤖 {}", id),
             Style::default().fg(theme::MUTED),
         ));
     }
 
-    // ── 右侧：弹窗激活时显示快捷键提示 ─────────────────────────────────────
+    // 右侧：弹窗快捷键提示（保持原有逻辑）
     let right_spans: Vec<Span> = match &app.agent.interaction_prompt {
         Some(crate::app::InteractionPrompt::Questions(_)) => {
             vec![
@@ -171,11 +169,14 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         }
     };
 
-    // ── 计算左右侧宽度，确保右侧对齐 ───────────────────────────────────────
+    render_truncated_line(f, left_spans, right_spans, area);
+}
+
+/// 渲染一行 spans，右侧右对齐，超出宽度时截断右侧
+fn render_truncated_line(f: &mut Frame, left_spans: Vec<Span>, right_spans: Vec<Span>, area: Rect) {
     let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
     let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
 
-    // 中间填充空格
     let total_content_width = left_width + right_width;
     let padding = if total_content_width < area.width as usize {
         " ".repeat(area.width as usize - total_content_width)

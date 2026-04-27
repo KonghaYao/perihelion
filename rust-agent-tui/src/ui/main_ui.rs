@@ -67,7 +67,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
             Constraint::Length(attachment_height),    // [3] 附件栏（动态）
             Constraint::Length(panel_height),         // [4] 底部展开区（动态）
             Constraint::Length(input_height),         // [5] 输入框（动态）
-            Constraint::Length(1),                    // [6] 状态栏
+            Constraint::Length(3),                    // [6] 状态栏（两行 + 空行缓冲）
         ])
         .split(area);
 
