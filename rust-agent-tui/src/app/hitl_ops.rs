@@ -15,13 +15,6 @@ impl App {
         }
     }
 
-    /// 发送 interaction_resolved 到 Relay，通知所有端清除交互弹窗
-    fn send_hitl_resolved(&mut self) {
-        if let Some(ref relay) = self.relay.relay_client {
-            relay.send_value(serde_json::json!({ "type": "interaction_resolved" }));
-        }
-    }
-
     /// 全部批准并提交
     pub fn hitl_approve_all(&mut self) {
         if let Some(InteractionPrompt::Approval(mut p)) = self.agent.interaction_prompt.take() {
@@ -29,7 +22,6 @@ impl App {
             self.agent.pending_hitl_items = Some(
                 p.items.iter().map(|item| item.tool_name.clone()).collect()
             );
-            self.send_hitl_resolved();
             p.confirm();
         }
     }
@@ -41,7 +33,6 @@ impl App {
             self.agent.pending_hitl_items = Some(
                 p.items.iter().map(|item| item.tool_name.clone()).collect()
             );
-            self.send_hitl_resolved();
             p.confirm();
         }
     }
@@ -52,7 +43,6 @@ impl App {
             self.agent.pending_hitl_items = Some(
                 p.items.iter().map(|item| item.tool_name.clone()).collect()
             );
-            self.send_hitl_resolved();
             p.confirm();
         }
     }

@@ -93,9 +93,6 @@ pub fn render(f: &mut Frame, app: &mut App) {
         if app.core.agent_panel.is_some() {
             panels::agent::render_agent_panel(f, app, panel_area);
         }
-        if app.relay_panel.is_some() {
-            panels::relay::render_relay_panel(f, app, panel_area);
-        }
         if app.core.thread_browser.is_some() {
             panels::thread_browser::render_thread_browser(f, app, panel_area);
         }
@@ -121,8 +118,6 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
         14
     } else if let Some(panel) = &app.core.agent_panel {
         (panel.agents.len() as u16 * 2 + 6).max(6)
-    } else if app.relay_panel.is_some() {
-        10
     } else if app.cron.cron_panel.is_some() {
         (app.cron.cron_panel.as_ref().map(|p| p.tasks.len()).unwrap_or(0) as u16 + 4).max(6)
     } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.agent.interaction_prompt {

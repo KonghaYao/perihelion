@@ -12,8 +12,6 @@ pub enum AgentEvent {
         is_error: bool,
     },
     AssistantChunk(String),
-    /// 新消息添加到状态（包括最终 AI 回答）
-    MessageAdded(rust_create_agent::messages::BaseMessage),
     Done,
     Error(String),
     /// 用户中断（Ctrl+C），工具已以 error 结尾，消息已持久化

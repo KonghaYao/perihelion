@@ -155,35 +155,6 @@ mod tests {
         assert_eq!(cache.total_lines, 0, "清空后 RenderCache 应为空");
     }
 
-    #[tokio::test]
-    async fn test_tool_call_message_collapsed_by_default() {
-        let (mut app, mut handle) = App::new_headless(120, 30);
-
-        // 创建一个带工具调用的 AI 消息
-        let tool_calls = vec![rust_create_agent::messages::ToolCallRequest {
-            id: "tc1".into(),
-            name: "bash".into(),
-            arguments: serde_json::json!({"command": "ls"}),
-        }];
-
-        let ai_msg = rust_create_agent::messages::BaseMessage::ai_with_tool_calls(
-            "I'll run ls for you",
-            tool_calls,
-        );
-
-        // MessageAdded 仅更新 agent_state_messages，不发送 RenderEvent（工具调用通过 ToolCall 事件渲染）
-        app.push_agent_event(AgentEvent::MessageAdded(ai_msg));
-        app.process_pending_events();
-
-        // 直接渲染，无需等待 RenderEvent（没有新的渲染事件被发送）
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
-
-        let snap = handle.snapshot();
-        // MessageAdded 不创建可见的视图模型，快照中不应显示 AI 消息内容
-        let has_tool_call_text = snap.iter().any(|l| l.contains("I'll run ls for you") || l.contains("bash"));
-        assert!(!has_tool_call_text, "MessageAdded 不应创建可见的视图模型，但实际显示为:\n{}", snap.join("\n"));
-    }
-
     mod markdown_tests {
         use crate::ui::markdown::parse_markdown;
         use crate::ui::theme;

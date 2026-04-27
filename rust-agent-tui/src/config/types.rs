@@ -77,30 +77,6 @@ impl ThinkingConfig {
     }
 }
 
-/// 远程控制配置
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RemoteControlConfig {
-    /// Relay Server URL（如 ws://localhost:8080 或 wss://relay.example.com）
-    #[serde(default)]
-    pub url: String,
-    /// 认证 Token（可选）
-    #[serde(default)]
-    pub token: String,
-    /// 客户端名称（可选，用于标识连接）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// 用户 ID（匿名账号 UUID，首次连接时从 Relay Server 注册获取，后续复用）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
-}
-
-impl RemoteControlConfig {
-    /// 检查配置是否完整（URL 必填）
-    pub fn is_complete(&self) -> bool {
-        !self.url.is_empty()
-    }
-}
-
 /// 应用配置（只映射用到的字段，其余字段用 extra 保留）
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -124,9 +100,6 @@ pub struct AppConfig {
     /// Thinking / 推理模式配置
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<ThinkingConfig>,
-    /// 远程控制配置
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remote_control: Option<RemoteControlConfig>,
     /// 环境变量注入（扁平键值对）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
@@ -325,78 +298,6 @@ mod tests {
         let t = cfg.config.thinking.as_ref().unwrap();
         assert_eq!(t.enabled, true);
         assert_eq!(t.budget_tokens, 5000);
-    }
-
-    // ── RemoteControlConfig 测试 ───────────────────────────────────────────────
-
-    #[test]
-    fn test_remote_control_config_is_complete() {
-        let empty = RemoteControlConfig::default();
-        assert!(!empty.is_complete());
-
-        let with_url = RemoteControlConfig {
-            url: "ws://localhost:8080".to_string(),
-            ..Default::default()
-        };
-        assert!(with_url.is_complete());
-    }
-
-    #[test]
-    fn test_remote_control_config_serde_roundtrip() {
-        let cfg = RemoteControlConfig {
-            url: "wss://relay.example.com".to_string(),
-            token: "secret123".to_string(),
-            name: Some("my-laptop".to_string()),
-            user_id: None,
-        };
-        let json = serde_json::to_string(&cfg).unwrap();
-        let back: RemoteControlConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.url, "wss://relay.example.com");
-        assert_eq!(back.token, "secret123");
-        assert_eq!(back.name, Some("my-laptop".to_string()));
-    }
-
-    #[test]
-    fn test_remote_control_config_skip_name_when_none() {
-        let cfg = RemoteControlConfig {
-            url: "ws://localhost:8080".to_string(),
-            token: String::new(),
-            name: None,
-            user_id: None,
-        };
-        let out = serde_json::to_string(&cfg).unwrap();
-        assert!(!out.contains("name"), "name should be absent when None");
-    }
-
-    #[test]
-    fn test_app_config_remote_control_optional() {
-        let json = r#"{"active_alias": "opus", "providers": []}"#;
-        let cfg: AppConfig = serde_json::from_str(json).unwrap();
-        assert!(cfg.remote_control.is_none());
-    }
-
-    #[test]
-    fn test_app_config_remote_control_roundtrip() {
-        let json = r#"{
-            "active_alias": "opus",
-            "providers": [],
-            "remote_control": {"url": "ws://localhost:8080", "token": "abc", "name": "test"}
-        }"#;
-        let cfg: AppConfig = serde_json::from_str(json).unwrap();
-        let rc = cfg.remote_control.as_ref().unwrap();
-        assert_eq!(rc.url, "ws://localhost:8080");
-        assert_eq!(rc.token, "abc");
-        assert_eq!(rc.name, Some("test".to_string()));
-
-        let out = serde_json::to_string(&cfg).unwrap();
-        assert!(out.contains("\"remote_control\""));
-    }
-
-    #[test]
-    fn test_app_config_remote_control_skip_when_none() {
-        let cfg = AppConfig::default();
-        let out = serde_json::to_string(&cfg).unwrap();
-        assert!(!out.contains("remote_control"), "remote_control should be absent when None");
     }
 
     // ── AppConfig env 字段测试 ─────────────────────────────────────────────────

@@ -14,7 +14,7 @@ pub enum AgentEvent {
     StepDone { step: usize },
     /// 状态快照（含完整的消息历史），用于持久化和断点续跑
     StateSnapshot(Vec<crate::messages::BaseMessage>),
-    /// 增量消息（BaseMessage），relay 传输的最小数据单元
+    /// 增量消息（BaseMessage），持久化和遥测的最小数据单元
     MessageAdded(crate::messages::BaseMessage),
     /// LLM 调用开始（携带完整 input messages 快照 + 工具定义，用于 Langfuse Generation）
     LlmCallStart {

@@ -23,7 +23,6 @@ pub struct AgentRunConfig {
     pub tx: mpsc::Sender<AgentEvent>,
     pub cancel: AgentCancellationToken,
     pub agent_id: Option<String>,
-    pub relay_client: Option<Arc<rust_relay_server::client::RelayClient>>,
     pub langfuse_tracer: Option<Arc<parking_lot::Mutex<crate::langfuse::LangfuseTracer>>>,
     pub thread_store: Arc<dyn rust_create_agent::thread::ThreadStore>,
     pub thread_id: rust_create_agent::thread::ThreadId,
@@ -42,7 +41,6 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         tx,
         cancel,
         agent_id,
-        relay_client,
         langfuse_tracer,
         thread_store,
         thread_id,
@@ -105,29 +103,12 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         broker as Arc<dyn rust_create_agent::interaction::UserInteractionBroker>,
     );
 
-    // 事件回调 → TUI AgentEvent channel + Relay 转发
+    // 事件回调 → TUI AgentEvent channel
     let tx_event = tx.clone();
     let cwd_for_handler = cwd.clone();
-    let relay_for_handler = relay_client.clone();
     let langfuse_for_handler = langfuse_tracer.clone();
     let provider_name_for_handler = provider_name.clone();
     let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
-        // 转发到 Relay
-        if let Some(ref relay) = relay_for_handler {
-            match &event {
-                // BaseMessage 序列化后走 send_message 路径，保持原有 JSON 格式
-                ExecutorEvent::MessageAdded(msg) => {
-                    relay.send_message(&serde_json::to_value(msg).unwrap_or_default());
-                }
-                // 其他事件经适配器转换为 RelayAgentEvent 后发送
-                _ => {
-                    if let Some(relay_event) = crate::relay_adapter::to_relay_event(&event) {
-                        relay.send_agent_event(&relay_event);
-                    }
-                }
-            }
-        }
-
         // Langfuse hook（在 TUI 事件映射前执行，使用原始 ExecutorEvent）
         if let Some(ref tracer) = langfuse_for_handler {
             let mut t = tracer.lock();
@@ -215,10 +196,6 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     }
     let agent_input = input;
 
-    if let Some(ref relay) = relay_client {
-        relay.send_value(serde_json::json!({ "type": "agent_running" }));
-    }
-
     let result = executor
         .execute(agent_input, &mut state, Some(cancel))
         .await;
@@ -247,9 +224,6 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         }
     }
 
-    if let Some(ref relay) = relay_client {
-        relay.send_value(serde_json::json!({ "type": "agent_done" }));
-    }
 }
 
 // ─── 辅助函数 ─────────────────────────────────────────────────────────────────
@@ -261,7 +235,6 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
     Some(match event {
         ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
         ExecutorEvent::TextChunk { chunk: text, .. } => AgentEvent::AssistantChunk(text),
-        ExecutorEvent::MessageAdded(msg) => AgentEvent::MessageAdded(msg),
         // launch_agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
         ExecutorEvent::ToolStart { name, input, .. } if name == "launch_agent" => {
             let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
@@ -301,6 +274,7 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
         ExecutorEvent::ToolEnd { .. }
         | ExecutorEvent::StepDone { .. }
         | ExecutorEvent::StateSnapshot(_)
+        | ExecutorEvent::MessageAdded(_)
         | ExecutorEvent::LlmCallStart { .. }
         | ExecutorEvent::LlmCallEnd { .. } => return None,
     })

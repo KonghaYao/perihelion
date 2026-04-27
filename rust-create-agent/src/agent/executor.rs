@@ -209,7 +209,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 let ai_msg_clone = ai_msg.clone();
                 state.add_message(ai_msg);
                 self.emit(AgentEvent::MessageAdded(ai_msg_clone));
-                // emit AI 推理内容到 Relay
+                // emit AI 推理内容
                 self.emit(AgentEvent::AiReasoning(reasoning.thought.clone()));
 
                 // 阶段一：串行执行 before_tool（需要 &mut S，且 HITL 可能修改 call）

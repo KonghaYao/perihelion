@@ -129,7 +129,6 @@ impl App {
         );
         let history = self.agent.agent_state_messages.clone();
         let agent_id = self.agent.agent_id.clone();
-        let relay_client = self.relay.relay_client.clone();
         let thread_store = self.thread_store.clone();
         let thread_id_for_agent = thread_id.clone();
         let zen_config_for_agent = Arc::new(self.zen_config.clone().unwrap_or_default());
@@ -145,7 +144,6 @@ impl App {
                     tx,
                     cancel,
                     agent_id,
-                    relay_client,
                     langfuse_tracer,
                     thread_store,
                     thread_id: thread_id_for_agent,
@@ -231,15 +229,6 @@ impl App {
                     self.core.view_messages.push(vm.clone());
                     let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                 }
-                (true, false, false)
-            }
-            AgentEvent::MessageAdded(msg) => {
-                // SubAgent 执行期间忽略 MessageAdded（不影响父 Agent 消息历史）
-                if self.core.subagent_group_idx.is_some() {
-                    return (false, false, false);
-                }
-                // AI 消息文本由紧随其后的 AiReasoning→AssistantChunk 事件处理，此处不处理
-                let _ = msg;
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
@@ -399,18 +388,6 @@ impl App {
                                 let _ = response_tx.send(InteractionResponse::Decisions(approval_decisions));
                             }
                         });
-                        // 转发 HITL 审批请求到 Relay（统一 interaction_request 消息）
-                        if let Some(ref relay) = self.relay.relay_client {
-                            let relay_items: Vec<serde_json::Value> = batch_items
-                                .iter()
-                                .map(|item| serde_json::json!({ "tool_name": item.tool_name, "input": item.input }))
-                                .collect();
-                            relay.send_value(serde_json::json!({
-                                "type": "interaction_request",
-                                "ctx_type": "approval",
-                                "items": relay_items
-                            }));
-                        }
                         self.agent.interaction_prompt = Some(InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)));
                         (true, true, false) // 暂停消费，等待用户确认
                     }
@@ -441,24 +418,8 @@ impl App {
                                 let _ = response_tx.send(InteractionResponse::Answers(question_answers));
                             }
                         });
-                        // 转发 AskUser 请求到 Relay（统一 interaction_request 消息）
+                        // 构建 AskUser 批量请求
                         self.agent.pending_ask_user = Some(false);
-                        if let Some(ref relay) = self.relay.relay_client {
-                            let questions_json: Vec<serde_json::Value> = ask_questions.iter().map(|q| {
-                                serde_json::json!({
-                                    "tool_call_id": q.tool_call_id,
-                                    "question": q.question,
-                                    "header": q.header,
-                                    "multi_select": q.multi_select,
-                                    "options": q.options.iter().map(|o| serde_json::json!({"label": o.label, "description": o.description})).collect::<Vec<_>>(),
-                                })
-                            }).collect();
-                            relay.send_value(serde_json::json!({
-                                "type": "interaction_request",
-                                "ctx_type": "questions",
-                                "questions": questions_json
-                            }));
-                        }
                         let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
                         // 用桥接的 sender 覆盖 batch_req 的 response_tx
                         let batch_req_bridged = AskUserBatchRequest { questions: batch_req.questions, response_tx: bridge_tx };
@@ -468,22 +429,6 @@ impl App {
                 }
             }
             AgentEvent::TodoUpdate(todos) => {
-                // 转发 TODO 更新到 Relay
-                if let Some(ref relay) = self.relay.relay_client {
-                    let items: Vec<serde_json::Value> = todos
-                        .iter()
-                        .map(|t| {
-                            serde_json::json!({
-                                "content": t.content,
-                                "status": format!("{:?}", t.status),
-                            })
-                        })
-                        .collect();
-                    relay.send_value(serde_json::json!({
-                        "type": "todo_update",
-                        "items": items,
-                    }));
-                }
                 self.todo_items = todos;
                 (true, false, false)
             }
@@ -514,9 +459,6 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::CompactDone { summary, new_thread_id: _ } => {
-                // 保存旧 Thread ID 用于 Relay 通知
-                let old_thread_id = self.current_thread_id.clone();
-
                 // 创建新 Thread，带摘要截断名称
                 let truncated: String = summary.chars().take(30).collect();
                 let ellipsis = if summary.chars().count() > 30 { "..." } else { "" };
@@ -579,16 +521,6 @@ impl App {
 
                 // 重置 Langfuse session（新 Thread 需要独立 session）
                 self.langfuse.langfuse_session = None;
-
-                // 通知 Relay Web 前端：compact 完成
-                if let Some(ref relay) = self.relay.relay_client {
-                    relay.send_value(serde_json::json!({
-                        "type": "compact_done",
-                        "summary": summary,
-                        "new_thread_id": new_tid,
-                        "old_thread_id": old_thread_id.unwrap_or_default(),
-                    }));
-                }
 
                 // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）
                 if !self.core.pending_messages.is_empty() {

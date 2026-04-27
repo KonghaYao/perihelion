@@ -4,7 +4,6 @@ pub mod events;
 pub mod interaction_broker;
 pub mod model_panel;
 mod provider;
-pub mod relay_panel;
 pub mod setup_wizard;
 pub mod tool_display;
 
@@ -20,8 +19,6 @@ mod hint_ops;
 mod hitl_ops;
 mod hitl_prompt;
 mod panel_ops;
-mod relay_state;
-mod relay_ops;
 mod thread_ops;
 
 pub use ask_user_prompt::AskUserBatchPrompt;
@@ -52,7 +49,6 @@ use crate::command::agents::AgentItem;
 pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
 pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
-pub use relay_panel::RelayPanel;
 pub use setup_wizard::SetupWizardPanel;
 use std::sync::Arc;
 use tracing::Instrument;
@@ -64,14 +60,12 @@ pub use agent_comm::AgentComm;
 pub use core::AppCore;
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
-pub use relay_state::RelayState;
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 pub struct App {
     pub core: AppCore,
     pub agent: AgentComm,
-    pub relay: RelayState,
     pub langfuse: LangfuseState,
     // 不变字段（跨子结构体的"胶水"字段）
     pub cwd: String,
@@ -82,7 +76,6 @@ pub struct App {
     pub current_thread_id: Option<ThreadId>,
     pub todo_items: Vec<TodoItem>,
     pub cron: CronState,
-    pub relay_panel: Option<RelayPanel>,
     pub setup_wizard: Option<SetupWizardPanel>,
     pub permission_mode: Arc<rust_agent_middlewares::prelude::SharedPermissionMode>,
     /// 权限模式切换后的闪烁高亮截止时间，None 表示不闪烁
@@ -151,7 +144,6 @@ impl App {
         Self {
             core: AppCore::new(render_tx, render_cache, render_notify, command_registry, skills),
             agent: AgentComm::default(),
-            relay: RelayState::default(),
             langfuse: LangfuseState::default(),
             cwd,
             provider_name,
@@ -161,7 +153,6 @@ impl App {
             current_thread_id: None,
             todo_items: Vec::new(),
             cron: cron_state,
-            relay_panel: None,
             setup_wizard: None,
             permission_mode: rust_agent_middlewares::prelude::SharedPermissionMode::new(
                 rust_agent_middlewares::prelude::PermissionMode::BypassPermissions,
@@ -225,157 +216,6 @@ impl App {
         }
     }
 
-    /// 尝试连接 Relay Server
-    /// CLI 参数（--remote-control）优先，其次从 zen_config 读取配置
-    /// 支持三层优先级：
-    /// 1. CLI 参数完整指定（URL 非空）→ 使用 CLI 参数
-    /// 2. CLI 参数 `--remote-control` 无 URL → 从 `remote_control` 字段读取
-    /// 3. `remote_control` 字段不存在 → fallback 到 `extra.relay_*`（向后兼容）
-    pub async fn try_connect_relay(&mut self, cli: Option<&crate::RelayCli>) {
-        let (relay_url, relay_token, relay_name) = if let Some(c) = cli {
-            if c.url.is_empty() {
-                // --remote-control 无参数：从配置读取
-                let config = self
-                    .zen_config
-                    .as_ref()
-                    .and_then(|cfg| cfg.config.remote_control.as_ref())
-                    .filter(|rc| rc.is_complete());
-
-                match config {
-                    Some(rc) => (rc.url.clone(), rc.token.clone(), rc.name.clone()),
-                    None => {
-                        // 回退到旧 extra 字段（向后兼容）
-                        let extra_config = self
-                            .zen_config
-                            .as_ref()
-                            .and_then(|cfg| cfg.config.extra.get("relay_url"))
-                            .and_then(|v| v.as_str());
-                        if extra_config.is_none() {
-                            let msg = MessageViewModel::from_base_message(
-                                &BaseMessage::system(
-                                    "未配置远程控制，请使用 /relay 命令配置".to_string(),
-                                ),
-                                &[],
-                            );
-                            let _ = self.core.render_tx.send(RenderEvent::AddMessage(msg));
-                            return;
-                        }
-                        let url = extra_config.unwrap().to_string();
-                        let token = self
-                            .zen_config
-                            .as_ref()
-                            .and_then(|cfg| cfg.config.extra.get("relay_token"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let name = self
-                            .zen_config
-                            .as_ref()
-                            .and_then(|cfg| cfg.config.extra.get("relay_name"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        (url, token, name)
-                    }
-                }
-            } else {
-                // --remote-control <url>：使用 CLI 参数（token 可从配置 fallback）
-                let token = c.token.clone().unwrap_or_else(|| {
-                    self.zen_config
-                        .as_ref()
-                        .and_then(|cfg| cfg.config.remote_control.as_ref())
-                        .map(|rc| rc.token.clone())
-                        .unwrap_or_else(|| {
-                            self.zen_config
-                                .as_ref()
-                                .and_then(|cfg| cfg.config.extra.get("relay_token"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string()
-                        })
-                });
-                (c.url.clone(), token, c.name.clone())
-            }
-        } else {
-            return;
-        };
-
-        // 获取或注册 user_id
-        let existing_user_id = self
-            .zen_config
-            .as_ref()
-            .and_then(|cfg| cfg.config.remote_control.as_ref())
-            .and_then(|rc| rc.user_id.clone());
-        let user_id = match relay_ops::get_or_register_user_id(
-            &relay_url,
-            &relay_token,
-            existing_user_id.as_deref(),
-        )
-        .await
-        {
-            Ok(uid) => uid,
-            Err(e) => {
-                let err_msg = format!("Relay 注册失败: {}", e);
-                let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                self.relay.relay_reconnect_at =
-                    Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
-                return;
-            }
-        };
-
-        if existing_user_id.is_none() {
-            if let Some(ref mut cfg) = self.zen_config {
-                if let Some(ref mut rc) = cfg.config.remote_control {
-                    rc.user_id = Some(user_id.clone());
-                    let _ = crate::config::save(cfg);
-                }
-            }
-        }
-
-        // 缓存参数供断线重连使用
-        self.relay.relay_params = Some((
-            relay_url.clone(),
-            relay_token.clone(),
-            relay_name.clone(),
-            user_id.clone(),
-        ));
-
-        match rust_relay_server::client::RelayClient::connect(
-            &relay_url,
-            &relay_token,
-            relay_name.as_deref(),
-            &user_id,
-        )
-        .await
-        {
-            Ok((client, event_rx)) => {
-                let sid = client.session_id.read().await.clone().unwrap_or_default();
-                let status_msg = format!("Relay connected (session: {})", &sid[..8.min(sid.len())]);
-                let vm = MessageViewModel::from_base_message(&BaseMessage::system(status_msg), &[]);
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                self.relay.relay_client = Some(Arc::new(client));
-                self.relay.relay_event_rx = Some(event_rx);
-                self.relay.relay_reconnect_at = None;
-
-                let web_url = format!(
-                    "{}/web/?token={}#user_id={}",
-                    relay_ops::ws_url_to_http(&relay_url),
-                    relay_token,
-                    user_id
-                );
-                if let Some(ref mut panel) = self.relay_panel {
-                    panel.set_web_access_url(Some(web_url));
-                }
-            }
-            Err(e) => {
-                let err_msg = format!("Relay connection failed: {}", e);
-                let vm = MessageViewModel::from_base_message(&BaseMessage::system(err_msg), &[]);
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                self.relay.relay_reconnect_at =
-                    Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
-            }
-        }
-    }
 }
 
 /// 确保光标在滚动视口内可见，返回调整后的 scroll_offset

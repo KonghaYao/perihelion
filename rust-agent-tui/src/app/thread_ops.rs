@@ -106,15 +106,6 @@ impl App {
             })
             .last();
 
-        // 通知 Relay Web 前端：thread 已切换，推送完整历史消息
-        if let Some(ref relay) = self.relay.relay_client {
-            let msg_vals: Vec<serde_json::Value> = base_msgs
-                .iter()
-                .filter_map(|m| serde_json::to_value(m).ok())
-                .collect();
-            relay.send_thread_reset(&msg_vals);
-        }
-
         // 通知渲染线程加载历史消息
         let _ = self
             .core.render_tx
@@ -132,9 +123,6 @@ impl App {
         self.langfuse.langfuse_session = None;
         self.core.last_human_message = None;
         let _ = self.core.render_tx.send(RenderEvent::Clear);
-        if let Some(ref relay) = self.relay.relay_client {
-            relay.send_thread_reset(&[]);
-        }
     }
 
     /// 压缩当前对话上下文：调用 LLM 生成摘要，替换 agent_state_messages

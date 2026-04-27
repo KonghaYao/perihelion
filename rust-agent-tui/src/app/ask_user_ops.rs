@@ -60,10 +60,6 @@ impl App {
         };
 
         if all_done {
-            // 通知所有端清除交互弹窗
-            if let Some(ref relay) = self.relay.relay_client {
-                relay.send_value(serde_json::json!({ "type": "interaction_resolved" }));
-            }
             self.agent.pending_ask_user = None;
             if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.take() {
                 p.confirm();
