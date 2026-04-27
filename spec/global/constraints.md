@@ -11,19 +11,16 @@
 - **数据库:** rusqlite 0.31（bundled SQLite，WAL 模式）
 - **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic）
 - **定时任务:** croner 2（cron 表达式解析与下次触发时间计算，仅 rust-agent-middlewares）
-- **Web 框架（Relay Server）:** axum 0.8（WebSocket feature）
 - **错误处理:** thiserror 2.0（库 crate）/ anyhow 1.0（应用层）
 - **日志/追踪:** tracing 0.1 + tracing-subscriber 0.3 + opentelemetry 0.31 + tracing-opentelemetry 0.32
 - **OTLP 导出:** opentelemetry-otlp 0.31（http-proto + reqwest-rustls）
 - **UUID:** uuid 1.x（features: v7 + serde，rust-create-agent 层消息 ID）
 - **同步原语:** parking_lot 0.12
 - **构建工具:** Cargo（Workspace resolver = "2"）
-- **Web 前端 CDN（relay-server，ES Module，来自 esm.sh）:** preact + preact/hooks + htm + @preact/signals（声明式 UI + 响应式状态）；marked.js 15 + highlight.js 11.9（GitHub Dark 主题）+ DOMPurify（XSS 净化，动态 UMD script 注入）
-- **Web 前端 Signal 订阅规则:** esm.sh 多版本场景下 @preact/signals auto-tracking 不可靠，组件必须通过 `useSignalValue(signal)` 显式订阅，禁止在 render 函数中直接读取 `signal.value`
 
 ## 架构决策
 
-- **Workspace 多 crate 分层:** `rust-create-agent`（核心 lib）→ `rust-agent-middlewares`（中间件 lib）→ `rust-agent-tui` / `rust-relay-server`（应用层），禁止下层依赖上层
+- **Workspace 多 crate 分层:** `rust-create-agent`（核心 lib）→ `rust-agent-middlewares`（中间件 lib）→ `rust-agent-tui`（应用层），禁止下层依赖上层
 - **异步优先:** 所有 IO 密集操作使用 async/await，trait 方法通过 `async-trait` 标注
 - **Middleware Chain 模式:** 横切关注点（HITL、日志、工具提供、prompt 注入）通过 `Middleware<S>` trait 解耦，不侵入核心 ReAct 执行器
 - **工具系统:** `BaseTool` trait 统一工具接口，`ToolProvider` trait 支持批量动态提供，`register_tool` 手动注册优先级最高
@@ -34,7 +31,6 @@
 ## API 风格
 
 - **LLM 接口:** OpenAI `POST /v1/chat/completions` 格式（SSE streaming）；Anthropic `POST /v1/messages` 格式（SSE streaming）
-- **Relay Server:** WebSocket 协议，JSON 消息帧，客户端通过 `tokio-tungstenite` 连接
 - **工具调用格式:** OpenAI `type:"function"` + `function.arguments` JSON 字符串；Anthropic `type:"tool_use"` + `input_schema` JSON Schema
 - **错误处理:** LLM 层返回 `anyhow::Result`，工具层返回结构化错误信息（`is_error: true` 的 ToolResult）
 
@@ -61,4 +57,4 @@
 - **SubAgent 防递归:** `launch_agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 
 ---
-*最后更新: 2026-04-27 — 由 13 个 feature 归档更新：langfuse-client 替代 langfuse-ergonomic，新增 croner 定时任务库，新增 /loop /cron 命令，新增 Setup Wizard 首次配置引导*
+*最后更新: 2026-04-27 — 移除 Relay Server 相关技术栈、架构决策和 API 风格条目*

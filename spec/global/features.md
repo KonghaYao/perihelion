@@ -47,9 +47,8 @@
 - **定时任务（cron）:** /loop 注册定时任务（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用）；AI 通过 cron_register/cron_list/cron_remove 工具创建管理；内存任务表上限 20，TUI 重启后清空
 - **子 Agent 模型切换:** agent.md 的 model 字段生效，LLM Factory 签名升级为 Fn(Option<&str>)，alias 解析在 TUI 层；SkillFrontmatter 增加 model 文档字段
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
-- **Relay 集成:** 可选连接 Relay Server，事件实时转发，支持远程操控；Web 端支持 `/compact` 命令触发压缩；Agent thread 状态变更（clear/history/compact）通过 `ThreadReset` 消息自动同步到 Web 前端；Web 端支持"停止"按钮（`CancelAgent` 消息）中断 Agent 运行
-- **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头；Relay Web 前端收到 CompactDone 事件并切换
-- **App 结构体拆分:** App 拆分为 AppCore/AgentComm/RelayState/LangfuseState 四个子结构体（共 37 字段），对外 API 通过转发方法保持不变
+- **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头
+- **App 结构体拆分:** App 拆分为 AppCore/AgentComm/LangfuseState 三个子结构体（共 37 字段），对外 API 通过转发方法保持不变
 
 ## 基础设施
 
@@ -57,7 +56,6 @@
 - **OpenTelemetry 追踪:** 内置 OTLP HTTP 导出，`OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量控制开关，tracing-opentelemetry 桥接，兼容 Jaeger
 - **结构化日志:** `RUST_LOG` 级别控制，`RUST_LOG_FORMAT=json` 切换 JSON 格式
 - **配置持久化:** `~/.zen-code/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
-- **Relay Server:** axum + tokio-tungstenite，支持 WebSocket 多 Agent 会话管理、心跳、Tab 状态广播；可选 client feature 仅引入 tungstenite；多用户隔离（UserNamespace + 匿名注册 /register）
 
 ---
-*最后更新: 2026-04-27 — 由 13 个 feature 归档批量更新：Setup Wizard、cron 定时任务、sticky header、配色降噪、子 Agent 模型切换等*
+*最后更新: 2026-04-27 — 移除 Relay 功能特性和基础设施条目*

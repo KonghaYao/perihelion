@@ -6,8 +6,7 @@
 |------|------|------|
 | `rust-create-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
 | `rust-agent-middlewares` | 中间件库 | 文件系统、终端、HITL、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、PrependSystem、AskUser 等具体实现 |
-| `rust-agent-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板、Langfuse 追踪、Relay 集成 |
-| `rust-relay-server` | 可执行文件 + 客户端库 | axum WebSocket 中继服务（server feature），支持远程控制本地 Agent；client feature 供 TUI 集成；多用户隔离（UserNamespace 分层 + /register 匿名账号）；前端为 Preact + Signals + htm（esm.sh CDN，无打包工具） |
+| `rust-agent-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板、Langfuse 追踪 |
 
 ## Workspace 依赖关系
 
@@ -16,14 +15,8 @@ rust-create-agent           ← 零内部依赖，纯核心框架
     ↑
 rust-agent-middlewares      ← 依赖 rust-create-agent
     ↑
-rust-agent-tui              ← 依赖 rust-agent-middlewares + rust-relay-server[client]
-    ↑
-rust-relay-server           ← 依赖 rust-create-agent（协议类型共享）
+rust-agent-tui              ← 依赖 rust-agent-middlewares
 ```
-
-**Feature Gates（rust-relay-server）：**
-- `server`（默认）：axum + dashmap + rust-embed，编译为独立中继服务
-- `client`：仅 tokio-tungstenite，嵌入 TUI 使用
 
 ## 模块划分
 
@@ -116,13 +109,11 @@ src/
 │   ├── ask_user_ops.rs   — AskUser 弹窗操作逻辑
 │   ├── model_panel.rs    — /model 面板状态（三 Tab: AliasConfig/Browse/Edit）
 │   ├── agent_panel.rs    — /agents 面板状态（SubAgent 定义管理）
-│   ├── relay_panel.rs    — /relay 面板状态（URL/Token/Name 配置）
 │   ├── provider.rs       — Provider/Model 运行时管理
 │   ├── tool_display.rs   — 工具调用显示格式化（颜色 + 路径缩短）
 │   ├── panel_ops.rs      — 通用面板操作（打开/关闭/导航）
 │   ├── thread_ops.rs     — 线程操作（新建/打开/删除会话）
 │   ├── agent_ops.rs      — Agent 启动/停止操作
-│   ├── relay_ops.rs      — Relay 连接/断开/事件转发操作
 │   └── hint_ops.rs       — Skills 提示浮层操作（# 触发）
 ├── ui/
 │   ├── main_ui.rs        — 主 render() 入口：区域布局 + 分发到子组件
@@ -131,7 +122,6 @@ src/
 │   │   ├── panels/       — 侧边面板渲染
 │   │   │   ├── model.rs  — /model 面板 UI
 │   │   │   ├── agent.rs  — /agents 面板 UI
-│   │   │   ├── relay.rs  — /relay 面板 UI
 │   │   │   └── thread_browser.rs — /history 面板 UI
 │   │   └── popups/       — 模态弹窗渲染
 │   │       ├── hitl.rs   — HITL 审批弹窗
@@ -148,7 +138,7 @@ src/
 │   └── tracer.rs         — LangfuseTracer（Turn 级别，Trace/Generation/Span 上报）
 ├── config/
 │   ├── store.rs          — ZenConfig：~/.zen-code/settings.json 读写
-│   └── types.rs          — 配置类型定义（Provider/Model/RemoteControl）
+│   └── types.rs          — 配置类型定义（Provider/Model）
 ├── thread/
 │   ├── mod.rs            — ThreadStore re-export
 │   └── browser.rs        — ThreadBrowser 线程历史浏览状态
@@ -157,57 +147,12 @@ src/
 │   ├── model.rs          — /model 命令处理
 │   ├── history.rs        — /history 命令处理
 │   ├── agents.rs         — /agents 命令处理
-│   ├── relay.rs          — /relay 命令处理
 │   ├── compact.rs        — /compact 命令处理
 │   ├── clear.rs          — /clear 命令处理
 │   ├── help.rs           — /help 命令处理
 │   └── agent.rs          — agent 相关命令
 ├── event.rs              — crossterm 事件适配（键盘/鼠标/粘贴 → Action 枚举）
 └── prompt.rs             — 系统提示词构建（组合 CLAUDE.md + Skills + AgentDefine）
-```
-
-### rust-relay-server 内部模块
-
-```
-src/
-├── main.rs               — axum Router：/register、/agent/ws、/web/ws、/agents、/health、/web/*
-├── lib.rs                — Feature-gated 模块声明
-├── protocol.rs           — 协议类型：RelayMessage / WebMessage / BroadcastMessage / RelayError
-├── relay.rs              — RelayState（users: DashMap<user_id, UserNamespace>）+ WebSocket handler（按 user_id 隔离）
-├── auth.rs               — Token 验证（constant-time comparison via subtle）
-├── static_files.rs       — rust-embed 内嵌前端静态文件
-└── client/
-    └── mod.rs            — RelayClient：WebSocket 连接 + 序列号 + 历史缓存(1000) + 心跳
-
-web/                       — 纯前端（Preact + Signals + htm，无构建工具，依赖通过 esm.sh CDN 加载）
-├── index.html            — 入口 HTML（仅含 <div id="app"> 挂载点）
-├── style.css             — 样式
-├── app.js                — 应用入口（Preact render + CDN 动态加载 marked/hljs/DOMPurify）
-├── state.js              — 全局状态（@preact/signals：agents/layout/activePane/connectionStatus/markedReady）
-├── connection.js         — WebSocket 连接管理（操作 signals 替代直接 DOM）
-├── events.js             — 消息事件处理（更新 signals 触发 Preact 重渲染）
-├── utils/
-│   └── html.js           — htm.bind(h) 统一导出 html 标签函数
-└── components/
-    ├── App.js            — 根组件（Sidebar + PaneContainer + HitlDialog + AskUserDialog）
-    ├── Sidebar.js        — 左侧边栏（Agent 列表 + 连接状态）
-    ├── PaneContainer.js  — 1/2/3 分屏容器 + 布局切换
-    ├── Pane.js           — 单面板（TodoPanel + MessageList + 输入栏）
-    ├── MessageList.js    — 消息列表（user/assistant/tool/error 四类消息气泡）
-    ├── TodoPanel.js      — TODO 状态面板（折叠/展开）
-    ├── HitlDialog.js     — HITL 审批弹窗（全局唯一）
-    └── AskUserDialog.js  — AskUser 问答弹窗（全局唯一）
-
-前端 CDN 依赖（esm.sh，ES Module 格式）：
-- `https://esm.sh/preact` — 轻量 VDOM 框架
-- `https://esm.sh/preact/hooks` — Preact hooks
-- `https://esm.sh/htm` — tagged template literal → h() 绑定
-- `https://esm.sh/@preact/signals` — 细粒度响应式状态
-
-UMD CDN 依赖（动态 <script> 注入，全局变量）：
-- marked.js — Markdown 解析
-- highlight.js — 代码高亮
-- DOMPurify — XSS 防护
 ```
 
 ## 事件系统
@@ -222,7 +167,7 @@ UMD CDN 依赖（动态 <script> 注入，全局变量）：
 | `ToolEnd` | 工具调用结束 | message_id + tool_call_id + name + output + is_error |
 | `StepDone` | 一轮 ReAct 完成 | step 序号 |
 | `StateSnapshot` | 完整消息快照 | Vec\<BaseMessage\>（用于持久化） |
-| `MessageAdded` | 增量消息 | 单条 BaseMessage（用于 Relay 传输） |
+| `MessageAdded` | 增量消息 | 单条 BaseMessage（用于持久化和遥测） |
 | `LlmCallStart` | LLM 调用开始 | step + messages 快照 + tools 定义（Langfuse） |
 | `LlmCallEnd` | LLM 调用结束 | step + model + output + TokenUsage（Langfuse） |
 
@@ -281,7 +226,6 @@ submit_message()
   │       AskUserBatch        → app.ask_user_prompt = Some(...) [break]
   │       Done/Error          → set_loading(false), agent_rx=None
   │       LlmCallStart/End   → LangfuseTracer 上报 Generation
-  │       MessageAdded        → RelayClient 转发给远程 Web 端
   │
   ├─ mpsc(4): ApprovalEvent channel ──→ 转发 task
   │    ApprovalEvent::Batch      → YOLO: 直接 response_tx.send(Approve×N)
@@ -297,34 +241,6 @@ submit_message()
     ← RenderEvent::Update 触发 → 更新 RenderCache（parking_lot::RwLock）
   主线程
     ← poll 超时 / 用户事件 → 读 RenderCache → terminal.draw()
-```
-
-### Relay 双向通信
-
-```
-本地 TUI (RelayClient)              Relay Server              远程 Web 浏览器
-  │                                     │                          │
-  │─── agent/ws?token=&name=&user_id= ───→   │                          │
-  │                                     │←── web/ws?token=&user_id=&session= ──│
-  │                                     │                          │
-  │─── MessageBatch{messages,seq} ──→   │── MessageBatch ────────→ │
-  │─── ApprovalNeeded{items} ──────→   │── ApprovalNeeded ───────→ │
-  │─── AskUserBatch{questions} ────→   │── AskUserBatch ─────────→ │
-  │─── TodoUpdate{items} ─────────→   │── TodoUpdate ────────────→ │
-  │                                     │                          │
-  │←── HitlDecision{decisions} ────    │←── HitlDecision ────────  │
-  │←── AskUserResponse{answers} ───    │←── AskUserResponse ─────  │
-  │←── UserInput{text} ───────────     │←── UserInput ────────────  │
-  │←── ClearThread ───────────────     │←── ClearThread ──────────  │
-  │←── CompactThread ─────────────     │←── CompactThread ────────  │
-  │←── CancelAgent ───────────────     │←── CancelAgent ──────────  │
-  │                                     │                          │
-  │─── ThreadReset{messages} ──────→   │── ThreadReset ──────────→ │
-  │                                     │                          │
-  │─── Ping ───────────────────────→   │                          │
-  │←── Pong ────────────────────────   │                          │
-  │                                     │── BroadcastMessage ────→ │
-  │                                     │   (AgentOnline/Offline)   │
 ```
 
 ### Langfuse 追踪层次
@@ -377,7 +293,6 @@ LangfuseSession（Thread 级别，跨多轮复用）
 |---------|------|------|------|
 | Anthropic API | HTTPS REST + SSE | `ANTHROPIC_API_KEY` header | `https://api.anthropic.com/v1/messages` |
 | OpenAI 兼容 | HTTPS REST + SSE | `OPENAI_API_KEY` bearer | `OPENAI_BASE_URL` 环境变量 |
-| Relay Server | WebSocket (ws:/wss:) | `RELAY_TOKEN` 查询参数 | axum 监听端口（默认 8080），静态文件 rust-embed 内嵌 |
 | SQLite | 本地文件 | — | `~/.zen-core/threads/threads.db` |
 | OpenTelemetry Collector | HTTP OTLP Proto | — | `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Langfuse | HTTPS REST | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | `LANGFUSE_HOST`（默认 cloud） |
@@ -396,16 +311,6 @@ LangfuseSession（Thread 级别，跨多轮复用）
        └─ 上报 Langfuse（可选，环境变量控制）
 ```
 
-**远程控制模式（可选）：**
-
-```
-用户浏览器（/web/ 前端）
-  └─ WebSocket 连接 rust-relay-server（:8080）
-       ├─ 管理端（/web/ws?token=）：接收 BroadcastMessage（Agent 上/下线）
-       └─ 会话端（/web/ws?token=&session=）：双向交互 Agent
-            └─ 本地运行的 rust-agent-tui（RelayClient 集成）
-```
-
 **可观测性（可选）：**
 
 ```
@@ -416,4 +321,4 @@ rust-create-agent（tracing spans）
 ```
 
 ---
-*最后更新: 2026-03-29 — 更新 Relay 多用户隔离（UserNamespace + /register）、环境变量注入（settings.json env）*
+*最后更新: 2026-04-27 — 移除 rust-relay-server crate 及 Relay 集成*
