@@ -164,13 +164,15 @@ submit_message()
 ```
 
 **字段说明：**
+
 - `questions`：1-4 个问题
 - `header`：最多 12 字，显示在 UI Tab 上
 - `multi_select`：默认 `false`（单选），`true` 时允许多选
 - `options`：2-4 个选项；每个问题还自带文本输入框，用户可自由填写
 
 **返回格式：**
-- 单问题：直接返回所选选项（多选用 `, ` 拼接）或自定义文本
+
+- 单问题：直接返回所选选项（多选用 `,` 拼接）或自定义文本
 - 多问题：`[问: header]\n回答: value\n\n[问: header]\n回答: value`
 
 ### SubAgents（子 Agent 委派）
@@ -226,7 +228,8 @@ Final response text here
 
 | 命令 | 说明 |
 |------|------|
-| `/model` | 打开 Provider/Model 配置面板（AliasConfig/Browse/Edit/New/Delete） |
+| `/login` | 管理 Provider 配置（新建/编辑/删除），表单包含 API Key/Base URL/三级别模型名 |
+| `/model` | 打开模型选择面板（Provider 选择 + 级别切换 + Thinking 配置） |
 | `/model <alias>` | 直接切换激活别名（`opus` / `sonnet` / `haiku`） |
 | `/history` | 打开历史对话浏览面板（↑↓ 导航，`d` 删除，`Enter` 打开） |
 | `/agents` | 打开 SubAgent 定义管理面板 |
@@ -234,7 +237,7 @@ Final response text here
 | `/clear` | 清空当前消息列表 |
 | `/help` | 列出所有命令 |
 
-输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全为 `#skill-name `。
+输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全为 `#skill-name`。
 
 ## TUI Headless 测试模式
 
@@ -260,6 +263,7 @@ async fn test_example() {
 ```
 
 **注意事项：**
+
 - `notified()` 必须在 `process_pending_events()` **之前**调用
 - `AssistantChunk` 事件会发送 2 个 `RenderEvent`
 - CJK 字符在 `TestBackend` 中有宽字符填充，断言应使用 ASCII 内容
@@ -328,3 +332,16 @@ ReActAgent::new(llm)
 
 - **新增弹窗面板**：`Event::Paste` 独立于 key event 链，必须在该分支单独拦截；`Ctrl+V` 需在 `handle_xxx_panel` 内单独处理。
 - **EditField 导航**：`next()/prev()` 链必须与表单实际渲染字段一致。
+
+## 面板快捷键设计规范
+
+所有面板遵循统一的按键约定：
+
+| 按键 | 行为 |
+|------|------|
+| `↑` / `↓` | 竖向列表导航（Browse 模式切换光标，Edit 模式切换字段） |
+| `←` / `→` | 横向切换（仅限 Type 等枚举字段，编辑模式下） |
+| `Enter` | 确认/进入（Browse 模式进入编辑，Edit 模式保存，确认面板确认操作） |
+| `Space` | 选中/切换（Browse 模式激活 Provider，Edit 模式切换 Type） |
+| `Esc` | 关闭/取消（关闭面板、退出编辑回到 Browse、取消确认） |
+| `Ctrl+V` | 粘贴剪贴板内容到当前编辑字段 |

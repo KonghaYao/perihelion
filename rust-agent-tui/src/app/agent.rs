@@ -275,8 +275,13 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
         | ExecutorEvent::StepDone { .. }
         | ExecutorEvent::StateSnapshot(_)
         | ExecutorEvent::MessageAdded(_)
-        | ExecutorEvent::LlmCallStart { .. }
-        | ExecutorEvent::LlmCallEnd { .. } => return None,
+        | ExecutorEvent::LlmCallStart { .. } => return None,
+        ExecutorEvent::LlmCallEnd { usage: Some(usage), model, .. } => {
+            AgentEvent::TokenUsageUpdate { usage, model }
+        }
+        ExecutorEvent::LlmCallEnd { usage: None, .. } => return None,
+        // 核心层事件，TUI 层不消费
+        ExecutorEvent::ContextWarning { .. } => return None,
     })
 }
 

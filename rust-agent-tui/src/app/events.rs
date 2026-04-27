@@ -42,4 +42,9 @@ pub enum AgentEvent {
         result: String,
         is_error: bool,
     },
+    /// Token 使用量更新（从核心层 LlmCallEnd 映射而来）
+    TokenUsageUpdate {
+        usage: rust_create_agent::llm::types::TokenUsage,
+        model: String,
+    },
 }

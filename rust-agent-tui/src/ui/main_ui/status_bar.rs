@@ -84,6 +84,26 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
     // 消息计数
     left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+    // 上下文使用百分比
+    {
+        let tracker = &app.agent.session_token_tracker;
+        if let Some(pct) = tracker.context_usage_percent(app.agent.context_window) {
+            let used = tracker.estimated_context_tokens().unwrap_or(0);
+            let total = app.agent.context_window;
+            let color = if pct >= 85.0 {
+                theme::ERROR
+            } else if pct >= 70.0 {
+                theme::WARNING
+            } else {
+                theme::SAGE
+            };
+            left_spans.push(Span::styled(
+                format!("ctx: {:.0}% ({:.0}K/{:.0}K)", pct, used as f64 / 1000.0, total as f64 / 1000.0),
+                Style::default().fg(color),
+            ));
+            left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        }
+    }
     left_spans.push(Span::styled(
         format!("🗨 {} 条", app.core.view_messages.len()),
         Style::default().fg(theme::MUTED),

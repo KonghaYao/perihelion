@@ -191,6 +191,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     output: llm_output,
                     usage: reasoning.usage.clone(),
                 });
+                // 自动累积 token 用量到 state
+                if let Some(ref usage) = reasoning.usage {
+                    state.token_tracker_mut().accumulate(usage);
+                }
             }
 
             if reasoning.needs_tool_call() {

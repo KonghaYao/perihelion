@@ -28,6 +28,14 @@
 - [ ] 系统提示词中需要添加更多的 cli 的信息, 比如现在的模型,等
 - [ ] Sandbox 抽象,提供文件系统抽象,从而使得我们的 agent middleware 可以在远程有一个服务器,然后能够简单通过 --remote xxx 来替换掉原有的 LocalFileSystem 相关的 middleware <https://docs.langchain.com/oss/python/deepagents/backends>
 - [ ] Logging 方案统一化
+- [ ] ACP 协议兼容
+- [x] 权限模式
+  - [ ] Default 默认模式, 啥都要审批
+  - [ ] Don't Ask 默认不允许所有 bash
+  - [ ] Accept Edit 允许文件系统的编辑
+  - [ ] Auto Mode 大模型自动判断允不允许
+  - [ ] Bypass 所有都允许
+- [ ] MCP 层
 
 ### TUI 界面
 
@@ -51,6 +59,7 @@
 - [ ] 弹窗 /AskUserQuestion 有时候不够长度显示
 - [ ] i18n 文件整合替换能力; 默认中文, 但是检测到 ./i18n/ 里面的 json 时, 会进行替换. /i18n 会进入选择面板, 即文件, 选中即可替换.
 - [ ] theme.json 然后注入默认的颜色, 支持列举面板和 theme 切换, 写入
+- [ ] 语言识别功能
 
 ### 命令系统
 

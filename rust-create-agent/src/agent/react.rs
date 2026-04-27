@@ -172,6 +172,11 @@ pub trait ReactLLM: Send + Sync {
     fn model_name(&self) -> String {
         "unknown".to_string()
     }
+
+    /// 返回模型的上下文窗口大小（token 数），默认 200K
+    fn context_window(&self) -> u32 {
+        200_000
+    }
 }
 
 /// Blanket impl：允许将 Box<dyn ReactLLM + Send + Sync> 直接用于 ReActAgent
@@ -187,5 +192,9 @@ impl ReactLLM for Box<dyn ReactLLM + Send + Sync> {
 
     fn model_name(&self) -> String {
         (**self).model_name()
+    }
+
+    fn context_window(&self) -> u32 {
+        (**self).context_window()
     }
 }

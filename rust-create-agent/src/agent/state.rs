@@ -22,6 +22,9 @@ pub trait State: Send + Sync + Clone + 'static {
 
     fn get_context(&self, key: &str) -> Option<&str>;
     fn set_context(&mut self, key: impl Into<String>, value: impl Into<String>);
+
+    fn token_tracker(&self) -> &crate::agent::token::TokenTracker;
+    fn token_tracker_mut(&mut self) -> &mut crate::agent::token::TokenTracker;
 }
 
 /// 基础 Agent 状态（与 TypeScript BaseAgentStateType 对齐）
@@ -32,6 +35,7 @@ pub struct AgentState {
     pub messages: Vec<BaseMessage>,
     pub current_step: usize,
     pub context: HashMap<String, String>,
+    pub token_tracker: crate::agent::token::TokenTracker,
     /// 可选持久化后端（绑定后 add_message 自动写入）
     #[serde(skip)]
     store: Option<Arc<dyn ThreadStore>>,
@@ -49,6 +53,7 @@ impl std::fmt::Debug for AgentState {
             .field("context", &self.context)
             .field("store", &self.store.as_ref().map(|_| "ThreadStore"))
             .field("thread_id", &self.thread_id)
+            .field("token_tracker", &self.token_tracker)
             .finish()
     }
 }
@@ -150,6 +155,13 @@ impl State for AgentState {
     fn set_context(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.context.insert(key.into(), value.into());
     }
+
+    fn token_tracker(&self) -> &crate::agent::token::TokenTracker {
+        &self.token_tracker
+    }
+    fn token_tracker_mut(&mut self) -> &mut crate::agent::token::TokenTracker {
+        &mut self.token_tracker
+    }
 }
 
 #[cfg(test)]
@@ -180,5 +192,26 @@ mod tests {
             .with_context("key2", "value2");
         assert_eq!(state.get_context("key1"), Some("value1"));
         assert_eq!(state.get_context("missing"), None);
+    }
+
+    #[test]
+    fn test_token_tracker_default() {
+        let state = AgentState::new("/tmp");
+        assert_eq!(state.token_tracker().llm_call_count, 0);
+        assert_eq!(state.token_tracker().total_input_tokens, 0);
+    }
+
+    #[test]
+    fn test_token_tracker_accumulate() {
+        use crate::llm::types::TokenUsage;
+        let mut state = AgentState::new("/tmp");
+        state.token_tracker_mut().accumulate(&TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: Some(30),
+            cache_read_input_tokens: None,
+        });
+        assert_eq!(state.token_tracker().total_input_tokens, 100);
+        assert_eq!(state.token_tracker().llm_call_count, 1);
     }
 }

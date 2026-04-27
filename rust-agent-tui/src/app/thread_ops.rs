@@ -161,6 +161,7 @@ impl App {
         let (tx, rx) = mpsc::channel::<AgentEvent>(8);
         self.agent.agent_rx = Some(rx);
         self.set_loading(true);
+        self.agent.session_token_tracker.reset();
 
         tokio::spawn(async move {
             agent::compact_task(messages, model, instructions, tx).await;

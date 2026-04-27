@@ -196,6 +196,18 @@ impl App {
                 }
                 (true, false, false)
             }
+            AgentEvent::TokenUsageUpdate { usage, model: _model } => {
+                // 累积到会话追踪器
+                self.agent.session_token_tracker.accumulate(&usage);
+                // circuit breaker: 连续 3 次失败后不再自动触发
+                if self.agent.auto_compact_failures < 3 {
+                    let budget = rust_create_agent::agent::token::ContextBudget::new(self.agent.context_window);
+                    if budget.should_auto_compact(&self.agent.session_token_tracker) {
+                        self.agent.needs_auto_compact = true;
+                    }
+                }
+                (true, false, false)
+            }
             AgentEvent::ToolCall {
                 tool_call_id: _tool_call_id,
                 name,
@@ -299,6 +311,19 @@ impl App {
                 self.langfuse.langfuse_tracer = None;
                 self.set_loading(false);
                 self.agent.agent_rx = None;
+                // Auto-compact 两级策略
+                if self.agent.needs_auto_compact {
+                    self.agent.needs_auto_compact = false;
+                    tracing::info!("auto-compact: context threshold reached, triggering full compact");
+                    self.start_compact("auto".to_string());
+                    return (true, false, true);
+                } else {
+                    // 70%-85% 区间: micro-compact
+                    let budget = rust_create_agent::agent::token::ContextBudget::new(self.agent.context_window);
+                    if budget.should_warn(&self.agent.session_token_tracker) {
+                        self.start_micro_compact();
+                    }
+                }
                 // 异常退出时兜底清空 subagent 状态
                 self.core.subagent_group_idx = None;
                 // Agent 异常退出时清理残留弹窗状态，避免 UI 卡在弹窗
@@ -521,6 +546,7 @@ impl App {
 
                 // 重置 Langfuse session（新 Thread 需要独立 session）
                 self.langfuse.langfuse_session = None;
+                self.agent.auto_compact_failures = 0;
 
                 // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）
                 if !self.core.pending_messages.is_empty() {
@@ -539,6 +565,7 @@ impl App {
                     .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
                 self.set_loading(false);
                 self.agent.agent_rx = None;
+                self.agent.auto_compact_failures += 1;
 
                 // 刷新 compact 期间缓冲的消息
                 if !self.core.pending_messages.is_empty() {
@@ -625,6 +652,20 @@ impl App {
             if !self.core.loading {
                 self.submit_message(trigger.prompt);
             }
+        }
+    }
+
+    /// 执行 micro-compact：清除旧工具结果，不调用 LLM
+    pub fn start_micro_compact(&mut self) {
+        use rust_create_agent::agent::token::micro_compact;
+        let cleared = micro_compact(&mut self.agent.agent_state_messages, 10);
+        if cleared > 0 {
+            tracing::info!(cleared, "micro-compact: cleared old tool results");
+            let vm = MessageViewModel::system(
+                format!("📦 Micro-compact: 清除了 {} 个旧工具结果", cleared)
+            );
+            self.core.view_messages.push(vm.clone());
+            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
         }
     }
 }

@@ -31,6 +31,14 @@ pub struct AgentComm {
     pub last_task_duration: Option<std::time::Duration>,
     /// 测试用事件注入队列（仅测试时使用，生产时保持为空）
     pub agent_event_queue: Vec<AgentEvent>,
+    /// 会话级 token 累积追踪（从 AgentEvent::TokenUsageUpdate 聚合）
+    pub session_token_tracker: rust_create_agent::agent::token::TokenTracker,
+    /// 当前模型的上下文窗口大小（从最近一次 TokenUsageUpdate 中的 model 推断）
+    pub context_window: u32,
+    /// 是否需要 auto-compact（在 LlmCallEnd 时标记，Done 时执行）
+    pub needs_auto_compact: bool,
+    /// 连续 auto-compact 失败次数（circuit breaker，达到 3 次后停止自动触发）
+    pub auto_compact_failures: u32,
 }
 
 impl Default for AgentComm {
@@ -46,6 +54,10 @@ impl Default for AgentComm {
             task_start_time: None,
             last_task_duration: None,
             agent_event_queue: Vec::new(),
+            session_token_tracker: rust_create_agent::agent::token::TokenTracker::default(),
+            context_window: 200_000,
+            needs_auto_compact: false,
+            auto_compact_failures: 0,
         }
     }
 }

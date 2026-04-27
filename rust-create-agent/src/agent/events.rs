@@ -29,6 +29,12 @@ pub enum AgentEvent {
         output: String,
         usage: Option<crate::llm::types::TokenUsage>,
     },
+    /// 上下文窗口使用警告（阈值触发时发出）
+    ContextWarning {
+        used_tokens: u64,
+        total_tokens: u64,
+        percentage: f64,
+    },
 }
 
 /// 事件回调 trait（应用层实现）
@@ -59,5 +65,28 @@ where
 {
     fn on_event(&self, event: AgentEvent) {
         (self.0)(event)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_context_warning_serde_roundtrip() {
+        let ev = AgentEvent::ContextWarning {
+            used_tokens: 150000,
+            total_tokens: 200000,
+            percentage: 75.0,
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+        if let AgentEvent::ContextWarning { used_tokens, total_tokens, percentage } = deserialized {
+            assert_eq!(used_tokens, 150000);
+            assert_eq!(total_tokens, 200000);
+            assert!((percentage - 75.0).abs() < 0.01);
+        } else {
+            panic!("Deserialized to wrong variant");
+        }
     }
 }
