@@ -134,6 +134,7 @@ impl App {
         let thread_id_for_agent = thread_id.clone();
         let zen_config_for_agent = Arc::new(self.zen_config.clone().unwrap_or_default());
         let cron_scheduler = Some(self.cron.scheduler.clone());
+        let permission_mode = self.permission_mode.clone();
         tokio::spawn(
             async move {
                 agent::run_universal_agent(agent::AgentRunConfig {
@@ -151,6 +152,7 @@ impl App {
                     preload_skills,
                     config: zen_config_for_agent,
                     cron_scheduler,
+                    permission_mode,
                 })
                 .await;
             }

@@ -30,6 +30,7 @@ pub struct AgentRunConfig {
     pub preload_skills: Vec<String>,
     pub config: Arc<crate::config::ZenConfig>,
     pub cron_scheduler: Option<Arc<parking_lot::Mutex<rust_agent_middlewares::cron::CronScheduler>>>,
+    pub permission_mode: Arc<SharedPermissionMode>,
 }
 
 pub async fn run_universal_agent(cfg: AgentRunConfig) {
@@ -48,6 +49,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         preload_skills,
         config: zen_config,
         cron_scheduler,
+        permission_mode,
     } = cfg;
     // 如果设置了 agent_id，提前解析 agent.md 获取可覆盖部分（persona / tone / proactiveness），
     // 替换 system prompt 中对应占位符；安全策略、代码规范等硬约束始终保留。
@@ -84,10 +86,18 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     // 统一人机交互 broker（取代旧的 TuiHitlHandler + TuiAskUserHandler）
     let broker = TuiInteractionBroker::new(tx.clone());
 
-    // HITL 中间件
-    let hitl = HumanInTheLoopMiddleware::from_env(
+    // HITL 中间件：使用 with_shared_mode 注入共享权限模式
+    // 为 Auto 模式创建 LLM 分类器（独立于主 agent 的 BaseModel 实例）
+    let auto_classifier: Option<Arc<dyn AutoClassifier>> = Some(Arc::new(
+        LlmAutoClassifier::new(Arc::new(tokio::sync::Mutex::new(
+            provider_for_factory.clone().into_model(),
+        ))),
+    ));
+    let hitl = HumanInTheLoopMiddleware::with_shared_mode(
         broker.clone() as Arc<dyn rust_create_agent::interaction::UserInteractionBroker>,
         default_requires_approval,
+        permission_mode,
+        auto_classifier,
     );
 
     // AskUser 工具

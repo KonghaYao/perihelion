@@ -276,6 +276,10 @@ impl App {
             cron: super::CronState::default(),
             relay_panel: None,
             setup_wizard: None,
+            permission_mode: rust_agent_middlewares::prelude::SharedPermissionMode::new(
+                rust_agent_middlewares::prelude::PermissionMode::BypassPermissions,
+            ),
+            mode_highlight_until: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

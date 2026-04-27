@@ -84,6 +84,9 @@ pub struct App {
     pub cron: CronState,
     pub relay_panel: Option<RelayPanel>,
     pub setup_wizard: Option<SetupWizardPanel>,
+    pub permission_mode: Arc<rust_agent_middlewares::prelude::SharedPermissionMode>,
+    /// 权限模式切换后的闪烁高亮截止时间，None 表示不闪烁
+    pub mode_highlight_until: Option<std::time::Instant>,
 }
 
 impl App {
@@ -160,6 +163,10 @@ impl App {
             cron: cron_state,
             relay_panel: None,
             setup_wizard: None,
+            permission_mode: rust_agent_middlewares::prelude::SharedPermissionMode::new(
+                rust_agent_middlewares::prelude::PermissionMode::BypassPermissions,
+            ),
+            mode_highlight_until: None,
         }
     }
 

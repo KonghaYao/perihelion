@@ -1278,4 +1278,111 @@ mod tests {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
     }
+
+    // ─── Permission Mode Tests ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_app_default_permission_mode_is_bypass() {
+        let (app, _handle) = App::new_headless(80, 24);
+        use rust_agent_middlewares::prelude::PermissionMode;
+        assert_eq!(
+            app.permission_mode.load(),
+            PermissionMode::BypassPermissions,
+            "headless App 默认应为 BypassPermissions"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_permission_mode_store_and_load() {
+        let (mut app, _handle) = App::new_headless(80, 24);
+        use rust_agent_middlewares::prelude::PermissionMode;
+        for mode in [
+            PermissionMode::Default,
+            PermissionMode::AcceptEdits,
+            PermissionMode::Auto,
+            PermissionMode::BypassPermissions,
+            PermissionMode::DontAsk,
+        ] {
+            app.permission_mode.store(mode);
+            assert_eq!(app.permission_mode.load(), mode, "store/load 应一致: {:?}", mode);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_permission_mode_cycle() {
+        let (app, _handle) = App::new_headless(80, 24);
+        use rust_agent_middlewares::prelude::PermissionMode;
+        // cycle 从 BypassPermissions 开始 → DontAsk
+        let next = app.permission_mode.cycle();
+        assert_eq!(next, PermissionMode::DontAsk);
+        // 继续循环 → Default
+        let next2 = app.permission_mode.cycle();
+        assert_eq!(next2, PermissionMode::Default);
+    }
+
+    #[tokio::test]
+    async fn test_status_bar_shows_permission_mode() {
+        use rust_agent_middlewares::prelude::PermissionMode;
+        let (mut app, mut handle) = App::new_headless(120, 24);
+        // 默认 BypassPermissions → 应显示 "YOLO"
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("YOLO"), "状态栏应显示 YOLO 模式，实际:\n{}", handle.snapshot().join("\n"));
+    }
+
+    #[tokio::test]
+    async fn test_status_bar_updates_after_mode_switch() {
+        use rust_agent_middlewares::prelude::PermissionMode;
+        let (mut app, mut handle) = App::new_headless(120, 24);
+        // 切换到 Default
+        app.permission_mode.store(PermissionMode::Default);
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("DEFAULT"), "切换后状态栏应显示 DEFAULT，实际:\n{}", handle.snapshot().join("\n"));
+
+        // 切换到 AcceptEdits
+        app.permission_mode.store(PermissionMode::AcceptEdits);
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("AUTO-EDIT"), "切换后状态栏应显示 AUTO-EDIT，实际:\n{}", handle.snapshot().join("\n"));
+
+        // 切换到 Auto
+        app.permission_mode.store(PermissionMode::Auto);
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("AUTO"), "切换后状态栏应显示 AUTO，实际:\n{}", handle.snapshot().join("\n"));
+
+        // 切换到 DontAsk
+        app.permission_mode.store(PermissionMode::DontAsk);
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("NO-ASK"), "切换后状态栏应显示 NO-ASK，实际:\n{}", handle.snapshot().join("\n"));
+    }
+
+    #[tokio::test]
+    async fn test_shift_tab_cycles_permission_mode() {
+        use rust_agent_middlewares::prelude::PermissionMode;
+        let (mut app, _handle) = App::new_headless(120, 24);
+        // 初始 BypassPermissions
+        assert_eq!(app.permission_mode.load(), PermissionMode::BypassPermissions);
+        // 模拟 Shift+Tab 按键效果（直接调用 cycle）
+        let next = app.permission_mode.cycle();
+        assert_eq!(next, PermissionMode::DontAsk, "BypassPermissions 之后应为 DontAsk");
+        assert_eq!(app.permission_mode.load(), PermissionMode::DontAsk);
+        // 继续循环 4 次回到 BypassPermissions
+        app.permission_mode.cycle(); // Default
+        app.permission_mode.cycle(); // AcceptEdits
+        app.permission_mode.cycle(); // Auto
+        let final_mode = app.permission_mode.cycle(); // BypassPermissions
+        assert_eq!(final_mode, PermissionMode::BypassPermissions, "循环 5 次回到起点");
+    }
+
+    #[tokio::test]
+    async fn test_mode_highlight_until_set_on_cycle() {
+        let (mut app, _handle) = App::new_headless(120, 24);
+        // 初始无闪烁
+        assert!(app.mode_highlight_until.is_none(), "初始不应有闪烁");
+        // 模拟 Shift+Tab: cycle + 设置 highlight
+        app.permission_mode.cycle();
+        app.mode_highlight_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+        assert!(app.mode_highlight_until.is_some(), "cycle 后应设置闪烁截止时间");
+        // 验证截止时间在未来
+        let until = app.mode_highlight_until.unwrap();
+        assert!(std::time::Instant::now() < until, "截止时间应在未来");
+    }
 }

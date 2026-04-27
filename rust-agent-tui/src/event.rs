@@ -46,6 +46,16 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             if key_event.kind == KeyEventKind::Release {
                 return Ok(Some(Action::Redraw));
             }
+
+            // Shift+Tab 在 crossterm 中报告为 BackTab，
+            // ratatui-textarea 的 Key 枚举不处理 BackTab（映射为 Null），
+            // 因此在这里提前拦截，直接处理权限模式切换。
+            if matches!(key_event.code, ratatui::crossterm::event::KeyCode::BackTab) {
+                let _new_mode = app.permission_mode.cycle();
+                app.mode_highlight_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                return Ok(Some(Action::Redraw));
+            }
+
             let input = Input::from(ev);
 
             // Setup 向导：优先拦截所有按键事件

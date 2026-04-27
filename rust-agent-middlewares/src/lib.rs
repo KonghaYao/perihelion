@@ -33,7 +33,8 @@ pub use ask_user::{
 };
 pub use hitl::{
     default_requires_approval, is_yolo_mode, BatchItem, HitlDecision,
-    HumanInTheLoopMiddleware,
+    HumanInTheLoopMiddleware, PermissionMode, SharedPermissionMode,
+    AutoClassifier, Classification, LlmAutoClassifier,
 };
 pub use skills::{load_global_skills_dir, list_skills, load_skill_metadata, SkillsMiddleware, SkillMetadata};
 pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
@@ -50,7 +51,8 @@ pub mod prelude {
     };
     pub use crate::hitl::{
         default_requires_approval, is_yolo_mode, BatchItem, HitlDecision,
-        HumanInTheLoopMiddleware,
+        HumanInTheLoopMiddleware, PermissionMode, SharedPermissionMode,
+        AutoClassifier, Classification, LlmAutoClassifier,
     };
     #[allow(deprecated)]
     pub use crate::middleware::PrependSystemMiddleware;

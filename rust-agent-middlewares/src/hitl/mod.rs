@@ -9,7 +9,12 @@ use rust_create_agent::interaction::{
 };
 use rust_create_agent::middleware::r#trait::Middleware;
 
+pub mod shared_mode;
+pub mod auto_classifier;
+
 pub use rust_create_agent::hitl::{BatchItem, HitlDecision};
+pub use shared_mode::{PermissionMode, SharedPermissionMode};
+pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
 
@@ -42,6 +47,16 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
         || tool_name.starts_with("rm_")
 }
 
+/// 判断工具是否为文件编辑类工具（AcceptEdits 模式使用）
+///
+/// `write_*`、`edit_*`、`folder_operations` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
+/// `bash`、`launch_agent`、`delete_*`、`rm_*` 不属于编辑工具，仍需审批。
+pub fn is_edit_tool(tool_name: &str) -> bool {
+    tool_name.starts_with("write_")
+        || tool_name.starts_with("edit_")
+        || tool_name == "folder_operations"
+}
+
 // ─── HumanInTheLoopMiddleware ──────────────────────────────────────────────────
 
 /// HumanInTheLoopMiddleware — 敏感工具调用前需用户确认
@@ -53,6 +68,10 @@ pub fn default_requires_approval(tool_name: &str) -> bool {
 pub struct HumanInTheLoopMiddleware {
     broker: Option<Arc<dyn UserInteractionBroker>>,
     requires_approval: fn(&str) -> bool,
+    /// 共享权限模式（动态切换），None 时走原有 Some/None broker 逻辑（向后兼容）
+    mode: Option<Arc<SharedPermissionMode>>,
+    /// Auto 模式的 LLM 分类器，仅在 mode=Auto 时使用
+    auto_classifier: Option<Arc<dyn AutoClassifier>>,
 }
 
 impl HumanInTheLoopMiddleware {
@@ -61,6 +80,8 @@ impl HumanInTheLoopMiddleware {
         Self {
             broker: Some(broker),
             requires_approval,
+            mode: None,
+            auto_classifier: None,
         }
     }
 
@@ -69,6 +90,8 @@ impl HumanInTheLoopMiddleware {
         Self {
             broker: None,
             requires_approval: default_requires_approval,
+            mode: None,
+            auto_classifier: None,
         }
     }
 
@@ -78,6 +101,21 @@ impl HumanInTheLoopMiddleware {
             Self::disabled()
         } else {
             Self::new(broker, requires_approval)
+        }
+    }
+
+    /// 创建带共享权限模式的 HITL 中间件
+    pub fn with_shared_mode(
+        broker: Arc<dyn UserInteractionBroker>,
+        requires_approval: fn(&str) -> bool,
+        mode: Arc<SharedPermissionMode>,
+        auto_classifier: Option<Arc<dyn AutoClassifier>>,
+    ) -> Self {
+        Self {
+            broker: Some(broker),
+            requires_approval,
+            mode: Some(mode),
+            auto_classifier,
         }
     }
 }
@@ -105,18 +143,140 @@ fn apply_decision(call: &ToolCall, decision: ApprovalDecision) -> AgentResult<To
 impl HumanInTheLoopMiddleware {
     /// 批量处理一批工具调用：收集所有需要审批的项，一次性弹窗，返回每个 call 的处理结果
     pub async fn process_batch(&self, calls: &[ToolCall]) -> Vec<AgentResult<ToolCall>> {
-        let Some(broker) = &self.broker else {
-            return calls.iter().map(|c| Ok(c.clone())).collect();
+        let mut results: Vec<AgentResult<ToolCall>> = Vec::with_capacity(calls.len());
+
+        for (i, call) in calls.iter().enumerate() {
+            // 非敏感工具 → 直接放行
+            if !(self.requires_approval)(&call.name) {
+                results.push(Ok(call.clone()));
+                continue;
+            }
+
+            // 有 mode → 逐个读取最新模式
+            if let Some(mode) = &self.mode {
+                results.push(self.decide_by_mode(mode, call).await);
+                continue;
+            }
+
+            // 无 mode 且无 broker → 放行
+            let Some(broker) = &self.broker else {
+                results.push(Ok(call.clone()));
+                continue;
+            };
+
+            // 无 mode 但有 broker → 收集后批量弹窗
+            return self.batch_broker_approve(broker, calls, i, &mut results).await;
+        }
+
+        results
+    }
+
+    /// 通过 broker 请求用户审批单个工具调用
+    async fn broker_approve(
+        &self,
+        broker: &Arc<dyn UserInteractionBroker>,
+        tool_call: &ToolCall,
+    ) -> AgentResult<ToolCall> {
+        let ctx = InteractionContext::Approval {
+            items: vec![ApprovalItem {
+                tool_call_id: tool_call.id.clone(),
+                tool_name: tool_call.name.clone(),
+                tool_input: tool_call.input.clone(),
+            }],
         };
+        let response = broker.request(ctx).await;
+        let decision = match response {
+            InteractionResponse::Decisions(mut d) => d
+                .pop()
+                .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() }),
+            _ => ApprovalDecision::Reject { reason: "用户拒绝".to_string() },
+        };
+        apply_decision(tool_call, decision)
+    }
+
+    /// 根据共享权限模式决策单个工具调用
+    async fn decide_by_mode(
+        &self,
+        mode: &Arc<SharedPermissionMode>,
+        tool_call: &ToolCall,
+    ) -> AgentResult<ToolCall> {
+        match mode.load() {
+            PermissionMode::BypassPermissions => Ok(tool_call.clone()),
+            PermissionMode::DontAsk => Err(AgentError::ToolRejected {
+                tool: tool_call.name.clone(),
+                reason: "DontAsk 模式：自动拒绝".to_string(),
+            }),
+            PermissionMode::AcceptEdits => {
+                if is_edit_tool(&tool_call.name) {
+                    Ok(tool_call.clone())
+                } else {
+                    match &self.broker {
+                        Some(broker) => self.broker_approve(broker, tool_call).await,
+                        None => Ok(tool_call.clone()),
+                    }
+                }
+            }
+            PermissionMode::Auto => {
+                match &self.auto_classifier {
+                    Some(classifier) => {
+                        let result = classifier.classify(&tool_call.name, &tool_call.input).await;
+                        match result {
+                            Classification::Allow => Ok(tool_call.clone()),
+                            Classification::Deny => Err(AgentError::ToolRejected {
+                                tool: tool_call.name.clone(),
+                                reason: "Auto 模式：分类器拒绝".to_string(),
+                            }),
+                            Classification::Unsure => {
+                                match &self.broker {
+                                    Some(broker) => self.broker_approve(broker, tool_call).await,
+                                    None => Err(AgentError::ToolRejected {
+                                        tool: tool_call.name.clone(),
+                                        reason: "Auto 模式：分类器不确定且无 broker".to_string(),
+                                    }),
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        match &self.broker {
+                            Some(broker) => self.broker_approve(broker, tool_call).await,
+                            None => Err(AgentError::ToolRejected {
+                                tool: tool_call.name.clone(),
+                                reason: "Auto 模式：无分类器且无 broker".to_string(),
+                            }),
+                        }
+                    }
+                }
+            }
+            PermissionMode::Default => {
+                match &self.broker {
+                    Some(broker) => self.broker_approve(broker, tool_call).await,
+                    None => Ok(tool_call.clone()),
+                }
+            }
+        }
+    }
+
+    /// 无 mode 时原有的批量 broker 审批逻辑（向后兼容）
+    async fn batch_broker_approve(
+        &self,
+        broker: &Arc<dyn UserInteractionBroker>,
+        calls: &[ToolCall],
+        start_idx: usize,
+        initial_results: &mut Vec<AgentResult<ToolCall>>,
+    ) -> Vec<AgentResult<ToolCall>> {
+        let mut results: Vec<AgentResult<ToolCall>> = initial_results.drain(..).collect();
 
         let needs_approval: Vec<(usize, &ToolCall)> = calls
             .iter()
             .enumerate()
+            .skip(start_idx)
             .filter(|(_, c)| (self.requires_approval)(&c.name))
             .collect();
 
         if needs_approval.is_empty() {
-            return calls.iter().map(|c| Ok(c.clone())).collect();
+            results.extend(calls.iter().skip(start_idx).map(|c| Ok(c.clone())));
+            return results;
         }
 
         let items: Vec<ApprovalItem> = needs_approval
@@ -137,13 +297,17 @@ impl HumanInTheLoopMiddleware {
         };
 
         let mut decision_iter = decisions.into_iter();
-        let mut results: Vec<AgentResult<ToolCall>> = calls.iter().map(|c| Ok(c.clone())).collect();
 
-        for (idx, call) in needs_approval {
-            let decision = decision_iter
-                .next()
-                .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() });
-            results[idx] = apply_decision(call, decision);
+        for idx in start_idx..calls.len() {
+            let call = &calls[idx];
+            if (self.requires_approval)(&call.name) {
+                let decision = decision_iter
+                    .next()
+                    .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() });
+                results.push(apply_decision(call, decision));
+            } else {
+                results.push(Ok(call.clone()));
+            }
         }
 
         results
@@ -157,31 +321,23 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
     }
 
     async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
-        let Some(broker) = &self.broker else {
-            return Ok(tool_call.clone());
-        };
-
+        // 1. 非敏感工具 → 所有模式都放行
         if !(self.requires_approval)(&tool_call.name) {
             return Ok(tool_call.clone());
         }
 
-        let ctx = InteractionContext::Approval {
-            items: vec![ApprovalItem {
-                tool_call_id: tool_call.id.clone(),
-                tool_name: tool_call.name.clone(),
-                tool_input: tool_call.input.clone(),
-            }],
+        // 2. 有 mode → 按权限模式决策
+        if let Some(mode) = &self.mode {
+            return self.decide_by_mode(mode, tool_call).await;
+        }
+
+        // 3. 无 mode 且无 broker → 放行（disabled() 路径）
+        let Some(broker) = &self.broker else {
+            return Ok(tool_call.clone());
         };
 
-        let response = broker.request(ctx).await;
-        let decision = match response {
-            InteractionResponse::Decisions(mut d) => d
-                .pop()
-                .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() }),
-            _ => ApprovalDecision::Reject { reason: "用户拒绝".to_string() },
-        };
-
-        apply_decision(tool_call, decision)
+        // 4. 无 mode 但有 broker → 原有弹窗审批逻辑
+        self.broker_approve(broker, tool_call).await
     }
 }
 
@@ -339,5 +495,152 @@ mod tests {
             }
             other => unreachable!("期望 ToolRejected，实际: {:?}", other),
         }
+    }
+
+    // ─── 多模式测试 ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_edit_tool() {
+        assert!(is_edit_tool("write_file"));
+        assert!(is_edit_tool("edit_file"));
+        assert!(is_edit_tool("folder_operations"));
+        assert!(!is_edit_tool("bash"));
+        assert!(!is_edit_tool("launch_agent"));
+        assert!(!is_edit_tool("delete_x"));
+        assert!(!is_edit_tool("rm_x"));
+        assert!(!is_edit_tool("read_file"));
+    }
+
+    /// Mock 自动分类器
+    struct MockClassifier {
+        result: Classification,
+    }
+    impl MockClassifier {
+        fn new(result: Classification) -> Self {
+            Self { result }
+        }
+    }
+    #[async_trait]
+    impl AutoClassifier for MockClassifier {
+        async fn classify(&self, _tool_name: &str, _tool_input: &serde_json::Value) -> Classification {
+            self.result
+        }
+    }
+
+    fn make_mw_with_mode(mode: PermissionMode, classifier: Option<Arc<dyn AutoClassifier>>) -> HumanInTheLoopMiddleware {
+        let broker = Arc::new(AutoApproveBroker);
+        let shared = SharedPermissionMode::new(mode);
+        HumanInTheLoopMiddleware::with_shared_mode(broker, default_requires_approval, shared, classifier)
+    }
+
+    #[tokio::test]
+    async fn test_bypass_permissions_allows_all() {
+        let mw = make_mw_with_mode(PermissionMode::BypassPermissions, None);
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "bash");
+    }
+
+    #[tokio::test]
+    async fn test_dont_ask_rejects_all() {
+        let mw = make_mw_with_mode(PermissionMode::DontAsk, None);
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await;
+        assert!(matches!(result, Err(AgentError::ToolRejected { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_accept_edits_allows_write_file() {
+        let mw = make_mw_with_mode(PermissionMode::AcceptEdits, None);
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("write_file");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "write_file");
+    }
+
+    #[tokio::test]
+    async fn test_accept_edits_approves_bash_via_broker() {
+        let mw = make_mw_with_mode(PermissionMode::AcceptEdits, None);
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "bash");
+    }
+
+    #[tokio::test]
+    async fn test_default_mode_approves_bash_via_broker() {
+        let mw = make_mw_with_mode(PermissionMode::Default, None);
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "bash");
+    }
+
+    #[tokio::test]
+    async fn test_auto_mode_allow() {
+        let mw = make_mw_with_mode(PermissionMode::Auto, Some(Arc::new(MockClassifier::new(Classification::Allow))));
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "bash");
+    }
+
+    #[tokio::test]
+    async fn test_auto_mode_deny() {
+        let mw = make_mw_with_mode(PermissionMode::Auto, Some(Arc::new(MockClassifier::new(Classification::Deny))));
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await;
+        assert!(matches!(result, Err(AgentError::ToolRejected { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_auto_mode_unsure_falls_back_to_broker() {
+        let mw = make_mw_with_mode(PermissionMode::Auto, Some(Arc::new(MockClassifier::new(Classification::Unsure))));
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "bash");
+    }
+
+    #[tokio::test]
+    async fn test_auto_mode_no_classifier_falls_back_to_broker() {
+        let mw = make_mw_with_mode(PermissionMode::Auto, None);
+        let mut state = AgentState::new("/tmp");
+        let tc = make_tool_call("bash");
+        let result = mw.before_tool(&mut state, &tc).await.unwrap();
+        assert_eq!(result.name, "bash");
+    }
+
+    #[tokio::test]
+    async fn test_process_batch_bypass_permissions() {
+        let mw = make_mw_with_mode(PermissionMode::BypassPermissions, None);
+        let calls = vec![make_tool_call("bash"), make_tool_call("write_file"), make_tool_call("read_file")];
+        let results = mw.process_batch(&calls).await;
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn test_process_batch_dont_ask_rejects_sensitive() {
+        let mw = make_mw_with_mode(PermissionMode::DontAsk, None);
+        let calls = vec![make_tool_call("bash"), make_tool_call("read_file")];
+        let results = mw.process_batch(&calls).await;
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_err(), "bash 应被拒绝");
+        assert!(results[1].is_ok(), "read_file 应放行");
+    }
+
+    #[tokio::test]
+    async fn test_process_batch_accept_edits_mixed() {
+        let mw = make_mw_with_mode(PermissionMode::AcceptEdits, None);
+        let calls = vec![make_tool_call("write_file"), make_tool_call("bash"), make_tool_call("read_file")];
+        let results = mw.process_batch(&calls).await;
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_ok(), "write_file 应放行");
+        assert!(results[1].is_ok(), "bash 走 broker 审批（AutoApproveBroker）");
+        assert!(results[2].is_ok(), "read_file 应放行");
     }
 }

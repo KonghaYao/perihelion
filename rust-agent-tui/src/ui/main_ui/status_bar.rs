@@ -10,16 +10,37 @@ use crate::app::App;
 use crate::ui::theme;
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
-    // ── 左侧：工作目录 | Agent 状态 | 运行时长 ────────────────────────────────
+    // ── 左侧：权限模式 | 工作目录 | Agent 状态 | 运行时长 ────────────────────────────────
     let mut left_spans: Vec<Span> = Vec::new();
 
+    // 权限模式标签（第一位，最显眼）
+    {
+        use rust_agent_middlewares::prelude::PermissionMode;
+        let mode = app.permission_mode.load();
+        let (label, color) = match mode {
+            PermissionMode::Default           => ("DEFAULT",    theme::TEXT),
+            PermissionMode::AcceptEdits       => ("AUTO-EDIT",  theme::SAGE),
+            PermissionMode::Auto              => ("AUTO",       theme::LOADING),
+            PermissionMode::BypassPermissions => ("YOLO",       theme::WARNING),
+            PermissionMode::DontAsk           => ("NO-ASK",     theme::ERROR),
+        };
+        let is_highlight = app.mode_highlight_until
+            .map_or(false, |until| std::time::Instant::now() < until);
+        let mut style = Style::default().fg(color);
+        if is_highlight {
+            style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
+        }
+        left_spans.push(Span::styled(format!(" {}", label), style));
+    }
+
     // 工作目录（只显示最后一个文件夹名）
+    left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
     let cwd_short = std::path::Path::new(&app.cwd)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&app.cwd);
     left_spans.push(Span::styled(
-        format!(" 📁 {}", cwd_short),
+        format!("📁 {}", cwd_short),
         Style::default().fg(theme::MUTED),
     ));
     // Agent 状态（loading 时显示分隔符和状态，空闲时不显示）

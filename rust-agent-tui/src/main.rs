@@ -110,6 +110,20 @@ fn main() -> Result<()> {
 async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, relay_cli: Option<RelayCli>) -> Result<()> {
     let mut app = App::new();
 
+    // 根据环境变量/CLI 参数设置初始权限模式
+    {
+        use rust_agent_middlewares::prelude::PermissionMode;
+        let initial_mode = if std::env::var("YOLO_MODE")
+            .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
+            .unwrap_or(true)
+        {
+            PermissionMode::BypassPermissions
+        } else {
+            PermissionMode::Default
+        };
+        app.permission_mode.store(initial_mode);
+    }
+
     // 检测是否需要 Setup 向导
     if let Some(ref cfg) = app.zen_config {
         if rust_agent_tui::app::setup_wizard::needs_setup(&cfg.config) {
