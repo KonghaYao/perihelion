@@ -17,7 +17,13 @@ impl SearchFilesRgTool {
     }
 }
 
+/// 如果 args 中有至少 2 个非选项参数（PATTERN + PATH），将最后一个解析为绝对路径。
+/// rg 的参数模型：[OPTIONS...] PATTERN [PATH]。只有 1 个非选项参数时是 PATTERN，不应解析。
 fn resolve_last_path_arg(args: &mut [String], cwd: &str) {
+    let non_option_count = args.iter().filter(|a| !a.starts_with('-')).count();
+    if non_option_count < 2 {
+        return; // 只有 PATTERN，没有 PATH 参数
+    }
     if let Some(last) = args.last_mut() {
         if !last.starts_with('-') {
             let p = Path::new(last.as_str());

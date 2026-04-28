@@ -82,11 +82,12 @@ impl SubAgentMiddleware {
     }
 
     /// 构建 SubAgentTool 实例（克隆 Arc 字段，不转移所有权）
-    pub fn build_tool(&self) -> SubAgentTool {
+    pub fn build_tool(&self, cwd: &str) -> SubAgentTool {
         let mut tool = SubAgentTool::new(
             Arc::clone(&self.parent_tools),
             self.event_handler.clone(),
             Arc::clone(&self.llm_factory),
+            cwd.to_string(),
         );
         if let Some(ref builder) = self.system_builder {
             tool = tool.with_system_builder(Arc::clone(builder));
@@ -170,8 +171,8 @@ impl<S: State> Middleware<S> for SubAgentMiddleware {
         "SubAgentMiddleware"
     }
 
-    fn collect_tools(&self, _cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        vec![Box::new(self.build_tool())]
+    fn collect_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
+        vec![Box::new(self.build_tool(cwd))]
     }
 
     async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
@@ -246,7 +247,7 @@ mod tests {
             None,
             Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
-        let tool = m.build_tool();
+        let tool = m.build_tool("/tmp");
         assert_eq!(tool.name(), "launch_agent");
     }
 

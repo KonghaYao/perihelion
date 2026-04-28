@@ -26,6 +26,8 @@ pub struct SubAgentTool {
     parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
     /// 父 agent 事件处理器（透传子 agent 事件）
     event_handler: Option<Arc<dyn AgentEventHandler>>,
+    /// 父 agent 的工作目录（LLM 未指定 cwd 时继承）
+    parent_cwd: String,
     /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例（不设 system，由 with_system_prompt() 注入）
     /// 参数为可选的 model alias（如 "haiku"/"sonnet"/"opus"），None 时使用父模型
     llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
@@ -41,11 +43,13 @@ impl SubAgentTool {
         parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
         event_handler: Option<Arc<dyn AgentEventHandler>>,
         llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+        parent_cwd: String,
     ) -> Self {
         Self {
             parent_tools,
             event_handler,
             llm_factory,
+            parent_cwd,
             system_builder: None,
         }
     }
@@ -145,11 +149,11 @@ impl BaseTool for SubAgentTool {
             Some(t) => t.to_string(),
             None => return Ok("错误：缺少必需参数 task".to_string()),
         };
-        // cwd 默认使用当前目录
+        // cwd 默认继承父 agent 的工作目录
         let cwd = input
             .get("cwd")
             .and_then(|v| v.as_str())
-            .unwrap_or(".")
+            .unwrap_or(&self.parent_cwd)
             .to_string();
 
         // 1. 查找 agent 定义文件
@@ -330,6 +334,7 @@ mod tests {
             Arc::new(parent_tools),
             None,
             Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            "/tmp".to_string(),
         )
     }
 
@@ -583,6 +588,7 @@ mod tests {
             Arc::new(vec![]),
             None,
             Arc::new(|_: Option<&str>| Box::new(SystemEchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+            dir.path().to_str().unwrap().to_string(),
         )
         .with_system_builder(Arc::new(|_overrides, _cwd| "tone: be concise".to_string()));
 
@@ -654,6 +660,7 @@ mod tests {
             Arc::new(|_: Option<&str>| {
                 Box::new(SkillPreloadCheckLLM) as Box<dyn ReactLLM + Send + Sync>
             }),
+            dir.path().to_str().unwrap().to_string(),
         );
 
         let result = t

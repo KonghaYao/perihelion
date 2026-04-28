@@ -48,7 +48,7 @@ fn compact_tool_result_content(content: &mut MessageContent, config: &CompactCon
             }
             ContentBlock::Document { source, .. } => {
                 let size_chars = match source {
-                    crate::messages::DocumentSource::Base64 { data, .. } => data.len(),
+                    crate::messages::DocumentSource::Base64 { data, .. } => data.len() * 3 / 4,
                     crate::messages::DocumentSource::Text { text } => text.len(),
                     crate::messages::DocumentSource::Url { url } => url.len(),
                 };
@@ -174,7 +174,7 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
                 if original_text.is_empty() {
                     continue;
                 }
-                *content = MessageContent::text(format!("[compacted: {} chars]", original_text.len()));
+                *content = MessageContent::text(format!("[compacted: {} chars]", original_text.chars().count()));
             }
             cleared += 1;
         }
