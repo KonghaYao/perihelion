@@ -24,7 +24,8 @@ enum BatcherCommand {
 pub struct Batcher {
     tx: mpsc::Sender<BatcherCommand>,
     backpressure: BackpressurePolicy,
-    /// 后台 task 的 JoinHandle，用于 Drop 时等待完成
+    /// 后台 task 的 JoinHandle（Drop 时 detach，由 Shutdown 命令驱动优雅退出）
+    #[allow(dead_code)]
     handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -182,15 +183,14 @@ impl Batcher {
 
 impl Drop for Batcher {
     fn drop(&mut self) {
+        // 发送 Shutdown 命令，后台任务会 flush 剩余事件后自行退出
+        // 不调用 abort()：abort 会立即取消任务，导致缓冲区中的事件丢失
         let shutdown_cmd = BatcherCommand::Shutdown;
         if self.tx.try_send(shutdown_cmd).is_err() {
             debug!("Batcher Drop: channel already closed, background task may have exited");
         }
-
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
-            debug!("Batcher Drop: aborted background task");
-        }
+        // handle 不显式 abort：后台任务在处理完 Shutdown 后自行结束
+        // Drop handle 会使 JoinHandle detach，任务继续运行到完成
     }
 }
 

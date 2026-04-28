@@ -377,7 +377,8 @@ pub async fn compact_task(
         for msg in &re_inject_result.messages {
             parts.push(msg.content());
         }
-        format!("\n\n---RE_INJECT_SEPARATOR---\n{}", parts.join("\n\n"))
+        // 使用唯一分隔符避免文件内容中的空行被错误分割
+        format!("\n\n---RE_INJECT_SEPARATOR---\n{}", parts.join("\n---RE_INJECT_MSG_BREAK---\n"))
     };
 
     let combined_summary = format!("{}{}", summary_text, re_inject_content);

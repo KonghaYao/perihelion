@@ -169,6 +169,10 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
             if original_text.starts_with("[compacted:") {
                 continue;
             }
+            // 跳过纯文本为空的消息（可能含非文本 block），防止替换为 "[compacted: 0 chars]"
+            if original_text.is_empty() {
+                continue;
+            }
             let original_len = original_text.len();
             let was_modified = compact_tool_result_content(content, config);
 

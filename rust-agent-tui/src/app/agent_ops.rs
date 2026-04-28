@@ -373,6 +373,9 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Error(ref e) => {
+                // 清理 pipeline 状态（残留 SubAgent 栈等），防止下一个任务 UI 损坏
+                self.core.pipeline.done();
+
                 let mut vm = MessageViewModel::tool_block(
                     "error".to_string(),
                     "Agent Error".to_string(),
@@ -514,12 +517,13 @@ impl App {
                 let (summary_text, re_inject_messages) = if let Some(idx) = summary.find("---RE_INJECT_SEPARATOR---\n") {
                     let parts: (&str, &str) = summary.split_at(idx);
                     let re_inject_part = parts.1.strip_prefix("---RE_INJECT_SEPARATOR---\n").unwrap_or("");
+                    // 使用唯一消息分隔符拆分，保留文件内容中的空行
                     let re_inject_msgs: Vec<BaseMessage> = re_inject_part
-                        .split("\n\n")
+                        .split("\n---RE_INJECT_MSG_BREAK---\n")
                         .filter(|s| !s.trim().is_empty())
                         .map(|s| BaseMessage::system(s.to_string()))
                         .collect();
-                    (parts.0.to_string(), re_inject_msgs)
+                    (parts.0.trim_end().to_string(), re_inject_msgs)
                 } else {
                     (summary.clone(), Vec::new())
                 };
@@ -647,6 +651,9 @@ impl App {
                 }
                 Some(Err(mpsc::error::TryRecvError::Empty)) | None => break,
                 Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
+                    // 清理 pipeline 状态（残留 SubAgent 栈等）
+                    self.core.pipeline.done();
+
                     let vm = MessageViewModel::tool_block(
                         "error".to_string(),
                         "agent-error".to_string(),
