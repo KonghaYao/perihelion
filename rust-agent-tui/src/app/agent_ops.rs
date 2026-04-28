@@ -391,6 +391,7 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Error(ref e) => {
+                self.agent.retry_status = None;
                 // 清理 pipeline 状态（残留 SubAgent 栈等），防止下一个任务 UI 损坏
                 self.core.pipeline.done();
 
@@ -639,7 +640,7 @@ impl App {
             AgentEvent::AiReasoning(text) => {
                 let actions = self.core.pipeline.handle_event(AgentEvent::AiReasoning(text));
                 for action in actions { self.apply_pipeline_action(action); }
-                (false, false, false)
+                (true, false, false)
             }
         }
     }
