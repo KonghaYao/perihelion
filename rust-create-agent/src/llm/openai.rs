@@ -229,6 +229,16 @@ impl ChatOpenAI {
 #[async_trait]
 impl BaseModel for ChatOpenAI {
     async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse> {
+        let msg_count = request.messages.len();
+        tracing::debug!(
+            provider = "openai",
+            model = %self.model,
+            msg_count,
+            has_tools = !request.tools.is_empty(),
+            "LLM invoke start"
+        );
+        let start = std::time::Instant::now();
+
         let chat_url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
         let tools_json: Vec<Value> = request
@@ -289,21 +299,76 @@ impl BaseModel for ChatOpenAI {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AgentError::LlmError(e.to_string()))?;
+            .map_err(|e| {
+                tracing::error!(
+                    provider = "openai",
+                    model = %self.model,
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    error = %e,
+                    "LLM 网络请求失败"
+                );
+                AgentError::LlmError(e.to_string())
+            })?;
 
         let status = resp.status();
-        let resp_json: Value = resp
-            .json()
+        let resp_text = resp
+            .text()
             .await
-            .map_err(|e| AgentError::LlmError(format!("解析响应失败: {e}")))?;
+            .map_err(|e| {
+                tracing::error!(
+                    provider = "openai",
+                    model = %self.model,
+                    status = %status,
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    error = %e,
+                    "LLM 读取响应体失败"
+                );
+                AgentError::LlmError(format!("读取响应体失败: {e}"))
+            })?;
+        let resp_json: Value = serde_json::from_str(&resp_text)
+            .map_err(|e| {
+                tracing::error!(
+                    provider = "openai",
+                    model = %self.model,
+                    status = %status,
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    error = %e,
+                    "LLM 响应解析失败"
+                );
+                AgentError::LlmError(format!("解析响应失败: {e}\n原始响应({status}): {resp_text}"))
+            })?;
 
         if !status.is_success() {
             let msg = resp_json["error"]["message"]
                 .as_str()
                 .unwrap_or("未知错误")
                 .to_string();
+            let error_type = resp_json["error"]["type"].as_str().unwrap_or("unknown");
+            let error_code = resp_json["error"]["code"].as_str().unwrap_or("");
+            tracing::error!(
+                provider = "openai",
+                model = %self.model,
+                status = %status,
+                error_type,
+                error_code,
+                error_message = %msg,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                msg_count,
+                "LLM API 错误"
+            );
             return Err(AgentError::LlmError(format!("API 错误 {status}: {msg}")));
         }
+
+        tracing::info!(
+            provider = "openai",
+            model = %self.model,
+            status = %status,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            msg_count,
+            input_tokens = resp_json["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+            output_tokens = resp_json["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+            "LLM invoke completed"
+        );
 
         let choice = &resp_json["choices"][0];
         let finish_reason = choice["finish_reason"].as_str().unwrap_or("stop");

@@ -168,7 +168,13 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     match result {
                         Ok(r) => r,
                         Err(e) => {
-                            // LLM 报错时仍 emit LlmCallEnd，确保 Langfuse generation 可观测
+                                tracing::error!(
+                                    step,
+                                    model = %self.llm.model_name(),
+                                    error = %e,
+                                    "LLM generate_reasoning 失败"
+                                );
+                                // LLM 报错时仍 emit LlmCallEnd，确保 Langfuse generation 可观测
                             self.emit(AgentEvent::LlmCallEnd {
                                 step,
                                 model: self.llm.model_name(),
@@ -194,6 +200,21 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 // 自动累积 token 用量到 state
                 if let Some(ref usage) = reasoning.usage {
                     state.token_tracker_mut().accumulate(usage);
+                    let tracker = state.token_tracker();
+                    let total = self.llm.context_window();
+                    if let Some(used) = tracker.estimated_context_tokens() {
+                        let pct = (used as f64 / total as f64 * 100.0) as u32;
+                        if pct >= 80 {
+                            tracing::warn!(
+                                used_tokens = used,
+                                total_tokens = total,
+                                percentage = pct,
+                                model = %self.llm.model_name(),
+                                step,
+                                "context 接近上限"
+                            );
+                        }
+                    }
                 }
             }
 
@@ -345,6 +366,14 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         tool.is_error = result.is_error,
                         "tool call completed"
                     );
+                    if result.is_error {
+                        tracing::warn!(
+                            tool.name = %result.tool_name,
+                            tool.is_error = true,
+                            error_len = result.output.len(),
+                            "tool call failed"
+                        );
+                    }
                     self.emit(AgentEvent::ToolEnd {
                         message_id: ai_msg_id,
                         tool_call_id: modified_call.id.clone(),
@@ -439,6 +468,14 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             }
         }
 
+        tracing::warn!(
+            max_iterations = self.max_iterations,
+            tool_call_count = all_tool_calls.len(),
+            last_tools = ?all_tool_calls.iter().rev().take(3)
+                .map(|(_, r)| r.tool_name.as_str())
+                .collect::<Vec<_>>(),
+            "ReAct 循环达到最大迭代次数"
+        );
         Err(AgentError::MaxIterationsExceeded(self.max_iterations))
     }
 }

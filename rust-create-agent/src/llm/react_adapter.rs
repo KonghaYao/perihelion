@@ -40,7 +40,33 @@ impl ReactLLM for BaseModelReactLLM {
         }
 
         let model_name = self.model.model_id().to_string();
-        let response = self.model.invoke(request).await?;
+        let provider = self.model.provider_name();
+        let msg_count = messages.len();
+        let tool_count = tools.len();
+        let start = std::time::Instant::now();
+
+        let response = self.model.invoke(request).await.map_err(|e| {
+            tracing::error!(
+                provider = provider,
+                model = %model_name,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                msg_count,
+                tool_count,
+                error = %e,
+                "generate_reasoning 失败"
+            );
+            e
+        })?;
+
+        tracing::debug!(
+            provider = provider,
+            model = %model_name,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            msg_count,
+            stop_reason = ?response.stop_reason,
+            "generate_reasoning 完成"
+        );
+
         let usage = response.usage.clone();
 
         if response.stop_reason == StopReason::ToolUse {
