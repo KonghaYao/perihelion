@@ -305,6 +305,19 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_recent_files_mixed_message_types() {
+        // Tool 消息和 Human 消息没有 tool_calls，不应影响提取
+        let msgs = vec![
+            BaseMessage::human("question"),
+            ai_read_file("tc1", "/a.rs"),
+            BaseMessage::tool_result("tc1", "content"),
+            ai_read_file("tc2", "/b.rs"),
+        ];
+        let paths = extract_recent_files(&msgs, 5);
+        assert_eq!(paths, vec!["/b.rs", "/a.rs"]);
+    }
+
+    #[test]
     fn test_extract_recent_files_max_files() {
         let msgs: Vec<BaseMessage> = (0..10)
             .map(|i| ai_read_file(&format!("tc{}", i), &format!("/file{}.rs", i)))
@@ -377,6 +390,26 @@ mod tests {
         let mut contents: Vec<(String, String)> = vec![];
         let count = truncate_to_budget(&mut contents, 5000);
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_truncate_to_budget_exact_boundary() {
+        // 3 个文件各 4000 字符，总计 12000 字符，budget = 12000 tokens = 48000 字符
+        let mut contents: Vec<(String, String)> = (0..3)
+            .map(|i| (format!("/f{}", i), "x".repeat(4000)))
+            .collect();
+        let count = truncate_to_budget(&mut contents, 12000);
+        assert_eq!(count, 3, "恰好等于 budget 时应全部保留");
+    }
+
+    #[test]
+    fn test_truncate_to_budget_single_exceeds() {
+        // 单个文件超过 budget
+        let mut contents: Vec<(String, String)> = vec![
+            ("/big".to_string(), "x".repeat(10000)),
+        ];
+        let count = truncate_to_budget(&mut contents, 100);
+        assert_eq!(count, 0, "单个文件超过 budget 时不应保留");
     }
 
     // read_file_with_budget tests

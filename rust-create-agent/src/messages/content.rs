@@ -255,10 +255,23 @@ impl MessageContent {
             .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
     }
 
-    /// 提取所有 ToolUse blocks
+    /// 提取所有 ToolUse blocks（覆盖 Text/Blocks/Raw 三种变体）
     pub fn tool_use_blocks(&self) -> Vec<(&str, &str, &serde_json::Value)> {
         match self {
             Self::Blocks(blocks) => blocks.iter().filter_map(|b| b.as_tool_use()).collect(),
+            Self::Raw(values) => values
+                .iter()
+                .filter_map(|v| {
+                    if v["type"].as_str() == Some("tool_use") {
+                        let id = v["id"].as_str()?;
+                        let name = v["name"].as_str()?;
+                        let input = v.get("input")?;
+                        Some((id, name, input))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
             _ => vec![],
         }
     }
@@ -326,5 +339,40 @@ mod tests {
         let json = serde_json::to_string(&mc).unwrap();
         let mc2: MessageContent = serde_json::from_str(&json).unwrap();
         assert_eq!(mc, mc2);
+    }
+
+    #[test]
+    fn test_tool_use_blocks_consistency_with_has_tool_use() {
+        // Blocks 变体
+        let mc = MessageContent::Blocks(vec![
+            ContentBlock::tool_use("id1", "bash", serde_json::json!({"cmd": "ls"})),
+            ContentBlock::text("text"),
+        ]);
+        assert!(mc.has_tool_use());
+        assert_eq!(mc.tool_use_blocks().len(), 1);
+        assert_eq!(mc.tool_use_blocks()[0].1, "bash");
+
+        // Text 变体 — 无工具调用
+        let mc = MessageContent::text("plain text");
+        assert!(!mc.has_tool_use());
+        assert!(mc.tool_use_blocks().is_empty());
+
+        // Raw 变体 — 含 tool_use
+        let mc = MessageContent::Raw(vec![
+            serde_json::json!({"type": "text", "text": "calling"}),
+            serde_json::json!({"type": "tool_use", "id": "tc1", "name": "read_file", "input": {"path": "a.rs"}}),
+        ]);
+        assert!(mc.has_tool_use(), "Raw 含 tool_use 时 has_tool_use 应为 true");
+        assert_eq!(mc.tool_use_blocks().len(), 1, "tool_use_blocks 应与 has_tool_use 一致");
+    }
+
+    #[test]
+    fn test_is_empty_variants() {
+        assert!(MessageContent::text("").is_empty());
+        assert!(!MessageContent::text("x").is_empty());
+        assert!(MessageContent::Blocks(vec![]).is_empty());
+        assert!(!MessageContent::Blocks(vec![ContentBlock::text("x")]).is_empty());
+        assert!(MessageContent::Raw(vec![]).is_empty());
+        assert!(!MessageContent::Raw(vec![serde_json::json!({"type": "text", "text": "x"})]).is_empty());
     }
 }
