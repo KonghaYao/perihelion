@@ -81,6 +81,7 @@ pub struct App {
     pub permission_mode: Arc<rust_agent_middlewares::prelude::SharedPermissionMode>,
     /// 权限模式切换后的闪烁高亮截止时间，None 表示不闪烁
     pub mode_highlight_until: Option<std::time::Instant>,
+    pub spinner_state: perihelion_widgets::SpinnerState,
 }
 
 impl App {
@@ -159,6 +160,7 @@ impl App {
                 rust_agent_middlewares::prelude::PermissionMode::BypassPermissions,
             ),
             mode_highlight_until: None,
+            spinner_state: perihelion_widgets::SpinnerState::new(perihelion_widgets::SpinnerMode::Idle),
         }
     }
 
@@ -174,7 +176,10 @@ impl App {
     pub fn set_loading(&mut self, loading: bool) {
         self.core.loading = loading;
         self.core.textarea = build_textarea(loading, self.core.pending_messages.len());
-        if !loading {
+        if loading {
+            self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
+        } else {
+            self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Idle);
             self.agent.cancel_token = None;
         }
     }

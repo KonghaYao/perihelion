@@ -8,6 +8,8 @@ description = "Reusable ratatui widget library for Perihelion"
 ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info"] }
 pulldown-cmark = { version = "0.12", optional = true }
 unicode-width = "0.2"
+rand = "0.8"
+regex = "1"
 
 [features]
 default = []

@@ -215,6 +215,16 @@ impl App {
                 args,
                 is_error,
             } => {
+                // 切换 spinner 到 ToolUse 模式，动词显示工具名+参数摘要
+                self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::ToolUse);
+                let verb_text = match args.as_deref() {
+                    Some(a) if !a.is_empty() => {
+                        let summary: String = a.chars().take(40).collect();
+                        format!("{} {}", display, summary)
+                    }
+                    _ => format!("{}…", display),
+                };
+                self.spinner_state.set_verb(Some(&verb_text));
                 if let Some(idx) = self.core.subagent_group_idx {
                     // 路由进 SubAgentGroup.recent_messages（滑动窗口 max 4）
                     if let Some(MessageViewModel::SubAgentGroup {
@@ -244,6 +254,8 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
+                // 切换 spinner 到 Responding 模式
+                self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
                 if let Some(idx) = self.core.subagent_group_idx {
                     // 路由进 SubAgentGroup.recent_messages 的最后一个 AssistantBubble
                     if let Some(MessageViewModel::SubAgentGroup {

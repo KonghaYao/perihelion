@@ -1,5 +1,5 @@
 use ratatui::{
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 
@@ -45,7 +45,9 @@ pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: us
 
             for block in blocks {
                 match block {
-                    ContentBlockView::Text { rendered, .. } => {
+                    ContentBlockView::Text { rendered, raw, .. } => {
+                        // 检测是否为 diff 内容，如果是则用 diff 着色覆盖
+                        let is_diff = perihelion_widgets::message_block::highlight::is_diff_content(raw);
                         for line in rendered.lines.iter() {
                             if !first_text_merged {
                                 // 第一行文本合并到标题行，保留 markdown 样式 spans
@@ -70,6 +72,25 @@ pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: us
                                 let mut spans = vec![Span::raw("  ")];
                                 spans.extend(line.spans.clone());
                                 lines.push(Line::from(spans));
+                            }
+                        }
+                        // diff 内容着色覆盖：如果检测到 diff，重新渲染带颜色的行
+                        if is_diff && !lines.is_empty() {
+                            // 找到对应区域的起始行并替换
+                            let diff_lines: Vec<Line<'static>> = raw.lines()
+                                .map(|l| {
+                                    let diff_spans = perihelion_widgets::message_block::highlight::highlight_diff_line(l);
+                                    let mut spans = vec![Span::raw("  ")];
+                                    spans.extend(diff_spans);
+                                    Line::from(spans)
+                                })
+                                .collect();
+                            // 替换已有行（跳过第一行标题）
+                            if lines.len() > 1 {
+                                lines.truncate(1);
+                                lines.extend(diff_lines.into_iter().skip(1));
+                            } else {
+                                lines = diff_lines;
                             }
                         }
                     }
@@ -126,27 +147,70 @@ pub fn render_view_model(vm: &MessageViewModel, index: Option<usize>, _width: us
             is_error,
             ..
         } => {
-            let arrow = if *collapsed { "▸" } else { "▾" };
-            let icon = if *is_error { "✗ " } else { "" };
+            // 使用 ToolCallState 构建渲染状态
+            let status = if *is_error {
+                perihelion_widgets::ToolCallStatus::Failed
+            } else if content.is_empty() {
+                perihelion_widgets::ToolCallStatus::Running
+            } else {
+                perihelion_widgets::ToolCallStatus::Completed
+            };
+
+            let mut state = perihelion_widgets::ToolCallState::new(
+                display_name.clone(),
+                *color,
+            );
+            state.status = status;
+            state.collapsed = *collapsed;
+            state.is_error = *is_error;
+            if let Some(args) = args_display {
+                state.args_summary = args.clone();
+            }
+            if !content.is_empty() {
+                state.set_result(content.clone());
+            }
+
+            // 使用 ToolCallWidget 的渲染逻辑
+            let indicator = perihelion_widgets::tool_call::display::format_indicator(state.status.clone(), state.tick);
+            let arrow = if state.collapsed { "▸" } else { "▾" };
             let prefix = index
                 .map(|idx| format!("{} ", idx))
                 .unwrap_or_default();
-            let mut header_spans = vec![Span::styled(
-                format!("{}{}{}{}", prefix, display_name, icon, arrow),
-                Style::default().fg(*color).add_modifier(Modifier::BOLD),
-            )];
-            if let Some(args) = args_display {
+            let mut header_spans = vec![
+                Span::styled(
+                    format!("{}{}", prefix, indicator),
+                    Style::default().fg(*color),
+                ),
+                Span::styled(
+                    format!(" {}", arrow),
+                    Style::default().fg(*color),
+                ),
+                Span::styled(
+                    state.tool_name.clone(),
+                    Style::default().fg(*color).add_modifier(Modifier::BOLD),
+                ),
+            ];
+            if !state.args_summary.is_empty() {
+                let summary = perihelion_widgets::tool_call::display::format_args_summary(&state.args_summary, 40);
                 header_spans.push(Span::styled(
-                    format!("  {}", args),
-                    Style::default().fg(theme::MUTED),
+                    format!("({})", summary),
+                    Style::default().fg(Color::DarkGray),
                 ));
             }
             let mut lines = vec![Line::from(header_spans)];
-            if !collapsed {
-                for line in content.lines() {
+            if !state.collapsed && !state.result_lines.is_empty() {
+                for line in &state.result_lines {
                     lines.push(Line::from(vec![
-                        Span::raw("  │ "),
-                        Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
+                        Span::styled("  │ ".to_string(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(line.clone(), Style::default().fg(theme::MUTED)),
+                    ]));
+                }
+                if let Some(omitted) = state.omitted_lines {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("  ... ({} more lines)", omitted),
+                            Style::default().fg(Color::DarkGray),
+                        ),
                     ]));
                 }
             }

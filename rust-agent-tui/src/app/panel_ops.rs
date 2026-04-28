@@ -229,6 +229,7 @@ impl App {
                 rust_agent_middlewares::prelude::PermissionMode::BypassPermissions,
             ),
             mode_highlight_until: None,
+            spinner_state: perihelion_widgets::SpinnerState::new(perihelion_widgets::SpinnerMode::Idle),
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

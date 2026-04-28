@@ -130,10 +130,15 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
         app.setup_wizard = Some(rust_agent_tui::app::SetupWizardPanel::new());
     }
 
+    // Spinner tick 驱动：每次渲染前推进一帧
+    app.spinner_state.advance_tick();
+
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
 
     'event_loop: loop {
+        // 推进 Spinner 动画帧
+        app.spinner_state.advance_tick();
         // 轮询后台 agent 结果
         let agent_updated = app.poll_agent();
         // 检查 cron 定时触发

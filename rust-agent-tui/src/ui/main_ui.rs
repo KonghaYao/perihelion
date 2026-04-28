@@ -158,17 +158,12 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     let inner = messages_area;
     let visible_height = inner.height;
 
-    // 计算 loading spinner 帧（基于当前时间，200ms 切换一帧）
+    // 计算 loading spinner 帧（使用 SpinnerState 的动画帧和动态动词）
     let spinner_line: Option<Line<'static>> = if app.core.loading {
-        const FRAMES: &[&str] = &["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"];
-        let frame_idx = (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            / 200) as usize
-            % FRAMES.len();
+        let frame = perihelion_widgets::spinner::animation::tick_to_frame(app.spinner_state.tick());
+        let verb = app.spinner_state.verb();
         Some(Line::from(ratatui::text::Span::styled(
-            format!(" {} 思考中…", FRAMES[frame_idx]),
+            format!(" {} {}", frame, verb),
             ratatui::style::Style::default()
                 .fg(theme::LOADING)
                 .add_modifier(Modifier::BOLD),

@@ -1356,4 +1356,41 @@ mod tests {
         let until = app.mode_highlight_until.unwrap();
         assert!(std::time::Instant::now() < until, "截止时间应在未来");
     }
+
+    #[tokio::test]
+    async fn test_spinner_shows_verb_in_status_bar() {
+        let (mut app, mut handle) = crate::app::App::new_headless(120, 30);
+        // 添加一条消息，否则 render_messages 会走 welcome 分支提前 return
+        app.core.view_messages.push(crate::app::MessageViewModel::user("hello".into()));
+        app.spinner_state.set_verb(Some("Searching code"));
+        app.core.loading = true;
+
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("Searching code"), "status bar should show spinner verb");
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_widget_renders_completed() {
+        let (mut app, mut handle) = crate::app::App::new_headless(120, 30);
+
+        let vm = crate::app::MessageViewModel::ToolBlock {
+            tool_name: "bash".to_string(),
+            display_name: "bash".to_string(),
+            args_display: Some("ls -la".to_string()),
+            content: "file1.txt\nfile2.txt".to_string(),
+            color: crate::ui::theme::SAGE,
+            is_error: false,
+            collapsed: false,
+        };
+
+        let lines = crate::ui::message_render::render_view_model(&vm, Some(1), 80);
+        // Render into a visible area for verification
+        use ratatui::widgets::Paragraph;
+        let paragraph = Paragraph::new(lines);
+        handle.terminal.draw(|f| {
+            let area = ratatui::layout::Rect::new(0, 0, 120, 10);
+            f.render_widget(paragraph, area);
+        }).unwrap();
+        assert!(handle.contains("bash"), "should render tool name");
+    }
 }
