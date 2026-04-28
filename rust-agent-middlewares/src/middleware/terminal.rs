@@ -18,10 +18,22 @@ impl BashTool {
     }
 }
 
-/// 输出最大字符数
+/// 输出最大字节数
 const MAX_OUTPUT_CHARS: usize = 100_000;
-/// 输出最大行数（在第 N 行截断后，若还有行数超过上限再截字符）
+/// 输出最大行数（在第 N 行截断后，若还有行数超过上限再截字节）
 const MAX_OUTPUT_LINES: usize = 2_000;
+
+/// 按字节截断字符串，确保不拆分 UTF-8 字符
+fn truncate_bytes(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
 
 fn truncate_output(output: &str) -> String {
     let lines: Vec<&str> = output.split('\n').collect();
@@ -34,16 +46,16 @@ fn truncate_output(output: &str) -> String {
             total_lines,
             MAX_OUTPUT_LINES
         ));
-        // 再检查字符数
+        // 再检查字节数（使用字节截断，保留 UTF-8 字符边界）
         if result.len() > MAX_OUTPUT_CHARS {
-            let char_truncated: String = result.chars().take(MAX_OUTPUT_CHARS).collect();
-            return format!("{}\n\n[Output truncated: exceeds {} character limit]", char_truncated, MAX_OUTPUT_CHARS);
+            let truncated = truncate_bytes(&result, MAX_OUTPUT_CHARS);
+            return format!("{}\n\n[Output truncated: exceeds {} byte limit]", truncated, MAX_OUTPUT_CHARS);
         }
         return result;
     }
     if output.len() > MAX_OUTPUT_CHARS {
-        let truncated: String = output.chars().take(MAX_OUTPUT_CHARS).collect();
-        return format!("{}\n\n[Output truncated: exceeds {} character limit]", truncated, MAX_OUTPUT_CHARS);
+        let truncated = truncate_bytes(output, MAX_OUTPUT_CHARS);
+        return format!("{}\n\n[Output truncated: exceeds {} byte limit]", truncated, MAX_OUTPUT_CHARS);
     }
     output.to_string()
 }
@@ -258,6 +270,6 @@ mod tests {
     fn test_truncate_output_char_limit() {
         let long_line = "x".repeat(200_000);
         let result = truncate_output(&long_line);
-        assert!(result.contains("character limit"), "应截断超长字符: {result}");
+        assert!(result.contains("byte limit"), "应截断超长输出: {result}");
     }
 }

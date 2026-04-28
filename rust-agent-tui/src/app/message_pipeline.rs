@@ -167,6 +167,18 @@ impl MessagePipeline {
             }
             AgentEvent::ToolEnd { tool_call_id, name, output, is_error } => {
                 if self.in_subagent() {
+                    // 更新 recent_messages 中对应 ToolBlock 的内容
+                    if let Some(sub) = self.subagent_stack.last_mut() {
+                        for vm in sub.recent_messages.iter_mut().rev() {
+                            if let MessageViewModel::ToolBlock { tool_name, content, is_error: err, .. } = vm {
+                                if tool_name == &name {
+                                    *content = output.clone();
+                                    *err = is_error;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     vec![self.build_subagent_update()
                         .map(PipelineAction::UpdateLast)
                         .unwrap_or(PipelineAction::None)]

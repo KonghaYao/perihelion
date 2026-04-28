@@ -16,11 +16,6 @@ fn find_tool_name_for_tool_result(messages: &[BaseMessage], tool_call_id: &str) 
 }
 
 fn compact_tool_result_content(content: &mut MessageContent, config: &CompactConfig) -> bool {
-    let original_text = content.text_content();
-    if original_text.is_empty() {
-        return false;
-    }
-
     let blocks = content.content_blocks();
 
     let has_image_or_doc = blocks.iter().any(|b| {
@@ -30,6 +25,8 @@ fn compact_tool_result_content(content: &mut MessageContent, config: &CompactCon
     if !has_image_or_doc {
         return false;
     }
+
+    // 纯图像/文档内容（无文本）也可以被压缩，不跳过
 
     let mut modified = false;
     let new_blocks: Vec<ContentBlock> = blocks
@@ -170,15 +167,14 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
             if original_text.starts_with("[compacted:") {
                 continue;
             }
-            // 跳过纯文本为空的消息（可能含非文本 block），防止替换为 "[compacted: 0 chars]"
-            if original_text.is_empty() {
-                continue;
-            }
-            let original_len = original_text.len();
             let was_modified = compact_tool_result_content(content, config);
 
             if !was_modified {
-                *content = MessageContent::text(format!("[compacted: {} chars]", original_len));
+                // 纯文本为空且无图像/文档 → 不压缩
+                if original_text.is_empty() {
+                    continue;
+                }
+                *content = MessageContent::text(format!("[compacted: {} chars]", original_text.len()));
             }
             cleared += 1;
         }

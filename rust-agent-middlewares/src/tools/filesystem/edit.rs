@@ -75,11 +75,16 @@ impl BaseTool for EditFileTool {
             let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
             let tmp_path = resolved.with_extension(tmp_ext);
             std::fs::write(&tmp_path, &new_content)?;
-            std::fs::rename(&tmp_path, &resolved)?;
-            Ok(format!(
-                "File {} has been edited successfully. Replaced all occurrences of old_string.",
-                resolved.display()
-            ))
+            match std::fs::rename(&tmp_path, &resolved) {
+                Ok(_) => Ok(format!(
+                    "File {} has been edited successfully. Replaced all occurrences of old_string.",
+                    resolved.display()
+                )),
+                Err(e) => {
+                    let _ = std::fs::remove_file(&tmp_path);
+                    Err(format!("Error renaming temp file: {e}").into())
+                }
+            }
         } else {
             let occurrences = content.matches(old_string).count();
             if occurrences == 0 {
@@ -101,11 +106,16 @@ impl BaseTool for EditFileTool {
             let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
             let tmp_path = resolved.with_extension(tmp_ext);
             std::fs::write(&tmp_path, &new_content)?;
-            std::fs::rename(&tmp_path, &resolved)?;
-            Ok(format!(
-                "File {} has been edited successfully. Replaced single occurrence of old_string.",
-                resolved.display()
-            ))
+            match std::fs::rename(&tmp_path, &resolved) {
+                Ok(_) => Ok(format!(
+                    "File {} has been edited successfully. Replaced single occurrence of old_string.",
+                    resolved.display()
+                )),
+                Err(e) => {
+                    let _ = std::fs::remove_file(&tmp_path);
+                    Err(format!("Error renaming temp file: {e}").into())
+                }
+            }
         }
     }
 }
