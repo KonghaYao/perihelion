@@ -171,9 +171,27 @@ impl App {
     // ─── 转发访问器（保持 app.xxx 调用方式不变）─────────────────────────────────
 
     /// 中断正在运行的 Agent（Ctrl+C during loading）
+    ///
+    /// 有 cancel_token 时正常取消；无 cancel_token（如 compact 任务）时
+    /// 强制清理 loading 状态，避免用户被卡住无法操作。
     pub fn interrupt(&mut self) {
         if let Some(token) = &self.agent.cancel_token {
             token.cancel();
+        } else if self.core.loading {
+            tracing::warn!("interrupt: 无 cancel_token 但 loading=true，强制清理");
+            self.set_loading(false);
+            self.agent.agent_rx = None;
+            self.agent.interaction_prompt = None;
+            self.agent.pending_hitl_items = None;
+            self.agent.pending_ask_user = None;
+            if let Some(start) = self.agent.task_start_time {
+                self.agent.last_task_duration = Some(start.elapsed());
+            }
+            let vm = MessageViewModel::system(
+                "⚠ 已强制中断（后台任务可能仍在运行）".to_string(),
+            );
+            self.core.view_messages.push(vm.clone());
+            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
         }
     }
 

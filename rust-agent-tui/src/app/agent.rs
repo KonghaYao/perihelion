@@ -306,20 +306,39 @@ pub async fn compact_task(
     config: rust_create_agent::agent::compact::CompactConfig,
     cwd: String,
     tx: mpsc::Sender<super::AgentEvent>,
+    cancel: AgentCancellationToken,
 ) {
     use rust_create_agent::agent::compact::{full_compact, re_inject};
     use rust_create_agent::llm::BaseModel;
 
     tracing::info!(msg_count = messages.len(), "compact_task: 开始 Full Compact");
 
-    let compact_result = match full_compact(&messages, model.as_ref(), &config, &instructions).await {
-        Ok(result) => result,
-        Err(e) => {
-            tracing::error!(error = %e, "compact_task: Full Compact 失败");
-            let _ = tx.send(super::AgentEvent::CompactError(e.to_string())).await;
+    // full_compact 调用 LLM，支持取消
+    let compact_result = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            tracing::info!("compact_task: 被用户取消");
+            let _ = tx.send(super::AgentEvent::CompactError("已取消".to_string())).await;
             return;
         }
+        result = full_compact(&messages, model.as_ref(), &config, &instructions) => {
+            match result {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!(error = %e, "compact_task: Full Compact 失败");
+                    let _ = tx.send(super::AgentEvent::CompactError(e.to_string())).await;
+                    return;
+                }
+            }
+        }
     };
+
+    // 取消检查：re_inject 之前
+    if cancel.is_cancelled() {
+        tracing::info!("compact_task: re_inject 前被取消");
+        let _ = tx.send(super::AgentEvent::CompactError("已取消".to_string())).await;
+        return;
+    }
 
     tracing::info!(
         summary_len = compact_result.summary.len(),
@@ -327,7 +346,15 @@ pub async fn compact_task(
         "compact_task: Full Compact 完成"
     );
 
-    let re_inject_result = re_inject(&messages, &config, &cwd).await;
+    let re_inject_result = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            tracing::info!("compact_task: re_inject 阶段被取消");
+            let _ = tx.send(super::AgentEvent::CompactError("已取消".to_string())).await;
+            return;
+        }
+        result = re_inject(&messages, &config, &cwd) => result,
+    };
 
     tracing::info!(
         files_injected = re_inject_result.files_injected,

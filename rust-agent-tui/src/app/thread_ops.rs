@@ -1,4 +1,5 @@
 use super::*;
+use rust_create_agent::agent::AgentCancellationToken;
 
 impl App {
     /// 获取或新建当前 thread id（同步，block_in_place）
@@ -148,11 +149,16 @@ impl App {
 
         let (tx, rx) = mpsc::channel::<AgentEvent>(8);
         self.agent.agent_rx = Some(rx);
+
+        // 创建取消令牌，使 Ctrl+C 可以中断 compact 任务
+        let cancel = AgentCancellationToken::new();
+        self.agent.cancel_token = Some(cancel.clone());
+
         self.set_loading(true);
         self.agent.session_token_tracker.reset();
 
         tokio::spawn(async move {
-            agent::compact_task(messages, model, instructions, config, cwd, tx).await;
+            agent::compact_task(messages, model, instructions, config, cwd, tx, cancel).await;
         });
     }
 
