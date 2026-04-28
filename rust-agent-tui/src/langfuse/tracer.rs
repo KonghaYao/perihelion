@@ -442,6 +442,9 @@ impl LangfuseTracer {
 
     /// SubAgent 结束：更新 Observation 并弹出栈
     pub fn on_subagent_end(&mut self, result: &str, is_error: bool) {
+        // 先 flush subagent 下的 tools batch（必须在 pop 之前，否则 flush 到错误 parent）
+        self.flush_tools_batch();
+
         let (subagent_id, subagent_name) = match self.subagent_stack.pop() {
             Some(ctx) => (ctx.observation_id, ctx.agent_id),
             None => {
@@ -449,10 +452,6 @@ impl LangfuseTracer {
                 return;
             }
         };
-
-        // 先 flush subagent 下的 tools batch（如果有）
-        // 注意：需要在弹出栈之前调用 flush_tools_batch，它会自动使用当前（即将弹出的）subagent 上下文
-        self.flush_tools_batch();
 
         let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let status_message = if is_error { Some("error".to_string()) } else { None };

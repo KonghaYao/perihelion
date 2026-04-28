@@ -156,6 +156,8 @@ impl App {
         self.agent.cancel_token = Some(cancel.clone());
 
         self.set_loading(true);
+        // 保存快照：compact 失败时恢复，防止 tracker 失去对上下文大小的感知
+        self.agent.pre_compact_token_snapshot = Some(self.agent.session_token_tracker.clone());
         self.agent.session_token_tracker.reset();
 
         tokio::spawn(async move {

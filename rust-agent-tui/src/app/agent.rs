@@ -367,10 +367,8 @@ pub async fn compact_task(
         "compact_task: 重新注入完成"
     );
 
-    let summary_text = format!(
-        "此会话从之前的对话延续。以下是之前对话的摘要。\n\n{}",
-        compact_result.summary
-    );
+    // compact_result.summary 已包含 postprocess_summary 添加的前缀，无需重复添加
+    let summary_text = compact_result.summary;
 
     let re_inject_content = if re_inject_result.messages.is_empty() {
         String::new()

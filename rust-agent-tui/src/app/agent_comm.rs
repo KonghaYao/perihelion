@@ -46,6 +46,8 @@ pub struct AgentComm {
     pub needs_auto_compact: bool,
     /// 连续 auto-compact 失败次数（circuit breaker，达到 3 次后停止自动触发）
     pub auto_compact_failures: u32,
+    /// compact 前的 token tracker 快照（compact 失败时恢复，防止 tracker 失去对上下文大小的感知）
+    pub pre_compact_token_snapshot: Option<rust_create_agent::agent::token::TokenTracker>,
     /// LLM 重试状态（重试中时为 Some，收到下一个正常事件时清除）
     pub retry_status: Option<RetryStatus>,
 }
@@ -67,6 +69,7 @@ impl Default for AgentComm {
             context_window: 200_000,
             needs_auto_compact: false,
             auto_compact_failures: 0,
+            pre_compact_token_snapshot: None,
             retry_status: None,
         }
     }

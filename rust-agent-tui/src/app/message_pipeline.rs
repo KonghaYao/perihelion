@@ -24,7 +24,7 @@ use rust_create_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::tool_display;
 use crate::ui::message_view::{
-    MessageViewModel, ContentBlockView, ToolCategory, aggregate_tool_groups,
+    MessageViewModel, ContentBlockView, aggregate_tool_groups,
     tool_color,
 };
 use crate::ui::theme;
@@ -353,12 +353,7 @@ impl MessagePipeline {
             return PipelineAction::UpdateLast(vm);
         }
 
-        // 只读工具成功 → 可能需要聚合
-        if ToolCategory::from_tool_name(name).is_some() {
-            return PipelineAction::None;
-        }
-
-        // 非只读工具成功 → 更新 ToolBlock 为已完成状态
+        // 成功工具（含只读）→ 更新 ToolBlock 为已完成状态
         let args = tool_display::format_tool_args(
             name,
             &serde_json::Value::Null,
@@ -785,8 +780,8 @@ mod tests {
             is_error: false,
         });
         assert_eq!(actions.len(), 1);
-        // ToolEnd 对只读工具返回 None
-        assert!(matches!(actions[0], PipelineAction::None));
+        // ToolEnd 对只读工具返回 UpdateLast（内容填充到 ToolBlock）
+        assert!(matches!(actions[0], PipelineAction::UpdateLast(_)));
         // Done → StreamingDone（不再 RebuildAll，流式路径已通过增量操作维护 view_messages）
         let actions = pipeline.handle_event(AgentEvent::Done);
         assert_eq!(actions.len(), 1);

@@ -580,6 +580,7 @@ impl App {
 
                 self.langfuse.langfuse_session = None;
                 self.agent.auto_compact_failures = 0;
+                self.agent.pre_compact_token_snapshot = None;
 
                 if !self.core.pending_messages.is_empty() {
                     let combined = self.core.pending_messages.join("\n\n");
@@ -595,6 +596,11 @@ impl App {
                 self.set_loading(false);
                 self.agent.agent_rx = None;
                 self.agent.auto_compact_failures += 1;
+
+                // 恢复 compact 前的 token tracker 快照，使 auto-compact 仍能感知上下文大小
+                if let Some(snapshot) = self.agent.pre_compact_token_snapshot.take() {
+                    self.agent.session_token_tracker = snapshot;
+                }
 
                 if !self.core.pending_messages.is_empty() {
                     let combined = self.core.pending_messages.join("\n\n");
