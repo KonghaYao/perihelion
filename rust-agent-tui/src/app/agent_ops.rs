@@ -717,8 +717,13 @@ impl App {
                 self.submit_message(trigger.prompt);
             } else {
                 // Agent 正在执行，缓冲触发事件等待 Done 后自动发送
-                tracing::debug!(prompt = %trigger.prompt, "cron trigger buffered (agent busy)");
-                self.core.pending_messages.push(trigger.prompt);
+                const MAX_PENDING: usize = 10;
+                if self.core.pending_messages.len() < MAX_PENDING {
+                    tracing::debug!(prompt = %trigger.prompt, "cron trigger buffered (agent busy)");
+                    self.core.pending_messages.push(trigger.prompt);
+                } else {
+                    tracing::warn!("pending_messages 已达上限 {}，丢弃 cron 触发", MAX_PENDING);
+                }
             }
         }
     }

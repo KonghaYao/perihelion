@@ -15,6 +15,8 @@ impl ReadFileTool {
 }
 
 const MAX_LINES: usize = 2000;
+/// 最大允许读取的文件大小（32 MB）
+const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 fn is_binary_extension(ext: &str) -> bool {
     matches!(
@@ -69,12 +71,25 @@ impl BaseTool for ReadFileTool {
             }
         }
 
-        let content = match std::fs::read_to_string(&resolved) {
-            Ok(c) => c,
+        let content = match std::fs::metadata(&resolved) {
+            Ok(meta) if meta.len() > MAX_FILE_SIZE => {
+                return Ok(format!(
+                    "Error: File too large ({} bytes, max {} bytes). Use offset/limit to read portions.",
+                    meta.len(),
+                    MAX_FILE_SIZE
+                ));
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(format!("Error: File not found at {file_path}"));
             }
             Err(e) => return Err(e.into()),
+            _ => match std::fs::read_to_string(&resolved) {
+                Ok(c) => c,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(format!("Error: File not found at {file_path}"));
+                }
+                Err(e) => return Err(e.into()),
+            },
         };
 
         let lines: Vec<&str> = content.split('\n').collect();
@@ -173,6 +188,25 @@ mod tests {
         assert!(
             result.contains("exceeds file length"),
             "offset 超出文件长度应返回错误而非 panic: {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_read_file_too_large() {
+        let dir = tempfile::tempdir().unwrap();
+        // 创建一个超过 MAX_FILE_SIZE 的稀疏文件
+        let large_path = dir.path().join("huge.txt");
+        let f = std::fs::File::create(&large_path).unwrap();
+        f.set_len(MAX_FILE_SIZE + 1).unwrap();
+        drop(f);
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "huge.txt"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("File too large"),
+            "超大文件应返回 File too large 错误: {result}"
         );
     }
 }
