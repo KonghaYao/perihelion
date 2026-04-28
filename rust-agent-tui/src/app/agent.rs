@@ -309,7 +309,6 @@ pub async fn compact_task(
     cancel: AgentCancellationToken,
 ) {
     use rust_create_agent::agent::compact::{full_compact, re_inject};
-    use rust_create_agent::llm::BaseModel;
 
     tracing::info!(msg_count = messages.len(), "compact_task: 开始 Full Compact");
 

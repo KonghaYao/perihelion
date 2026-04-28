@@ -53,6 +53,7 @@ impl TableBuilder {
         }
     }
 
+    #[allow(dead_code)]
     fn render(self, theme: &dyn MarkdownTheme) -> Vec<Line<'static>> {
         if self.rows.is_empty() {
             return vec![];
@@ -368,6 +369,7 @@ fn make_border(
     Span::styled(s, Style::default().fg(theme.muted()))
 }
 
+#[allow(dead_code)]
 fn make_data_line(
     col_widths: &[usize],
     row: &[CellContent],

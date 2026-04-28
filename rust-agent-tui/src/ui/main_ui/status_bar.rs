@@ -103,7 +103,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
 /// 第二行：[Agent 面板信息] │ [快捷键提示]
 fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     let mut left_spans: Vec<Span> = Vec::new();
-    let mut has_content = false;
+    let has_content = false;
 
     // Agent 面板信息（仅面板激活时）
     if let Some(panel) = &app.core.agent_panel {

@@ -1,5 +1,5 @@
 use crate::agent::compact::config::CompactConfig;
-use crate::messages::{BaseMessage, MessageContent};
+use crate::messages::BaseMessage;
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -199,7 +199,7 @@ pub async fn re_inject(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::ToolCallRequest;
+    use crate::messages::{MessageContent, ToolCallRequest};
     use serde_json::json;
 
     fn ai_read_file(tc_id: &str, path: &str) -> BaseMessage {

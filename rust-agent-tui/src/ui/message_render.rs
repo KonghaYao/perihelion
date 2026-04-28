@@ -36,7 +36,6 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
         }
         MessageViewModel::AssistantBubble {
             blocks,
-            is_streaming,
             ..
         } => {
             let mut lines = Vec::new();
@@ -168,8 +167,8 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                         Span::styled(line.clone(), Style::default().fg(theme::MUTED)),
                     ]));
                 }
-                if let Some(omitted) = state.omitted_lines {
-                    //省略提示已删除
+                if let Some(_omitted) = state.omitted_lines {
+                    // 省略提示已删除
                 }
             }
             lines

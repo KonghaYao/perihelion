@@ -57,8 +57,11 @@ pub enum PipelineAction {
 
 /// 已开始但未结束的工具调用
 struct PendingTool {
+    #[allow(dead_code)]
     tool_call_id: String,
+    #[allow(dead_code)]
     name: String,
+    #[allow(dead_code)]
     input: serde_json::Value,
 }
 
@@ -71,6 +74,7 @@ struct SubAgentState {
     recent_messages: Vec<MessageViewModel>,
     is_running: bool,
     /// 流式期间子 agent 产生的 BaseMessage
+    #[allow(dead_code)]
     inner_messages: Vec<BaseMessage>,
 }
 
