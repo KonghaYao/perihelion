@@ -195,7 +195,7 @@ pub enum SetupWizardAction {
 /// Setup 向导按键分发
 pub fn handle_setup_wizard_key(
     wizard: &mut SetupWizardPanel,
-    input: ratatui_textarea::Input,
+    input: tui_textarea::Input,
 ) -> Option<SetupWizardAction> {
 
     // 跳过确认弹窗优先处理
@@ -212,14 +212,14 @@ pub fn handle_setup_wizard_key(
 
 fn handle_confirm_skip(
     wizard: &mut SetupWizardPanel,
-    input: ratatui_textarea::Input,
+    input: tui_textarea::Input,
 ) -> Option<SetupWizardAction> {
-    use ratatui_textarea::Key;
+    use tui_textarea::Key;
     match input {
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Enter, ..
         } => Some(SetupWizardAction::Skip),
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Esc, ..
         } => {
             wizard.confirm_skip = false;
@@ -231,12 +231,12 @@ fn handle_confirm_skip(
 
 fn handle_step_provider(
     wizard: &mut SetupWizardPanel,
-    input: ratatui_textarea::Input,
+    input: tui_textarea::Input,
 ) -> Option<SetupWizardAction> {
-    use ratatui_textarea::Key;
+    use tui_textarea::Key;
     match input {
         // Tab: 在四个字段间循环切换
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Tab,
             shift: false,
             ..
@@ -244,7 +244,7 @@ fn handle_step_provider(
             wizard.step1_focus = wizard.step1_focus.next();
             Some(SetupWizardAction::Redraw)
         }
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Tab,
             shift: true,
             ..
@@ -253,7 +253,7 @@ fn handle_step_provider(
             Some(SetupWizardAction::Redraw)
         }
         // ↑↓: 当 focus == ProviderType 时循环切换 Provider 类型
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Up, ..
         } => {
             if wizard.step1_focus == Step1Field::ProviderType {
@@ -262,7 +262,7 @@ fn handle_step_provider(
             }
             Some(SetupWizardAction::Redraw)
         }
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Down, ..
         } => {
             if wizard.step1_focus == Step1Field::ProviderType {
@@ -272,7 +272,7 @@ fn handle_step_provider(
             Some(SetupWizardAction::Redraw)
         }
         // Enter: 校验所有字段非空后进入 ModelAlias
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Enter, ..
         } => {
             if !wizard.provider_id.trim().is_empty()
@@ -283,14 +283,14 @@ fn handle_step_provider(
             Some(SetupWizardAction::Redraw)
         }
         // Esc: 触发跳过确认
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Esc, ..
         } => {
             wizard.confirm_skip = true;
             Some(SetupWizardAction::Redraw)
         }
         // Backspace: 删除当前字段末字符
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Backspace,
             ..
         } => {
@@ -309,7 +309,7 @@ fn handle_step_provider(
             Some(SetupWizardAction::Redraw)
         }
         // 字符输入
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Char(c),
             ctrl: false,
             alt: false,
@@ -331,11 +331,11 @@ fn handle_step_provider(
 
 fn handle_step_model_alias(
     wizard: &mut SetupWizardPanel,
-    input: ratatui_textarea::Input,
+    input: tui_textarea::Input,
 ) -> Option<SetupWizardAction> {
-    use ratatui_textarea::Key;
+    use tui_textarea::Key;
     match input {
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Tab,
             shift: false,
             ..
@@ -343,7 +343,7 @@ fn handle_step_model_alias(
             wizard.step3_focus = (wizard.step3_focus + 1) % 3;
             Some(SetupWizardAction::Redraw)
         }
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Tab,
             shift: true,
             ..
@@ -351,7 +351,7 @@ fn handle_step_model_alias(
             wizard.step3_focus = (wizard.step3_focus + 2) % 3;
             Some(SetupWizardAction::Redraw)
         }
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Enter, ..
         } => {
             if wizard.aliases.iter().all(|a| !a.model_id.trim().is_empty()) {
@@ -359,20 +359,20 @@ fn handle_step_model_alias(
             }
             Some(SetupWizardAction::Redraw)
         }
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Esc, ..
         } => {
             wizard.step = SetupStep::Provider;
             Some(SetupWizardAction::Redraw)
         }
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Backspace,
             ..
         } => {
             wizard.aliases[wizard.step3_focus].model_id.pop();
             Some(SetupWizardAction::Redraw)
         }
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Char(c),
             ctrl: false,
             alt: false,
@@ -387,14 +387,14 @@ fn handle_step_model_alias(
 
 fn handle_step_done(
     wizard: &mut SetupWizardPanel,
-    input: ratatui_textarea::Input,
+    input: tui_textarea::Input,
 ) -> Option<SetupWizardAction> {
-    use ratatui_textarea::Key;
+    use tui_textarea::Key;
     match input {
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Enter, ..
         } => Some(SetupWizardAction::SaveAndClose),
-        ratatui_textarea::Input {
+        tui_textarea::Input {
             key: Key::Esc, ..
         } => {
             wizard.step = SetupStep::ModelAlias;
@@ -580,7 +580,7 @@ mod tests {
 
     // ── Event handling tests ──
 
-    use ratatui_textarea::{Input, Key};
+    use tui_textarea::{Input, Key};
 
     fn make_char(c: char) -> Input {
         Input { key: Key::Char(c), ctrl: false, alt: false, shift: false }

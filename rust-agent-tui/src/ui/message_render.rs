@@ -170,12 +170,7 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                     ]));
                 }
                 if let Some(omitted) = state.omitted_lines {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("  ... ({} more lines)", omitted),
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                    ]));
+                    //省略提示已删除
                 }
             }
             lines

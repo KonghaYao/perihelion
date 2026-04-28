@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use ratatui_textarea::TextArea;
+use tui_textarea::TextArea;
 use rust_agent_middlewares::prelude::SkillMetadata;
 use tokio::sync::{mpsc, Notify};
 
@@ -39,6 +39,12 @@ pub struct AppCore {
     pub login_panel: Option<LoginPanel>,
     pub agent_panel: Option<AgentPanel>,
     pub thread_browser: Option<ThreadBrowser>,
+    /// 输入历史（已发送消息的文本，最新的在前面）
+    pub input_history: Vec<String>,
+    /// 当前浏览的历史索引，None = 不在浏览历史
+    pub history_index: Option<usize>,
+    /// 进入历史浏览前的草稿内容，退出浏览时恢复
+    pub draft_input: Option<String>,
 }
 
 impl AppCore {
@@ -76,6 +82,9 @@ impl AppCore {
             login_panel: None,
             agent_panel: None,
             thread_browser: None,
+            input_history: Vec::new(),
+            history_index: None,
+            draft_input: None,
         }
     }
 }

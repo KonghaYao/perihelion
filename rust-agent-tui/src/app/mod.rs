@@ -19,6 +19,7 @@ mod ask_user_prompt;
 mod hint_ops;
 mod hitl_ops;
 mod hitl_prompt;
+mod history_ops;
 mod panel_ops;
 mod thread_ops;
 
@@ -36,7 +37,7 @@ pub enum InteractionPrompt {
 use crate::ui::theme;
 use ratatui::style::Style;
 use ratatui::text::Span;
-use ratatui_textarea::TextArea;
+use tui_textarea::TextArea;
 use rust_agent_middlewares::prelude::{HitlDecision, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::AgentCancellationToken;

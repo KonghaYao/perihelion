@@ -175,7 +175,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         let tokens = app.spinner_state.displayed_tokens();
 
         let orange = Style::default().fg(Color::Rgb(255, 140, 0));
-        let gray = Style::default().fg(Color::Gray);
+        let gray = Style::default().fg(theme::MUTED);
         let mut parts = vec![
             Span::styled(format!(" {} {}", frame, verb), orange),
             Span::styled(format!(" ({elapsed}"), gray),
@@ -192,7 +192,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         );
         Some(Line::from(Span::styled(
             format!("  ✻  Brewed for {elapsed}"),
-            Style::default().fg(Color::Gray),
+            Style::default().fg(theme::MUTED),
         )))
     } else {
         None
@@ -237,8 +237,8 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         if app.core.loading {
             let tip = crate::ui::tips::pick_tip(app.spinner_state.raw_tick());
             all_lines.push(Line::from(vec![
-                Span::styled("  ⎿  Tip: ", Style::default().fg(Color::Gray)),
-                Span::styled(tip, Style::default().fg(Color::Gray)),
+                Span::styled("  ⎿  Tip: ", Style::default().fg(theme::MUTED)),
+                Span::styled(tip, Style::default().fg(theme::MUTED)),
             ]));
             all_lines.push(Line::from(""));
             for item in &app.todo_items {
@@ -253,7 +253,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
                     ),
                     TodoStatus::Pending => (
                         "  ○  ",
-                        Style::default().fg(Color::Gray),
+                        Style::default().fg(theme::MUTED),
                     ),
                 };
                 all_lines.push(Line::from(vec![

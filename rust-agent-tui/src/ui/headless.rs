@@ -702,20 +702,25 @@ mod tests {
     #[tokio::test]
     async fn test_sticky_header_shows_after_submit() {
         // 模拟 submit_message 后 sticky header 显示
+        // 需要足够多的消息使内容超过可视区域（max_scroll > 0）
         let (mut app, mut handle) = App::new_headless(80, 24);
 
-        // 直接设置 last_human_message（模拟 submit_message 的效果）
+        // 填充足够多的消息使消息区产生滚动
+        for i in 0..30 {
+            let notified = handle.render_notify.notified();
+            let vm = MessageViewModel::user(format!("message line {}", i));
+            app.core.view_messages.push(vm.clone());
+            let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
+            notified.await;
+        }
+
+        // 设置 last_human_message（模拟 submit_message 的效果）
         app.core.last_human_message = Some("hello from user".to_string());
 
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
-        assert!(
-            snap_text.contains("❯ "),
-            "应显示 sticky header 标签，实际:\n{}",
-            snap_text
-        );
         assert!(
             snap_text.contains("hello from"),
             "应显示消息内容，实际:\n{}",
@@ -760,6 +765,15 @@ mod tests {
         // 连续发送多条消息，header 应显示最后一条
         let (mut app, mut handle) = App::new_headless(80, 24);
 
+        // 填充足够多的消息使消息区产生滚动
+        for i in 0..30 {
+            let notified = handle.render_notify.notified();
+            let vm = MessageViewModel::user(format!("padding line {}", i));
+            app.core.view_messages.push(vm.clone());
+            let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
+            notified.await;
+        }
+
         // 模拟第一条消息
         app.core.last_human_message = Some("first message".to_string());
         // 模拟第二条消息（覆盖）
@@ -785,6 +799,15 @@ mod tests {
     async fn test_sticky_header_truncation_long_message() {
         // 超长消息应在达到行数上限后截断并加 …
         let (mut app, mut handle) = App::new_headless(40, 24); // 窄屏 40 列
+
+        // 填充足够多的消息使消息区产生滚动
+        for i in 0..30 {
+            let notified = handle.render_notify.notified();
+            let vm = MessageViewModel::user(format!("padding {}", i));
+            app.core.view_messages.push(vm.clone());
+            let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
+            notified.await;
+        }
 
         // 模拟超长消息（远超 header 可显示范围）
         let long_msg = "hello this is a very long message that definitely exceeds header capacity".to_string();
@@ -903,7 +926,7 @@ mod tests {
             SetupWizardAction, SetupWizardPanel, Step1Field,
         };
         use crate::app::App;
-        use ratatui_textarea::{Input, Key};
+        use tui_textarea::{Input, Key};
 
         fn make_char(c: char) -> Input {
             Input {

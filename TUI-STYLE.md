@@ -67,6 +67,8 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
 | `Alt+Enter` | 插入换行 | |
 | `Shift+Tab` | 循环切换权限模式 | DEFAULT → AUTO-EDIT → AUTO → YOLO → NO-ASK |
+| `↑` | 浮层导航 / 历史恢复 | 浮层激活时导航候选，否则恢复上一条输入 |
+| `↓` | 浮层导航 / 历史恢复 | 浮层激活时导航候选，否则恢复下一条输入 |
 | `Tab` | 命令/Skills 提示浮层导航 | 选中后 Enter 补全 |
 | `Ctrl+V` | 粘贴剪贴板（优先图片，回退文字） | |
 | `PageUp/PageDown` | 消息区上下翻页（每次 10 行） | |
@@ -248,8 +250,8 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | `/cron` | 定时任务管理面板 |
 | `/help` | 列出所有命令 |
 
-输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全为 `#skill-name`。
-输入 `/` 前缀触发命令提示，支持前缀唯一匹配（如 `/m` 匹配 `/model`）。
+输入 `#` 前缀触发 Skills 浮层，`Tab` / `↑↓` 导航，`Enter` 补全为 `#skill-name`。
+输入 `/` 前缀触发命令提示，支持前缀唯一匹配（如 `/m` 匹配 `/model`），`Tab` / `↑↓` 导航。
 
 ## 权限模式
 

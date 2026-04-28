@@ -8,6 +8,8 @@ impl App {
             return;
         }
 
+        self.push_input_history(input.clone());
+
         // 消费待发送附件
         let attachments = std::mem::take(&mut self.core.pending_attachments);
 

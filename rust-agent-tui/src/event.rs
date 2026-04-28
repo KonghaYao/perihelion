@@ -1,7 +1,7 @@
 use anyhow::Result;
 use base64::Engine as _;
 use ratatui::crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
-use ratatui_textarea::{Input, Key};
+use tui_textarea::{Input, Key};
 use std::time::Duration;
 
 use crate::app::model_panel::{AliasTab, ROW_HAIKU, ROW_LOGIN, ROW_OPUS, ROW_SONNET, ROW_THINKING};
@@ -226,6 +226,50 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 }
                 Input { key: Key::Esc, .. } if !app.core.loading => return Ok(Some(Action::Quit)),
 
+                // Up：浮层导航 > 历史恢复（仅首行）> textarea 光标
+                Input { key: Key::Up, .. } if !app.core.loading => {
+                    let hint_count = app.hint_candidates_count();
+                    if app.core.hint_cursor.is_some() && hint_count > 0 {
+                        let cur = app.core.hint_cursor.unwrap();
+                        app.core.hint_cursor = if cur == 0 {
+                            Some(hint_count - 1)
+                        } else {
+                            Some(cur - 1)
+                        };
+                    } else {
+                        let (row, _col) = app.core.textarea.cursor();
+                        if row == 0 {
+                            app.history_up();
+                        } else {
+                            app.core.textarea.input(Input { key: Key::Up, ctrl: false, alt: false, shift: false });
+                        }
+                    }
+                }
+
+                // Down：浮层导航 > 历史恢复（仅末行）> textarea 光标
+                Input { key: Key::Down, .. } if !app.core.loading => {
+                    let hint_count = app.hint_candidates_count();
+                    if app.core.hint_cursor.is_some() && hint_count > 0 {
+                        let cur = app.core.hint_cursor.unwrap();
+                        app.core.hint_cursor = if cur + 1 >= hint_count {
+                            Some(0)
+                        } else {
+                            Some(cur + 1)
+                        };
+                    } else if app.core.history_index.is_some() {
+                        app.history_down();
+                    } else {
+                        let (row, _col) = app.core.textarea.cursor();
+                        let last_row = app.core.textarea.lines().len().saturating_sub(1);
+                        if row >= last_row {
+                            app.history_down();
+                        } else {
+                            app.core.textarea.input(Input { key: Key::Down, ctrl: false, alt: false, shift: false });
+                        }
+                    }
+                }
+
+
                 // Ctrl+V：优先尝试粘贴剪贴板图片，失败则回退到粘贴文字
                 Input { key: Key::Char('v'), ctrl: true, .. } if !app.core.loading => {
                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
@@ -344,10 +388,18 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
                 // 拦截普通 Enter，避免 textarea 默认换行；允许 loading 时输入
                 input if input.key != Key::Enter => {
+                    // 退出历史浏览
+                    if app.core.history_index.is_some() {
+                        app.exit_history();
+                    }
                     app.core.textarea.input(input);
-                    // 输入内容变化时重置提示光标
+                    // 输入内容变化时：有候选自动选中第一个，无候选则清零
                     if !app.core.loading {
-                        app.core.hint_cursor = None;
+                        app.core.hint_cursor = if app.hint_candidates_count() > 0 {
+                            Some(0)
+                        } else {
+                            None
+                        };
                     }
                 }
 
