@@ -104,7 +104,20 @@ pub fn render(f: &mut Frame, app: &mut App) {
         }
     }
 
+    // 输入框前缀 ❯ + 文本区
     f.render_widget(&app.core.textarea, chunks[5]);
+
+    // ❯ 前缀：渲染在输入框文字前面（叠加在 textarea 第一行起始位置）
+    let prompt_x = chunks[5].x;
+    let prompt_y = chunks[5].y + 1; // 跳过顶部边框行
+    let prompt_area = Rect {
+        x: prompt_x,
+        y: prompt_y,
+        width: 2,
+        height: 1,
+    };
+    let prompt_style = Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD);
+    f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
     status_bar::render_status_bar(f, app, chunks[6]);
 
     // 命令/Skills 提示条（浮动在输入框上方）

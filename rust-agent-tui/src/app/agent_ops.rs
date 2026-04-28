@@ -1,5 +1,6 @@
 use super::*;
 use rust_agent_middlewares::hitl::BatchItem;
+use crate::ui::message_view::{ToolCategory, ToolEntry};
 
 impl App {
     pub fn submit_message(&mut self, input: String) {
@@ -246,10 +247,49 @@ impl App {
                         let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
                     }
                 } else {
-                    // 父 Agent 层：正常创建 ToolBlock
-                    let vm = MessageViewModel::tool_block(name, display, args, is_error);
-                    self.core.view_messages.push(vm.clone());
-                    let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                    // 父 Agent 层：检查是否可聚合到现有 ToolCallGroup
+                    if let Some(cat) = ToolCategory::from_tool_name(&name) {
+                        // 只读工具：尝试聚合到末尾的同类别 ToolCallGroup
+                        let can_merge = matches!(
+                            self.core.view_messages.last(),
+                            Some(MessageViewModel::ToolCallGroup { category, .. }) if *category == cat
+                        );
+
+                        if can_merge {
+                            if let Some(MessageViewModel::ToolCallGroup { tools, .. }) =
+                                self.core.view_messages.last_mut()
+                            {
+                                tools.push(ToolEntry {
+                                    display_name: display.clone(),
+                                    args_display: args.clone(),
+                                    content: String::new(),
+                                    is_error,
+                                });
+                            }
+                            if let Some(vm) = self.core.view_messages.last().cloned() {
+                                let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                            }
+                        } else {
+                            // 创建新的 ToolCallGroup
+                            let vm = MessageViewModel::ToolCallGroup {
+                                category: cat,
+                                tools: vec![ToolEntry {
+                                    display_name: display.clone(),
+                                    args_display: args.clone(),
+                                    content: String::new(),
+                                    is_error,
+                                }],
+                                collapsed: true,
+                            };
+                            self.core.view_messages.push(vm.clone());
+                            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                        }
+                    } else {
+                        // 非只读工具：保持原逻辑
+                        let vm = MessageViewModel::tool_block(name, display, args, is_error);
+                        self.core.view_messages.push(vm.clone());
+                        let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                    }
                 }
                 (true, false, false)
             }

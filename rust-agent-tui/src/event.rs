@@ -312,7 +312,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             app.core.pending_messages.push(text);
                             app.update_textarea_hint();
                         } else if text.starts_with('/') {
-                            app.core.textarea = crate::app::build_textarea(false, 0);
+                            app.core.textarea = crate::app::build_textarea(false);
                             // 命令模式：取出 registry 避免借用冲突
                             let registry = std::mem::take(&mut app.core.command_registry);
                             let known = registry.dispatch(app, &text);
@@ -324,7 +324,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                 )));
                             }
                         } else {
-                            app.core.textarea = crate::app::build_textarea(false, 0);
+                            app.core.textarea = crate::app::build_textarea(false);
                             return Ok(Some(Action::Submit(text)));
                         }
                     }
@@ -352,6 +352,11 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     ..
                 } => {
                     app.toggle_collapsed_messages();
+                }
+
+                // Ctrl+O：展开/折叠最近的工具调用聚合组
+                Input { key: Key::Char('o'), ctrl: true, .. } => {
+                    app.toggle_last_tool_group();
                 }
 
                 // Del：删除最后一个待发送附件（有附件时优先消费 Del）

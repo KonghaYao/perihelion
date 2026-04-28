@@ -55,7 +55,7 @@ impl AppCore {
             .collect();
         Self {
             view_messages: Vec::new(),
-            textarea: super::build_textarea(false, 0),
+            textarea: super::build_textarea(false),
             loading: false,
             scroll_offset: u16::MAX,
             scroll_follow: true,

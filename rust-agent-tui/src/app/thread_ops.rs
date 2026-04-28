@@ -38,6 +38,19 @@ impl App {
             .send(RenderEvent::ToggleToolMessages(self.core.show_tool_messages));
     }
 
+    /// 展开/折叠最近的 ToolCallGroup（ctrl+o）
+    pub fn toggle_last_tool_group(&mut self) {
+        for i in (0..self.core.view_messages.len()).rev() {
+            if let MessageViewModel::ToolCallGroup { collapsed, .. } = &mut self.core.view_messages[i] {
+                *collapsed = !*collapsed;
+                let _ = self
+                    .core.render_tx
+                    .send(RenderEvent::LoadHistory(self.core.view_messages.clone()));
+                return;
+            }
+        }
+    }
+
     /// 添加一个图片附件到待发送列表
     pub fn add_pending_attachment(&mut self, att: PendingAttachment) {
         self.core.pending_attachments.push(att);
@@ -85,6 +98,10 @@ impl App {
             }
             self.core.view_messages.push(vm);
         }
+
+        // 聚合相邻的只读工具调用为 ToolCallGroup
+        crate::ui::message_view::aggregate_tool_groups(&mut self.core.view_messages);
+
         self.current_thread_id = Some(thread_id);
         self.core.thread_browser = None;
         self.langfuse.langfuse_session = None;

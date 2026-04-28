@@ -104,8 +104,8 @@ mod tests {
         notified.await;
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
-        // ToolBlock 显示 display 字段或 name 字段
-        let has_tool = snap.iter().any(|l| l.contains("read_file") || l.contains("ReadFile"));
+        // read_file 现在聚合为 ToolCallGroup，显示 "Read 1 file"
+        let has_tool = snap.iter().any(|l| l.contains("Read 1 file") || l.contains("read_file") || l.contains("ReadFile"));
         assert!(has_tool, "应显示工具调用块，实际内容:\n{}", snap.join("\n"));
     }
 
@@ -712,7 +712,7 @@ mod tests {
         let snap_text = snap.join("\n");
 
         assert!(
-            snap_text.contains("> "),
+            snap_text.contains("❯ "),
             "应显示 sticky header 标签，实际:\n{}",
             snap_text
         );

@@ -5,6 +5,98 @@ use rust_create_agent::messages::{BaseMessage, ContentBlock};
 
 use super::markdown::parse_markdown;
 
+/// 只读工具分类，用于折叠聚合
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolCategory {
+    Read,   // read_file
+    Search, // search_files_rg
+    Glob,   // glob_files
+}
+
+impl ToolCategory {
+    /// 从工具名判断分类；非只读工具返回 None
+    pub fn from_tool_name(name: &str) -> Option<Self> {
+        match name {
+            "read_file" => Some(ToolCategory::Read),
+            "search_files_rg" => Some(ToolCategory::Search),
+            "glob_files" => Some(ToolCategory::Glob),
+            _ => None,
+        }
+    }
+
+    /// 生成折叠摘要文本，如 "Read 3 files"
+    pub fn summary(&self, count: usize) -> String {
+        match self {
+            ToolCategory::Read => {
+                if count == 1 { "Read 1 file".to_string() }
+                else { format!("Read {} files", count) }
+            }
+            ToolCategory::Search => {
+                if count == 1 { "Searched for 1 pattern".to_string() }
+                else { format!("Searched for {} patterns", count) }
+            }
+            ToolCategory::Glob => {
+                if count == 1 { "Matched 1 pattern".to_string() }
+                else { format!("Matched {} patterns", count) }
+            }
+        }
+    }
+}
+
+/// ToolCallGroup 中的单条工具记录
+#[derive(Debug, Clone)]
+pub struct ToolEntry {
+    pub display_name: String,
+    pub args_display: Option<String>,
+    pub content: String,
+    pub is_error: bool,
+}
+
+/// 将 view_messages 中相邻的同类别只读 ToolBlock 聚合为 ToolCallGroup
+pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
+    let mut result: Vec<MessageViewModel> = Vec::with_capacity(messages.len());
+    let mut i = 0;
+    let original = std::mem::take(messages);
+
+    while i < original.len() {
+        let vm = &original[i];
+        if let MessageViewModel::ToolBlock { tool_name, .. } = vm {
+            if let Some(cat) = ToolCategory::from_tool_name(tool_name) {
+                // 收集连续的同类别 ToolBlock
+                let mut entries: Vec<ToolEntry> = Vec::new();
+                let cat_clone = cat.clone();
+                let mut j = i;
+                while j < original.len() {
+                    if let MessageViewModel::ToolBlock { tool_name: tn, display_name, args_display, content, is_error, .. } = &original[j] {
+                        if ToolCategory::from_tool_name(tn) == Some(cat_clone.clone()) {
+                            entries.push(ToolEntry {
+                                display_name: display_name.clone(),
+                                args_display: args_display.clone(),
+                                content: content.clone(),
+                                is_error: *is_error,
+                            });
+                            j += 1;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                result.push(MessageViewModel::ToolCallGroup {
+                    category: cat,
+                    tools: entries,
+                    collapsed: true,
+                });
+                i = j;
+                continue;
+            }
+        }
+        result.push(original[i].clone());
+        i += 1;
+    }
+
+    *messages = result;
+}
+
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来
 #[derive(Debug, Clone)]
 pub enum MessageViewModel {
@@ -34,6 +126,12 @@ pub enum MessageViewModel {
     },
     /// 系统消息
     SystemNote { content: String },
+    /// 只读工具调用聚合组（read/search/glob 折叠显示）
+    ToolCallGroup {
+        category: ToolCategory,
+        tools: Vec<ToolEntry>,
+        collapsed: bool,
+    },
     /// SubAgent 执行块（可折叠，含滑动窗口消息）
     SubAgentGroup {
         agent_id: String,
@@ -222,17 +320,14 @@ impl MessageViewModel {
         }
     }
 
-    /// 切换折叠状态（对 ToolBlock、AssistantBubble、SubAgentGroup 生效）
+    /// 切换折叠状态（对 ToolBlock、AssistantBubble、SubAgentGroup、ToolCallGroup 生效）
     #[allow(dead_code)]
     pub fn toggle_collapse(&mut self) {
         match self {
-            MessageViewModel::ToolBlock { collapsed, .. } => {
-                *collapsed = !*collapsed;
-            }
-            MessageViewModel::AssistantBubble { collapsed, .. } => {
-                *collapsed = !*collapsed;
-            }
-            MessageViewModel::SubAgentGroup { collapsed, .. } => {
+            MessageViewModel::ToolBlock { collapsed, .. }
+            | MessageViewModel::AssistantBubble { collapsed, .. }
+            | MessageViewModel::SubAgentGroup { collapsed, .. }
+            | MessageViewModel::ToolCallGroup { collapsed, .. } => {
                 *collapsed = !*collapsed;
             }
             _ => {}

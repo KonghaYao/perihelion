@@ -40,7 +40,7 @@ impl App {
             let prefix = first_line.trim_start_matches('/');
             let candidates = self.core.command_registry.match_prefix(prefix);
             if let Some((name, _)) = candidates.get(cursor) {
-                self.core.textarea = build_textarea(false, 0);
+                self.core.textarea = build_textarea(false);
                 self.core.textarea.insert_str(format!("/{} ", name));
                 self.core.hint_cursor = None;
             }
@@ -53,7 +53,7 @@ impl App {
                 .take(8)
                 .collect();
             if let Some(skill) = candidates.get(cursor) {
-                self.core.textarea = build_textarea(false, 0);
+                self.core.textarea = build_textarea(false);
                 self.core.textarea.insert_str(format!("#{} ", skill.name));
                 self.core.hint_cursor = None;
             }

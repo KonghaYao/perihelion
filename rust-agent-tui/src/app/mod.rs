@@ -175,7 +175,7 @@ impl App {
 
     pub fn set_loading(&mut self, loading: bool) {
         self.core.loading = loading;
-        self.core.textarea = build_textarea(loading, self.core.pending_messages.len());
+        self.core.textarea = build_textarea(loading);
         if loading {
             self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
         } else {
@@ -186,7 +186,7 @@ impl App {
 
     /// 更新输入框标题以反映缓冲消息数量
     pub fn update_textarea_hint(&mut self) {
-        self.core.textarea = build_textarea(self.core.loading, self.core.pending_messages.len());
+        self.core.textarea = build_textarea(self.core.loading);
     }
 
     /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
@@ -238,37 +238,19 @@ pub fn ensure_cursor_visible(cursor_row: u16, scroll_offset: u16, visible_height
     }
 }
 
-pub fn build_textarea(disabled: bool, buffered_count: usize) -> TextArea<'static> {
+pub fn build_textarea(disabled: bool) -> TextArea<'static> {
     let mut ta = TextArea::default();
 
-    // Loading 状态：黄色边框 + "处理中…" 标题
-    // 空闲状态：青色边框 + "输入" 标题
-    let (border_color, title_text, title_color) = if disabled {
-        if buffered_count > 0 {
-            (
-                theme::LOADING,
-                format!(" 处理中… (已缓存 {} 条) ", buffered_count),
-                theme::LOADING,
-            )
-        } else {
-            (theme::LOADING, " 处理中… ".to_string(), theme::LOADING)
-        }
-    } else {
-        (theme::ACCENT, " 输入 ".to_string(), theme::ACCENT)
-    };
+    // 统一灰色边框
+    let border_color = theme::MUTED;
 
     ta.set_cursor_line_style(Style::default());
     ta.set_style(Style::default().fg(theme::TEXT));
     ta.set_block(
         ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
+            .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
             .border_style(Style::default().fg(border_color))
-            .title(ratatui::text::Span::styled(
-                title_text,
-                Style::default()
-                    .fg(title_color)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            )),
+            .padding(ratatui::widgets::Padding::new(2, 0, 0, 0)),
     );
     ta
 }

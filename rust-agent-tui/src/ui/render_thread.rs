@@ -78,11 +78,6 @@ struct RenderTask {
 impl RenderTask {
     /// 渲染单条消息为 lines（含前后空行分隔）
     fn render_one(vm: &mut MessageViewModel, index: usize, width: usize) -> Vec<Line<'static>> {
-        let is_conversational = matches!(
-            vm,
-            MessageViewModel::UserBubble { .. } | MessageViewModel::AssistantBubble { .. }
-        );
-
         // 处理 dirty blocks
         if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
             for block in blocks.iter_mut() {
@@ -91,8 +86,8 @@ impl RenderTask {
         }
 
         let mut lines = render_view_model(vm, Some(index), width);
-        // 只在 conversational 消息后面加空行分隔，避免消息间出现两个空行
-        if is_conversational {
+        // 空内容消息不添加分隔行（如只有思考内容被隐藏的 AssistantBubble）
+        if !lines.is_empty() {
             lines.push(Line::from(""));
         }
         lines
