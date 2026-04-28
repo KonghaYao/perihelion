@@ -35,6 +35,7 @@ pub enum InteractionPrompt {
 
 use crate::ui::theme;
 use ratatui::style::Style;
+use ratatui::text::Span;
 use ratatui_textarea::TextArea;
 use rust_agent_middlewares::prelude::{HitlDecision, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
@@ -175,8 +176,8 @@ impl App {
 
     pub fn set_loading(&mut self, loading: bool) {
         self.core.loading = loading;
-        self.core.textarea = build_textarea(loading);
         if loading {
+            self.core.textarea = build_textarea(true);
             self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
         } else {
             self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Idle);
@@ -186,7 +187,13 @@ impl App {
 
     /// 更新输入框标题以反映缓冲消息数量
     pub fn update_textarea_hint(&mut self) {
-        self.core.textarea = build_textarea(self.core.loading);
+        let count = self.core.pending_messages.len();
+        let hint = if count > 0 {
+            format!("已缓冲 {} 条消息，完成后自动发送…", count)
+        } else {
+            String::new()
+        };
+        self.core.textarea = build_textarea_with_hint(self.core.loading, &hint);
     }
 
     /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
@@ -239,6 +246,10 @@ pub fn ensure_cursor_visible(cursor_row: u16, scroll_offset: u16, visible_height
 }
 
 pub fn build_textarea(disabled: bool) -> TextArea<'static> {
+    build_textarea_with_hint(disabled, "")
+}
+
+fn build_textarea_with_hint(_disabled: bool, hint: &str) -> TextArea<'static> {
     let mut ta = TextArea::default();
 
     // 统一灰色边框
@@ -246,11 +257,13 @@ pub fn build_textarea(disabled: bool) -> TextArea<'static> {
 
     ta.set_cursor_line_style(Style::default());
     ta.set_style(Style::default().fg(theme::TEXT));
-    ta.set_block(
-        ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
-            .border_style(Style::default().fg(border_color))
-            .padding(ratatui::widgets::Padding::new(2, 0, 0, 0)),
-    );
+    let mut block = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
+        .border_style(Style::default().fg(border_color))
+        .padding(ratatui::widgets::Padding::new(2, 0, 0, 0));
+    if !hint.is_empty() {
+        block = block.title(Span::styled(hint.to_owned(), Style::default().fg(theme::MUTED)));
+    }
+    ta.set_block(block);
     ta
 }

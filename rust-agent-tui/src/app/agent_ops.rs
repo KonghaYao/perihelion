@@ -200,6 +200,10 @@ impl App {
             AgentEvent::TokenUsageUpdate { usage, model: _model } => {
                 // 累积到会话追踪器
                 self.agent.session_token_tracker.accumulate(&usage);
+                // 更新 spinner 的 token 显示
+                let total = self.agent.session_token_tracker.total_input_tokens
+                    + self.agent.session_token_tracker.total_output_tokens;
+                self.spinner_state.set_token_count(total as usize);
                 // circuit breaker: 连续 3 次失败后不再自动触发
                 if self.agent.auto_compact_failures < 3 {
                     let budget = rust_create_agent::agent::token::ContextBudget::new(self.agent.context_window);

@@ -354,11 +354,6 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     app.toggle_collapsed_messages();
                 }
 
-                // Ctrl+O：展开/折叠最近的工具调用聚合组
-                Input { key: Key::Char('o'), ctrl: true, .. } => {
-                    app.toggle_last_tool_group();
-                }
-
                 // Del：删除最后一个待发送附件（有附件时优先消费 Del）
                 Input { key: Key::Delete, .. } if !app.core.loading && !app.core.pending_attachments.is_empty() => {
                     app.pop_pending_attachment();

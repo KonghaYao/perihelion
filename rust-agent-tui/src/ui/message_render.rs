@@ -298,7 +298,7 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                 // 折叠：单行摘要
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("  {} (ctrl+o to expand)", category.summary(count)),
+                        format!("  {}", category.summary(count)),
                         Style::default().fg(theme::MUTED),
                     ),
                 ]));

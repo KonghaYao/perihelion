@@ -5,7 +5,7 @@ mod sticky_header;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
@@ -28,13 +28,6 @@ pub fn render(f: &mut Frame, app: &mut App) {
     // 动态输入框高度：行数 + 边框（上下各 1），最少 3 行，最多 40%
     let line_count = app.core.textarea.lines().len() as u16;
     let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
-
-    // TODO 面板高度：无内容时为 0，有内容时为条目数 + 边框(2)，上限 10
-    let todo_height = if app.todo_items.is_empty() {
-        0
-    } else {
-        (app.todo_items.len() as u16 + 2).min(10)
-    };
 
     // 附件栏高度：无附件时为 0，有附件时固定 3 行
     let attachment_height: u16 = if app.core.pending_attachments.is_empty() {
@@ -63,21 +56,19 @@ pub fn render(f: &mut Frame, app: &mut App) {
         .constraints([
             Constraint::Length(sticky_header_height), // [0] sticky header
             Constraint::Min(1),                      // [1] 聊天区（可滚动）
-            Constraint::Length(todo_height),          // [2] TODO 面板（动态）
-            Constraint::Length(attachment_height),    // [3] 附件栏（动态）
-            Constraint::Length(panel_height),         // [4] 底部展开区（动态）
-            Constraint::Length(input_height),         // [5] 输入框（动态）
-            Constraint::Length(3),                    // [6] 状态栏（两行 + 空行缓冲）
+            Constraint::Length(attachment_height),    // [2] 附件栏（动态）
+            Constraint::Length(panel_height),         // [3] 底部展开区（动态）
+            Constraint::Length(input_height),         // [4] 输入框（动态）
+            Constraint::Length(3),                    // [5] 状态栏（两行 + 空行缓冲）
         ])
         .split(area);
 
     render_messages(f, app, chunks[0], chunks[1]);
-    render_todo_panel(f, app, chunks[2]);
-    render_attachment_bar(f, app, chunks[3]);
+    render_attachment_bar(f, app, chunks[2]);
 
     // 底部展开区（HITL / AskUser / 配置面板）
     if panel_height > 0 {
-        let panel_area = chunks[4];
+        let panel_area = chunks[3];
         match &app.agent.interaction_prompt {
             Some(crate::app::InteractionPrompt::Approval(_)) => {
                 popups::hitl::render_hitl_popup(f, app, panel_area);
@@ -105,24 +96,24 @@ pub fn render(f: &mut Frame, app: &mut App) {
     }
 
     // 输入框前缀 ❯ + 文本区
-    f.render_widget(&app.core.textarea, chunks[5]);
+    f.render_widget(&app.core.textarea, chunks[4]);
 
     // ❯ 前缀：渲染在输入框文字前面（叠加在 textarea 第一行起始位置）
-    let prompt_x = chunks[5].x;
-    let prompt_y = chunks[5].y + 1; // 跳过顶部边框行
+    let prompt_x = chunks[4].x;
+    let prompt_y = chunks[4].y + 1; // 跳过顶部边框行
     let prompt_area = Rect {
         x: prompt_x,
         y: prompt_y,
         width: 2,
         height: 1,
     };
-    let prompt_style = Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD);
+    let prompt_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
     f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
-    status_bar::render_status_bar(f, app, chunks[6]);
+    status_bar::render_status_bar(f, app, chunks[5]);
 
     // 命令/Skills 提示条（浮动在输入框上方）
-    popups::hints::render_command_hint(f, app, chunks[5]);
-    popups::hints::render_skill_hint(f, app, chunks[5]);
+    popups::hints::render_command_hint(f, app, chunks[4]);
+    popups::hints::render_skill_hint(f, app, chunks[4]);
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
@@ -171,15 +162,33 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     let inner = messages_area;
     let visible_height = inner.height;
 
-    // 计算 loading spinner 帧（使用 SpinnerState 的动画帧和动态动词）
+    // 计算 loading spinner 行（Claude Code 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
+    // loading 结束后显示总结行：✻ Brewed for Xm Xs（橙色）
     let spinner_line: Option<Line<'static>> = if app.core.loading {
         let frame = perihelion_widgets::spinner::animation::tick_to_frame(app.spinner_state.tick());
         let verb = app.spinner_state.verb();
-        Some(Line::from(ratatui::text::Span::styled(
-            format!(" {} {}", frame, verb),
-            ratatui::style::Style::default()
-                .fg(theme::LOADING)
-                .add_modifier(Modifier::BOLD),
+        let elapsed = perihelion_widgets::spinner::animation::format_elapsed(app.spinner_state.elapsed_ms());
+        let tokens = app.spinner_state.displayed_tokens();
+
+        let orange = Style::default().fg(Color::Rgb(255, 140, 0));
+        let gray = Style::default().fg(Color::Gray);
+        let mut parts = vec![
+            Span::styled(format!(" {} {}", frame, verb), orange),
+            Span::styled(format!(" ({elapsed}"), gray),
+        ];
+        if tokens > 0 {
+            let tokens_fmt = perihelion_widgets::spinner::animation::format_tokens(tokens);
+            parts.push(Span::styled(format!(" · ↓ {tokens_fmt} tokens"), gray));
+        }
+        parts.push(Span::styled(")", gray));
+        Some(Line::from(parts))
+    } else if app.spinner_state.last_summary_elapsed_ms() > 0 {
+        let elapsed = perihelion_widgets::spinner::animation::format_elapsed(
+            app.spinner_state.last_summary_elapsed_ms(),
+        );
+        Some(Line::from(Span::styled(
+            format!("  ✻  Brewed for {elapsed}"),
+            Style::default().fg(Color::Gray),
         )))
     } else {
         None
@@ -192,7 +201,16 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
 
         // total_lines 已是 wrap 后的真实视觉行数（由渲染线程通过 Paragraph::line_count 计算）
         let total_lines = cache.total_lines;
-        let spinner_extra = if spinner_line.is_some() { 1u16 } else { 0 };
+        let spinner_extra: u16 = if spinner_line.is_some() {
+            let base = 1; // spinner summary line
+            if app.core.loading {
+                base + 1 + app.todo_items.len() as u16 // tip + todo items
+            } else {
+                base
+            }
+        } else {
+            0
+        };
         let visual_total = (total_lines as u16).saturating_add(spinner_extra);
         let max_scroll = visual_total.saturating_sub(visible_height);
         let offset = if app.core.scroll_follow {
@@ -206,6 +224,35 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     };
     if let Some(line) = spinner_line {
         all_lines.push(line);
+        // Tip + TODO 仅在活跃 loading 时显示
+        if app.core.loading {
+            let tip = crate::ui::tips::pick_tip(app.spinner_state.raw_tick());
+            all_lines.push(Line::from(vec![
+                Span::styled("  ⎿  Tip: ", Style::default().fg(Color::Gray)),
+                Span::styled(tip, Style::default().fg(Color::Gray)),
+            ]));
+            all_lines.push(Line::from(""));
+            for item in &app.todo_items {
+                let (icon, style) = match item.status {
+                    TodoStatus::InProgress => (
+                        "  ✻  ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ),
+                    TodoStatus::Completed => (
+                        "  ✓  ",
+                        Style::default().fg(Color::Green),
+                    ),
+                    TodoStatus::Pending => (
+                        "  ○  ",
+                        Style::default().fg(Color::Gray),
+                    ),
+                };
+                all_lines.push(Line::from(vec![
+                    Span::styled(icon, style),
+                    Span::styled(&item.content, style),
+                ]));
+            }
+        }
     }
     app.core.scroll_offset = offset;
 
@@ -271,53 +318,4 @@ fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
-/// TODO 状态面板（固定在输入框上方）
-fn render_todo_panel(f: &mut Frame, app: &App, area: Rect) {
-    if area.height == 0 {
-        return;
-    }
 
-    let border_color = if app.core.loading {
-        theme::WARNING
-    } else {
-        theme::ACCENT
-    };
-
-    let block = Block::default()
-        .title(Span::styled(
-            " 📋 TODO ",
-            Style::default()
-                .fg(border_color)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color));
-    f.render_widget(&block, area);
-
-    let inner = block.inner(area);
-    let max_display = inner.height as usize;
-
-    let lines: Vec<Line> = app
-        .todo_items
-        .iter()
-        .take(max_display)
-        .map(|item| {
-            let (icon, style) = match item.status {
-                TodoStatus::InProgress => (
-                    "→",
-                    Style::default()
-                        .fg(theme::ACCENT)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                TodoStatus::Completed => ("✓", Style::default().fg(theme::MUTED)),
-                TodoStatus::Pending => ("○", Style::default().fg(theme::TEXT)),
-            };
-            Line::from(vec![
-                Span::styled(format!(" {} ", icon), style),
-                Span::styled(item.content.clone(), style),
-            ])
-        })
-        .collect();
-
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
-}

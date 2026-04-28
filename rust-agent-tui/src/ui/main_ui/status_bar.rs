@@ -70,16 +70,6 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     let mut left_spans: Vec<Span> = Vec::new();
     let mut has_content = false;
 
-    // 计时器（优先显示）
-    if let Some(duration) = app.get_current_task_duration() {
-        let timer_color = if app.core.loading { theme::LOADING } else { theme::MUTED };
-        left_spans.push(Span::styled(
-            format!(" ⏱ {}", format_duration(duration)),
-            Style::default().fg(timer_color),
-        ));
-        has_content = true;
-    }
-
     // 上下文使用率
     {
         let tracker = &app.agent.session_token_tracker;
@@ -189,17 +179,4 @@ fn render_truncated_line(f: &mut Frame, left_spans: Vec<Span>, right_spans: Vec<
     all_spans.extend(right_spans);
 
     f.render_widget(Paragraph::new(Line::from(all_spans)), area);
-}
-
-fn format_duration(duration: std::time::Duration) -> String {
-    let total_secs = duration.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-
-    if hours > 0 {
-        format!("{}:{:02}:{:02}", hours, minutes, seconds)
-    } else {
-        format!("{}:{:02}", minutes, seconds)
-    }
 }

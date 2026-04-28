@@ -4,6 +4,7 @@ pub mod message_render;
 pub mod markdown;
 pub mod render_thread;
 pub mod theme;
+pub mod tips;
 pub mod welcome;
 #[cfg(any(test, feature = "headless"))]
 pub mod headless;

@@ -39,9 +39,8 @@
 read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 - **相邻的同类型工具**合并为一组（无其他消息穿插时）
-- 折叠时显示单行摘要：`  Read 3 files (ctrl+o to expand)`
+- 折叠时显示单行摘要：`  Read 3 files`
 - 展开时列出每个工具参数：`  │ src/main.rs`
-- `ctrl+o` 切换最近的 ToolCallGroup 展开/折叠
 
 摘要格式：
 
