@@ -1,9 +1,11 @@
+pub mod compact;
 pub mod events;
 pub mod executor;
 pub mod react;
 pub mod state;
 pub mod token;
 
+pub use compact::CompactConfig;
 pub use events::{AgentEvent, AgentEventHandler, FnEventHandler};
 pub use executor::{AgentCancellationToken, ReActAgent};
 pub use react::{AgentInput, AgentOutput, ReactLLM, Reasoning, ToolCall, ToolResult};

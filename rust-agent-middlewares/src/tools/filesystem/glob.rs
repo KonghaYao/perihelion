@@ -15,6 +15,9 @@ impl GlobFilesTool {
     }
 }
 
+/// 最多返回的文件数，防止撑爆 LLM context window
+const MAX_RESULTS: usize = 1_000;
+
 fn should_skip_dir(name: &str) -> bool {
     matches!(
         name,
@@ -120,7 +123,17 @@ impl BaseTool for GlobFilesTool {
         if results.is_empty() {
             Ok("No files found.".to_string())
         } else {
-            Ok(results.join("\n"))
+            if results.len() > MAX_RESULTS {
+                let truncated = &results[..MAX_RESULTS];
+                Ok(format!(
+                    "{}\n\n[Output truncated: {} files total, showing first {}]",
+                    truncated.join("\n"),
+                    results.len(),
+                    MAX_RESULTS
+                ))
+            } else {
+                Ok(results.join("\n"))
+            }
         }
     }
 }

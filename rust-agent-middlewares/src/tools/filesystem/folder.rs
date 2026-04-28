@@ -15,6 +15,9 @@ impl FolderOperationsTool {
     }
 }
 
+/// 列表操作最多返回的条目数，防止撑爆 LLM context window
+const MAX_LIST_ENTRIES: usize = 500;
+
 fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let entries = std::fs::read_dir(resolved)?;
 
@@ -42,13 +45,23 @@ fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Se
             .unwrap_or_else(|| "unknown".to_string());
 
         if metadata.is_dir() {
-            folders.push(format!("  \u{1F4C1} {name}/ ({size} bytes, {modified})"));
+            folders.push(format!("  📁 {name}/ ({size} bytes, {modified})"));
         } else {
-            files.push(format!("  \u{1F4C4} {name} ({size} bytes, {modified})"));
+            files.push(format!("  📄 {name} ({size} bytes, {modified})"));
         }
     }
 
-    let mut result = format!("\u{1F4C1} {}\n\n", resolved.display());
+    let total_folders = folders.len();
+    let total_files = files.len();
+    let total = total_folders + total_files;
+    let truncated = total > MAX_LIST_ENTRIES;
+
+    if truncated {
+        folders.truncate(MAX_LIST_ENTRIES.min(folders.len()));
+        files.truncate(MAX_LIST_ENTRIES.saturating_sub(folders.len()).min(files.len()));
+    }
+
+    let mut result = format!("📁 {}\n\n", resolved.display());
 
     if !folders.is_empty() {
         result.push_str("Directories:\n");
@@ -67,10 +80,16 @@ fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Se
         }
     }
 
+    if truncated {
+        result.push_str(&format!(
+            "\n[Output truncated: {} total entries, showing first {}]",
+            total, MAX_LIST_ENTRIES
+        ));
+    }
+
     result.push_str(&format!(
         "\nTotal: {} directories, {} files",
-        folders.len(),
-        files.len()
+        total_folders, total_files
     ));
 
     Ok(result)

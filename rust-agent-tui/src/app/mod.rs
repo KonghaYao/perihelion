@@ -14,7 +14,7 @@ mod cron_ops;
 mod agent_comm;
 mod agent_ops;
 mod langfuse_state;
-mod message_pipeline;
+pub mod message_pipeline;
 mod ask_user_ops;
 mod ask_user_prompt;
 mod hint_ops;
@@ -148,7 +148,7 @@ impl App {
         CronState::spawn_tick_task(scheduler_arc);
 
         Self {
-            core: AppCore::new(render_tx, render_cache, render_notify, command_registry, skills),
+            core: AppCore::new(cwd.clone(), render_tx, render_cache, render_notify, command_registry, skills),
             agent: AgentComm::default(),
             langfuse: LangfuseState::default(),
             cwd,

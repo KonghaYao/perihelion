@@ -66,6 +66,10 @@ impl App {
         self.core.view_messages =
             message_pipeline::MessagePipeline::messages_to_view_models(&base_msgs, &self.cwd);
 
+        // 同步 Pipeline 内部状态，确保后续流式事件能正确续接
+        self.core.pipeline.clear();
+        self.core.pipeline.restore_completed(base_msgs.clone());
+
         self.current_thread_id = Some(thread_id);
         self.core.thread_browser = None;
         self.langfuse.langfuse_session = None;
@@ -97,6 +101,7 @@ impl App {
     pub fn new_thread(&mut self) {
         self.core.view_messages.clear();
         self.agent.agent_state_messages.clear();
+        self.core.pipeline.clear();
         self.current_thread_id = None;
         self.todo_items.clear();
         self.core.pending_attachments.clear();

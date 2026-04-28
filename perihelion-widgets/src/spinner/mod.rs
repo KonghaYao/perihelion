@@ -59,8 +59,9 @@ impl SpinnerState {
         if was_active && self.mode == SpinnerMode::Idle {
             self.last_summary_elapsed_ms = self.elapsed_ms();
         }
-        // 从 Idle 切换到活跃状态时，重置总结记录
+        // 从 Idle 切换到活跃状态时，重置计时器和总结记录
         if !was_active && self.mode != SpinnerMode::Idle {
+            self.start_time = Instant::now();
             self.last_summary_elapsed_ms = 0;
         }
     }

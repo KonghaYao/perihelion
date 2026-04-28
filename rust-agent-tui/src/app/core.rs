@@ -15,16 +15,18 @@ use super::login_panel::LoginPanel;
 use super::model_panel::ModelPanel;
 use crate::thread::ThreadBrowser;
 
+use super::message_pipeline::MessagePipeline;
+
 /// UI 核心状态：消息、输入、面板、渲染
 pub struct AppCore {
     pub view_messages: Vec<MessageViewModel>,
+    pub pipeline: MessagePipeline,
     pub textarea: TextArea<'static>,
     pub loading: bool,
     pub scroll_offset: u16,
     pub scroll_follow: bool,
     pub show_tool_messages: bool,
     pub pending_messages: Vec<String>,
-    pub subagent_group_idx: Option<usize>,
     pub render_tx: mpsc::UnboundedSender<RenderEvent>,
     pub render_cache: Arc<RwLock<RenderCache>>,
     pub render_notify: Arc<Notify>,
@@ -49,7 +51,8 @@ pub struct AppCore {
 
 impl AppCore {
     /// 创建带渲染线程的 AppCore（生产用）
-    pub fn new(render_tx: mpsc::UnboundedSender<RenderEvent>,
+    pub fn new(cwd: String,
+               render_tx: mpsc::UnboundedSender<RenderEvent>,
                render_cache: Arc<RwLock<RenderCache>>,
                render_notify: Arc<Notify>,
                command_registry: CommandRegistry,
@@ -61,13 +64,13 @@ impl AppCore {
             .collect();
         Self {
             view_messages: Vec::new(),
+            pipeline: MessagePipeline::new(cwd),
             textarea: super::build_textarea(false),
             loading: false,
             scroll_offset: u16::MAX,
             scroll_follow: true,
             show_tool_messages: false,
             pending_messages: Vec::new(),
-            subagent_group_idx: None,
             render_tx,
             render_cache,
             render_notify,
@@ -86,5 +89,37 @@ impl AppCore {
             history_index: None,
             draft_input: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_appcore_pipeline_initialized() {
+        let (render_tx, _, _) = crate::ui::render_thread::spawn_render_thread(80);
+        let render_cache = Arc::new(RwLock::new(RenderCache {
+            lines: Vec::new(),
+            message_offsets: Vec::new(),
+            total_lines: 0,
+            version: 0,
+        }));
+        let render_notify = Arc::new(tokio::sync::Notify::new());
+        let command_registry = crate::command::default_registry();
+        let skills = Vec::new();
+        let cwd = "/test/path".to_string();
+
+        let core = AppCore::new(
+            cwd.clone(),
+            render_tx,
+            render_cache,
+            render_notify,
+            command_registry,
+            skills,
+        );
+
+        assert_eq!(core.pipeline.cwd(), cwd);
+        assert_eq!(core.pipeline.completed_messages().len(), 0);
     }
 }

@@ -205,6 +205,7 @@ impl App {
         );
 
         let core = super::AppCore::new(
+            "/tmp".to_string(),
             render_tx,
             render_cache,
             Arc::clone(&render_notify),

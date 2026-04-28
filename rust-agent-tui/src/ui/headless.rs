@@ -72,18 +72,16 @@ mod tests {
     #[tokio::test]
     async fn test_assistant_chunk_renders() {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        // AssistantChunk → AddMessage + AppendChunk (2 个 RenderEvent)
-        // Done          → StreamingDone              (1 个 RenderEvent)
-        // 合计 3 个通知：必须在发送事件前预注册所有 waiter，否则通知可能被忽略
+        // Pipeline: AssistantChunk → AppendChunk (1 个 RenderEvent)
+        // Pipeline: Done           → RebuildAll/LoadHistory (1 个 RenderEvent)
+        // 合计 2 个通知：必须在发送事件前预注册所有 waiter
         let notify = Arc::clone(&handle.render_notify);
         let n1 = notify.notified();
         let n2 = notify.notified();
-        let n3 = notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("Hello world".into()));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
-        // 用 join! 并发等待，确保 3 个 waiter 同时活跃，每次 notify_one 唤醒其中一个
-        tokio::join!(n1, n2, n3);
+        tokio::join!(n1, n2);
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
         assert!(handle.contains("Hello world"), "应显示消息内容，实际:\n{}", snap.join("\n"));
@@ -93,19 +91,19 @@ mod tests {
     async fn test_tool_call_renders() {
         let (mut app, mut handle) = App::new_headless(120, 30);
         let notified = handle.render_notify.notified();
-        app.push_agent_event(AgentEvent::ToolCall {
+        app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "t1".into(),
             name: "read_file".into(),
             display: "ReadFile".into(),
-            args: Some("src/main.rs".into()),
-            is_error: false,
+            args: "src/main.rs".into(),
+            input: serde_json::json!({"path": "src/main.rs"}),
         });
         app.process_pending_events();
         notified.await;
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
-        // read_file 现在聚合为 ToolCallGroup，显示 "Read 1 file"
-        let has_tool = snap.iter().any(|l| l.contains("Read 1 file") || l.contains("read_file") || l.contains("ReadFile"));
+        // ToolStart 通过 Pipeline 创建 ToolBlock，display_name 为 format_tool_name 的结果
+        let has_tool = snap.iter().any(|l| l.contains("Read") || l.contains("read_file"));
         assert!(has_tool, "应显示工具调用块，实际内容:\n{}", snap.join("\n"));
     }
 
@@ -129,16 +127,14 @@ mod tests {
         let (mut app, mut handle) = App::new_headless(120, 30);
         let notify = Arc::clone(&handle.render_notify);
 
-        // 第 1 个 AssistantChunk（无已有气泡）→ AddMessage + AppendChunk = 2 个通知
-        // 第 2 个 AssistantChunk（已有气泡）  → AppendChunk 只           = 1 个通知
-        // 合计 3 个通知，必须在发送事件前预注册所有 waiter
+        // Pipeline: 每个 AssistantChunk → AppendChunk (1 个 RenderEvent)
+        // 合计 2 个通知，必须在发送事件前预注册所有 waiter
         let n1 = notify.notified();
         let n2 = notify.notified();
-        let n3 = notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("SomeUniqueContent".into()));
         app.push_agent_event(AgentEvent::AssistantChunk("SomeUniqueContent".into()));
         app.process_pending_events();
-        tokio::join!(n1, n2, n3);
+        tokio::join!(n1, n2);
 
         // 验证 RenderCache 有内容
         let lines_before = app.core.render_cache.read().total_lines;
@@ -392,19 +388,19 @@ mod tests {
             agent_id: "code-reviewer".into(),
             task_preview: "review the code".into(),
         });
-        app.push_agent_event(AgentEvent::ToolCall {
+        app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "t1".into(),
             name: "read_file".into(),
             display: "ReadFile".into(),
-            args: Some("src/main.rs".into()),
-            is_error: false,
+            args: "src/main.rs".into(),
+            input: serde_json::json!({"path": "src/main.rs"}),
         });
-        app.push_agent_event(AgentEvent::ToolCall {
+        app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "t2".into(),
             name: "bash".into(),
             display: "Bash".into(),
-            args: Some("cargo test".into()),
-            is_error: false,
+            args: "cargo test".into(),
+            input: serde_json::json!({"command": "cargo test"}),
         });
         app.push_agent_event(AgentEvent::SubAgentEnd {
             result: "All tests passed, no issues found".into(),
@@ -444,12 +440,12 @@ mod tests {
             task_preview: "analyze codebase".into(),
         });
         for i in 1..=6 {
-            app.push_agent_event(AgentEvent::ToolCall {
+            app.push_agent_event(AgentEvent::ToolStart {
                 tool_call_id: format!("t{}", i),
                 name: "read_file".into(),
                 display: "ReadFile".into(),
-                args: Some(format!("file{}.rs", i)),
-                is_error: false,
+                args: format!("file{}.rs", i),
+                input: serde_json::json!({"path": format!("file{}.rs", i)}),
             });
         }
         app.push_agent_event(AgentEvent::SubAgentEnd {
@@ -517,14 +513,14 @@ mod tests {
     async fn test_tool_call_message_visible_when_toggled() {
         let (mut app, mut handle) = App::new_headless(120, 30);
 
-        // 使用 ToolCall 事件添加工具调用（会发送 RenderEvent::AddMessage）
+        // 使用 ToolStart 事件添加工具调用（会发送 RenderEvent::AddMessage）
         let notified1 = handle.render_notify.notified();
-        app.push_agent_event(AgentEvent::ToolCall {
+        app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "tc1".into(),
             name: "bash".into(),
             display: "Bash".into(),
-            args: Some("ls".into()),
-            is_error: false,
+            args: "ls".into(),
+            input: serde_json::json!({"command": "ls"}),
         });
         app.process_pending_events();
         notified1.await;
@@ -537,8 +533,8 @@ mod tests {
         handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
 
         let snap = handle.snapshot();
-        // ToolCall 事件创建的 ToolBlock 在渲染缓存中始终可见
-        let has_tool_call_text = snap.iter().any(|l| l.contains("bash") || l.contains("Bash"));
+        // ToolStart 创建的 ToolBlock，display_name 为 format_tool_name 的结果
+        let has_tool_call_text = snap.iter().any(|l| l.contains("Shell") || l.contains("bash"));
         assert!(has_tool_call_text, "ToolCall 创建的 ToolBlock 应在快照中可见，但实际内容为:\n{}", snap.join("\n"));
     }
 
@@ -600,14 +596,14 @@ mod tests {
         // 模拟 AI 只调用工具不输出文本的场景
         let (mut app, mut handle) = App::new_headless(120, 30);
 
-        // 直接发送 ToolCall 事件（无 AssistantChunk）
+        // 直接发送 ToolStart 事件（无 AssistantChunk）
         let notified = handle.render_notify.notified();
-        app.push_agent_event(AgentEvent::ToolCall {
+        app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "tc1".into(),
             name: "bash".into(),
             display: "Bash".into(),
-            args: Some("ls".into()),
-            is_error: false,
+            args: "ls".into(),
+            input: serde_json::json!({"command": "ls"}),
         });
         app.process_pending_events();
         notified.await;
@@ -1440,5 +1436,182 @@ mod tests {
         handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
         let snap = handle.snapshot();
         assert!(handle.contains("2/5"), "状态栏应显示重试次数 2/5，实际:\n{}", snap.join("\n"));
+    }
+
+    // ─── Pipeline 回归测试 ──────────────────────────────────────────────────
+
+    /// 回归：用户消息在 AI 回复后仍应可见（不应被 AppendChunk 覆盖）
+    #[tokio::test]
+    async fn test_user_message_survives_assistant_chunk() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 模拟用户发送消息
+        let user_vm = MessageViewModel::user("my question".into());
+        app.core.view_messages.push(user_vm.clone());
+        let _ = app.core.render_tx.send(RenderEvent::AddMessage(user_vm));
+
+        let n1 = handle.render_notify.notified();
+        let n2 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::AssistantChunk("AI answer".into()));
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+        tokio::join!(n1, n2);
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+        // view_messages 应包含用户消息 + AI 消息
+        assert!(
+            app.core.view_messages.len() >= 2,
+            "应有至少 2 条消息（用户+AI），实际: {}",
+            app.core.view_messages.len()
+        );
+        assert!(
+            handle.contains("my question"),
+            "用户消息应在渲染输出中可见，实际:\n{}",
+            handle.snapshot().join("\n")
+        );
+        assert!(
+            handle.contains("AI answer"),
+            "AI 回复应在渲染输出中可见，实际:\n{}",
+            handle.snapshot().join("\n")
+        );
+    }
+
+    /// 回归：多轮对话消息累积，不应只看到最后一条
+    #[tokio::test]
+    async fn test_messages_accumulate_across_turns() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 第一轮：用户 → AI
+        let user1 = MessageViewModel::user("turn1".into());
+        app.core.view_messages.push(user1.clone());
+        let _ = app.core.render_tx.send(RenderEvent::AddMessage(user1));
+
+        let n1 = handle.render_notify.notified();
+        let n2 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::AssistantChunk("answer1".into()));
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+        tokio::join!(n1, n2);
+
+        // 第二轮：用户 → AI
+        let user2 = MessageViewModel::user("turn2".into());
+        app.core.view_messages.push(user2.clone());
+        let _ = app.core.render_tx.send(RenderEvent::AddMessage(user2));
+
+        let n3 = handle.render_notify.notified();
+        let n4 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::AssistantChunk("answer2".into()));
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+        tokio::join!(n3, n4);
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+        // 应累积 4 条消息
+        assert_eq!(
+            app.core.view_messages.len(),
+            4,
+            "两轮对话应有 4 条消息，实际: {}",
+            app.core.view_messages.len()
+        );
+        assert!(handle.contains("turn1"), "第一轮用户消息应可见");
+        assert!(handle.contains("turn2"), "第二轮用户消息应可见");
+    }
+
+    /// 回归：AI 消息不应在 Done 后重复
+    #[tokio::test]
+    async fn test_done_does_not_duplicate_ai_message() {
+        use rust_create_agent::messages::BaseMessage;
+
+        let (mut app, _handle) = App::new_headless(120, 30);
+
+        // 模拟 StateSnapshot（增量）+ Done 序列
+        app.push_agent_event(AgentEvent::AssistantChunk("unique text".into()));
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::human("q"),
+            BaseMessage::ai("unique text"),
+        ]));
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+
+        // 统计包含 "unique text" 的 assistant bubble 数量
+        let assistant_count = app
+            .core
+            .view_messages
+            .iter()
+            .filter(|m| m.is_assistant())
+            .count();
+        assert_eq!(
+            assistant_count, 1,
+            "应有恰好 1 个 assistant bubble，实际: {}",
+            assistant_count
+        );
+    }
+
+    /// 回归：StateSnapshot 是增量的，不应覆盖之前已完成的消息
+    #[test]
+    fn test_state_snapshot_is_incremental() {
+        use rust_create_agent::messages::{BaseMessage, MessageContent, MessageId};
+        use crate::app::message_pipeline::MessagePipeline;
+
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+
+        // 第一次 snapshot：Human + Ai
+        pipeline.set_completed(vec![
+            BaseMessage::human("hello"),
+            BaseMessage::ai("world"),
+        ]);
+        assert_eq!(pipeline.completed_messages().len(), 2);
+
+        // 第二次 snapshot（增量）：Tool result
+        pipeline.set_completed(vec![BaseMessage::Tool {
+            id: MessageId::new(),
+            tool_call_id: "tc1".into(),
+            content: MessageContent::text("result"),
+            is_error: false,
+        }]);
+
+        // 应累积到 3 条，不是只剩 1 条
+        assert_eq!(
+            pipeline.completed_messages().len(),
+            3,
+            "StateSnapshot 应增量追加，不应覆盖，实际: {}",
+            pipeline.completed_messages().len()
+        );
+    }
+
+    /// 回归：ToolStart 之后 AssistantChunk 不会丢失工具消息
+    #[tokio::test]
+    async fn test_tool_then_text_preserves_tool_block() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        let n1 = handle.render_notify.notified();
+        let n2 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::ToolStart {
+            tool_call_id: "tc1".into(),
+            name: "bash".into(),
+            display: "Shell".into(),
+            args: "ls".into(),
+            input: serde_json::json!({"command": "ls"}),
+        });
+        app.push_agent_event(AgentEvent::AssistantChunk("result is here".into()));
+        app.process_pending_events();
+        tokio::join!(n1, n2);
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+
+        // ToolBlock 和 AssistantBubble 都应存在
+        let has_tool = app.core.view_messages.iter().any(|m| {
+            matches!(m, MessageViewModel::ToolBlock { .. })
+        });
+        let has_assistant = app
+            .core
+            .view_messages
+            .iter()
+            .any(|m| m.is_assistant());
+        assert!(has_tool, "应有 ToolBlock");
+        assert!(has_assistant, "应有 AssistantBubble");
+        assert!(handle.contains("result is here"), "应显示 AI 回复");
     }
 }

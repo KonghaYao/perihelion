@@ -1,6 +1,6 @@
 use super::*;
 use rust_agent_middlewares::hitl::BatchItem;
-use crate::ui::message_view::{ToolCategory, ToolEntry};
+use super::message_pipeline::PipelineAction;
 
 impl App {
     pub fn submit_message(&mut self, input: String) {
@@ -161,42 +161,90 @@ impl App {
         );
     }
 
+    /// 将 PipelineAction 映射到 view_messages 更新 + RenderEvent 发送
+    fn apply_pipeline_action(&mut self, action: PipelineAction) {
+        match action {
+            PipelineAction::None => {}
+            PipelineAction::AddMessage(vm) => {
+                self.core.view_messages.push(vm.clone());
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+            }
+            PipelineAction::AppendChunk(chunk) => {
+                match self.core.view_messages.last_mut() {
+                    Some(m) if m.is_assistant() => {
+                        m.append_chunk(&chunk);
+                    }
+                    _ => {
+                        // 首个 chunk：创建带内容的 assistant bubble，通过 AddMessage 通知渲染线程
+                        let mut vm = MessageViewModel::assistant();
+                        vm.append_chunk(&chunk);
+                        self.core.view_messages.push(vm.clone());
+                        let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                        return;
+                    }
+                }
+                let _ = self.core.render_tx.send(RenderEvent::AppendChunk(chunk));
+            }
+            PipelineAction::UpdateLast(vm) => {
+                if let Some(last) = self.core.view_messages.last_mut() {
+                    *last = vm.clone();
+                } else {
+                    self.core.view_messages.push(vm.clone());
+                }
+                let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+            }
+            PipelineAction::RemoveLast => {
+                self.core.view_messages.pop();
+                let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
+            }
+            PipelineAction::RemoveLastN(n) => {
+                for _ in 0..n {
+                    self.core.view_messages.pop();
+                }
+                for _ in 0..n {
+                    let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
+                }
+            }
+            PipelineAction::StreamingDone => {
+                if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
+                    self.core.view_messages.last_mut()
+                {
+                    *is_streaming = false;
+                }
+                let _ = self.core.render_tx.send(RenderEvent::StreamingDone);
+            }
+            PipelineAction::RebuildAll(vms) => {
+                self.core.view_messages = vms.clone();
+                let _ = self.core.render_tx.send(RenderEvent::LoadHistory(vms));
+            }
+        }
+    }
+
     /// 处理单个 AgentEvent，返回 `(updated, should_break, should_return)`
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         match event {
             AgentEvent::SubAgentStart { agent_id, task_preview } => {
-                // Langfuse：创建 SubAgent Observation（与主 agent 共享 trace_id）
+                // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     tracer.lock().on_subagent_start(&agent_id, &task_preview);
                 }
-                let vm = MessageViewModel::subagent_group(agent_id, task_preview);
-                self.core.view_messages.push(vm.clone());
-                self.core.subagent_group_idx = Some(self.core.view_messages.len() - 1);
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                // Pipeline：创建 SubAgentGroup VM
+                let actions = self.core.pipeline.handle_event(
+                    AgentEvent::SubAgentStart { agent_id, task_preview }
+                );
+                for action in actions { self.apply_pipeline_action(action); }
                 (true, false, false)
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
-                // Langfuse：结束 SubAgent Observation
+                // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     tracer.lock().on_subagent_end(&result, is_error);
                 }
-                if let Some(idx) = self.core.subagent_group_idx {
-                    if let Some(MessageViewModel::SubAgentGroup {
-                        is_running,
-                        final_result,
-                        ..
-                    }) = self.core.view_messages.get_mut(idx)
-                    {
-                        *is_running = false;
-                        *final_result = Some(result);
-                        let _ = is_error; // 错误时颜色由渲染层通过 is_error 体现
-                    }
-                    // 发送更新事件重绘
-                    if let Some(vm) = self.core.view_messages.get(idx).cloned() {
-                        let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
-                    }
-                    self.core.subagent_group_idx = None;
-                }
+                // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
+                let actions = self.core.pipeline.handle_event(
+                    AgentEvent::SubAgentEnd { result, is_error }
+                );
+                for action in actions { self.apply_pipeline_action(action); }
                 (true, false, false)
             }
             AgentEvent::TokenUsageUpdate { usage, model: _model } => {
@@ -215,175 +263,49 @@ impl App {
                 }
                 (true, false, false)
             }
-            AgentEvent::ToolCall {
-                tool_call_id: _tool_call_id,
-                name,
-                display,
-                args,
-                is_error,
-            } => {
+            AgentEvent::ToolStart { tool_call_id, name, display, args, input } => {
                 self.agent.retry_status = None;
-                // 切换 spinner 到 ToolUse 模式，动词显示工具名+参数摘要
+                // 跨切面：spinner
                 self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::ToolUse);
-                let verb_text = match args.as_deref() {
-                    Some(a) if !a.is_empty() => {
-                        let summary: String = a.chars().take(40).collect();
-                        format!("{} {}", display, summary)
-                    }
-                    _ => format!("{}…", display),
+                let verb_text = if !args.is_empty() {
+                    let summary: String = args.chars().take(40).collect();
+                    format!("{} {}", display, summary)
+                } else {
+                    format!("{}…", display)
                 };
                 self.spinner_state.set_verb(Some(&verb_text));
-                if let Some(idx) = self.core.subagent_group_idx {
-                    // 路由进 SubAgentGroup.recent_messages（滑动窗口 max 4）
-                    if let Some(MessageViewModel::SubAgentGroup {
-                        total_steps,
-                        recent_messages,
-                        ..
-                    }) = self.core.view_messages.get_mut(idx)
-                    {
-                        *total_steps += 1;
-                        if recent_messages.len() >= 4 {
-                            recent_messages.remove(0);
-                        }
-                        recent_messages.push(MessageViewModel::tool_block(
-                            name, display, args, is_error,
-                        ));
-                    }
-                    // 发送更新事件重绘最后一条消息（SubAgentGroup）
-                    if let Some(vm) = self.core.view_messages.get(idx).cloned() {
-                        let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
-                    }
-                } else {
-                    // 父 Agent 层：检查是否可聚合到现有 ToolCallGroup
-                    if let Some(cat) = ToolCategory::from_tool_name(&name) {
-                        // 只读工具：尝试聚合到附近的 ToolCallGroup（跳过中间的空 thinking bubble，允许跨类别合并）
-                        let mut thinking_count = 0;
-                        let mut found_group = false;
-
-                        for vm in self.core.view_messages.iter().rev() {
-                            if vm.is_reasoning_only() {
-                                thinking_count += 1;
-                            } else if matches!(vm, MessageViewModel::ToolCallGroup { .. }) {
-                                found_group = true;
-                                break;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        if found_group {
-                            // 移除中间的空 thinking bubbles（它们在 UI 上不可见，只阻隔了分组合并）
-                            for _ in 0..thinking_count {
-                                self.core.view_messages.pop();
-                                let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
-                            }
-
-                            // 现在 last 是 ToolCallGroup，添加新工具（保持原有 category）
-                            if let Some(MessageViewModel::ToolCallGroup { tools, .. }) =
-                                self.core.view_messages.last_mut()
-                            {
-                                tools.push(ToolEntry {
-                                    tool_name: name.clone(),
-                                    display_name: display.clone(),
-                                    args_display: args.clone(),
-                                    content: String::new(),
-                                    is_error,
-                                });
-                            }
-                            if let Some(vm) = self.core.view_messages.last().cloned() {
-                                let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
-                            }
-                        } else {
-                            // 创建新的 ToolCallGroup
-                            let vm = MessageViewModel::ToolCallGroup {
-                                category: cat,
-                                tools: vec![ToolEntry {
-                                    tool_name: name.clone(),
-                                    display_name: display.clone(),
-                                    args_display: args.clone(),
-                                    content: String::new(),
-                                    is_error,
-                                }],
-                                collapsed: true,
-                            };
-                            self.core.view_messages.push(vm.clone());
-                            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                        }
-                    } else {
-                        // 非只读工具：保持原逻辑
-                        let vm = MessageViewModel::tool_block(name, display, args, is_error);
-                        self.core.view_messages.push(vm.clone());
-                        let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                    }
-                }
+                // Pipeline：创建 ToolBlock / 路由进 SubAgentGroup
+                let actions = self.core.pipeline.handle_event(
+                    AgentEvent::ToolStart { tool_call_id, name, display, args, input }
+                );
+                for action in actions { self.apply_pipeline_action(action); }
+                (true, false, false)
+            }
+            AgentEvent::ToolEnd { tool_call_id, name, output, is_error } => {
+                // Pipeline：更新 ToolBlock 结果 / SubAgentGroup 完成
+                let actions = self.core.pipeline.handle_event(
+                    AgentEvent::ToolEnd { tool_call_id, name, output, is_error }
+                );
+                for action in actions { self.apply_pipeline_action(action); }
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
                 self.agent.retry_status = None;
-                // 切换 spinner 到 Responding 模式
+                // 跨切面：spinner
                 self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
-                if let Some(idx) = self.core.subagent_group_idx {
-                    // 路由进 SubAgentGroup.recent_messages 的最后一个 AssistantBubble
-                    if let Some(MessageViewModel::SubAgentGroup {
-                        recent_messages,
-                        total_steps,
-                        ..
-                    }) = self.core.view_messages.get_mut(idx)
-                    {
-                        match recent_messages.last_mut() {
-                            Some(m) if m.is_assistant() => m.append_chunk(&chunk),
-                            _ => {
-                                // 新建 AssistantBubble，先维护滑动窗口
-                                if recent_messages.len() >= 4 {
-                                    recent_messages.remove(0);
-                                } else {
-                                    *total_steps += 1;
-                                }
-                                let mut bubble = MessageViewModel::assistant();
-                                bubble.append_chunk(&chunk);
-                                recent_messages.push(bubble);
-                            }
-                        }
-                    }
-                    // 发送更新事件重绘
-                    if let Some(vm) = self.core.view_messages.get(idx).cloned() {
-                        let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
-                    }
-                } else {
-                    // 如果 chunk 为空且没有现有的 assistant bubble，跳过创建空的 bubble
-                    // 避免 AI 只发起工具调用时显示空白消息
-                    if chunk.is_empty() {
-                        match self.core.view_messages.last_mut() {
-                            Some(m) if m.is_assistant() => m.append_chunk(&chunk),
-                            _ => {
-                                // 没有现有的 assistant bubble，chunk 为空，不创建新的空 bubble
-                            }
-                        }
-                    } else {
-                        match self.core.view_messages.last_mut() {
-                            Some(m) if m.is_assistant() => m.append_chunk(&chunk),
-                            _ => {
-                                let vm = MessageViewModel::assistant();
-                                self.core.view_messages.push(vm.clone());
-                                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                            }
-                        }
-                        let _ = self.core.render_tx.send(RenderEvent::AppendChunk(chunk));
-                    }
-                }
+                // Pipeline：路由到 SubAgentGroup 或父 Agent AssistantBubble
+                let actions = self.core.pipeline.handle_event(
+                    AgentEvent::AssistantChunk(chunk)
+                );
+                for action in actions { self.apply_pipeline_action(action); }
                 (true, false, false)
             }
             AgentEvent::Done => {
                 self.agent.retry_status = None;
-                // 将最后一个 AssistantBubble 的 is_streaming 设为 false
-                if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
-                    self.core.view_messages.last_mut()
-                {
-                    *is_streaming = false;
-                }
-                // 通知渲染线程清除流式指示器
-                let _ = self.core.render_tx.send(RenderEvent::StreamingDone);
-                // Langfuse：结束 Trace，上报最终答案（通过 TextChunk 事件累积，避免 UI 截断）
+                // Pipeline：finalize 当前 AI 消息 + reconcile 重建 view_messages
+                let actions = self.core.pipeline.handle_event(AgentEvent::Done);
+                for action in actions { self.apply_pipeline_action(action); }
+                // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
                 }
@@ -397,15 +319,12 @@ impl App {
                     self.start_compact("auto".to_string());
                     return (true, false, true);
                 } else {
-                    // 70%-85% 区间: micro-compact
                     let budget = rust_create_agent::agent::token::ContextBudget::new(self.agent.context_window);
                     if budget.should_warn(&self.agent.session_token_tracker) {
                         self.start_micro_compact();
                     }
                 }
-                // 异常退出时兜底清空 subagent 状态
-                self.core.subagent_group_idx = None;
-                // Agent 异常退出时清理残留弹窗状态，避免 UI 卡在弹窗
+                // 清理残留弹窗状态
                 self.agent.interaction_prompt = None;
                 self.agent.pending_hitl_items = None;
                 self.agent.pending_ask_user = None;
@@ -421,33 +340,38 @@ impl App {
                 (true, false, true)
             }
             AgentEvent::Interrupted => {
-                // 中断：工具已以 error 结尾，持久化中间状态，下次发消息可断点续跑
+                // Pipeline：finalize 当前状态
+                let actions = self.core.pipeline.handle_event(AgentEvent::Interrupted);
+                for action in actions { self.apply_pipeline_action(action); }
+                // 系统消息由 agent_ops 直接显示
                 let vm = MessageViewModel::system(
                     "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
                 );
                 self.core.view_messages.push(vm.clone());
                 let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                // Done 事件会紧随而来，由 Done 分支完成 set_loading + persist
                 (true, false, false)
             }
             AgentEvent::Error(ref e) => {
-                let vm = MessageViewModel::tool_block(
+                let mut vm = MessageViewModel::tool_block(
                     "error".to_string(),
-                    "agent-error".to_string(),
-                    Some(e.clone()),
+                    "Agent Error".to_string(),
+                    None,
                     true,
                 );
+                // 将完整错误信息放入 content，并默认展开，确保用户能看到
+                if let MessageViewModel::ToolBlock { content, collapsed, .. } = &mut vm {
+                    *content = e.clone();
+                    *collapsed = false;
+                }
                 self.core.view_messages.push(vm.clone());
                 let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                // Langfuse：错误路径也需结束 Trace，避免 Trace 在 Langfuse 侧永远显示为运行中
+                // Langfuse：错误路径也需结束 Trace
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
                 }
                 self.langfuse.langfuse_tracer = None;
                 self.set_loading(false);
                 self.agent.agent_rx = None;
-                // 兜底清空 subagent 状态
-                self.core.subagent_group_idx = None;
                 // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗
                 self.agent.interaction_prompt = None;
                 self.agent.pending_hitl_items = None;
@@ -472,7 +396,6 @@ impl App {
 
                 match ctx {
                     InteractionContext::Approval { items } => {
-                        // 桥接：将 ApprovalItem 列表转为旧式 BatchItem + 转换响应类型
                         let batch_items: Vec<BatchItem> = items
                             .iter()
                             .map(|i| BatchItem { tool_name: i.tool_name.clone(), input: i.tool_input.clone() })
@@ -496,7 +419,6 @@ impl App {
                         (true, true, false) // 暂停消费，等待用户确认
                     }
                     InteractionContext::Questions { requests } => {
-                        // 桥接：将 QuestionItem 列表转为 AskUserQuestionData + 转换响应类型
                         let ask_questions: Vec<AskUserQuestionData> = requests
                             .iter()
                             .map(|q| AskUserQuestionData {
@@ -522,9 +444,7 @@ impl App {
                                 let _ = response_tx.send(InteractionResponse::Answers(question_answers));
                             }
                         });
-                        // 构建 AskUser 批量请求
                         self.agent.pending_ask_user = Some(false);
-                        // 在消息流中显示 AI 向用户提出了什么问题
                         {
                             let q_lines: Vec<String> = requests.iter().map(|q| {
                                 let hint = if q.multi_select { " [多选]" } else { " [单选]" };
@@ -535,7 +455,6 @@ impl App {
                             let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
                         }
                         let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
-                        // 用桥接的 sender 覆盖 batch_req 的 response_tx
                         let batch_req_bridged = AskUserBatchRequest { questions: batch_req.questions, response_tx: bridge_tx };
                         self.agent.interaction_prompt = Some(InteractionPrompt::Questions(AskUserBatchPrompt::from_request(batch_req_bridged)));
                         (true, true, false) // 暂停消费，等待用户输入
@@ -550,11 +469,7 @@ impl App {
                 tracing::debug!(count = msgs.len(), "received StateSnapshot in poll_agent");
                 for msg in &msgs {
                     match msg {
-                        BaseMessage::Ai {
-                            content: _,
-                            tool_calls,
-                            ..
-                        } => {
+                        BaseMessage::Ai { content: _, tool_calls, .. } => {
                             tracing::debug!(
                                 has_tc = !tool_calls.is_empty(),
                                 tc_len = tool_calls.len(),
@@ -567,13 +482,15 @@ impl App {
                         _ => {}
                     }
                 }
-                // 增量追加到 agent_state_messages（去重，避免重复消息）
-                self.agent.agent_state_messages.extend(msgs);
-                // 持久化已由 AgentState::add_message 自动完成（fire-and-forget）
+                self.agent.agent_state_messages.extend(msgs.clone());
+                // Pipeline：更新 completed 状态（用于后续 reconcile）
+                let actions = self.core.pipeline.handle_event(
+                    AgentEvent::StateSnapshot(msgs)
+                );
+                for action in actions { self.apply_pipeline_action(action); }
                 (true, false, false)
             }
             AgentEvent::CompactDone { summary, new_thread_id: _ } => {
-                // 创建新 Thread，带摘要截断名称
                 let truncated: String = summary.chars().take(30).collect();
                 let ellipsis = if summary.chars().count() > 30 { "…" } else { "" };
                 let thread_title = format!("📦 Compact: {}{}", truncated, ellipsis);
@@ -589,10 +506,8 @@ impl App {
                         })
                 });
 
-                // 构造新 Thread 的消息：Ai(摘要) — 以 AI 消息形式展示摘要
                 let new_messages = vec![BaseMessage::ai(summary.clone())];
 
-                // 持久化新 Thread 消息
                 let store = self.thread_store.clone();
                 tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current()
@@ -602,9 +517,12 @@ impl App {
                         });
                 });
 
-                // 切换到新 Thread
                 self.current_thread_id = Some(new_tid.clone());
                 self.agent.agent_state_messages = new_messages;
+
+                // Pipeline：同步清理状态
+                self.core.pipeline.clear();
+                self.core.pipeline.restore_completed(self.agent.agent_state_messages.clone());
 
                 // 清空显示消息，插入压缩提示 + 摘要（AI 消息形式）
                 self.core.view_messages.clear();
@@ -618,26 +536,17 @@ impl App {
                 );
                 self.core.view_messages.push(summary_vm);
 
-                // 通知渲染线程重建显示
-                let _ = self
-                    .core.render_tx
-                    .send(crate::ui::render_thread::RenderEvent::Clear);
+                let _ = self.core.render_tx.send(crate::ui::render_thread::RenderEvent::Clear);
                 for vm in &self.core.view_messages {
-                    let _ = self
-                        .core.render_tx
-                        .send(crate::ui::render_thread::RenderEvent::AddMessage(
-                            vm.clone(),
-                        ));
+                    let _ = self.core.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm.clone()));
                 }
 
                 self.set_loading(false);
                 self.agent.agent_rx = None;
 
-                // 重置 Langfuse session（新 Thread 需要独立 session）
                 self.langfuse.langfuse_session = None;
                 self.agent.auto_compact_failures = 0;
 
-                // 刷新 compact 期间缓冲的消息（与 Done 分支行为一致）
                 if !self.core.pending_messages.is_empty() {
                     let combined = self.core.pending_messages.join("\n\n");
                     self.core.pending_messages.clear();
@@ -649,14 +558,11 @@ impl App {
             AgentEvent::CompactError(msg) => {
                 let vm = MessageViewModel::system(format!("❌ 压缩失败: {}", msg));
                 self.core.view_messages.push(vm.clone());
-                let _ = self
-                    .core.render_tx
-                    .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+                let _ = self.core.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
                 self.set_loading(false);
                 self.agent.agent_rx = None;
                 self.agent.auto_compact_failures += 1;
 
-                // 刷新 compact 期间缓冲的消息
                 if !self.core.pending_messages.is_empty() {
                     let combined = self.core.pending_messages.join("\n\n");
                     self.core.pending_messages.clear();
@@ -681,7 +587,6 @@ impl App {
         let mut updated = false;
 
         loop {
-            // 先 try_recv 拿到事件（短暂借用 rx），立即释放借用
             let result = self.agent.agent_rx.as_mut().map(|rx| rx.try_recv());
             match result {
                 Some(Ok(event)) => {
@@ -706,15 +611,12 @@ impl App {
                     );
                     self.core.view_messages.push(vm.clone());
                     let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
-                    // Langfuse：channel 意外断开也需结束 Trace，与 Error 路径保持一致
                     if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                         self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly")));
                     }
                     self.langfuse.langfuse_tracer = None;
                     self.set_loading(false);
                     self.agent.agent_rx = None;
-                    // 兜底清空 subagent 状态
-                    self.core.subagent_group_idx = None;
                     // 清理残留弹窗状态，避免 UI 卡在弹窗
                     self.agent.interaction_prompt = None;
                     self.agent.pending_hitl_items = None;

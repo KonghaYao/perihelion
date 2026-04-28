@@ -4,11 +4,19 @@ use tokio::sync::oneshot;
 
 /// TUI 与后台 Agent 任务之间的通信事件（通过 mpsc channel 传递）
 pub enum AgentEvent {
-    ToolCall {
+    /// 工具调用开始（参数已就绪）
+    ToolStart {
         tool_call_id: String,
         name: String,
         display: String,
-        args: Option<String>,
+        args: String,
+        input: serde_json::Value,
+    },
+    /// 工具调用结果
+    ToolEnd {
+        tool_call_id: String,
+        name: String,
+        output: String,
         is_error: bool,
     },
     AssistantChunk(String),

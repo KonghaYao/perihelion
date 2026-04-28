@@ -18,6 +18,35 @@ impl BashTool {
     }
 }
 
+/// 输出最大字符数
+const MAX_OUTPUT_CHARS: usize = 100_000;
+/// 输出最大行数（在第 N 行截断后，若还有行数超过上限再截字符）
+const MAX_OUTPUT_LINES: usize = 2_000;
+
+fn truncate_output(output: &str) -> String {
+    let lines: Vec<&str> = output.split('\n').collect();
+    if lines.len() > MAX_OUTPUT_LINES {
+        let truncated: Vec<&str> = lines.into_iter().take(MAX_OUTPUT_LINES).collect();
+        let mut result = truncated.join("\n");
+        result.push_str(&format!(
+            "\n\n[Output truncated: {} lines total, showing first {}]",
+            truncated.len() + 1, // approximate
+            MAX_OUTPUT_LINES
+        ));
+        // 再检查字符数
+        if result.len() > MAX_OUTPUT_CHARS {
+            let char_truncated: String = result.chars().take(MAX_OUTPUT_CHARS).collect();
+            return format!("{}\n\n[Output truncated: exceeds {} character limit]", char_truncated, MAX_OUTPUT_CHARS);
+        }
+        return result;
+    }
+    if output.len() > MAX_OUTPUT_CHARS {
+        let truncated: String = output.chars().take(MAX_OUTPUT_CHARS).collect();
+        return format!("{}\n\n[Output truncated: exceeds {} character limit]", truncated, MAX_OUTPUT_CHARS);
+    }
+    output.to_string()
+}
+
 #[async_trait::async_trait]
 impl BaseTool for BashTool {
     fn name(&self) -> &str {
@@ -96,7 +125,8 @@ impl BaseTool for BashTool {
                     output = format!("[Command completed with exit code {exit_code}]");
                 }
 
-                Ok(output)
+                // 截断过长输出，防止撑爆 LLM context window
+                Ok(truncate_output(&output))
             }
         }
     }

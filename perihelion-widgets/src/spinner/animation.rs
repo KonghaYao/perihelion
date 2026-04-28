@@ -1,4 +1,7 @@
-const BRAILLE_FRAMES: &[char] = &['✻', '✼', '✻', '✸'];
+const BRAILLE_FRAMES: &[char] = &[
+    '✳', '✴', '✵', '✶', '✷', '✸', '✹', '✺', '✻', '✼',
+    '❃', '❊', '✼', '✻', '✺', '✸',
+];
 
 pub fn tick_to_frame(tick: u64) -> char {
     BRAILLE_FRAMES[(tick as usize) % BRAILLE_FRAMES.len()]

@@ -28,6 +28,7 @@ use crate::ui::message_view::{
     tool_color,
 };
 use crate::ui::theme;
+use crate::app::events::AgentEvent;
 
 // ─── 管线事件 ────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,75 @@ impl MessagePipeline {
 
     pub fn cwd(&self) -> &str {
         &self.cwd
+    }
+
+    /// 统一事件处理入口：将 AgentEvent 转换为 PipelineAction 列表。
+    /// agent_ops 通过此方法委托所有消息状态管理逻辑。
+    pub fn handle_event(&mut self, event: AgentEvent) -> Vec<PipelineAction> {
+        match event {
+            AgentEvent::AssistantChunk(chunk) => {
+                if chunk.is_empty() {
+                    // 空 chunk：不创建新 bubble，仅追加到已有 bubble
+                    vec![PipelineAction::None]
+                } else if self.in_subagent() {
+                    self.subagent_push_chunk(&chunk);
+                    vec![self.build_subagent_update()
+                        .map(PipelineAction::UpdateLast)
+                        .unwrap_or(PipelineAction::None)]
+                } else {
+                    self.push_chunk(&chunk);
+                    vec![PipelineAction::AppendChunk(chunk)]
+                }
+            }
+            AgentEvent::ToolStart { tool_call_id, name, display: _, args: _, input } => {
+                if self.in_subagent() {
+                    self.subagent_tool_start(&name, input);
+                    vec![self.build_subagent_update()
+                        .map(PipelineAction::UpdateLast)
+                        .unwrap_or(PipelineAction::None)]
+                } else {
+                    vec![self.tool_start(&tool_call_id, &name, input)]
+                }
+            }
+            AgentEvent::ToolEnd { tool_call_id, name, output, is_error } => {
+                if self.in_subagent() {
+                    vec![self.build_subagent_update()
+                        .map(PipelineAction::UpdateLast)
+                        .unwrap_or(PipelineAction::None)]
+                } else {
+                    vec![self.tool_end(&tool_call_id, &name, &output, is_error)]
+                }
+            }
+            AgentEvent::SubAgentStart { agent_id, task_preview } => {
+                let input = serde_json::json!({"agent_id": &agent_id, "task": &task_preview});
+                vec![self.tool_start(&format!("subagent_{}", agent_id), "launch_agent", input)]
+            }
+            AgentEvent::SubAgentEnd { result, is_error } => {
+                vec![self.tool_end("subagent_end", "launch_agent", &result, is_error)]
+            }
+            AgentEvent::Done => {
+                self.done();
+                vec![PipelineAction::StreamingDone]
+            }
+            AgentEvent::Interrupted => {
+                self.interrupt();
+                vec![PipelineAction::None]
+            }
+            AgentEvent::StateSnapshot(msgs) => {
+                self.set_completed(msgs);
+                vec![PipelineAction::None]
+            }
+            // 以下事件由 agent_ops 直接处理，Pipeline 返回 None
+            AgentEvent::Error(_)
+            | AgentEvent::InteractionRequest { .. }
+            | AgentEvent::TodoUpdate(_)
+            | AgentEvent::CompactDone { .. }
+            | AgentEvent::CompactError(_)
+            | AgentEvent::TokenUsageUpdate { .. }
+            | AgentEvent::LlmRetrying { .. } => {
+                vec![PipelineAction::None]
+            }
+        }
     }
 
     // ─── 流式事件输入 ─────────────────────────────────────────────────────
@@ -291,10 +361,9 @@ impl MessagePipeline {
             let display = tool_display::format_tool_name(name);
             let args = tool_display::format_tool_args(name, &input, Some(&self.cwd));
             let vm = MessageViewModel::tool_block(name.to_string(), display, args, false);
+            sub.total_steps += 1;
             if sub.recent_messages.len() >= 4 {
                 sub.recent_messages.remove(0);
-            } else {
-                sub.total_steps += 1;
             }
             sub.recent_messages.push(vm);
         }
@@ -392,9 +461,23 @@ impl MessagePipeline {
         &self.completed
     }
 
-    /// 从外部加载已完成的 BaseMessages（用于历史恢复后的续接）
+    /// 追加增量 BaseMessages（StateSnapshot 是增量消息），并清除流式状态防止重复
     pub fn set_completed(&mut self, msgs: Vec<BaseMessage>) {
+        self.completed.extend(msgs);
+        // 清除流式缓冲：completed 已包含完整消息，finalize_current_ai 不应再产出重复
+        self.current_ai_text.clear();
+        self.current_ai_reasoning.clear();
+        self.current_ai_tool_calls.clear();
+        self.current_ai_finalized = true;
+    }
+
+    /// 从外部加载全量 BaseMessages（用于历史恢复后覆盖），并清除所有状态
+    pub fn restore_completed(&mut self, msgs: Vec<BaseMessage>) {
         self.completed = msgs;
+        self.current_ai_text.clear();
+        self.current_ai_reasoning.clear();
+        self.current_ai_tool_calls.clear();
+        self.current_ai_finalized = true;
     }
 
     // ─── 核心转换函数 ─────────────────────────────────────────────────────
@@ -636,5 +719,66 @@ mod tests {
         let vm2 = MessageViewModel::from_base_message_with_cwd(&msg, &[], None);
         // 两者应产生相同结果
         assert_eq!(format!("{:?}", vm1), format!("{:?}", vm2));
+    }
+
+    // ─── handle_event 测试 ─────────────────────────────────────────────────
+
+    /// 测试：handle_event AssistantChunk 产生 AppendChunk
+    #[test]
+    fn test_handle_event_assistant_chunk() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        let actions = pipeline.handle_event(AgentEvent::AssistantChunk("hello".into()));
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PipelineAction::AppendChunk(ref c) if c == "hello"));
+    }
+
+    /// 测试：handle_event 空 chunk 不产生 AppendChunk
+    #[test]
+    fn test_handle_event_empty_chunk() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        let actions = pipeline.handle_event(AgentEvent::AssistantChunk(String::new()));
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PipelineAction::None));
+    }
+
+    /// 测试：handle_event ToolStart + ToolEnd + Done 产生完整生命周期
+    #[test]
+    fn test_handle_event_tool_lifecycle() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        // ToolStart
+        let actions = pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: "tc1".into(),
+            name: "read_file".into(),
+            display: "ReadFile".into(),
+            args: "src/main.rs".into(),
+            input: serde_json::json!({"file_path": "/tmp/src/main.rs"}),
+        });
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PipelineAction::AddMessage(_)));
+        // ToolEnd
+        let actions = pipeline.handle_event(AgentEvent::ToolEnd {
+            tool_call_id: "tc1".into(),
+            name: "read_file".into(),
+            output: "file content".into(),
+            is_error: false,
+        });
+        assert_eq!(actions.len(), 1);
+        // ToolEnd 对只读工具返回 None
+        assert!(matches!(actions[0], PipelineAction::None));
+        // Done → StreamingDone（不再 RebuildAll，流式路径已通过增量操作维护 view_messages）
+        let actions = pipeline.handle_event(AgentEvent::Done);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PipelineAction::StreamingDone));
+    }
+
+    /// 测试：handle_event StateSnapshot 更新 completed
+    #[test]
+    fn test_handle_event_state_snapshot() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("world")];
+        let actions = pipeline.handle_event(AgentEvent::StateSnapshot(msgs.clone()));
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], PipelineAction::None));
+        assert_eq!(pipeline.completed_messages().len(), 2);
     }
 }

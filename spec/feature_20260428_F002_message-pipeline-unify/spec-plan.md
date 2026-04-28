@@ -202,7 +202,7 @@
     ```
   - **原因**: 在 Task 4 重构前，确保新事件类型能被正确处理，保持现有行为
 
-- [ ] **步骤 12: 运行所有 headless 测试验证事件拆分**
+- [x] **步骤 12: 运行所有 headless 测试验证事件拆分**
   - **目标文件**: `rust-agent-tui/src/ui/headless.rs`
   - **位置**: 终端执行测试命令
   - **内容**: 
@@ -223,7 +223,7 @@
 
 #### 执行步骤
 
-- [ ] **步骤 1: 在 core.rs 顶部添加 MessagePipeline 导入**
+- [x] **步骤 1: 在 core.rs 顶部添加 MessagePipeline 导入**
   - **目标文件**: `rust-agent-tui/src/app/core.rs`
   - **位置**: 在文件开头（line 1-16），找到 `use super::agent_panel::AgentPanel;` 等导入语句，在其后添加新的导入
   - **内容**: 
@@ -232,7 +232,7 @@
     ```
   - **原因**: AppCore 结构体需要使用 MessagePipeline 类型，必须先导入该模块
 
-- [ ] **步骤 2: 在 AppCore 结构体中添加 pipeline 字段**
+- [x] **步骤 2: 在 AppCore 结构体中添加 pipeline 字段**
   - **目标文件**: `rust-agent-tui/src/app/core.rs`
   - **位置**: 在 `pub struct AppCore` 结构体定义中（line 19-48），在 `pub view_messages: Vec<MessageViewModel>,` 之后（line 20 之后）插入新字段
   - **内容**: 
@@ -241,7 +241,7 @@
     ```
   - **原因**: 添加 MessagePipeline 实例到 AppCore，使其成为消息状态管理的核心组件
 
-- [ ] **步骤 3: 调整 AppCore::new 方法签名，添加 cwd 参数**
+- [x] **步骤 3: 调整 AppCore::new 方法签名，添加 cwd 参数**
   - **目标文件**: `rust-agent-tui/src/app/core.rs`
   - **位置**: 在 `impl AppCore` 块的 `pub fn new` 方法签名（line 52），在 `command_registry: CommandRegistry,` 参数之后、`skills: Vec<SkillMetadata>)` 参数之前插入新参数
   - **内容**: 
@@ -255,7 +255,7 @@
     ```
   - **原因**: MessagePipeline::new() 需要 cwd 参数，必须在 AppCore::new() 中接收并传递
 
-- [ ] **步骤 4: 在 AppCore::new 方法体中初始化 pipeline 字段**
+- [x] **步骤 4: 在 AppCore::new 方法体中初始化 pipeline 字段**
   - **目标文件**: `rust-agent-tui/src/app/core.rs`
   - **位置**: 在 `AppCore::new` 方法体的结构体初始化代码中（line 62-88），在 `view_messages: Vec::new(),` 之后（line 63 之后）插入新字段初始化
   - **内容**: 
@@ -264,7 +264,7 @@
     ```
   - **原因**: 使用传入的 cwd 参数初始化 MessagePipeline 实例，存储在 AppCore 中
 
-- [ ] **步骤 5: 调整 app/mod.rs 的 App::new 方法，传递 cwd 参数给 AppCore::new**
+- [x] **步骤 5: 调整 app/mod.rs 的 App::new 方法，传递 cwd 参数给 AppCore::new**
   - **目标文件**: `rust-agent-tui/src/app/mod.rs`
   - **位置**: 在 `impl App` 块的 `App::new` 方法中（line 150），找到 `core: AppCore::new(render_tx, render_cache, render_notify, command_registry, skills),` 调用，在第一个参数位置插入 cwd 参数
   - **内容**: 
@@ -273,7 +273,7 @@
     ```
   - **原因**: App::new() 方法已有 cwd 参数（line 153），需要将其传递给 AppCore::new() 以初始化 Pipeline
 
-- [ ] **步骤 6: 调整 panel_ops.rs 的 new_headless 方法，传递 cwd 参数给 AppCore::new**
+- [x] **步骤 6: 调整 panel_ops.rs 的 new_headless 方法，传递 cwd 参数给 AppCore::new**
   - **目标文件**: `rust-agent-tui/src/app/panel_ops.rs`
   - **位置**: 在 `pub fn new_headless` 方法中（line 207-213），找到 `let core = super::AppCore::new(...)` 调用，在第一个参数位置插入 cwd 参数
   - **内容**: 
@@ -289,7 +289,7 @@
     ```
   - **原因**: new_headless 用于测试，使用固定测试目录 "/tmp" 作为 cwd，确保 AppCore::new() 接收到有效的 cwd 参数
 
-- [ ] **步骤 7: 在 core.rs 中添加单元测试验证 pipeline 字段初始化**
+- [x] **步骤 7: 在 core.rs 中添加单元测试验证 pipeline 字段初始化**
   - **目标文件**: `rust-agent-tui/src/app/core.rs`
   - **位置**: 在文件末尾（impl AppCore 块之后），添加新的测试模块
   - **内容**: 
@@ -326,7 +326,7 @@
     ```
   - **原因**: 验证 AppCore 正确初始化 MessagePipeline 实例，cwd 参数正确传递，确保后续 Task 可以依赖 core.pipeline 访问 Pipeline 功能
 
-- [ ] **步骤 8: 运行 core.rs 单元测试验证 pipeline 初始化**
+- [x] **步骤 8: 运行 core.rs 单元测试验证 pipeline 初始化**
   - **目标文件**: `rust-agent-tui/src/app/core.rs`
   - **位置**: 终端执行测试命令
   - **内容**: 
@@ -336,7 +336,7 @@
   - **预期输出**: 测试通过，输出包含 `test test_appcore_pipeline_initialized ... ok` 和 `test result: ok. 1 passed`
   - **原因**: 验证 pipeline 字段正确初始化，确保 AppCore 持有有效的 MessagePipeline 实例，为后续 Task 奠定基础
 
-- [ ] **步骤 9: 运行所有单元测试确保无回归**
+- [x] **步骤 9: 运行所有单元测试确保无回归**
   - **目标文件**: `rust-agent-tui/src/app/`
   - **位置**: 终端执行测试命令
   - **内容**: 
@@ -354,13 +354,13 @@
 
 #### 执行步骤
 
-- [ ] **步骤 1: 在 message_pipeline.rs 顶部添加 AgentEvent 导入**
+- [x] **步骤 1: 在 message_pipeline.rs 顶部添加 AgentEvent 导入**
   - 目标文件: `rust-agent-tui/src/app/message_pipeline.rs`
   - 位置: 在现有 `use` 语句之后（~L30），添加 `use crate::app::events::AgentEvent;`
   - 内容: `use crate::app::events::AgentEvent;`
   - 原因: handle_event 方法需要匹配 AgentEvent 枚举变体
 
-- [ ] **步骤 2: 在 MessagePipeline impl 块中新增 handle_event 方法**
+- [x] **步骤 2: 在 MessagePipeline impl 块中新增 handle_event 方法**
   - 目标文件: `rust-agent-tui/src/app/message_pipeline.rs`
   - 位置: 在 `pub fn cwd(&self)` 方法之后（~L116），插入新的 `handle_event` 方法
   - 内容:
@@ -443,7 +443,7 @@
     ```
   - 原因: 提供统一入口，让 agent_ops 可以一行代码委托所有消息状态管理。每个分支内部调用已有的 Pipeline 方法（push_chunk / tool_start / tool_end / done / reconcile），不重复实现逻辑
 
-- [ ] **步骤 3: 新增 handle_event 的单元测试——流式文本路径**
+- [x] **步骤 3: 新增 handle_event 的单元测试——流式文本路径**
   - 目标文件: `rust-agent-tui/src/app/message_pipeline.rs`
   - 位置: 在现有 `mod tests` 块末尾（~L640），追加测试函数
   - 内容:
@@ -512,10 +512,10 @@
 
 #### 检查步骤
 
-- [ ] 验证 handle_event 编译通过
+- [x] 验证 handle_event 编译通过
   - `cargo build -p rust-agent-tui 2>&1 | tail -5`
   - 预期: 编译成功，无错误
-- [ ] 运行 message_pipeline 测试
+- [x] 运行 message_pipeline 测试
   - `cargo test -p rust-agent-tui --lib -- message_pipeline`
   - 预期: 所有测试通过（原有 5 个 + 新增 4 个 = 9 个）
 

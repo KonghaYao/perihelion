@@ -251,33 +251,31 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             let task_preview = input["task"].as_str().unwrap_or("").chars().take(40).collect();
             AgentEvent::SubAgentStart { agent_id, task_preview }
         }
-        ExecutorEvent::ToolStart { tool_call_id, name, input, .. } => AgentEvent::ToolCall {
+        ExecutorEvent::ToolStart { tool_call_id, name, input, .. } => AgentEvent::ToolStart {
             tool_call_id,
-            args: format_tool_args(&name, &input, Some(cwd)),
+            name: name.clone(),
             display: format_tool_name(&name),
-            name,
-            is_error: false,
+            args: format_tool_args(&name, &input, Some(cwd)).unwrap_or_default(),
+            input: input.clone(),
         },
         // launch_agent ToolEnd → SubAgentEnd（在通用 ToolEnd 分支之前）
         ExecutorEvent::ToolEnd { name, output, is_error, .. } if name == "launch_agent" => {
             AgentEvent::SubAgentEnd { result: output, is_error }
         }
         // ask_user 成功：显示用户的回答
-        ExecutorEvent::ToolEnd { name, output, is_error: false, .. } if name == "ask_user" => {
-            AgentEvent::ToolCall {
-                tool_call_id: String::new(),
-                display: "AskUser".to_string(),
-                args: Some(format!("? → {}", truncate(&output, 60))),
+        ExecutorEvent::ToolEnd { tool_call_id, name, output, is_error: false, .. } if name == "ask_user" => {
+            AgentEvent::ToolEnd {
+                tool_call_id,
                 name,
+                output: format!("? → {}", truncate(&output, 60)),
                 is_error: false,
             }
         }
         // 工具执行出错
-        ExecutorEvent::ToolEnd { name, output, is_error: true, .. } => AgentEvent::ToolCall {
-            tool_call_id: String::new(),
-            display: format_tool_name(&name),
-            args: Some(format!("✗ {}", truncate(&output, 60))),
+        ExecutorEvent::ToolEnd { tool_call_id, name, output, is_error: true, .. } => AgentEvent::ToolEnd {
+            tool_call_id,
             name,
+            output: format!("✗ {}", truncate(&output, 60)),
             is_error: true,
         },
         // 无需转发的内部事件
