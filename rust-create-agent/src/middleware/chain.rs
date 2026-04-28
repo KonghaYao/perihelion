@@ -35,7 +35,7 @@ impl<S: State> MiddlewareChain<S> {
         self.middlewares.iter().map(|m| m.name()).collect()
     }
 
-    /// 收集所有中间件提供的工具（按注册顺序，后注册的同名工具被忽略）
+    /// 收集所有中间件提供的工具（按注册顺序，后注册的同名工具覆盖先注册的）
     pub fn collect_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
         self.middlewares.iter().flat_map(|m| m.collect_tools(cwd)).collect()
     }

@@ -446,6 +446,15 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
                 self.emit(AgentEvent::TextChunk { message_id: ai_msg_id, chunk: answer.clone() });
 
+                // 发送包含最终回答的 StateSnapshot，确保 TUI 侧的 agent_state_messages
+                // 包含完整对话历史（包括本次最终回答），否则下一轮对话上下文会丢失
+                let msgs_since_last = state.messages()[self.last_message_count.load(std::sync::atomic::Ordering::SeqCst)..]
+                    .to_vec();
+                if !msgs_since_last.is_empty() {
+                    self.emit(AgentEvent::StateSnapshot(msgs_since_last));
+                }
+                self.last_message_count.store(state.messages().len(), std::sync::atomic::Ordering::SeqCst);
+
                 let output = AgentOutput {
                     text: answer,
                     steps: step + 1,
@@ -930,6 +939,52 @@ mod tests {
         };
         let json = serde_json::to_value(&ev).unwrap();
         assert!(json["message_id"].is_string(), "ToolEnd JSON 应含 message_id 字段");
+    }
+
+    /// 验证最终回答路径也会发出 StateSnapshot，确保多轮对话不丢失 AI 回复
+    #[tokio::test]
+    async fn test_state_snapshot_on_final_answer() {
+        use crate::agent::events::{AgentEvent, FnEventHandler};
+        use std::sync::{Arc, Mutex};
+
+        struct FinalAnswerLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for FinalAnswerLLM {
+            async fn generate_reasoning(
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                Ok(Reasoning::with_answer("thinking", "final answer"))
+            }
+        }
+
+        let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+
+        let agent = ReActAgent::new(FinalAnswerLLM)
+            .max_iterations(3)
+            .with_event_handler(Arc::new(FnEventHandler(move |event| {
+                events_clone.lock().unwrap().push(event);
+            })));
+
+        let mut state = AgentState::new("/tmp");
+        agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+
+        let evs = events.lock().unwrap();
+        let snapshots: Vec<_> = evs.iter()
+            .filter(|e| matches!(e, AgentEvent::StateSnapshot(_)))
+            .collect();
+
+        assert!(!snapshots.is_empty(), "最终回答路径应发出 StateSnapshot");
+
+        // 最后一个 snapshot 应包含 AI 最终回答
+        if let AgentEvent::StateSnapshot(msgs) = snapshots.last().unwrap() {
+            let has_ai_text = msgs.iter().any(|m| {
+                matches!(m, BaseMessage::Ai { tool_calls, .. } if tool_calls.is_empty())
+            });
+            assert!(has_ai_text, "StateSnapshot 应包含不带工具调用的 AI 消息");
+        }
     }
 
     /// 验证达到最大迭代次数时返回 MaxIterationsExceeded 错误
