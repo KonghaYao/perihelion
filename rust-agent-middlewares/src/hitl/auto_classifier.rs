@@ -129,10 +129,21 @@ impl LlmAutoClassifier {
         match response {
             Ok(resp) => {
                 let text = resp.message.content().trim().to_uppercase();
-                // 先检测 DENY，避免 "NOT ALLOWED" 等回复被 ALLOW 误匹配
-                if text.contains("DENY") {
+                // 提取所有纯字母单词
+                let words: Vec<&str> = text
+                    .split(|c: char| !c.is_alphabetic())
+                    .filter(|w| !w.is_empty())
+                    .collect();
+
+                // 检查是否存在否定词（NOT, DON'T, WON'T, NEVER, etc.）
+                let has_negation = words.iter().any(|w| {
+                    matches!(*w, "NOT" | "DONT" | "WONT" | "CANT" | "NEVER" | "NO" | "NEITHER" | "NOR")
+                });
+
+                // 包含 DENY（无论有无否定）→ Deny；否定+ALLOW → Unsure
+                if words.contains(&"DENY") {
                     Classification::Deny
-                } else if text.contains("ALLOW") {
+                } else if words.contains(&"ALLOW") && !has_negation {
                     Classification::Allow
                 } else {
                     Classification::Unsure
@@ -301,5 +312,49 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(60)).await;
         let key = LlmAutoClassifier::cache_key("bash", &input);
         assert!(classifier.lookup_cache(&key).is_none(), "缓存应已过期");
+    }
+
+    // ─── 子串误判防护测试 ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_not_allow_should_not_match() {
+        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("NOT ALLOW")) as Box<dyn BaseModel>));
+        let classifier = LlmAutoClassifier::new(model);
+        let result = classifier.classify("bash", &serde_json::json!({"cmd": "rm -rf /"})).await;
+        assert_ne!(result, Classification::Allow, "NOT ALLOW 不应被判为 Allow");
+        assert_eq!(result, Classification::Unsure);
+    }
+
+    #[tokio::test]
+    async fn test_disallow_should_not_match() {
+        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("DISALLOW")) as Box<dyn BaseModel>));
+        let classifier = LlmAutoClassifier::new(model);
+        let result = classifier.classify("bash", &serde_json::json!({"cmd": "rm -rf /"})).await;
+        assert_ne!(result, Classification::Allow, "DISALLOW 不应被判为 Allow");
+        assert_eq!(result, Classification::Unsure, "DISALLOW 应判为 Unsure（无独立 DENY/ALLOW）");
+    }
+
+    #[tokio::test]
+    async fn test_allow_as_standalone_word() {
+        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>));
+        let classifier = LlmAutoClassifier::new(model);
+        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        assert_eq!(result, Classification::Allow, "独立 ALLOW 应判为 Allow");
+    }
+
+    #[tokio::test]
+    async fn test_i_allow_this() {
+        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("I ALLOW THIS")) as Box<dyn BaseModel>));
+        let classifier = LlmAutoClassifier::new(model);
+        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        assert_eq!(result, Classification::Allow, "I ALLOW THIS 应判为 Allow");
+    }
+
+    #[tokio::test]
+    async fn test_i_deny_this() {
+        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("I DENY THIS")) as Box<dyn BaseModel>));
+        let classifier = LlmAutoClassifier::new(model);
+        let result = classifier.classify("bash", &serde_json::json!({"cmd": "rm -rf /"})).await;
+        assert_eq!(result, Classification::Deny, "I DENY THIS 应判为 Deny");
     }
 }
