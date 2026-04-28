@@ -346,6 +346,10 @@ impl App {
                 self.agent.interaction_prompt = None;
                 self.agent.pending_hitl_items = None;
                 self.agent.pending_ask_user = None;
+                // circuit breaker 渐进恢复：每轮成功对话将 failure 计数减半
+                if self.agent.auto_compact_failures > 0 {
+                    self.agent.auto_compact_failures /= 2;
+                }
                 if let Some(start) = self.agent.task_start_time {
                     self.agent.last_task_duration = Some(start.elapsed());
                 }

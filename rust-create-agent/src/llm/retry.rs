@@ -34,8 +34,12 @@ impl RetryConfig {
     pub fn with_max_delay_ms(mut self, ms: u64) -> Self { self.max_delay_ms = ms; self }
 
     /// 指数退避 + 25% 随机抖动
+    ///
+    /// attempt 从 0 开始，但首次重试（attempt=0）使用 base_delay * 2
+    /// 以确保对 429 限流有足够等待时间。
     pub fn exponential_delay(&self, attempt: usize) -> u64 {
-        let base = (self.base_delay_ms as f64 * 2f64.powi(attempt as i32))
+        let effective = attempt + 1;
+        let base = (self.base_delay_ms as f64 * 2f64.powi(effective as i32))
             .min(self.max_delay_ms as f64);
         let mut rng = rand::thread_rng();
         let jitter = rng.gen_range(0.0..0.25) * base;
@@ -255,7 +259,8 @@ mod tests {
         let config = RetryConfig::default();
         for attempt in 0..=5 {
             let delay = config.exponential_delay(attempt);
-            let base = (config.base_delay_ms as f64 * 2f64.powi(attempt as i32))
+            let effective = attempt + 1;
+            let base = (config.base_delay_ms as f64 * 2f64.powi(effective as i32))
                 .min(config.max_delay_ms as f64);
             let lower = base as u64;
             let upper = (base * 1.25) as u64;

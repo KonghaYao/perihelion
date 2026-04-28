@@ -111,9 +111,18 @@ impl CronScheduler {
         }
     }
 
-    /// 获取所有任务
+    /// 获取所有任务（按下次触发时间排序，无触发时间的排最后）
     pub fn list_tasks(&self) -> Vec<&CronTask> {
-        self.tasks.values().collect()
+        let mut tasks: Vec<&CronTask> = self.tasks.values().collect();
+        tasks.sort_by(|a, b| {
+            match (&a.next_fire, &b.next_fire) {
+                (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+        });
+        tasks
     }
 
     /// 获取单个任务

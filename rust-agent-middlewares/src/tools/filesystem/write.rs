@@ -51,12 +51,20 @@ impl BaseTool for WriteFileTool {
             }
         }
 
-        match std::fs::write(&resolved, content) {
+        // 原子写入：先写临时文件再 rename，防止崩溃时丢失数据
+        let tmp_path = resolved.with_extension("tmp");
+        if let Err(e) = std::fs::write(&tmp_path, content) {
+            return Err(format!("Error writing file: {e}").into());
+        }
+        match std::fs::rename(&tmp_path, &resolved) {
             Ok(_) => Ok(format!(
                 "File {} has been written successfully.",
                 resolved.display()
             )),
-            Err(e) => Ok(format!("Error writing file: {e}")),
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                Err(format!("Error renaming temp file: {e}").into())
+            }
         }
     }
 }

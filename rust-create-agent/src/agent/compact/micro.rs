@@ -2,10 +2,6 @@ use crate::agent::compact::config::CompactConfig;
 use crate::agent::compact::invariant::{adjust_index_to_preserve_invariants, group_messages_by_round};
 use crate::messages::{BaseMessage, ContentBlock, MessageContent};
 
-fn estimate_tokens(text: &str) -> usize {
-    text.len() / 4
-}
-
 fn find_tool_name_for_tool_result(messages: &[BaseMessage], tool_call_id: &str) -> Option<String> {
     for msg in messages.iter().rev() {
         if let BaseMessage::Ai { tool_calls, .. } = msg {

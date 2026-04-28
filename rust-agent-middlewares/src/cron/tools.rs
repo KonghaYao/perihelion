@@ -49,7 +49,11 @@ impl BaseTool for CronRegisterTool {
             .ok_or_else(|| "missing expression field".to_string())?;
         let prompt = input["prompt"]
             .as_str()
-            .ok_or_else(|| "missing prompt field".to_string())?;
+            .ok_or_else(|| "missing prompt field".to_string())?
+            .trim();
+        if prompt.is_empty() {
+            return Err("prompt 不能为空".into());
+        }
 
         let mut scheduler = self.scheduler.lock();
 
@@ -106,7 +110,7 @@ impl BaseTool for CronListTool {
                 .unwrap_or_else(|| "N/A".to_string());
             lines.push(format!(
                 "- {} [{}] {} | 下次触发: {} | prompt: {}",
-                &task.id[..8],
+                task.id.get(..8).unwrap_or(&task.id),
                 status,
                 task.expression,
                 next,

@@ -73,6 +73,7 @@ impl App {
 
         self.current_thread_id = Some(thread_id);
         self.core.thread_browser = None;
+        self.core.pending_attachments.clear();
         self.langfuse.langfuse_session = None;
 
         // 恢复 sticky header：找到 thread 中最后一条 Human 消息
