@@ -411,8 +411,8 @@ impl MessagePipeline {
         // 清理残留的 pending_tools（普通工具的 ToolEnd 被 map_executor_event 过滤，
         // 不会到达 pipeline，所以 done 时必须清理以防止内存泄漏）
         self.pending_tools.clear();
-        // 清理已完成的 SubAgent
-        self.subagent_stack.retain(|s| s.is_running);
+        // 清理所有 SubAgent（done 在 agent 级别调用，所有子代理都应清除）
+        self.subagent_stack.clear();
     }
 
     /// 中断：finalize 当前状态并清理残留
@@ -420,7 +420,8 @@ impl MessagePipeline {
         self.finalize_current_ai();
         self.current_ai_finalized = false;
         self.pending_tools.clear();
-        self.subagent_stack.retain(|s| s.is_running);
+        // 中断时所有 SubAgent 不再运行，必须清除以防残留 stack 捕获下一个任务的 UI
+        self.subagent_stack.clear();
     }
 
     /// 清空所有状态

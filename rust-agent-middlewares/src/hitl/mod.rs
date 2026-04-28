@@ -145,6 +145,9 @@ impl HumanInTheLoopMiddleware {
     pub async fn process_batch(&self, calls: &[ToolCall]) -> Vec<AgentResult<ToolCall>> {
         let mut results: Vec<AgentResult<ToolCall>> = Vec::with_capacity(calls.len());
 
+        // 快照当前 mode，确保整个批处理内评估一致（避免迭代过程中 mode 被外部修改）
+        let mode_snapshot = self.mode.clone();
+
         for (i, call) in calls.iter().enumerate() {
             // 非敏感工具 → 直接放行
             if !(self.requires_approval)(&call.name) {
@@ -152,8 +155,8 @@ impl HumanInTheLoopMiddleware {
                 continue;
             }
 
-            // 有 mode → 逐个读取最新模式
-            if let Some(mode) = &self.mode {
+            // 有 mode → 使用快照模式决策
+            if let Some(mode) = &mode_snapshot {
                 results.push(self.decide_by_mode(mode, call).await);
                 continue;
             }

@@ -52,7 +52,9 @@ impl BaseTool for WriteFileTool {
         }
 
         // 原子写入：先写临时文件再 rename，防止崩溃时丢失数据
-        let tmp_path = resolved.with_extension("tmp");
+        // 使用随机后缀避免并发写入冲突
+        let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
+        let tmp_path = resolved.with_extension(tmp_ext);
         if let Err(e) = std::fs::write(&tmp_path, content) {
             return Err(format!("Error writing file: {e}").into());
         }
@@ -132,11 +134,12 @@ mod tests {
         tool.invoke(serde_json::json!({"file_path": "clean.txt", "content": "data"}))
             .await
             .unwrap();
-        // 原子写入后不应残留 .tmp 文件
-        assert!(
-            !dir.path().join("clean.tmp").exists(),
-            "临时文件应在 rename 后被清除"
-        );
+        // 原子写入后不应残留任何 .tmp.* 临时文件
+        let tmp_files: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("clean.tmp."))
+            .collect();
+        assert!(tmp_files.is_empty(), "临时文件应在 rename 后被清除");
         assert!(dir.path().join("clean.txt").exists());
     }
 

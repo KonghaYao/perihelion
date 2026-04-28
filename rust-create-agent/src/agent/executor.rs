@@ -28,8 +28,6 @@ where
     max_iterations: usize,
     /// 可选事件回调：在工具调用、答案生成等关键节点触发
     event_handler: Option<Arc<dyn AgentEventHandler>>,
-    /// 上次发送 StateSnapshot 后的消息数量（用于增量发送）
-    last_message_count: std::sync::atomic::AtomicUsize,
     /// 固定系统提示词：在所有中间件 before_agent 执行完毕后 prepend，无顺序约束
     system_prompt: Option<String>,
 }
@@ -43,7 +41,6 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             chain: MiddlewareChain::new(),
             max_iterations: 10,
             event_handler: None,
-            last_message_count: std::sync::atomic::AtomicUsize::new(0),
             system_prompt: None,
         }
     }
@@ -120,8 +117,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         state.add_message(human_msg.clone());
         self.emit(AgentEvent::MessageAdded(human_msg));
 
-        // 重置消息计数，从用户消息之后开始跟踪
-        self.last_message_count.store(state.messages().len(), std::sync::atomic::Ordering::SeqCst);
+        // 消息计数：从用户消息之后开始跟踪（局部变量，避免并发 execute 时的竞态）
+        let mut last_message_count: usize = state.messages().len();
 
         // 从 ToolProvider 和中间件各收集工具，手动注册的同名工具优先级最高
         let provider_tools: Vec<Box<dyn BaseTool>> = self
@@ -416,7 +413,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 self.emit(AgentEvent::StepDone { step });
 
                 // 发送状态快照（从用户消息开始的所有消息），便于增量持久化
-                let msgs_since_human = state.messages()[self.last_message_count.load(std::sync::atomic::Ordering::SeqCst)..]
+                let msgs_since_human = state.messages()[last_message_count..]
                     .to_vec();
                 tracing::debug!(count = msgs_since_human.len(), "sending state snapshot");
                 for msg in &msgs_since_human {
@@ -433,7 +430,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 if !msgs_since_human.is_empty() {
                     self.emit(AgentEvent::StateSnapshot(msgs_since_human));
                 }
-                self.last_message_count.store(state.messages().len(), std::sync::atomic::Ordering::SeqCst);
+                last_message_count = state.messages().len();
             } else {
                 let answer = reasoning
                     .final_answer
@@ -451,12 +448,11 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
                 // 发送包含最终回答的 StateSnapshot，确保 TUI 侧的 agent_state_messages
                 // 包含完整对话历史（包括本次最终回答），否则下一轮对话上下文会丢失
-                let msgs_since_last = state.messages()[self.last_message_count.load(std::sync::atomic::Ordering::SeqCst)..]
+                let msgs_since_last = state.messages()[last_message_count..]
                     .to_vec();
                 if !msgs_since_last.is_empty() {
                     self.emit(AgentEvent::StateSnapshot(msgs_since_last));
                 }
-                self.last_message_count.store(state.messages().len(), std::sync::atomic::Ordering::SeqCst);
 
                 let output = AgentOutput {
                     text: answer,
