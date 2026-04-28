@@ -122,7 +122,9 @@ pub fn adjust_index_to_preserve_invariants(
         }
     }
 
-    for i in adjusted_start..adjusted_end {
+    // 使用 while 循环替代 for 循环，确保边界扩展后新加入的 Tool 消息也被检查
+    let mut i = adjusted_start;
+    while i < adjusted_end {
         if matches!(&messages[i], BaseMessage::Tool { .. }) {
             let (ps, pe) = find_tool_pair_boundary(messages, i);
             if ps < adjusted_start {
@@ -132,6 +134,7 @@ pub fn adjust_index_to_preserve_invariants(
                 adjusted_end = pe.min(messages.len());
             }
         }
+        i += 1;
     }
 
     (adjusted_start, adjusted_end)
@@ -386,5 +389,28 @@ mod tests {
         let (s, e) = adjust_index_to_preserve_invariants(&msgs, 1, 1);
         assert_eq!(s, 1);
         assert_eq!(e, 1);
+    }
+
+    /// 验证 while 循环正确处理边界扩展后的新 Tool 消息
+    #[test]
+    fn test_adjust_transitive_expansion() {
+        let msgs = vec![
+            BaseMessage::human("q"),
+            // 第一组工具调用
+            ai_with_tools(&["tc1"]),
+            tool_msg("tc1", "out1"),
+            // 第二组工具调用
+            ai_with_tools(&["tc2"]),
+            tool_msg("tc2", "out2"),
+            // 第三组工具调用
+            ai_with_tools(&["tc3"]),
+            tool_msg("tc3", "out3"),
+            BaseMessage::human("q2"),
+        ];
+        // 初始范围只包含 tc2 的 Tool 结果(索引 4)
+        // 应扩展到包含 tc2 完整组，不应影响 tc1 或 tc3
+        let (s, e) = adjust_index_to_preserve_invariants(&msgs, 4, 5);
+        assert_eq!(s, 3, "应包含 tc2 的 Ai 消息");
+        assert_eq!(e, 5, "应包含 tc2 的 Tool 结果");
     }
 }

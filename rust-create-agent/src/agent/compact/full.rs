@@ -245,9 +245,8 @@ pub async fn full_compact(
         }
     }
 
-    Err(AgentError::Other(anyhow::anyhow!(
-        "Full Compact 失败：超出最大重试次数"
-    )))
+    // 所有 attempt 在循环内均有 return（Ok 或 Err），此处不可达
+    unreachable!("full_compact loop should always return within the loop body")
 }
 
 #[cfg(test)]

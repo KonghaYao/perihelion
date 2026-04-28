@@ -932,4 +932,48 @@ mod tests {
         assert!(json["message_id"].is_string(), "ToolEnd JSON 应含 message_id 字段");
     }
 
+    /// 验证达到最大迭代次数时返回 MaxIterationsExceeded 错误
+    #[tokio::test]
+    async fn test_max_iterations_exceeded() {
+        struct AlwaysToolLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for AlwaysToolLLM {
+            async fn generate_reasoning(
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                Ok(Reasoning::with_tools(
+                    "loop",
+                    vec![ToolCall::new("id1", "echo_tool", serde_json::json!({}))],
+                ))
+            }
+        }
+
+        struct EchoTool;
+        #[async_trait::async_trait]
+        impl BaseTool for EchoTool {
+            fn name(&self) -> &str { "echo_tool" }
+            fn description(&self) -> &str { "echoes" }
+            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
+            async fn invoke(
+                &self,
+                _: serde_json::Value,
+            ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+                Ok("echo".to_string())
+            }
+        }
+
+        let agent = ReActAgent::new(AlwaysToolLLM)
+            .max_iterations(3)
+            .register_tool(Box::new(EchoTool));
+
+        let mut state = AgentState::new("/tmp");
+        let result = agent.execute(AgentInput::text("go"), &mut state, None).await;
+
+        assert!(matches!(result, Err(AgentError::MaxIterationsExceeded(3))));
+        // 1 human + 3*(ai + tool_result)
+        assert_eq!(state.messages().len(), 7);
+    }
+
 }

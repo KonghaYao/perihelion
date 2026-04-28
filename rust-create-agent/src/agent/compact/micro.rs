@@ -168,7 +168,12 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
         }
 
         if let BaseMessage::Tool { content, .. } = &mut messages[i] {
-            let original_len = content.text_content().len();
+            let original_text = content.text_content();
+            // 跳过已压缩的消息，避免重复处理
+            if original_text.starts_with("[compacted:") && original_text.ends_with(" chars]") {
+                continue;
+            }
+            let original_len = original_text.len();
             let was_modified = compact_tool_result_content(content, config);
 
             if !was_modified {
@@ -453,7 +458,8 @@ mod tests {
         let mut config = test_config();
         config.micro_compact_stale_steps = 0;
         let cleared = micro_compact_enhanced(&config, &mut msgs);
-        assert_eq!(cleared, 1);
+        assert_eq!(cleared, 0, "已压缩的消息应被跳过");
+        assert_eq!(msgs[1].content(), "[compacted: 600 chars]", "已压缩消息内容不变");
     }
 
     #[test]
