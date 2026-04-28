@@ -104,6 +104,15 @@ impl ReactLLM for BaseModelReactLLM {
                 .iter()
                 .map(|tc| ToolCall::new(tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
                 .collect();
+            if calls.is_empty() {
+                tracing::warn!("LLM 返回 ToolUse stop_reason 但无 tool_calls，降级为最终回答");
+                let text = if thought.is_empty() { "(empty response)".to_string() } else { thought };
+                let mut r = Reasoning::with_answer("", text);
+                r.source_message = Some(response.message);
+                r.usage = usage;
+                r.model = model_name;
+                return Ok(r);
+            }
             let mut r = Reasoning::with_tools(thought, calls);
             r.source_message = Some(response.message);
             r.usage = usage;

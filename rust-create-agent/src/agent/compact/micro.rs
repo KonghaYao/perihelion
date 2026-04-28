@@ -37,7 +37,8 @@ fn compact_tool_result_content(content: &mut MessageContent, config: &CompactCon
         .map(|b| match &b {
             ContentBlock::Image { source } => {
                 let size_chars = match source {
-                    crate::messages::ImageSource::Base64 { data, .. } => data.len(),
+                    // Base64 编码膨胀 4/3 倍，需用解码后大小估算
+                    crate::messages::ImageSource::Base64 { data, .. } => data.len() * 3 / 4,
                     crate::messages::ImageSource::Url { url } => url.len(),
                 };
                 let token_est = size_chars / 4;
@@ -361,7 +362,8 @@ mod tests {
         assert_eq!(cleared, 1);
         let content = msgs[1].content();
         assert!(content.contains("compacted: image"), "got: {}", content);
-        assert!(content.contains("25000 tokens"), "got: {}", content);
+        // 100_000 base64 chars * 3/4 (decode) / 4 (token est) = 18750 tokens
+        assert!(content.contains("18750 tokens"), "got: {}", content);
     }
 
     #[test]

@@ -198,6 +198,24 @@ impl App {
                 self.core.view_messages.pop();
                 let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
             }
+            PipelineAction::UpdateToolResult { tool_call_id, vm } => {
+                // 按 tool_call_id 精确查找 ToolBlock（并行工具调用时避免 UpdateLast 互相覆盖）
+                let idx = self.core.view_messages.iter().position(|m| {
+                    if let MessageViewModel::ToolBlock { tool_call_id: tc_id, .. } = m {
+                        tc_id == &tool_call_id
+                    } else {
+                        false
+                    }
+                });
+                if let Some(idx) = idx {
+                    self.core.view_messages[idx] = (*vm).clone();
+                } else {
+                    self.core.view_messages.push((*vm).clone());
+                }
+                // 刷新渲染（用 LoadHistory 保证渲染线程同步）
+                let msgs = self.core.view_messages.clone();
+                let _ = self.core.render_tx.send(RenderEvent::LoadHistory(msgs));
+            }
             PipelineAction::RemoveLastN(n) => {
                 for _ in 0..n {
                     self.core.view_messages.pop();

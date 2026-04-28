@@ -49,6 +49,11 @@ pub enum PipelineAction {
     RemoveLast,
     /// 移除末尾 N 条消息
     RemoveLastN(usize),
+    /// 按 tool_call_id 更新 ToolBlock（并行工具调用时精确定位，避免 UpdateLast 互相覆盖）
+    UpdateToolResult {
+        tool_call_id: String,
+        vm: Box<MessageViewModel>,
+    },
     /// 全量重建（工具聚合变更等）
     RebuildAll(Vec<MessageViewModel>),
 }
@@ -272,7 +277,7 @@ impl MessagePipeline {
         }
 
         // 构建与 from_base_message 一致的 ToolBlock
-        let vm = self.build_tool_start_vm(name, &input);
+        let vm = self.build_tool_start_vm(tool_call_id, name, &input);
         self.pending_tools.insert(
             tool_call_id.to_string(),
             PendingTool {
@@ -292,11 +297,12 @@ impl MessagePipeline {
         output: &str,
         is_error: bool,
     ) -> PipelineAction {
-        self.pending_tools.remove(tool_call_id);
+        // 取出 PendingTool 以保留原始 input（用于 args_display）
+        let pending = self.pending_tools.remove(tool_call_id);
+        let input = pending.as_ref().map(|p| p.input.clone()).unwrap_or(serde_json::Value::Null);
 
         // launch_agent ToolEnd → SubAgentEnd
         if name == "launch_agent" {
-            // 不 push 到 completed：StateSnapshot 是 completed 的唯一数据源
             if let Some(sub) = self.subagent_stack.last_mut() {
                 sub.is_running = false;
                 let vm = MessageViewModel::SubAgentGroup {
@@ -313,17 +319,16 @@ impl MessagePipeline {
             return PipelineAction::None;
         }
 
-        // 不 push 到 completed：StateSnapshot 是 completed 的唯一数据源
-
         // ask_user_question ToolEnd → 更新 ToolBlock 显示用户回答
         if name == "ask_user_question" {
             let args = tool_display::format_tool_args(
                 "ask_user_question",
-                &serde_json::Value::Null,
+                &input,
                 None,
             );
             let vm = MessageViewModel::ToolBlock {
                 tool_name: "ask_user_question".to_string(),
+                tool_call_id: tool_call_id.to_string(),
                 display_name: tool_display::format_tool_name("ask_user_question"),
                 args_display: args,
                 content: output.to_string(),
@@ -331,44 +336,27 @@ impl MessagePipeline {
                 collapsed: true,
                 color: tool_color("ask_user_question"),
             };
-            return PipelineAction::UpdateLast(vm);
-        }
-
-        // 普通工具错误 → 更新 ToolBlock 为错误状态
-        if is_error {
-            let args = tool_display::format_tool_args(
-                name,
-                &serde_json::Value::Null,
-                Some(&self.cwd),
-            );
-            let vm = MessageViewModel::ToolBlock {
-                tool_name: name.to_string(),
-                display_name: tool_display::format_tool_name(name),
-                args_display: args,
-                content: output.to_string(),
-                is_error: true,
-                collapsed: true,
-                color: theme::ERROR,
+            return PipelineAction::UpdateToolResult {
+                tool_call_id: tool_call_id.to_string(),
+                vm: Box::new(vm),
             };
-            return PipelineAction::UpdateLast(vm);
         }
 
-        // 成功工具（含只读）→ 更新 ToolBlock 为已完成状态
-        let args = tool_display::format_tool_args(
-            name,
-            &serde_json::Value::Null,
-            Some(&self.cwd),
-        );
+        // 构建完成的 ToolBlock（含原始 input 的 args_display）
         let vm = MessageViewModel::ToolBlock {
             tool_name: name.to_string(),
+            tool_call_id: tool_call_id.to_string(),
             display_name: tool_display::format_tool_name(name),
-            args_display: args,
+            args_display: tool_display::format_tool_args(name, &input, Some(&self.cwd)),
             content: output.to_string(),
-            is_error: false,
+            is_error,
             collapsed: true,
-            color: tool_color(name),
+            color: if is_error { theme::ERROR } else { tool_color(name) },
         };
-        PipelineAction::UpdateLast(vm)
+        PipelineAction::UpdateToolResult {
+            tool_call_id: tool_call_id.to_string(),
+            vm: Box::new(vm),
+        }
     }
 
     /// SubAgent 内部工具调用（路由进 SubAgentGroup）
@@ -568,14 +556,15 @@ impl MessagePipeline {
     }
 
     /// 构建 ToolStart 的 ToolBlock VM（与 from_base_message_with_cwd 的 Tool 路径一致）
-    fn build_tool_start_vm(&self, name: &str, input: &serde_json::Value) -> MessageViewModel {
+    fn build_tool_start_vm(&self, tool_call_id: &str, name: &str, input: &serde_json::Value) -> MessageViewModel {
         let display_name = tool_display::format_tool_name(name);
         let args_display = tool_display::format_tool_args(name, input, Some(&self.cwd));
         MessageViewModel::ToolBlock {
             tool_name: name.to_string(),
+            tool_call_id: tool_call_id.to_string(),
             display_name,
             args_display,
-            content: String::new(), // 流式时内容为空，ToolEnd 时更新
+            content: String::new(),
             is_error: false,
             collapsed: true,
             color: tool_color(name),
@@ -781,8 +770,8 @@ mod tests {
             is_error: false,
         });
         assert_eq!(actions.len(), 1);
-        // ToolEnd 对只读工具返回 UpdateLast（内容填充到 ToolBlock）
-        assert!(matches!(actions[0], PipelineAction::UpdateLast(_)));
+        // ToolEnd 返回 UpdateToolResult（按 tool_call_id 精确更新 ToolBlock）
+        assert!(matches!(actions[0], PipelineAction::UpdateToolResult { .. }));
         // Done → StreamingDone（不再 RebuildAll，流式路径已通过增量操作维护 view_messages）
         let actions = pipeline.handle_event(AgentEvent::Done);
         assert_eq!(actions.len(), 1);

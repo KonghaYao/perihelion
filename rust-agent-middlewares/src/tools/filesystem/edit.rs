@@ -71,7 +71,11 @@ impl BaseTool for EditFileTool {
                 ));
             }
             let new_content = content.replace(old_string, new_string);
-            std::fs::write(&resolved, new_content)?;
+            // 原子写入：先写临时文件再 rename
+            let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
+            let tmp_path = resolved.with_extension(tmp_ext);
+            std::fs::write(&tmp_path, &new_content)?;
+            std::fs::rename(&tmp_path, &resolved)?;
             Ok(format!(
                 "File {} has been edited successfully. Replaced all occurrences of old_string.",
                 resolved.display()
@@ -93,7 +97,11 @@ impl BaseTool for EditFileTool {
                 ));
             }
             let new_content = content.replacen(old_string, new_string, 1);
-            std::fs::write(&resolved, new_content)?;
+            // 原子写入：先写临时文件再 rename
+            let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
+            let tmp_path = resolved.with_extension(tmp_ext);
+            std::fs::write(&tmp_path, &new_content)?;
+            std::fs::rename(&tmp_path, &resolved)?;
             Ok(format!(
                 "File {} has been edited successfully. Replaced single occurrence of old_string.",
                 resolved.display()

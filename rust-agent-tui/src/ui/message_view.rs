@@ -149,6 +149,7 @@ pub enum MessageViewModel {
     ToolBlock {
         #[allow(dead_code)]
         tool_name: String,
+        tool_call_id: String,
         display_name: String,
         args_display: Option<String>,
         content: String,
@@ -350,6 +351,7 @@ impl MessageViewModel {
                 };
                 MessageViewModel::ToolBlock {
                     tool_name,
+                    tool_call_id: tool_call_id.clone(),
                     display_name,
                     args_display,
                     content: raw_content,
@@ -446,6 +448,7 @@ impl MessageViewModel {
         };
         MessageViewModel::ToolBlock {
             tool_name,
+            tool_call_id: String::new(),
             display_name: display,
             args_display: args,
             content: String::new(),

@@ -1403,6 +1403,7 @@ mod tests {
 
         let vm = crate::app::MessageViewModel::ToolBlock {
             tool_name: "bash".to_string(),
+            tool_call_id: "tc_test".to_string(),
             display_name: "bash".to_string(),
             args_display: Some("ls -la".to_string()),
             content: "file1.txt\nfile2.txt".to_string(),
