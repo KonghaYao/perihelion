@@ -232,6 +232,16 @@ impl App {
         }
     }
 
+    pub fn get_compact_config(&self) -> rust_create_agent::agent::compact::CompactConfig {
+        let mut config = self
+            .zen_config
+            .as_ref()
+            .and_then(|zc| zc.config.compact.clone())
+            .unwrap_or_default();
+        config.apply_env_overrides();
+        config
+    }
+
 }
 
 /// 确保光标在滚动视口内可见，返回调整后的 scroll_offset

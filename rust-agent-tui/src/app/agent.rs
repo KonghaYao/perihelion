@@ -298,99 +298,64 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
 
 // ─── 上下文压缩任务 ────────────────────────────────────────────────────────────
 
-/// 独立的上下文压缩异步任务：单次 LLM 调用，生成摘要后通过 channel 发回 App
+/// 独立的上下文压缩异步任务：调用核心层 full_compact + re_inject 三阶段流程
 pub async fn compact_task(
     messages: Vec<rust_create_agent::messages::BaseMessage>,
     model: Box<dyn rust_create_agent::llm::BaseModel>,
     instructions: String,
+    config: rust_create_agent::agent::compact::CompactConfig,
+    cwd: String,
     tx: mpsc::Sender<super::AgentEvent>,
 ) {
-    use rust_create_agent::llm::types::LlmRequest;
-    use rust_create_agent::messages::BaseMessage;
+    use rust_create_agent::agent::compact::{full_compact, re_inject};
+    use rust_create_agent::llm::BaseModel;
 
-    // ── 1. 格式化消息历史 ──────────────────────────────────────────────────────
+    tracing::info!(msg_count = messages.len(), "compact_task: 开始 Full Compact");
 
-    fn truncate_content(s: &str, max: usize) -> String {
-        if s.chars().count() > max {
-            let end: String = s.chars().take(max).collect();
-            format!("{}...(已截断)", end)
-        } else {
-            s.to_string()
+    let compact_result = match full_compact(&messages, model.as_ref(), &config, &instructions).await {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::error!(error = %e, "compact_task: Full Compact 失败");
+            let _ = tx.send(super::AgentEvent::CompactError(e.to_string())).await;
+            return;
         }
-    }
+    };
 
-    let mut lines = Vec::new();
-    for msg in &messages {
-        match msg {
-            BaseMessage::System { .. } => {
-                // 跳过系统消息，避免将之前的摘要再次嵌入
-            }
-            BaseMessage::Human { .. } => {
-                let content = truncate_content(&msg.content(), 500);
-                lines.push(format!("[用户] {}", content));
-            }
-            BaseMessage::Ai { tool_calls, .. } => {
-                let text = msg.content();
-                let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
-                let line = if tool_names.is_empty() {
-                    format!("[助手] {}", truncate_content(&text, 500))
-                } else {
-                    format!(
-                        "[助手] {}（调用了工具: {}）",
-                        truncate_content(&text, 300),
-                        tool_names.join(", ")
-                    )
-                };
-                lines.push(line);
-            }
-            BaseMessage::Tool { tool_call_id, .. } => {
-                let content = truncate_content(&msg.content(), 500);
-                lines.push(format!("[工具结果:{}] {}", tool_call_id, content));
-            }
-        }
-    }
-
-    if lines.is_empty() {
-        let fallback = "## 目标\n（无有效对话历史）\n\n## 已完成操作\n无\n\n## 关键发现\n无".to_string();
-        let _ = tx.send(super::AgentEvent::CompactDone { summary: fallback, new_thread_id: String::new() }).await;
-        return;
-    }
-
-    let conversation_text = lines.join("\n");
-
-    // ── 2. 构造 LLM 请求 ───────────────────────────────────────────────────────
-
-    let system_prompt = "\
-你是一个对话上下文压缩工具。将以下对话历史压缩为一份结构化摘要，要求：\n\
-1. 保留用户的核心目标和意图\n\
-2. 记录已完成的关键操作（文件读写、命令执行结果等）\n\
-3. 记录发现的重要信息（文件路径、错误信息、代码结构等）\n\
-4. 保留对话中的重要决策和约束\n\
-5. 格式：Markdown，分 ## 目标、## 已完成操作、## 关键发现 三个小节\n\
-6. 语言：中文\n\
-7. 尽量简洁，控制在 500 字以内";
-
-    let mut user_content = format!(
-        "以下是需要压缩的对话历史：\n<conversation>\n{}\n</conversation>",
-        conversation_text
+    tracing::info!(
+        summary_len = compact_result.summary.len(),
+        messages_used = compact_result.messages_used,
+        "compact_task: Full Compact 完成"
     );
 
-    if !instructions.trim().is_empty() {
-        user_content.push_str(&format!("\n\n压缩时请特别注意：{}", instructions.trim()));
-    }
+    let re_inject_result = re_inject(&messages, &config, &cwd).await;
 
-    let request = LlmRequest::new(vec![BaseMessage::human(user_content)])
-        .with_system(system_prompt.to_string());
+    tracing::info!(
+        files_injected = re_inject_result.files_injected,
+        skills_injected = re_inject_result.skills_injected,
+        "compact_task: 重新注入完成"
+    );
 
-    // ── 3. 调用 LLM ───────────────────────────────────────────────────────────
+    let summary_text = format!(
+        "此会话从之前的对话延续。以下是之前对话的摘要。\n\n{}",
+        compact_result.summary
+    );
 
-    match model.invoke(request).await {
-        Ok(response) => {
-            let summary = response.message.content();
-            let _ = tx.send(super::AgentEvent::CompactDone { summary, new_thread_id: String::new() }).await;
+    let re_inject_content = if re_inject_result.messages.is_empty() {
+        String::new()
+    } else {
+        let mut parts = Vec::new();
+        for msg in &re_inject_result.messages {
+            parts.push(msg.content());
         }
-        Err(e) => {
-            let _ = tx.send(super::AgentEvent::CompactError(e.to_string())).await;
-        }
-    }
+        format!("\n\n---RE_INJECT_SEPARATOR---\n{}", parts.join("\n\n"))
+    };
+
+    let combined_summary = format!("{}{}", summary_text, re_inject_content);
+
+    let _ = tx
+        .send(super::AgentEvent::CompactDone {
+            summary: combined_summary,
+            new_thread_id: String::new(),
+        })
+        .await;
 }

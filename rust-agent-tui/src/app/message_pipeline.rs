@@ -429,11 +429,6 @@ impl MessagePipeline {
         self.subagent_stack.last().map_or(false, |s| s.is_running)
     }
 
-    /// 获取活跃 SubAgent 的 view_messages 索引
-    pub fn subagent_group_idx(&self) -> bool {
-        self.subagent_stack.last().map_or(false, |s| s.is_running)
-    }
-
     /// 构建当前流式 AssistantBubble（用于 AppendChunk 优化）
     pub fn build_streaming_bubble(&self) -> MessageViewModel {
         MessageViewModel::AssistantBubble {

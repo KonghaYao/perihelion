@@ -9,7 +9,7 @@ impl Command for CompactCommand {
     }
 
     fn description(&self) -> &str {
-        "压缩对话上下文（调用 LLM 生成摘要）"
+        "压缩对话上下文（结构化摘要 + 重新注入最近文件/Skills）"
     }
 
     fn execute(&self, app: &mut App, args: &str) {

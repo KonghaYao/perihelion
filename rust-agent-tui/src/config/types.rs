@@ -88,6 +88,9 @@ pub struct AppConfig {
     /// 环境变量注入（扁平键值对）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
+    /// Compact 系统配置（缺失时使用 CompactConfig::default()）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact: Option<rust_create_agent::agent::compact::CompactConfig>,
     /// 保留未知字段，写回时不丢失
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -308,5 +311,39 @@ mod tests {
         let out = serde_json::to_string(&cfg).unwrap();
         // skip_serializing_if = "Option::is_none"，所以 env 字段不应出现
         assert!(!out.contains("env"), "env should be absent when None");
+    }
+
+    // ── AppConfig compact 字段测试 ─────────────────────────────────────────────
+
+    #[test]
+    fn test_app_config_compact_serde_roundtrip() {
+        let compact = rust_create_agent::agent::compact::CompactConfig {
+            auto_compact_enabled: false,
+            auto_compact_threshold: 0.9,
+            ..Default::default()
+        };
+        let cfg = AppConfig {
+            compact: Some(compact),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: AppConfig = serde_json::from_str(&json).unwrap();
+        let c = back.compact.unwrap();
+        assert!(!c.auto_compact_enabled);
+        assert!((c.auto_compact_threshold - 0.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_app_config_compact_none_when_absent() {
+        let json = r#"{"active_alias": "opus", "providers": []}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert!(cfg.compact.is_none());
+    }
+
+    #[test]
+    fn test_app_config_compact_skip_when_none() {
+        let cfg = AppConfig::default();
+        let out = serde_json::to_string(&cfg).unwrap();
+        assert!(!out.contains("compact"), "compact should be absent when None");
     }
 }

@@ -20,9 +20,8 @@ impl App {
             format!("{} [🖼 {} 张图片]", input, attachments.len())
         };
         let user_vm = MessageViewModel::user(display.clone());
-        self.core.view_messages.push(user_vm.clone());
+        self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
         self.core.last_human_message = Some(display);
-        let _ = self.core.render_tx.send(RenderEvent::AddMessage(user_vm));
         self.set_loading(true);
         self.core.scroll_offset = u16::MAX;
         self.core.scroll_follow = true;
@@ -40,11 +39,13 @@ impl App {
         {
             Some(p) => p,
             None => {
-                self.core.view_messages.push(MessageViewModel::tool_block(
-                    "error".to_string(),
-                    "config-error".to_string(),
-                    None,
-                    true,
+                self.apply_pipeline_action(PipelineAction::AddMessage(
+                    MessageViewModel::tool_block(
+                        "error".to_string(),
+                        "config-error".to_string(),
+                        None,
+                        true,
+                    ),
                 ));
                 self.set_loading(false);
                 return;
@@ -254,9 +255,22 @@ impl App {
                 let total = self.agent.session_token_tracker.total_input_tokens
                     + self.agent.session_token_tracker.total_output_tokens;
                 self.spinner_state.set_token_count(total as usize);
-                // circuit breaker: 连续 3 次失败后不再自动触发
-                if self.agent.auto_compact_failures < 3 {
-                    let budget = rust_create_agent::agent::token::ContextBudget::new(self.agent.context_window);
+                // compact 被完全禁用
+                if std::env::var("DISABLE_COMPACT").is_ok() {
+                    return (true, false, false);
+                }
+                // 从 settings.json 获取 CompactConfig
+                let compact_config = self.get_compact_config();
+                // auto-compact 被禁用
+                if !compact_config.auto_compact_enabled {
+                    return (true, false, false);
+                }
+                // circuit breaker: 连续失败达到上限后不再自动触发
+                if (self.agent.auto_compact_failures as u32) < compact_config.max_consecutive_failures {
+                    let budget = rust_create_agent::agent::token::ContextBudget::new(
+                        self.agent.context_window,
+                    )
+                    .with_auto_compact_threshold(compact_config.auto_compact_threshold);
                     if budget.should_auto_compact(&self.agent.session_token_tracker) {
                         self.agent.needs_auto_compact = true;
                     }
@@ -319,7 +333,11 @@ impl App {
                     self.start_compact("auto".to_string());
                     return (true, false, true);
                 } else {
-                    let budget = rust_create_agent::agent::token::ContextBudget::new(self.agent.context_window);
+                    let compact_config = self.get_compact_config();
+                    let budget = rust_create_agent::agent::token::ContextBudget::new(
+                        self.agent.context_window,
+                    )
+                    .with_warning_threshold(compact_config.micro_compact_threshold);
                     if budget.should_warn(&self.agent.session_token_tracker) {
                         self.start_micro_compact();
                     }
@@ -347,8 +365,7 @@ impl App {
                 let vm = MessageViewModel::system(
                     "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
                 );
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 (true, false, false)
             }
             AgentEvent::Error(ref e) => {
@@ -363,8 +380,7 @@ impl App {
                     *content = e.clone();
                     *collapsed = false;
                 }
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 // Langfuse：错误路径也需结束 Trace
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
@@ -451,8 +467,7 @@ impl App {
                                 format!("{}{}: {}", q.header, hint, q.question)
                             }).collect();
                             let vm = MessageViewModel::system(format!("❓ 向你提问:\n{}", q_lines.join("\n")));
-                            self.core.view_messages.push(vm.clone());
-                            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                         }
                         let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
                         let batch_req_bridged = AskUserBatchRequest { questions: batch_req.questions, response_tx: bridge_tx };
@@ -491,9 +506,23 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::CompactDone { summary, new_thread_id: _ } => {
-                let truncated: String = summary.chars().take(30).collect();
-                let ellipsis = if summary.chars().count() > 30 { "…" } else { "" };
-                let thread_title = format!("📦 Compact: {}{}", truncated, ellipsis);
+                // 拆分摘要和重新注入内容
+                let (summary_text, re_inject_messages) = if let Some(idx) = summary.find("---RE_INJECT_SEPARATOR---\n") {
+                    let parts: (&str, &str) = summary.split_at(idx);
+                    let re_inject_part = parts.1.strip_prefix("---RE_INJECT_SEPARATOR---\n").unwrap_or("");
+                    let re_inject_msgs: Vec<BaseMessage> = re_inject_part
+                        .split("\n\n")
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|s| BaseMessage::system(s.to_string()))
+                        .collect();
+                    (parts.0.to_string(), re_inject_msgs)
+                } else {
+                    (summary.clone(), Vec::new())
+                };
+
+                let truncated: String = summary_text.chars().take(30).collect();
+                let ellipsis = if summary_text.chars().count() > 30 { "…" } else { "" };
+                let thread_title = format!("Compact: {}{}", truncated, ellipsis);
                 let mut meta = ThreadMeta::new(&self.cwd);
                 meta.title = Some(thread_title);
                 let store = self.thread_store.clone();
@@ -506,7 +535,8 @@ impl App {
                         })
                 });
 
-                let new_messages = vec![BaseMessage::ai(summary.clone())];
+                let mut new_messages = vec![BaseMessage::system(summary_text.clone())];
+                new_messages.extend(re_inject_messages);
 
                 let store = self.thread_store.clone();
                 tokio::task::block_in_place(|| {
@@ -520,26 +550,26 @@ impl App {
                 self.current_thread_id = Some(new_tid.clone());
                 self.agent.agent_state_messages = new_messages;
 
-                // Pipeline：同步清理状态
                 self.core.pipeline.clear();
                 self.core.pipeline.restore_completed(self.agent.agent_state_messages.clone());
 
-                // 清空显示消息，插入压缩提示 + 摘要（AI 消息形式）
-                self.core.view_messages.clear();
                 let compact_vm = MessageViewModel::system(
-                    "📦 上下文已压缩（从旧对话迁移到新 Thread）".to_string(),
+                    "上下文已压缩（从旧对话迁移到新 Thread）".to_string(),
                 );
-                self.core.view_messages.push(compact_vm);
                 let summary_vm = MessageViewModel::from_base_message(
-                    &BaseMessage::ai(format!("📋 压缩摘要：\n{}", summary)),
+                    &BaseMessage::ai(format!("压缩摘要：\n{}", summary_text)),
                     &[],
                 );
-                self.core.view_messages.push(summary_vm);
+                let mut view_msgs = vec![compact_vm, summary_vm];
 
-                let _ = self.core.render_tx.send(crate::ui::render_thread::RenderEvent::Clear);
-                for vm in &self.core.view_messages {
-                    let _ = self.core.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm.clone()));
+                let inject_count = self.agent.agent_state_messages.len() - 1;
+                if inject_count > 0 {
+                    let inject_vm = MessageViewModel::system(
+                        format!("已重新注入 {} 条上下文（文件/Skills）", inject_count),
+                    );
+                    view_msgs.push(inject_vm);
                 }
+                self.apply_pipeline_action(PipelineAction::RebuildAll(view_msgs));
 
                 self.set_loading(false);
                 self.agent.agent_rx = None;
@@ -557,8 +587,7 @@ impl App {
             }
             AgentEvent::CompactError(msg) => {
                 let vm = MessageViewModel::system(format!("❌ 压缩失败: {}", msg));
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+                self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 self.set_loading(false);
                 self.agent.agent_rx = None;
                 self.agent.auto_compact_failures += 1;
@@ -609,8 +638,7 @@ impl App {
                         Some("agent channel disconnected unexpectedly".to_string()),
                         true,
                     );
-                    self.core.view_messages.push(vm.clone());
-                    let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                    self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                     if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                         self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly")));
                     }
@@ -652,15 +680,15 @@ impl App {
 
     /// 执行 micro-compact：清除旧工具结果，不调用 LLM
     pub fn start_micro_compact(&mut self) {
-        use rust_create_agent::agent::token::micro_compact;
-        let cleared = micro_compact(&mut self.agent.agent_state_messages, 10);
+        use rust_create_agent::agent::compact::micro_compact_enhanced;
+        let config = self.get_compact_config();
+        let cleared = micro_compact_enhanced(&config, &mut self.agent.agent_state_messages);
         if cleared > 0 {
-            tracing::info!(cleared, "micro-compact: cleared old tool results");
+            tracing::info!(cleared, "micro-compact: enhanced compact completed");
             let vm = MessageViewModel::system(
-                format!("📦 Micro-compact: 清除了 {} 个旧工具结果", cleared)
+                format!("Micro-compact: 清除了 {} 个旧工具结果", cleared)
             );
-            self.core.view_messages.push(vm.clone());
-            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         }
     }
 }

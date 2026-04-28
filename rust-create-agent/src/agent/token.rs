@@ -88,8 +88,22 @@ impl ContextBudget {
             None => false,
         }
     }
+
+    pub fn with_auto_compact_threshold(mut self, threshold: f64) -> Self {
+        self.auto_compact_threshold = threshold;
+        self
+    }
+
+    pub fn with_warning_threshold(mut self, threshold: f64) -> Self {
+        self.warning_threshold = threshold;
+        self
+    }
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "使用 `crate::agent::compact::micro_compact_enhanced` 代替，支持白名单过滤、时间衰减、图片清除和工具对保护"
+)]
 /// 轻量级压缩：清除旧工具结果中的大段内容
 /// 保留最近 `keep_recent` 条消息的工具结果完整内容
 /// 仅清除 cutoff 之前且文本长度 > 500 字符的工具结果
@@ -336,5 +350,31 @@ mod tests {
         let mut messages: Vec<crate::messages::BaseMessage> = vec![];
         let cleared = micro_compact(&mut messages, 3);
         assert_eq!(cleared, 0);
+    }
+
+    // ── ContextBudget builder 方法测试 ─────────────────────────────────────────
+
+    #[test]
+    fn test_context_budget_with_auto_compact_threshold() {
+        let budget = ContextBudget::new(200_000).with_auto_compact_threshold(0.9);
+        // 85% of 200K = 170K, 90% threshold = 180K → should NOT auto-compact
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(85000, 42500, Some(21250), Some(21250)));
+        assert!(
+            !budget.should_auto_compact(&tracker),
+            "85% should not trigger at 90% threshold"
+        );
+    }
+
+    #[test]
+    fn test_context_budget_with_warning_threshold() {
+        let budget = ContextBudget::new(200_000).with_warning_threshold(0.5);
+        // 55% of 200K = 110K, 50% threshold = 100K → should warn
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(55000, 27500, Some(13750), Some(13750)));
+        assert!(
+            budget.should_warn(&tracker),
+            "55% should trigger warning at 50% threshold"
+        );
     }
 }

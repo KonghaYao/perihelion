@@ -143,6 +143,8 @@ impl App {
 
         let messages = self.agent.agent_state_messages.clone();
         let model = provider.into_model();
+        let config = self.get_compact_config();
+        let cwd = self.cwd.clone();
 
         let (tx, rx) = mpsc::channel::<AgentEvent>(8);
         self.agent.agent_rx = Some(rx);
@@ -150,7 +152,7 @@ impl App {
         self.agent.session_token_tracker.reset();
 
         tokio::spawn(async move {
-            agent::compact_task(messages, model, instructions, tx).await;
+            agent::compact_task(messages, model, instructions, config, cwd, tx).await;
         });
     }
 

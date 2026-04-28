@@ -1438,6 +1438,113 @@ mod tests {
         assert!(handle.contains("2/5"), "状态栏应显示重试次数 2/5，实际:\n{}", snap.join("\n"));
     }
 
+    // ─── Compact 集成测试 ──────────────────────────────────────────────────
+
+    /// 辅助：构造模拟的 CompactDone 事件（包含摘要 + 重新注入内容）
+    fn make_compact_done_event(summary: &str, re_inject_parts: &[&str]) -> AgentEvent {
+        let re_inject_content = if re_inject_parts.is_empty() {
+            String::new()
+        } else {
+            format!("\n\n---RE_INJECT_SEPARATOR---\n{}", re_inject_parts.join("\n\n"))
+        };
+        let combined = format!("{}{}", summary, re_inject_content);
+        AgentEvent::CompactDone {
+            summary: combined,
+            new_thread_id: String::new(),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_compact_done_with_re_inject() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        let notified = handle.render_notify.notified();
+        app.push_agent_event(make_compact_done_event(
+            "Test summary",
+            &["[file: /a.rs]\ncontent1", "[skill: skill.md]\ncontent2"],
+        ));
+        app.process_pending_events();
+        notified.await;
+
+        // view_messages 应包含压缩提示、摘要和重新注入信息
+        let msgs = &app.core.view_messages;
+        assert!(msgs.len() >= 2, "应有至少 2 条消息，实际: {}", msgs.len());
+        let has_compact = msgs.iter().any(|m| {
+            if let MessageViewModel::SystemNote { content } = m {
+                content.contains("压缩")
+            } else {
+                false
+            }
+        });
+        assert!(has_compact, "应包含压缩提示消息");
+        let has_re_inject = msgs.iter().any(|m| {
+            if let MessageViewModel::SystemNote { content } = m {
+                content.contains("重新注入")
+            } else {
+                false
+            }
+        });
+        assert!(has_re_inject, "应包含重新注入提示");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_compact_done_without_re_inject() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        let notified = handle.render_notify.notified();
+        app.push_agent_event(make_compact_done_event("Simple summary", &[]));
+        app.process_pending_events();
+        notified.await;
+
+        let msgs = &app.core.view_messages;
+        assert!(msgs.len() >= 1, "应有至少 1 条消息");
+        let has_summary = msgs.iter().any(|m| {
+            if let MessageViewModel::AssistantBubble { blocks, .. } = m {
+                blocks.iter().any(|b| {
+                    if let crate::ui::message_view::ContentBlockView::Text { raw, .. } = b {
+                        raw.contains("Simple summary")
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        });
+        assert!(has_summary, "应包含摘要文本");
+        let has_re_inject = msgs.iter().any(|m| {
+            if let MessageViewModel::SystemNote { content } = m {
+                content.contains("重新注入")
+            } else {
+                false
+            }
+        });
+        assert!(!has_re_inject, "无重新注入内容时不应显示重新注入提示");
+    }
+
+    #[tokio::test]
+    async fn test_get_compact_config_default() {
+        let (app, _handle) = App::new_headless(120, 30);
+        let config = app.get_compact_config();
+        let default = rust_create_agent::agent::compact::CompactConfig::default();
+        assert!(config.auto_compact_enabled == default.auto_compact_enabled);
+        assert!((config.auto_compact_threshold - default.auto_compact_threshold).abs() < 0.001);
+    }
+
+    #[tokio::test]
+    async fn test_get_compact_config_from_settings() {
+        let (mut app, _handle) = App::new_headless(120, 30);
+        let mut zen = crate::config::types::ZenConfig::default();
+        zen.config.compact = Some(rust_create_agent::agent::compact::CompactConfig {
+            auto_compact_threshold: 0.9,
+            ..Default::default()
+        });
+        app.zen_config = Some(zen);
+        let config = app.get_compact_config();
+        assert!(
+            (config.auto_compact_threshold - 0.9).abs() < 0.001,
+            "应从 settings.json 读取 auto_compact_threshold"
+        );
+    }
+
     // ─── Pipeline 回归测试 ──────────────────────────────────────────────────
 
     /// 回归：用户消息在 AI 回复后仍应可见（不应被 AppendChunk 覆盖）
