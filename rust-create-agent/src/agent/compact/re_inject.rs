@@ -160,7 +160,7 @@ pub async fn re_inject(
     if !skills_paths.is_empty() {
         let mut skill_futures = Vec::new();
         for path in &skills_paths {
-            skill_futures.push(read_file_with_budget(path, 5000));
+            skill_futures.push(read_file_with_budget(path, config.re_inject_max_tokens_per_file));
         }
         let skill_contents: Vec<Option<String>> = futures::future::join_all(skill_futures).await;
 

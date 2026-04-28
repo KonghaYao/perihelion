@@ -26,6 +26,7 @@ pub fn format_tool_name(tool: &str) -> String {
         "folder_operations"  => "Folder",
         "todo_write"         => "Todo",
         "ask_user"           => "Ask",
+        "ask_user_question"  => "Ask",
         "launch_agent"       => "Agent",
         other                => return to_pascal(other),
     }

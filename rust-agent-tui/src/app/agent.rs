@@ -243,7 +243,7 @@ use super::tool_display::{format_tool_args, format_tool_name, truncate};
 /// 将 ExecutorEvent 映射为 TUI AgentEvent；不需转发的内部事件返回 None
 fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
     Some(match event {
-        ExecutorEvent::AiReasoning(text) => AgentEvent::AssistantChunk(text),
+        ExecutorEvent::AiReasoning(text) => AgentEvent::AiReasoning(text),
         ExecutorEvent::TextChunk { chunk: text, .. } => AgentEvent::AssistantChunk(text),
         // launch_agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
         ExecutorEvent::ToolStart { name, input, .. } if name == "launch_agent" => {
@@ -263,7 +263,7 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             AgentEvent::SubAgentEnd { result: output, is_error }
         }
         // ask_user 成功：显示用户的回答
-        ExecutorEvent::ToolEnd { tool_call_id, name, output, is_error: false, .. } if name == "ask_user" => {
+        ExecutorEvent::ToolEnd { tool_call_id, name, output, is_error: false, .. } if name == "ask_user_question" => {
             AgentEvent::ToolEnd {
                 tool_call_id,
                 name,
@@ -278,12 +278,18 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             output: format!("✗ {}", truncate(&output, 60)),
             is_error: true,
         },
-        // 无需转发的内部事件
-        ExecutorEvent::ToolEnd { .. }
-        | ExecutorEvent::StepDone { .. }
+        // 无需转发的内部事件（ToolEnd 成功事件需要转发以更新 ToolBlock 内容）
+        ExecutorEvent::StepDone { .. }
         | ExecutorEvent::StateSnapshot(_)
         | ExecutorEvent::MessageAdded(_)
         | ExecutorEvent::LlmCallStart { .. } => return None,
+        // 成功的 ToolEnd（非 launch_agent / ask_user_question / error）
+        ExecutorEvent::ToolEnd { tool_call_id, name, output, .. } => AgentEvent::ToolEnd {
+            tool_call_id,
+            name,
+            output: truncate(&output, 200),
+            is_error: false,
+        },
         ExecutorEvent::LlmCallEnd { usage: Some(usage), model, .. } => {
             AgentEvent::TokenUsageUpdate { usage, model }
         }

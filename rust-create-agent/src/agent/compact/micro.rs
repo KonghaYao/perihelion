@@ -165,8 +165,8 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
 
         if let BaseMessage::Tool { content, .. } = &mut messages[i] {
             let original_text = content.text_content();
-            // 跳过已压缩的消息，避免重复处理
-            if original_text.starts_with("[compacted:") && original_text.ends_with(" chars]") {
+            // 跳过已压缩的消息，避免重复处理（覆盖 chars/image/document 三种格式）
+            if original_text.starts_with("[compacted:") {
                 continue;
             }
             let original_len = original_text.len();

@@ -138,6 +138,18 @@ impl MessagePipeline {
                     vec![PipelineAction::AppendChunk(chunk)]
                 }
             }
+            AgentEvent::AiReasoning(text) => {
+                if self.in_subagent() {
+                    // SubAgent 内部推理也作为 chunk 推送
+                    self.subagent_push_chunk(&text);
+                    vec![self.build_subagent_update()
+                        .map(PipelineAction::UpdateLast)
+                        .unwrap_or(PipelineAction::None)]
+                } else {
+                    self.push_reasoning(&text);
+                    vec![PipelineAction::None]
+                }
+            }
             AgentEvent::ToolStart { tool_call_id, name, display: _, args: _, input } => {
                 if self.in_subagent() {
                     self.subagent_tool_start(&name, input);
@@ -159,10 +171,15 @@ impl MessagePipeline {
             }
             AgentEvent::SubAgentStart { agent_id, task_preview } => {
                 let input = serde_json::json!({"agent_id": &agent_id, "task": &task_preview});
-                vec![self.tool_start(&format!("subagent_{}", agent_id), "launch_agent", input)]
+                let tc_id = format!("subagent_{}", agent_id);
+                vec![self.tool_start(&tc_id, "launch_agent", input)]
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
-                vec![self.tool_end("subagent_end", "launch_agent", &result, is_error)]
+                // 使用最后一个 subagent 的 tool_call_id（与 SubAgentStart 一致）
+                let tc_id = self.subagent_stack.last()
+                    .map(|s| format!("subagent_{}", s.agent_id))
+                    .unwrap_or_else(|| "subagent_end".to_string());
+                vec![self.tool_end(&tc_id, "launch_agent", &result, is_error)]
             }
             AgentEvent::Done => {
                 self.done();
@@ -310,21 +327,21 @@ impl MessagePipeline {
             is_error,
         });
 
-        // ask_user ToolEnd → 更新 ToolBlock 显示用户回答
-        if name == "ask_user" {
+        // ask_user_question ToolEnd → 更新 ToolBlock 显示用户回答
+        if name == "ask_user_question" {
             let args = tool_display::format_tool_args(
-                "ask_user",
+                "ask_user_question",
                 &serde_json::Value::Null,
                 None,
             );
             let vm = MessageViewModel::ToolBlock {
-                tool_name: "ask_user".to_string(),
-                display_name: tool_display::format_tool_name("ask_user"),
+                tool_name: "ask_user_question".to_string(),
+                display_name: tool_display::format_tool_name("ask_user_question"),
                 args_display: args,
                 content: output.to_string(),
                 is_error,
                 collapsed: true,
-                color: tool_color("ask_user"),
+                color: tool_color("ask_user_question"),
             };
             return PipelineAction::UpdateLast(vm);
         }
@@ -350,13 +367,25 @@ impl MessagePipeline {
 
         // 只读工具成功 → 可能需要聚合
         if ToolCategory::from_tool_name(name).is_some() {
-            // 返回 None，由调用方决定是否聚合
-            // 调用方会检查最后一个 VM 是否是 ToolCallGroup
             return PipelineAction::None;
         }
 
-        // 非只读工具成功 → 更新 ToolBlock 内容
-        PipelineAction::None
+        // 非只读工具成功 → 更新 ToolBlock 为已完成状态
+        let args = tool_display::format_tool_args(
+            name,
+            &serde_json::Value::Null,
+            Some(&self.cwd),
+        );
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: name.to_string(),
+            display_name: tool_display::format_tool_name(name),
+            args_display: args,
+            content: output.to_string(),
+            is_error: false,
+            collapsed: true,
+            color: tool_color(name),
+        };
+        PipelineAction::UpdateLast(vm)
     }
 
     /// SubAgent 内部工具调用（路由进 SubAgentGroup）

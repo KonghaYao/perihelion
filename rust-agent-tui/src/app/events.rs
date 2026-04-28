@@ -20,6 +20,8 @@ pub enum AgentEvent {
         is_error: bool,
     },
     AssistantChunk(String),
+    /// AI 推理/思考内容（与文本内容分开）
+    AiReasoning(String),
     Done,
     Error(String),
     /// 用户中断（Ctrl+C），工具已以 error 结尾，消息已持久化

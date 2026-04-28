@@ -608,6 +608,11 @@ impl App {
                 self.agent.retry_status = Some(super::agent_comm::RetryStatus { attempt, max_attempts, delay_ms });
                 (true, false, false)
             }
+            AgentEvent::AiReasoning(text) => {
+                let actions = self.core.pipeline.handle_event(AgentEvent::AiReasoning(text));
+                for action in actions { self.apply_pipeline_action(action); }
+                (false, false, false)
+            }
         }
     }
 

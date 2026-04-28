@@ -68,7 +68,6 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                         }
                         // diff 内容着色覆盖：如果检测到 diff，重新渲染带颜色的行
                         if is_diff && !lines.is_empty() {
-                            // 找到对应区域的起始行并替换
                             let diff_lines: Vec<Line<'static>> = raw.lines()
                                 .map(|l| {
                                     let diff_spans = perihelion_widgets::message_block::highlight::highlight_diff_line(l);
@@ -77,11 +76,7 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                                     Line::from(spans)
                                 })
                                 .collect();
-                            // 替换已有行（跳过第一行标题）
-                            if lines.len() > 1 {
-                                lines.truncate(1);
-                                lines.extend(diff_lines.into_iter().skip(1));
-                            } else {
+                            if !diff_lines.is_empty() {
                                 lines = diff_lines;
                             }
                         }
