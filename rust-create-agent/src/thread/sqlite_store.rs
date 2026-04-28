@@ -28,7 +28,7 @@ impl SqliteThreadStore {
         let conn = Connection::open(&db_path)
             .with_context(|| format!("打开 SQLite 失败: {}", db_path.display()))?;
         // 性能优化
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
@@ -209,7 +209,7 @@ impl ThreadStore for SqliteThreadStore {
         let msgs = tokio::task::spawn_blocking(move || -> Result<Vec<BaseMessage>> {
             let conn = conn.lock();
             let mut stmt = conn.prepare(
-                "SELECT content FROM messages WHERE thread_id = ?1",
+                "SELECT content FROM messages WHERE thread_id = ?1 ORDER BY rowid",
             )?;
             let msgs: Result<Vec<BaseMessage>> = stmt
                 .query_map(params![id], |row| row.get::<_, String>(0))?

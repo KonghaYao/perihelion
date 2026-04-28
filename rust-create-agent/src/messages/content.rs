@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // ─── ImageSource ──────────────────────────────────────────────────────────────
 
@@ -31,8 +31,7 @@ pub enum DocumentSource {
 /// 标准 ContentBlock — 对齐 LangChain JS contentBlocks
 ///
 /// 每个 variant 对应 LangChain 文档中的 Standard content block 类型。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ContentBlock {
     /// 纯文本
     Text { text: String },
@@ -43,7 +42,6 @@ pub enum ContentBlock {
     /// 文档（Anthropic Documents beta）
     Document {
         source: DocumentSource,
-        #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
     },
 
@@ -58,7 +56,6 @@ pub enum ContentBlock {
     ToolResult {
         tool_use_id: String,
         content: Vec<ContentBlock>,
-        #[serde(default)]
         is_error: bool,
     },
 
@@ -66,7 +63,6 @@ pub enum ContentBlock {
     Reasoning {
         text: String,
         /// Anthropic extended thinking 签名（用于缓存校验）
-        #[serde(skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
 
@@ -74,8 +70,122 @@ pub enum ContentBlock {
     ///
     /// 存储无法识别的原始 JSON，保证向前兼容。
     /// 携带完整原始数据，可在回传时保留全部字段。
-    #[serde(skip)]
     Unknown(serde_json::Value),
+}
+
+// ─── ContentBlock 手动 Serialize/Deserialize ──────────────────────────────────
+//
+// 不使用 #[serde(tag = "type")] derive，因为 Unknown 变体需要透传原始 JSON。
+// derive 的 tag 模式无法在序列化时保留 Unknown 的完整数据。
+
+impl Serialize for ContentBlock {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::Text { text } => {
+                let mut m = s.serialize_map(Some(2))?;
+                m.serialize_entry("type", "text")?;
+                m.serialize_entry("text", text)?;
+                m.end()
+            }
+            Self::Image { source } => {
+                let mut m = s.serialize_map(None)?;
+                m.serialize_entry("type", "image")?;
+                m.serialize_entry("source", source)?;
+                m.end()
+            }
+            Self::Document { source, title } => {
+                let mut m = s.serialize_map(None)?;
+                m.serialize_entry("type", "document")?;
+                m.serialize_entry("source", source)?;
+                if let Some(t) = title {
+                    m.serialize_entry("title", t)?;
+                }
+                m.end()
+            }
+            Self::ToolUse { id, name, input } => {
+                let mut m = s.serialize_map(Some(4))?;
+                m.serialize_entry("type", "tool_use")?;
+                m.serialize_entry("id", id)?;
+                m.serialize_entry("name", name)?;
+                m.serialize_entry("input", input)?;
+                m.end()
+            }
+            Self::ToolResult { tool_use_id, content, is_error } => {
+                let mut m = s.serialize_map(None)?;
+                m.serialize_entry("type", "tool_result")?;
+                m.serialize_entry("tool_use_id", tool_use_id)?;
+                m.serialize_entry("content", content)?;
+                m.serialize_entry("is_error", is_error)?;
+                m.end()
+            }
+            Self::Reasoning { text, signature } => {
+                let mut m = s.serialize_map(None)?;
+                m.serialize_entry("type", "reasoning")?;
+                m.serialize_entry("text", text)?;
+                if let Some(sig) = signature {
+                    m.serialize_entry("signature", sig)?;
+                }
+                m.end()
+            }
+            Self::Unknown(value) => value.serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ContentBlock {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(d)?;
+        let type_str = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        match type_str {
+            "text" => {
+                let text = value.get("text").and_then(|t| t.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("text"))?;
+                Ok(Self::Text { text: text.to_string() })
+            }
+            "image" => {
+                let source = serde_json::from_value(
+                    value.get("source").cloned().unwrap_or_default()
+                ).map_err(|e| serde::de::Error::custom(format!("invalid source: {}", e)))?;
+                Ok(Self::Image { source })
+            }
+            "document" => {
+                let source = serde_json::from_value(
+                    value.get("source").cloned().unwrap_or_default()
+                ).map_err(|e| serde::de::Error::custom(format!("invalid source: {}", e)))?;
+                let title = value.get("title").and_then(|t| t.as_str()).map(String::from);
+                Ok(Self::Document { source, title })
+            }
+            "tool_use" => {
+                let id = value.get("id").and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?.to_string();
+                let name = value.get("name").and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("name"))?.to_string();
+                let input = value.get("input").cloned()
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                Ok(Self::ToolUse { id, name, input })
+            }
+            "tool_result" => {
+                let tool_use_id = value.get("tool_use_id").and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("tool_use_id"))?.to_string();
+                let content: Vec<ContentBlock> = value.get("content")
+                    .map(|v| serde_json::from_value(v.clone()))
+                    .transpose()
+                    .map_err(|e| serde::de::Error::custom(format!("invalid content: {}", e)))?
+                    .unwrap_or_default();
+                let is_error = value.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                Ok(Self::ToolResult { tool_use_id, content, is_error })
+            }
+            "reasoning" => {
+                let text = value.get("text").and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("text"))?.to_string();
+                let signature = value.get("signature").and_then(|v| v.as_str()).map(String::from);
+                Ok(Self::Reasoning { text, signature })
+            }
+            _ => Ok(Self::Unknown(value)),
+        }
+    }
 }
 
 impl ContentBlock {
@@ -375,5 +485,52 @@ mod tests {
         assert!(!MessageContent::Blocks(vec![ContentBlock::text("x")]).is_empty());
         assert!(MessageContent::Raw(vec![]).is_empty());
         assert!(!MessageContent::Raw(vec![serde_json::json!({"type": "text", "text": "x"})]).is_empty());
+    }
+
+    #[test]
+    fn test_content_block_unknown_serde_roundtrip() {
+        let raw = serde_json::json!({
+            "type": "redacted_thinking",
+            "data": "encrypted_content_here"
+        });
+        let block = ContentBlock::Unknown(raw.clone());
+        let json = serde_json::to_string(&block).unwrap();
+        let block2: ContentBlock = serde_json::from_str(&json).unwrap();
+        assert_eq!(block, block2, "Unknown block 应完整保留原始 JSON");
+        assert!(json.contains("redacted_thinking"), "序列化应保留原始 type 字段");
+    }
+
+    #[test]
+    fn test_content_block_all_variants_roundtrip() {
+        let blocks = vec![
+            ContentBlock::text("hello"),
+            ContentBlock::Image {
+                source: ImageSource::Url { url: "https://example.com/img.png".into() },
+            },
+            ContentBlock::Document {
+                source: DocumentSource::Text { text: "doc content".into() },
+                title: Some("My Doc".into()),
+            },
+            ContentBlock::tool_use("id1", "bash", serde_json::json!({"cmd": "ls"})),
+            ContentBlock::tool_result("id1", vec![ContentBlock::text("output")], false),
+            ContentBlock::reasoning_with_signature("think", "sig123"),
+            ContentBlock::Unknown(serde_json::json!({"type": "custom_block", "value": 42})),
+        ];
+        let json = serde_json::to_string(&blocks).unwrap();
+        let blocks2: Vec<ContentBlock> = serde_json::from_str(&json).unwrap();
+        assert_eq!(blocks, blocks2, "所有变体应完整 round-trip");
+    }
+
+    #[test]
+    fn test_content_block_unknown_deserialize_unknown_type() {
+        let json = r#"{"type": "future_block_type", "data": {"nested": true}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown(v) => {
+                assert_eq!(v["type"], "future_block_type");
+                assert_eq!(v["data"]["nested"], true);
+            }
+            other => panic!("应为 Unknown，实际: {:?}", other),
+        }
     }
 }
