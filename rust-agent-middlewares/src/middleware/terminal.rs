@@ -39,13 +39,16 @@ fn truncate_output(output: &str) -> String {
     let lines: Vec<&str> = output.split('\n').collect();
     if lines.len() > MAX_OUTPUT_LINES {
         let total_lines = lines.len();
-        let truncated: Vec<&str> = lines.into_iter().take(MAX_OUTPUT_LINES).collect();
-        let mut result = truncated.join("\n");
+        let head_count = MAX_OUTPUT_LINES / 2;
+        let tail_count = MAX_OUTPUT_LINES - head_count;
+        let head: Vec<&str> = lines.iter().take(head_count).copied().collect();
+        let tail: Vec<&str> = lines.iter().skip(total_lines - tail_count).copied().collect();
+        let mut result = head.join("\n");
         result.push_str(&format!(
-            "\n\n[Output truncated: {} lines total, showing first {}]",
-            total_lines,
-            MAX_OUTPUT_LINES
+            "\n\n... [{} lines truncated, showing head {} and tail {} of {} total lines] ...\n\n",
+            total_lines - MAX_OUTPUT_LINES, head_count, tail_count, total_lines
         ));
+        result.push_str(&tail.join("\n"));
         // 再检查字节数（使用字节截断，保留 UTF-8 字符边界）
         if result.len() > MAX_OUTPUT_CHARS {
             let truncated = truncate_bytes(&result, MAX_OUTPUT_CHARS);
@@ -96,15 +99,20 @@ impl BaseTool for BashTool {
 
         let result = timeout(
             Duration::from_secs(timeout_secs),
-            Command::new(shell)
-                .arg(flag)
-                .arg(command)
-                .current_dir(&self.cwd)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                // 超时时 future 被 drop → Child 被 drop → 自动 SIGKILL 终止子进程
-                .kill_on_drop(true)
-                .output(),
+            {
+                let mut cmd = Command::new(shell);
+                cmd.arg(flag)
+                    .arg(command)
+                    .current_dir(&self.cwd)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    // 超时时 future 被 drop → Child 被 drop → 自动 SIGKILL 终止子进程
+                    .kill_on_drop(true);
+                // Unix: 将子进程放入独立进程组，确保超时时能杀掉整个进程树（含 bash 子进程）
+                #[cfg(unix)]
+                cmd.process_group(0);
+                cmd.output()
+            },
         )
         .await;
 
@@ -256,8 +264,11 @@ mod tests {
         let input = lines.join("\n");
         assert_eq!(input.split('\n').count(), 3000);
         let result = truncate_output(&input);
-        assert!(result.contains("3000 lines total"), "应显示正确的总行数: {result}");
-        assert!(result.contains(&format!("showing first {}", MAX_OUTPUT_LINES)));
+        assert!(result.contains("3000 total lines"), "应显示正确的总行数: {result}");
+        // 应保留头部和尾部
+        assert!(result.contains("line 0"), "应保留第一行: {result}");
+        assert!(result.contains("line 2999"), "应保留最后一行: {result}");
+        assert!(result.contains("lines truncated"), "应显示截断信息: {result}");
     }
 
     #[test]
@@ -271,5 +282,20 @@ mod tests {
         let long_line = "x".repeat(200_000);
         let result = truncate_output(&long_line);
         assert!(result.contains("byte limit"), "应截断超长输出: {result}");
+    }
+
+    #[test]
+    fn test_truncate_output_preserves_tail() {
+        // 3000 行，尾部包含关键信息
+        let mut lines: Vec<String> = (0..2999).map(|i| format!("line {}", i)).collect();
+        lines.push("CRITICAL ERROR: test failed".to_string());
+        let input = lines.join("\n");
+        let result = truncate_output(&input);
+        // 尾部关键行应保留
+        assert!(
+            result.contains("CRITICAL ERROR"),
+            "截断后应保留尾部关键信息: {result}"
+        );
+        assert!(result.contains("line 0"), "应保留头部: {result}");
     }
 }
