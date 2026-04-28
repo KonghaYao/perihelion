@@ -156,6 +156,7 @@ impl LoginPanel {
     }
 
     /// 进入删除确认模式
+    #[allow(dead_code)]
     pub fn request_delete(&mut self) {
         if !self.providers.is_empty() {
             self.mode = LoginPanelMode::ConfirmDelete;

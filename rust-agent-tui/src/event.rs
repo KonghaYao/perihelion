@@ -176,16 +176,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     } => return Ok(Some(Action::Quit)),
 
                     // 上下移动光标
-                    Input { key: Key::Up, .. }
-                    | Input {
-                        key: Key::Char('k'),
-                        ..
-                    } => app.hitl_move(-1),
-                    Input { key: Key::Down, .. }
-                    | Input {
-                        key: Key::Char('j'),
-                        ..
-                    } => app.hitl_move(1),
+                    Input { key: Key::Up, .. } => app.hitl_move(-1),
+                    Input { key: Key::Down, .. } => app.hitl_move(1),
 
                     // 空格/t：切换当前项
                     Input {
@@ -345,15 +337,6 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     }
                 }
 
-                // Shift+T：切换工具调用消息的显示
-                Input {
-                    key: Key::Char('T'),
-                    shift: true,
-                    ..
-                } => {
-                    app.toggle_collapsed_messages();
-                }
-
                 // Del：删除最后一个待发送附件（有附件时优先消费 Del）
                 Input { key: Key::Delete, .. } if !app.core.loading && !app.core.pending_attachments.is_empty() => {
                     app.pop_pending_attachment();
@@ -422,21 +405,13 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             // Esc 关闭面板，回到当前对话
             app.core.thread_browser = None;
         }
-        Input { key: Key::Up, .. }
-        | Input {
-            key: Key::Char('k'),
-            ..
-        } => {
+        Input { key: Key::Up, .. } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
                 b.move_cursor(-1);
                 b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
             }
         }
-        Input { key: Key::Down, .. }
-        | Input {
-            key: Key::Char('j'),
-            ..
-        } => {
+        Input { key: Key::Down, .. } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
                 b.move_cursor(1);
                 b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
@@ -451,14 +426,6 @@ fn handle_thread_browser(app: &mut App, input: Input) {
                 } else if let Some(id) = b.selected_id().cloned() {
                     app.open_thread(id);
                 }
-            }
-        }
-        Input {
-            key: Key::Char('d'),
-            ..
-        } => {
-            if let Some(b) = app.core.thread_browser.as_mut() {
-                b.delete_selected();
             }
         }
         _ => {}
@@ -477,18 +444,10 @@ fn handle_agent_panel(app: &mut App, input: Input) {
         Input { key: Key::Esc, .. } => {
             app.close_agent_panel();
         }
-        Input { key: Key::Up, .. }
-        | Input {
-            key: Key::Char('k'),
-            ..
-        } => {
+        Input { key: Key::Up, .. } => {
             app.agent_panel_move_up();
         }
-        Input { key: Key::Down, .. }
-        | Input {
-            key: Key::Char('j'),
-            ..
-        } => {
+        Input { key: Key::Down, .. } => {
             app.agent_panel_move_down();
         }
         Input {
@@ -516,10 +475,10 @@ fn handle_login_panel(app: &mut App, input: Input) {
             Input { key: Key::Esc, .. } => {
                 app.close_login_panel();
             }
-            Input { key: Key::Up, .. } | Input { key: Key::Char('k'), .. } => {
+            Input { key: Key::Up, .. } => {
                 app.core.login_panel.as_mut().unwrap().move_cursor(-1);
             }
-            Input { key: Key::Down, .. } | Input { key: Key::Char('j'), .. } => {
+            Input { key: Key::Down, .. } => {
                 app.core.login_panel.as_mut().unwrap().move_cursor(1);
             }
             Input { key: Key::Char('e'), ctrl: false, alt: false, .. }
@@ -531,9 +490,6 @@ fn handle_login_panel(app: &mut App, input: Input) {
             }
             Input { key: Key::Char(' '), .. } => {
                 app.login_panel_select_provider();
-            }
-            Input { key: Key::Char('d'), ctrl: false, alt: false, .. } => {
-                app.core.login_panel.as_mut().unwrap().request_delete();
             }
             _ => {}
         },
@@ -604,10 +560,10 @@ fn handle_model_panel(app: &mut App, input: Input) {
         Input { key: Key::Esc, .. } => {
             app.close_model_panel();
         }
-        Input { key: Key::Up, .. } | Input { key: Key::Char('k'), .. } => {
+        Input { key: Key::Up, .. } => {
             app.core.model_panel.as_mut().unwrap().move_cursor(-1);
         }
-        Input { key: Key::Down, .. } | Input { key: Key::Char('j'), .. } => {
+        Input { key: Key::Down, .. } => {
             app.core.model_panel.as_mut().unwrap().move_cursor(1);
         }
         Input { key: Key::Char(' '), .. } => {
@@ -666,21 +622,11 @@ fn handle_cron_panel(app: &mut App, input: Input) {
         }
         Input {
             key: Key::Up, ..
-        }
-        | Input {
-            key: Key::Char('k'),
-            ctrl: false,
-            ..
         } => {
             app.cron_panel_move_up();
         }
         Input {
             key: Key::Down, ..
-        }
-        | Input {
-            key: Key::Char('j'),
-            ctrl: false,
-            ..
         } => {
             app.cron_panel_move_down();
         }
@@ -688,13 +634,6 @@ fn handle_cron_panel(app: &mut App, input: Input) {
             key: Key::Enter, ..
         } => {
             app.cron_panel_toggle();
-        }
-        Input {
-            key: Key::Char('d'),
-            ctrl: false,
-            ..
-        } => {
-            app.cron_panel_delete();
         }
         Input {
             key: Key::Esc, ..

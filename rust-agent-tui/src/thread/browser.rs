@@ -47,6 +47,7 @@ impl ThreadBrowser {
     }
 
     /// 删除光标所在的历史 thread（同步，block_in_place），返回是否成功删除
+    #[allow(dead_code)]
     pub fn delete_selected(&mut self) -> bool {
         if self.cursor == 0 {
             return false;

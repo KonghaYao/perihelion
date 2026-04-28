@@ -50,6 +50,131 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | search_files_rg | Searched for 1 pattern | Searched for N patterns |
 | glob_files | Matched 1 pattern | Matched N patterns |
 
+## 快捷键全览
+
+### 快捷键设计规则
+
+- **禁止 Shift + 字母**：`Shift + 字母` 在编辑状态下等同于输入大写字母，二者不可区分，因此快捷键一律不得使用 `Shift + A-Z` 组合。
+- 全局操作优先使用 `Ctrl + 字母`（如 `Ctrl+C`）或功能键（如 `Esc`、`PageUp`）。
+- 面板内操作优先使用 `↑/↓`、`Space`、`Enter`、`Esc` 等无冲突按键。
+
+### 全局快捷键
+
+| 按键 | 行为 | 说明 |
+|------|------|------|
+| `Ctrl+C` | 中断 Agent（loading 时）/ 退出（idle 时） | |
+| `Esc` | 退出程序（idle 时） | |
+| `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
+| `Alt+Enter` | 插入换行 | |
+| `Shift+Tab` | 循环切换权限模式 | DEFAULT → AUTO-EDIT → AUTO → YOLO → NO-ASK |
+| `Tab` | 命令/Skills 提示浮层导航 | 选中后 Enter 补全 |
+| `Ctrl+V` | 粘贴剪贴板（优先图片，回退文字） | |
+| `PageUp/PageDown` | 消息区上下翻页（每次 10 行） | |
+| `Del` | 删除最后一个待发送附件 | |
+| `MouseScrollUp/Down` | 消息区滚动 | |
+
+### HITL 审批弹窗
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` | 移动光标 |
+| `Space` `t` | 切换当前项（批准/拒绝） |
+| `y` | 全部批准并确认 |
+| `n` | 全部拒绝并确认 |
+| `Enter` | 按当前选择确认提交 |
+| `Ctrl+C` | 退出程序 |
+
+### AskUser 批量问答弹窗
+
+| 按键 | 行为 |
+|------|------|
+| `Tab` / `Shift+Tab` | 切换问题 Tab |
+| `↑/↓` | 当前问题内选项光标移动 |
+| `Space` | 切换当前选项选中状态 |
+| `Enter` | 提交所有答案 |
+| 普通字符 | 自定义文本输入 |
+| `Backspace` | 删除字符 |
+| `Ctrl+C` | 退出程序 |
+
+### /login 面板
+
+**Browse 模式：**
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` | 上下移动光标 |
+| `Enter` `e` | 进入编辑模式 |
+| `n` | 新建 Provider |
+| `Space` | 选中/激活当前 Provider |
+| `Esc` | 关闭面板 |
+
+**Edit / New 模式：**
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` `Tab/Shift+Tab` | 切换字段 |
+| `←/→` `Space` | 切换 Type 字段（仅 Type 字段有效） |
+| `Enter` | 保存编辑 |
+| `Esc` | 取消编辑，回到 Browse |
+| `Backspace` | 删除当前字段末字符 |
+| `Ctrl+V` | 粘贴到当前字段 |
+
+**ConfirmDelete 模式：**
+
+| 按键 | 行为 |
+|------|------|
+| `Enter` | 确认删除 |
+| `Esc` | 取消删除，回到 Browse |
+
+### /model 面板
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` | 上下移动光标 |
+| `Enter` | 确认选择（Opus/Sonnet/Haiku 行切换模型） |
+| `Space` | 切换 Thinking 开关 |
+| `Esc` | 关闭面板 |
+| 普通字符 | 编辑当前行字段 |
+| `Backspace` | 删除当前字段末字符 |
+| `Ctrl+V` | 粘贴到当前字段 |
+
+### /agents 面板
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` | 上下移动光标 |
+| `Enter` | 确认选择当前 Agent |
+| `Esc` | 关闭面板（不改变 Agent） |
+
+### /history (Thread Browser) 面板
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` | 上下移动光标 |
+| `Enter` | 打开选中对话 |
+| `Esc` | 关闭面板 |
+
+### /cron 面板
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` | 上下移动光标 |
+| `Enter` | 切换任务启用/暂停 |
+| `Esc` | 关闭面板 |
+
+### 通用面板按键约定
+
+所有面板遵循以下统一约定（优先级高于面板特定按键）：
+
+| 按键 | 行为 |
+|------|------|
+| `↑/↓` | 竖向列表导航 |
+| `←/→` | 横向切换（枚举字段） |
+| `Enter` | 确认/进入/保存 |
+| `Space` | 选中/切换 |
+| `Esc` | 关闭/取消 |
+| `Ctrl+V` | 粘贴剪贴板内容 |
+
 ## 色板
 
 ### 强调色
@@ -62,11 +187,14 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 | 名称 | 色值 | 用途 |
 |------|------|------|
-| SAGE | `#6EB56A` | 哑光绿：成功状态、SubAgent |
-| WARNING | `#B09878` | 暖米灰：次要强调、标题 |
+| SAGE | `#6EB56A` | 哑光绿：成功状态、工具名、SubAgent、只读工具摘要 |
+| WARNING | `#B09878` | 暖米灰：次要强调、标题、快捷键高亮 |
 | ERROR | `#CC463E` | 暗红：错误/拒绝 |
-| THINKING | `#A78BFA` | 亮紫罗兰：推理/CoT |
-| LOADING | `#22D3EE` | 电光青：Loading spinner |
+| THINKING | `#A78BFA` | 亮紫罗兰：推理/CoT 思考内容 |
+| LOADING | `#22D3EE` | 电光青：Loading spinner、AUTO 权限模式 |
+| MODEL_INFO | `#A0825F` | 棕金：状态栏模型名（不抢眼） |
+| TOOL_NAME | `= SAGE` | 语义别名：工具名展示色 |
+| SUB_AGENT | `= SAGE` | 语义别名：SubAgent 展示色 |
 | White | 终端白色 | AI 回复前缀、工具名、进行中指示器 |
 | Green | 终端绿色 | 完成状态指示器 |
 
@@ -106,29 +234,31 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 动画帧由 `perihelion-widgets::spinner::animation::tick_to_frame()` 提供，每渲染周期 `advance_tick()` 推进一帧。
 
-## 弹窗面板
-
-所有面板遵循统一按键约定：
-
-| 按键 | 行为 |
-|------|------|
-| Up / Down | 竖向列表导航 |
-| Left / Right | 横向切换（枚举字段） |
-| Enter | 确认/进入/保存 |
-| Space | 选中/切换 |
-| Esc | 关闭/取消 |
-| Ctrl+V | 粘贴剪贴板内容 |
-
-## 命令
+## 命令与 Skills
 
 | 命令 | 说明 |
 |------|------|
-| `/login` | Provider 配置管理 |
-| `/model` | 模型选择面板 |
+| `/login` | Provider 配置管理（新建/编辑/删除） |
+| `/model` | 打开模型选择面板 |
+| `/model <alias>` | 直接切换活跃模型（`opus` / `sonnet` / `haiku`） |
 | `/history` | 历史对话浏览 |
-| `/agents` | SubAgent 管理 |
+| `/agents` | SubAgent 定义管理 |
 | `/compact` | 触发上下文压缩 |
-| `/clear` | 清空消息列表 |
+| `/clear` | 清空当前消息列表 |
+| `/cron` | 定时任务管理面板 |
 | `/help` | 列出所有命令 |
 
-输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全。
+输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全为 `#skill-name`。
+输入 `/` 前缀触发命令提示，支持前缀唯一匹配（如 `/m` 匹配 `/model`）。
+
+## 权限模式
+
+通过 `Shift+Tab` 循环切换，状态栏首列实时显示：
+
+| 模式 | 标签 | 颜色 | 说明 |
+|------|------|------|------|
+| Default | DEFAULT | TEXT | 默认：所有危险工具需审批 |
+| AcceptEdits | AUTO-EDIT | SAGE | 自动批准编辑类工具 |
+| Auto | AUTO | LOADING | 自动批准更多工具 |
+| YOLO | YOLO | WARNING | 跳过所有 HITL 审批（不影响 ask_user_question） |
+| NoAsk | NO-ASK | ERROR | 不主动提问 |

@@ -11,6 +11,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::app::login_panel::LoginPanelMode;
 use crate::app::App;
 use crate::ui::theme;
 use crate::ui::welcome;
@@ -121,10 +122,16 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
     let max_h = screen_height * 3 / 5; // 最多占 60% 屏高
     let raw = if let Some(panel) = &app.core.thread_browser {
         (panel.total() as u16 + 4).max(6)
-    } else if app.core.login_panel.is_some() {
-        // 每个 Provider 占 2 行（1 头 + 1 模型概览）+ 2 行帮助/空行 + 2 行边框
-        let n = app.core.login_panel.as_ref().map(|p| p.providers.len()).unwrap_or(0);
-        (n as u16 * 2 + 4).max(6)
+    } else if let Some(panel) = &app.core.login_panel {
+        let n = panel.providers.len() as u16;
+        match panel.mode {
+            // Edit/New: 7 fields + 1 blank + 1 help + 2 borders = 11
+            LoginPanelMode::Edit | LoginPanelMode::New => 11,
+            // ConfirmDelete: n providers + 4 confirm area + 2 borders
+            LoginPanelMode::ConfirmDelete => (n + 6).max(7),
+            // Browse: n * 2 (name + models) + 2 help/blank + 2 borders
+            LoginPanelMode::Browse => (n * 2 + 4).max(6),
+        }
     } else if app.core.model_panel.is_some() {
         14
     } else if let Some(panel) = &app.core.agent_panel {
