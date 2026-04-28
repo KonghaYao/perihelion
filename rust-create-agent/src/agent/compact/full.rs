@@ -169,7 +169,7 @@ fn truncate_for_ptl(
     rounds: &[MessageRound],
     drop_count: usize,
 ) -> Vec<BaseMessage> {
-    if rounds.len() <= 1 {
+    if rounds.len() <= 1 || drop_count == 0 {
         return messages.to_vec();
     }
 
@@ -500,6 +500,14 @@ mod tests {
         let rounds = group_messages_by_round(&msgs);
         let result = truncate_for_ptl(&msgs, &rounds, 5);
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_ptl_truncate_drop_count_zero() {
+        let msgs = vec![BaseMessage::human("q"), BaseMessage::ai("a")];
+        let rounds = group_messages_by_round(&msgs);
+        let result = truncate_for_ptl(&msgs, &rounds, 0);
+        assert_eq!(result.len(), msgs.len(), "drop_count=0 应返回原样消息");
     }
 
     // is_ptl_error tests

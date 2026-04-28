@@ -78,9 +78,6 @@ struct SubAgentState {
     /// 流式期间的内部消息（不持久化）
     recent_messages: Vec<MessageViewModel>,
     is_running: bool,
-    /// 流式期间子 agent 产生的 BaseMessage
-    #[allow(dead_code)]
-    inner_messages: Vec<BaseMessage>,
 }
 
 // ─── MessagePipeline ─────────────────────────────────────────────────────────
@@ -157,7 +154,7 @@ impl MessagePipeline {
             }
             AgentEvent::ToolStart { tool_call_id, name, display: _, args: _, input } => {
                 if self.in_subagent() {
-                    self.subagent_tool_start(&name, input);
+                    self.subagent_tool_start(&tool_call_id, &name, input);
                     vec![self.build_subagent_update()
                         .map(PipelineAction::UpdateLast)
                         .unwrap_or(PipelineAction::None)]
@@ -167,11 +164,11 @@ impl MessagePipeline {
             }
             AgentEvent::ToolEnd { tool_call_id, name, output, is_error } => {
                 if self.in_subagent() {
-                    // 更新 recent_messages 中对应 ToolBlock 的内容
+                    // 更新 recent_messages 中对应 ToolBlock 的内容（按 tool_call_id 精确匹配）
                     if let Some(sub) = self.subagent_stack.last_mut() {
                         for vm in sub.recent_messages.iter_mut().rev() {
-                            if let MessageViewModel::ToolBlock { tool_name, content, is_error: err, .. } = vm {
-                                if tool_name == &name {
+                            if let MessageViewModel::ToolBlock { tool_call_id: tc_id, content, is_error: err, .. } = vm {
+                                if tc_id == &tool_call_id {
                                     *content = output.clone();
                                     *err = is_error;
                                     break;
@@ -273,7 +270,6 @@ impl MessagePipeline {
                 total_steps: 0,
                 recent_messages: Vec::new(),
                 is_running: true,
-                inner_messages: Vec::new(),
             });
             self.pending_tools.insert(
                 tool_call_id.to_string(),
@@ -372,11 +368,17 @@ impl MessagePipeline {
     }
 
     /// SubAgent 内部工具调用（路由进 SubAgentGroup）
-    pub fn subagent_tool_start(&mut self, name: &str, input: serde_json::Value) {
+    pub fn subagent_tool_start(&mut self, tool_call_id: &str, name: &str, input: serde_json::Value) {
         if let Some(sub) = self.subagent_stack.last_mut() {
             let display = tool_display::format_tool_name(name);
             let args = tool_display::format_tool_args(name, &input, Some(&self.cwd));
-            let vm = MessageViewModel::tool_block(name.to_string(), display, args, false);
+            let vm = MessageViewModel::tool_block_with_id(
+                tool_call_id.to_string(),
+                name.to_string(),
+                display,
+                args,
+                false,
+            );
             sub.total_steps += 1;
             if sub.recent_messages.len() >= 4 {
                 sub.recent_messages.remove(0);
@@ -799,5 +801,72 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert!(matches!(actions[0], PipelineAction::None));
         assert_eq!(pipeline.completed_messages().len(), 2);
+    }
+
+    /// 测试：SubAgent 内部并行相同工具的 tool_call_id 精确匹配
+    #[test]
+    fn test_subagent_parallel_same_tool_matches_by_call_id() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+
+        // 启动 SubAgent
+        let _ = pipeline.handle_event(AgentEvent::SubAgentStart {
+            agent_id: "test-agent".into(),
+            task_preview: "parallel reads".into(),
+        });
+
+        // SubAgent 内部并行启动两个 read_file
+        let _ = pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: "tc_a".into(),
+            name: "read_file".into(),
+            display: "ReadFile".into(),
+            args: "a.rs".into(),
+            input: serde_json::json!({"file_path": "/tmp/a.rs"}),
+        });
+        let _ = pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: "tc_b".into(),
+            name: "read_file".into(),
+            display: "ReadFile".into(),
+            args: "b.rs".into(),
+            input: serde_json::json!({"file_path": "/tmp/b.rs"}),
+        });
+
+        // ToolEnd 按不同顺序到达（tc_b 先完成）
+        let _ = pipeline.handle_event(AgentEvent::ToolEnd {
+            tool_call_id: "tc_b".into(),
+            name: "read_file".into(),
+            output: "content of b".into(),
+            is_error: false,
+        });
+        let _ = pipeline.handle_event(AgentEvent::ToolEnd {
+            tool_call_id: "tc_a".into(),
+            name: "read_file".into(),
+            output: "content of a".into(),
+            is_error: false,
+        });
+
+        // 验证 recent_messages 中两个 ToolBlock 被正确更新
+        let sub = pipeline.subagent_stack.last().unwrap();
+        assert_eq!(sub.recent_messages.len(), 2);
+
+        // 找到 tc_a 和 tc_b 对应的 ToolBlock
+        let mut found_a = false;
+        let mut found_b = false;
+        for vm in &sub.recent_messages {
+            if let MessageViewModel::ToolBlock { tool_call_id, content, .. } = vm {
+                match tool_call_id.as_str() {
+                    "tc_a" => {
+                        assert_eq!(content, "content of a", "tc_a 应匹配自己的结果");
+                        found_a = true;
+                    }
+                    "tc_b" => {
+                        assert_eq!(content, "content of b", "tc_b 应匹配自己的结果");
+                        found_b = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(found_a, "应找到 tc_a 的 ToolBlock");
+        assert!(found_b, "应找到 tc_b 的 ToolBlock");
     }
 }

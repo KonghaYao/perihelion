@@ -441,14 +441,25 @@ impl MessageViewModel {
 
     /// 创建工具消息
     pub fn tool_block(tool_name: String, display: String, args: Option<String>, is_error: bool) -> Self {
+        Self::tool_block_with_id(String::new(), tool_name, display, args, is_error)
+    }
+
+    /// 创建带 tool_call_id 的工具消息（SubAgent 内部并行工具调用精确匹配）
+    pub fn tool_block_with_id(
+        tool_call_id: String,
+        tool_name: String,
+        display: String,
+        args: Option<String>,
+        is_error: bool,
+    ) -> Self {
         let color = if is_error {
             theme::ERROR
         } else {
             tool_color(&tool_name)
         };
         MessageViewModel::ToolBlock {
+            tool_call_id,
             tool_name,
-            tool_call_id: String::new(),
             display_name: display,
             args_display: args,
             content: String::new(),
