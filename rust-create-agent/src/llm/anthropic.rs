@@ -125,7 +125,7 @@ impl ChatAnthropic {
                 }
                 Some(obj)
             }
-            ContentBlock::Unknown => None,
+            ContentBlock::Unknown(v) => Some(v.clone()),
         }
     }
 
@@ -303,7 +303,14 @@ impl ChatAnthropic {
                         tool_calls.push(ToolCallRequest::new(id, name, input));
                     }
                 }
-                _ => {} // 忽略未知 block
+                // Anthropic extended thinking 可能返回 redacted_thinking block，
+                // 必须保留原始数据以便在后续请求中回传，否则 API 会拒绝
+                Some("redacted_thinking") => {
+                    blocks.push(ContentBlock::Unknown(b.clone()));
+                }
+                _ => {
+                    blocks.push(ContentBlock::Unknown(b.clone()));
+                }
             }
         }
 
@@ -348,7 +355,12 @@ impl BaseModel for ChatAnthropic {
             (Some(from_msgs), None) => Some(from_msgs),
             (None, base) => base,
         };
-        let max_tokens = request.max_tokens.unwrap_or(4096);
+        let mut max_tokens = request.max_tokens.unwrap_or(4096);
+
+        // Extended Thinking 要求 max_tokens > budget_tokens
+        if self.extended_thinking && max_tokens <= self.thinking_budget {
+            max_tokens = self.thinking_budget + 4096;
+        }
 
         // 开启缓存时：对最后一条消息的最后一个 block 加 cache_control
         if self.enable_cache {

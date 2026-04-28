@@ -106,7 +106,7 @@ impl ChatOpenAI {
                 let src = serde_json::to_value(source).unwrap_or_default();
                 Some(json!({ "type": "document", "source": src, "title": title }))
             }
-            ContentBlock::Unknown => None,
+            ContentBlock::Unknown(v) => Some(v.clone()),
         }
     }
 

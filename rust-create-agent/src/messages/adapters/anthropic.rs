@@ -58,7 +58,7 @@ impl AnthropicAdapter {
                 }
                 Some(obj)
             }
-            ContentBlock::Unknown => None,
+            ContentBlock::Unknown(v) => Some(v.clone()),
         }
     }
 
@@ -104,7 +104,7 @@ impl AnthropicAdapter {
                     tool_calls.push(ToolCallRequest::new(id, name, input));
                 }
                 _ => {
-                    blocks.push(ContentBlock::Unknown);
+                    blocks.push(ContentBlock::Unknown(b.clone()));
                 }
             }
         }
@@ -266,8 +266,7 @@ fn parse_anthropic_content(content: &Value) -> MessageContent {
                             Some(ContentBlock::text(b["text"].as_str().unwrap_or("")))
                         }
                         Some("tool_result") => {
-                            // tool_result 在 user 消息中，保留为 Unknown
-                            Some(ContentBlock::Unknown)
+                            Some(ContentBlock::Unknown(b.clone()))
                         }
                         _ => None,
                     }

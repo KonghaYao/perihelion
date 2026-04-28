@@ -73,8 +73,9 @@ pub enum ContentBlock {
     /// Provider 原生 block（透传，不做解析）
     ///
     /// 存储无法识别的原始 JSON，保证向前兼容。
-    #[serde(other)]
-    Unknown,
+    /// 携带完整原始数据，可在回传时保留全部字段。
+    #[serde(skip)]
+    Unknown(serde_json::Value),
 }
 
 impl ContentBlock {
@@ -233,7 +234,7 @@ impl MessageContent {
                 .iter()
                 .map(|v| {
                     serde_json::from_value::<ContentBlock>(v.clone())
-                        .unwrap_or(ContentBlock::Unknown)
+                        .unwrap_or_else(|_| ContentBlock::Unknown(v.clone()))
                 })
                 .collect(),
         }

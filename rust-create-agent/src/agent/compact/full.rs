@@ -161,6 +161,9 @@ fn is_ptl_error(error: &crate::error::AgentError) -> bool {
 }
 
 /// PTL 降级：从最旧的 round 开始删除指定数量的消息组
+///
+/// 始终保留开头的所有 System 消息（包含旧摘要等关键上下文），
+/// 只从第一个非 System 消息开始截断。
 fn truncate_for_ptl(
     messages: &[BaseMessage],
     rounds: &[MessageRound],
@@ -170,10 +173,30 @@ fn truncate_for_ptl(
         return messages.to_vec();
     }
 
-    let actual_drop = drop_count.min(rounds.len() - 1);
-    let drop_end = rounds[actual_drop - 1].end;
+    // 找到第一条非 System 消息的位置
+    let first_non_system = messages
+        .iter()
+        .position(|m| !matches!(m, BaseMessage::System { .. }))
+        .unwrap_or(messages.len());
 
-    messages[drop_end..].to_vec()
+    // 在 rounds 中找到第一个包含非 System 消息的 round 的起始索引
+    let non_system_round_start = rounds
+        .iter()
+        .position(|r| r.start >= first_non_system)
+        .unwrap_or(0);
+
+    let droppable_rounds = rounds.len().saturating_sub(non_system_round_start);
+    if droppable_rounds <= 1 {
+        return messages.to_vec();
+    }
+
+    let actual_drop = drop_count.min(droppable_rounds - 1);
+    let drop_end = rounds[non_system_round_start + actual_drop - 1].end;
+
+    // 拼接：保留所有 System 消息 + 截断后的非 System 消息
+    let mut result = messages[..first_non_system].to_vec();
+    result.extend_from_slice(&messages[drop_end..]);
+    result
 }
 
 /// 执行 Full Compact：预处理 -> LLM 摘要 -> 后处理，支持 PTL 降级重试
