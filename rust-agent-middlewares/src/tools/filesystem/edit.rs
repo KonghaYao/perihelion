@@ -49,6 +49,10 @@ impl BaseTool for EditFileTool {
             .ok_or("Missing new_string parameter")?;
         let replace_all = input["replace_all"].as_bool().unwrap_or(false);
 
+        if old_string.is_empty() {
+            return Ok("Error: old_string cannot be empty".to_string());
+        }
+
         let resolved = resolve_path(&self.cwd, file_path);
 
         let content = match std::fs::read_to_string(&resolved) {
@@ -166,5 +170,20 @@ mod tests {
             .await
             .unwrap();
         assert!(result.contains("File not found"), "should report file not found: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_empty_old_string_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "hello world").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "", "new_string": "x", "replace_all": true}))
+            .await
+            .unwrap();
+        assert!(result.contains("cannot be empty"), "empty old_string should be rejected: {result}");
+        // 文件内容不应被修改
+        let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "hello world", "file should not be modified");
     }
 }
