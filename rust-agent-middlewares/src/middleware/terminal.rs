@@ -74,7 +74,7 @@ impl BaseTool for BashTool {
             .as_str()
             .ok_or("Missing command parameter")?;
 
-        let timeout_secs = input["timeout_secs"].as_u64().unwrap_or(120);
+        let timeout_secs = input["timeout_secs"].as_u64().unwrap_or(120).min(300);
 
         let (shell, flag) = if cfg!(target_os = "windows") {
             ("cmd", "/C")

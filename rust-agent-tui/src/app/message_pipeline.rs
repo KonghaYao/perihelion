@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use rust_create_agent::messages::{BaseMessage, ContentBlock, MessageContent, ToolCallRequest};
+use rust_create_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::tool_display;
 use crate::ui::message_view::{
@@ -296,13 +296,7 @@ impl MessagePipeline {
 
         // launch_agent ToolEnd → SubAgentEnd
         if name == "launch_agent" {
-            // 创建 BaseMessage::Tool 并加入 completed（仅一次）
-            self.completed.push(BaseMessage::Tool {
-                id: rust_create_agent::messages::MessageId::new(),
-                tool_call_id: tool_call_id.to_string(),
-                content: MessageContent::text(output),
-                is_error,
-            });
+            // 不 push 到 completed：StateSnapshot 是 completed 的唯一数据源
             if let Some(sub) = self.subagent_stack.last_mut() {
                 sub.is_running = false;
                 let vm = MessageViewModel::SubAgentGroup {
@@ -319,13 +313,7 @@ impl MessagePipeline {
             return PipelineAction::None;
         }
 
-        // 非 launch_agent：创建 BaseMessage::Tool 并加入 completed
-        self.completed.push(BaseMessage::Tool {
-            id: rust_create_agent::messages::MessageId::new(),
-            tool_call_id: tool_call_id.to_string(),
-            content: MessageContent::text(output),
-            is_error,
-        });
+        // 不 push 到 completed：StateSnapshot 是 completed 的唯一数据源
 
         // ask_user_question ToolEnd → 更新 ToolBlock 显示用户回答
         if name == "ask_user_question" {
@@ -433,10 +421,12 @@ impl MessagePipeline {
         self.subagent_stack.retain(|s| s.is_running);
     }
 
-    /// 中断：finalize 当前状态
+    /// 中断：finalize 当前状态并清理残留
     pub fn interrupt(&mut self) {
         self.finalize_current_ai();
         self.current_ai_finalized = false;
+        self.pending_tools.clear();
+        self.subagent_stack.retain(|s| s.is_running);
     }
 
     /// 清空所有状态
@@ -574,32 +564,11 @@ impl MessagePipeline {
             return;
         }
 
-        let mut blocks: Vec<ContentBlock> = Vec::new();
-
-        if !self.current_ai_reasoning.is_empty() {
-            blocks.push(ContentBlock::reasoning(&self.current_ai_reasoning));
-        }
-
-        if !self.current_ai_text.is_empty() {
-            blocks.push(ContentBlock::text(&self.current_ai_text));
-        }
-
-        // 将 tool_calls 转为 ToolUse blocks（与 LLM 响应格式一致）
-        for tc in &self.current_ai_tool_calls {
-            blocks.push(ContentBlock::tool_use(&tc.id, &tc.name, tc.arguments.clone()));
-        }
-
-        let content = MessageContent::Blocks(blocks);
-
-        let ai_msg = BaseMessage::Ai {
-            id: rust_create_agent::messages::MessageId::new(),
-            content,
-            tool_calls: std::mem::take(&mut self.current_ai_tool_calls),
-        };
-
-        self.completed.push(ai_msg);
+        // 不 push 到 completed：StateSnapshot 是 completed 的唯一数据源
+        // 只清理流式缓冲区
         self.current_ai_text.clear();
         self.current_ai_reasoning.clear();
+        // 保留 tool_calls 信息给后续 reconcile 使用
         self.current_ai_finalized = true;
     }
 
@@ -645,6 +614,8 @@ mod tests {
         let mut pipeline = MessagePipeline::new(cwd.to_string());
         pipeline.push_chunk("world");
         pipeline.done();
+        // 模拟 StateSnapshot 填充 completed
+        pipeline.set_completed(vec![BaseMessage::ai("world")]);
         let stream_vms = pipeline.reconcile();
 
         // 比较非系统消息
@@ -709,37 +680,58 @@ mod tests {
         assert_eq!(vms.len(), 2);
     }
 
-    /// 测试：流式 pipeline 的 finalize 正确产生 BaseMessage
+    /// 测试：流式 pipeline 的 finalize 清理流式缓冲（completed 由 StateSnapshot 填充）
     #[test]
-    fn test_pipeline_finalize_ai_message() {
+    fn test_pipeline_finalize_clears_buffers() {
         let mut pipeline = MessagePipeline::new("/tmp".to_string());
         pipeline.push_reasoning("thinking...");
         pipeline.push_chunk("Hello world");
         pipeline.done();
 
-        let completed = pipeline.completed_messages();
-        assert_eq!(completed.len(), 1);
-
-        if let BaseMessage::Ai { content, .. } = &completed[0] {
-            let blocks = content.content_blocks();
-            assert_eq!(blocks.len(), 2); // Reasoning + Text
-        } else {
-            panic!("应为 Ai 消息");
-        }
+        // finalize 不再 push 到 completed（StateSnapshot 是唯一数据源）
+        assert!(pipeline.completed_messages().is_empty());
+        // 流式缓冲已清理
+        assert!(!pipeline.has_streaming_content());
     }
 
-    /// 测试：流式 pipeline 的 tool_start/tool_end 正确产生 BaseMessage
+    /// 测试：set_completed 是 completed 的唯一数据源
     #[test]
-    fn test_pipeline_tool_lifecycle() {
+    fn test_pipeline_set_completed_single_source() {
         let mut pipeline = MessagePipeline::new("/tmp".to_string());
-        pipeline.push_chunk("I'll read a file");
+        let msgs = vec![
+            BaseMessage::human("hello"),
+            BaseMessage::ai("world"),
+        ];
+        pipeline.set_completed(msgs.clone());
+
+        assert_eq!(pipeline.completed_messages().len(), 2);
+    }
+
+    /// 测试：tool_start/tool_end 不直接写入 completed
+    #[test]
+    fn test_pipeline_tool_end_no_duplicate() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
         let _action = pipeline.tool_start("tc1", "read_file", json!({"file_path": "/tmp/test.txt"}));
         let _action = pipeline.tool_end("tc1", "read_file", "content here", false);
-        pipeline.done();
 
-        let completed = pipeline.completed_messages();
-        // 应有: Ai(text) + Tool(result)
-        assert!(completed.len() >= 2, "应有至少 2 条消息，实际: {}", completed.len());
+        // tool_end 不 push 到 completed
+        assert!(pipeline.completed_messages().is_empty());
+
+        // 模拟 StateSnapshot 填充
+        let snapshot = vec![
+            BaseMessage::ai_with_tool_calls(
+                MessageContent::text("reading"),
+                vec![ToolCallRequest::new("tc1", "read_file", json!({"file_path": "/tmp/test.txt"}))],
+            ),
+            BaseMessage::Tool {
+                id: rust_create_agent::messages::MessageId::new(),
+                tool_call_id: "tc1".to_string(),
+                content: MessageContent::text("content here"),
+                is_error: false,
+            },
+        ];
+        pipeline.set_completed(snapshot);
+        assert_eq!(pipeline.completed_messages().len(), 2, "StateSnapshot 应无重复地填充 completed");
     }
 
     /// 测试：from_base_message_with_cwd 与 from_base_message 向后兼容

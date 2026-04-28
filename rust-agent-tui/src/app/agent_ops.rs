@@ -698,6 +698,9 @@ impl App {
         let cleared = micro_compact_enhanced(&config, &mut self.agent.agent_state_messages);
         if cleared > 0 {
             tracing::info!(cleared, "micro-compact: enhanced compact completed");
+            // 同步 pipeline.completed 与 agent_state_messages
+            self.core.pipeline.clear();
+            self.core.pipeline.restore_completed(self.agent.agent_state_messages.clone());
             let vm = MessageViewModel::system(
                 format!("Micro-compact: 清除了 {} 个旧工具结果", cleared)
             );

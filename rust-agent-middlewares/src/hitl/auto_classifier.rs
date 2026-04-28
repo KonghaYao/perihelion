@@ -94,12 +94,14 @@ impl LlmAutoClassifier {
         })
     }
 
-    /// 写入缓存
+    /// 写入缓存，同时淘汰过期条目
     fn insert_cache(&self, key: (String, u64), classification: Classification) {
         let mut cache = self.cache.lock();
+        let now = Instant::now();
+        cache.retain(|_, entry| entry.expires_at > now);
         cache.insert(key, CacheEntry {
             classification,
-            expires_at: Instant::now() + self.cache_ttl,
+            expires_at: now + self.cache_ttl,
         });
     }
 

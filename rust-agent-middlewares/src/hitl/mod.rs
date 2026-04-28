@@ -251,7 +251,10 @@ impl HumanInTheLoopMiddleware {
             PermissionMode::Default => {
                 match &self.broker {
                     Some(broker) => self.broker_approve(broker, tool_call).await,
-                    None => Ok(tool_call.clone()),
+                    None => {
+                        tracing::warn!("HITL Default 模式但无 broker，拒绝工具调用");
+                        Err(anyhow::anyhow!("HITL 审批不可用：未配置 broker").into())
+                    }
                 }
             }
         }
