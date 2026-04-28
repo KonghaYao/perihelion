@@ -1,6 +1,6 @@
 use ratatui::text::Line;
 
-use crate::tool_call::{ToolCallState, ToolCallWidget};
+use crate::tool_call::ToolCallState;
 
 #[derive(Debug, Clone)]
 pub enum BlockRenderStrategy {
@@ -30,7 +30,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
         BlockRenderStrategy::Text { content, .. } => {
             #[cfg(feature = "markdown")]
             {
-                use crate::markdown::{DefaultMarkdownTheme, MarkdownTheme};
+                use crate::markdown::DefaultMarkdownTheme;
                 use super::highlight::is_diff_content;
 
                 if is_diff_content(content) {

@@ -121,7 +121,7 @@ impl InputState {
     }
 
     /// 计算显示文本中 cursor 对应的显示位置
-    pub fn display_cursor(&self, mask_char: char) -> usize {
+    pub fn display_cursor(&self, _mask_char: char) -> usize {
         if self.masked {
             // masked 模式下每个字符宽度为 1
             self.buffer[..self.cursor].chars().count()

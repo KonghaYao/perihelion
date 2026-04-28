@@ -15,7 +15,7 @@ enum ListType {
 }
 
 #[derive(Debug, Clone)]
-struct ListState {
+pub(crate) struct ListState {
     list_type: ListType,
 }
 

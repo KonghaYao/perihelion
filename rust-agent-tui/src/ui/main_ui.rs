@@ -150,9 +150,6 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
 }
 
 fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_area: Rect) {
-    // Sticky header
-    sticky_header::render_sticky_header(f, app, header_area);
-
     // Welcome Card 或消息列表
     if app.core.view_messages.is_empty() {
         welcome::render_welcome(f, app, messages_area);
@@ -195,7 +192,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     };
 
     // 从 RenderCache 读取已渲染好的行（浅克隆 Vec 头，开销极小）
-    let (mut all_lines, total_lines, max_scroll, offset) = {
+    let (mut all_lines, _total_lines, max_scroll, offset) = {
         let cache = app.core.render_cache.read();
         app.core.last_render_version = cache.version;
 
@@ -216,7 +213,12 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         let offset = if app.core.scroll_follow {
             max_scroll
         } else {
-            app.core.scroll_offset.min(max_scroll)
+            let off = app.core.scroll_offset.min(max_scroll);
+            // 用户手动滚到底部时，自动恢复吸底
+            if off >= max_scroll {
+                app.core.scroll_follow = true;
+            }
+            off
         };
 
         // Vec::clone() 是浅克隆，只复制指针+容量+长度头（3个 usize），不复制 Line 内容
@@ -256,6 +258,11 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     }
     app.core.scroll_offset = offset;
 
+    // 仅在有滚动条时显示 sticky header
+    if max_scroll > 0 {
+        sticky_header::render_sticky_header(f, app, header_area);
+    }
+
     // 文字区域（留出右侧 1 列给滚动条）
     let text_area = Rect {
         width: inner.width.saturating_sub(1),
@@ -267,8 +274,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     f.render_widget(paragraph, text_area);
 
     // 滚动条
-    let visual_total = total_lines as u16;
-    if visual_total > visible_height {
+    if max_scroll > 0 {
         let mut scrollbar_state =
             ScrollbarState::new(max_scroll as usize).position(offset as usize);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)

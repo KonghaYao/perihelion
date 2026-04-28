@@ -3,7 +3,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use super::message_view::{ContentBlockView, MessageViewModel, ToolCategory};
+use super::message_view::{ContentBlockView, MessageViewModel};
 use super::theme;
 
 /// 将单个 ViewModel 渲染为 Vec<Line>

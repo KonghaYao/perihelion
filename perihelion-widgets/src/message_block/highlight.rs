@@ -26,10 +26,7 @@ pub fn is_diff_content(text: &str) -> bool {
     false
 }
 
-const KEYWORDS: &[&str] = &[
-    "fn", "let", "mut", "pub", "use", "struct", "enum", "impl",
-    "if", "else", "match", "return", "for", "while", "async", "await",
-];
+
 
 pub fn highlight_code_line(line: &str, _lang: &str) -> Vec<Span<'static>> {
     let keyword_re = regex::Regex::new(r"\b(fn|let|mut|pub|use|struct|enum|impl|if|else|match|return|for|while|async|await)\b").unwrap();
