@@ -78,6 +78,13 @@ impl BaseTool for ReadFileTool {
         };
 
         let lines: Vec<&str> = content.split('\n').collect();
+        if offset >= lines.len() {
+            return Ok(format!(
+                "Error: offset {} exceeds file length ({} lines)",
+                offset,
+                lines.len()
+            ));
+        }
         let start = offset;
         let end = (start + limit).min(lines.len());
         let selected = &lines[start..end];
@@ -152,5 +159,20 @@ mod tests {
             .await
             .unwrap();
         assert!(result.contains("absolute"), "should read via absolute path: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_offset_exceeds_length() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("short.txt"), "one\ntwo").unwrap();
+        let tool = ReadFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "short.txt", "offset": 999}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("exceeds file length"),
+            "offset 超出文件长度应返回错误而非 panic: {result}"
+        );
     }
 }

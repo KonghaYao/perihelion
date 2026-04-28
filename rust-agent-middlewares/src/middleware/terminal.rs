@@ -26,11 +26,12 @@ const MAX_OUTPUT_LINES: usize = 2_000;
 fn truncate_output(output: &str) -> String {
     let lines: Vec<&str> = output.split('\n').collect();
     if lines.len() > MAX_OUTPUT_LINES {
+        let total_lines = lines.len();
         let truncated: Vec<&str> = lines.into_iter().take(MAX_OUTPUT_LINES).collect();
         let mut result = truncated.join("\n");
         result.push_str(&format!(
             "\n\n[Output truncated: {} lines total, showing first {}]",
-            truncated.len() + 1, // approximate
+            total_lines,
             MAX_OUTPUT_LINES
         ));
         // 再检查字符数
@@ -234,5 +235,29 @@ mod tests {
             .await
             .unwrap();
         assert!(result.contains("err"), "stderr 应被捕获: {result}");
+    }
+
+    #[test]
+    fn test_truncate_output_line_count_accurate() {
+        // 生成不含末尾换行的多行文本，避免 split('\n') 产生额外空行
+        let lines: Vec<String> = (0..3000).map(|i| format!("line {}", i)).collect();
+        let input = lines.join("\n");
+        assert_eq!(input.split('\n').count(), 3000);
+        let result = truncate_output(&input);
+        assert!(result.contains("3000 lines total"), "应显示正确的总行数: {result}");
+        assert!(result.contains(&format!("showing first {}", MAX_OUTPUT_LINES)));
+    }
+
+    #[test]
+    fn test_truncate_output_no_truncation_when_small() {
+        let result = truncate_output("hello\nworld");
+        assert_eq!(result, "hello\nworld");
+    }
+
+    #[test]
+    fn test_truncate_output_char_limit() {
+        let long_line = "x".repeat(200_000);
+        let result = truncate_output(&long_line);
+        assert!(result.contains("character limit"), "应截断超长字符: {result}");
     }
 }

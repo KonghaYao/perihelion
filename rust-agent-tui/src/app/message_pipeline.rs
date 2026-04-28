@@ -271,27 +271,19 @@ impl MessagePipeline {
         output: &str,
         is_error: bool,
     ) -> PipelineAction {
-        // 创建 BaseMessage::Tool 并加入 completed
-        let tool_msg = BaseMessage::Tool {
-            id: rust_create_agent::messages::MessageId::new(),
-            tool_call_id: tool_call_id.to_string(),
-            content: MessageContent::text(output),
-            is_error,
-        };
-        self.completed.push(tool_msg);
         self.pending_tools.remove(tool_call_id);
 
         // launch_agent ToolEnd → SubAgentEnd
         if name == "launch_agent" {
+            // 创建 BaseMessage::Tool 并加入 completed（仅一次）
+            self.completed.push(BaseMessage::Tool {
+                id: rust_create_agent::messages::MessageId::new(),
+                tool_call_id: tool_call_id.to_string(),
+                content: MessageContent::text(output),
+                is_error,
+            });
             if let Some(sub) = self.subagent_stack.last_mut() {
                 sub.is_running = false;
-                // Store result as BaseMessage for persistence
-                self.completed.push(BaseMessage::Tool {
-                    id: rust_create_agent::messages::MessageId::new(),
-                    tool_call_id: tool_call_id.to_string(),
-                    content: MessageContent::text(output),
-                    is_error,
-                });
                 let vm = MessageViewModel::SubAgentGroup {
                     agent_id: sub.agent_id.clone(),
                     task_preview: sub.task_preview.clone(),
@@ -305,6 +297,14 @@ impl MessagePipeline {
             }
             return PipelineAction::None;
         }
+
+        // 非 launch_agent：创建 BaseMessage::Tool 并加入 completed
+        self.completed.push(BaseMessage::Tool {
+            id: rust_create_agent::messages::MessageId::new(),
+            tool_call_id: tool_call_id.to_string(),
+            content: MessageContent::text(output),
+            is_error,
+        });
 
         // ask_user ToolEnd → 更新 ToolBlock 显示用户回答
         if name == "ask_user" {
