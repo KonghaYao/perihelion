@@ -113,7 +113,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
             .unwrap_or(true)
         {
-            PermissionMode::BypassPermissions
+            PermissionMode::Bypass
         } else {
             PermissionMode::Default
         };

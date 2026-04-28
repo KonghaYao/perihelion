@@ -29,19 +29,23 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         use rust_agent_middlewares::prelude::PermissionMode;
         let mode = app.permission_mode.load();
         let (label, color) = match mode {
-            PermissionMode::Default           => ("DEFAULT",    theme::TEXT),
-            PermissionMode::AcceptEdits       => ("AUTO-EDIT",  theme::SAGE),
-            PermissionMode::Auto              => ("AUTO",       theme::LOADING),
-            PermissionMode::BypassPermissions => ("YOLO",       theme::WARNING),
-            PermissionMode::DontAsk           => ("NO-ASK",     theme::ERROR),
+            PermissionMode::Default     => ("",           theme::TEXT),
+            PermissionMode::DontAsk     => ("Don't Ask",  theme::WARNING),
+            PermissionMode::AcceptEdit  => ("Accept Edit", theme::THINKING),
+            PermissionMode::AutoMode    => ("Auto Mode",   theme::WARNING),
+            PermissionMode::Bypass      => ("Bypass",      theme::ERROR),
         };
-        let is_highlight = app.mode_highlight_until
-            .map_or(false, |until| std::time::Instant::now() < until);
-        let mut style = Style::default().fg(color);
-        if is_highlight {
-            style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
+
+        // Default 模式不显示标签
+        if !label.is_empty() {
+            let is_highlight = app.mode_highlight_until
+                .map_or(false, |until| std::time::Instant::now() < until);
+            let mut style = Style::default().fg(color);
+            if is_highlight {
+                style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
+            }
+            spans.push(Span::styled(format!(" {}", label), style));
         }
-        spans.push(Span::styled(format!(" {}", label), style));
     }
 
     // 工作目录

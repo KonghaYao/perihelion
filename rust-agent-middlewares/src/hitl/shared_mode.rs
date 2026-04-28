@@ -7,14 +7,14 @@ use std::sync::Arc;
 pub enum PermissionMode {
     /// 所有敏感工具弹窗审批（默认）
     Default = 0,
-    /// 自动放行文件编辑类工具，其他敏感操作仍需审批
-    AcceptEdits = 1,
-    /// 使用 LLM 分类器自动决定放行/拒绝
-    Auto = 2,
-    /// 跳过所有审批（当前 YOLO 行为）
-    BypassPermissions = 3,
-    /// 自动拒绝所有审批请求
-    DontAsk = 4,
+    /// 默认不允许所有 bash
+    DontAsk = 1,
+    /// 允许文件系统的编辑
+    AcceptEdit = 2,
+    /// 大模型自动判断允不允许
+    AutoMode = 3,
+    /// 所有都允许
+    Bypass = 4,
 }
 
 impl Default for PermissionMode {
@@ -24,25 +24,25 @@ impl Default for PermissionMode {
 }
 
 impl PermissionMode {
-    /// 循环切换到下一个模式：Default → AcceptEdits → Auto → BypassPermissions → DontAsk → Default
+    /// 循环切换到下一个模式：Default → DontAsk → AcceptEdit → AutoMode → Bypass → Default
     pub fn next(self) -> Self {
         match self {
-            Self::Default => Self::AcceptEdits,
-            Self::AcceptEdits => Self::Auto,
-            Self::Auto => Self::BypassPermissions,
-            Self::BypassPermissions => Self::DontAsk,
-            Self::DontAsk => Self::Default,
+            Self::Default => Self::DontAsk,
+            Self::DontAsk => Self::AcceptEdit,
+            Self::AcceptEdit => Self::AutoMode,
+            Self::AutoMode => Self::Bypass,
+            Self::Bypass => Self::Default,
         }
     }
 
     /// 状态栏显示文本
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::Default => "DEFAULT",
-            Self::AcceptEdits => "AUTO-EDIT",
-            Self::Auto => "AUTO",
-            Self::BypassPermissions => "YOLO",
-            Self::DontAsk => "NO-ASK",
+            Self::Default => "",
+            Self::DontAsk => "Don't Ask",
+            Self::AcceptEdit => "Accept Edit",
+            Self::AutoMode => "Auto Mode",
+            Self::Bypass => "Bypass",
         }
     }
 }
@@ -54,10 +54,10 @@ impl TryFrom<u8> for PermissionMode {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Ok(match value {
             0 => Self::Default,
-            1 => Self::AcceptEdits,
-            2 => Self::Auto,
-            3 => Self::BypassPermissions,
-            4 => Self::DontAsk,
+            1 => Self::DontAsk,
+            2 => Self::AcceptEdit,
+            3 => Self::AutoMode,
+            4 => Self::Bypass,
             _ => Self::Default,
         })
     }
@@ -114,11 +114,11 @@ mod tests {
 
     #[test]
     fn test_next_cycle() {
-        assert_eq!(PermissionMode::Default.next(), PermissionMode::AcceptEdits);
-        assert_eq!(PermissionMode::AcceptEdits.next(), PermissionMode::Auto);
-        assert_eq!(PermissionMode::Auto.next(), PermissionMode::BypassPermissions);
-        assert_eq!(PermissionMode::BypassPermissions.next(), PermissionMode::DontAsk);
-        assert_eq!(PermissionMode::DontAsk.next(), PermissionMode::Default);
+        assert_eq!(PermissionMode::Default.next(), PermissionMode::DontAsk);
+        assert_eq!(PermissionMode::DontAsk.next(), PermissionMode::AcceptEdit);
+        assert_eq!(PermissionMode::AcceptEdit.next(), PermissionMode::AutoMode);
+        assert_eq!(PermissionMode::AutoMode.next(), PermissionMode::Bypass);
+        assert_eq!(PermissionMode::Bypass.next(), PermissionMode::Default);
     }
 
     #[test]
@@ -128,20 +128,20 @@ mod tests {
 
     #[test]
     fn test_display_name() {
-        assert_eq!(PermissionMode::Default.display_name(), "DEFAULT");
-        assert_eq!(PermissionMode::AcceptEdits.display_name(), "AUTO-EDIT");
-        assert_eq!(PermissionMode::Auto.display_name(), "AUTO");
-        assert_eq!(PermissionMode::BypassPermissions.display_name(), "YOLO");
-        assert_eq!(PermissionMode::DontAsk.display_name(), "NO-ASK");
+        assert_eq!(PermissionMode::Default.display_name(), "");
+        assert_eq!(PermissionMode::DontAsk.display_name(), "Don't Ask");
+        assert_eq!(PermissionMode::AcceptEdit.display_name(), "Accept Edit");
+        assert_eq!(PermissionMode::AutoMode.display_name(), "Auto Mode");
+        assert_eq!(PermissionMode::Bypass.display_name(), "Bypass");
     }
 
     #[test]
     fn test_try_from_u8_valid() {
         assert_eq!(PermissionMode::try_from(0).unwrap(), PermissionMode::Default);
-        assert_eq!(PermissionMode::try_from(1).unwrap(), PermissionMode::AcceptEdits);
-        assert_eq!(PermissionMode::try_from(2).unwrap(), PermissionMode::Auto);
-        assert_eq!(PermissionMode::try_from(3).unwrap(), PermissionMode::BypassPermissions);
-        assert_eq!(PermissionMode::try_from(4).unwrap(), PermissionMode::DontAsk);
+        assert_eq!(PermissionMode::try_from(1).unwrap(), PermissionMode::DontAsk);
+        assert_eq!(PermissionMode::try_from(2).unwrap(), PermissionMode::AcceptEdit);
+        assert_eq!(PermissionMode::try_from(3).unwrap(), PermissionMode::AutoMode);
+        assert_eq!(PermissionMode::try_from(4).unwrap(), PermissionMode::Bypass);
     }
 
     #[test]
@@ -152,24 +152,24 @@ mod tests {
 
     #[test]
     fn test_shared_new_and_load() {
-        let shared = SharedPermissionMode::new(PermissionMode::Auto);
-        assert_eq!(shared.load(), PermissionMode::Auto);
+        let shared = SharedPermissionMode::new(PermissionMode::AutoMode);
+        assert_eq!(shared.load(), PermissionMode::AutoMode);
     }
 
     #[test]
     fn test_shared_store_and_load() {
         let shared = SharedPermissionMode::new(PermissionMode::Default);
-        shared.store(PermissionMode::BypassPermissions);
-        assert_eq!(shared.load(), PermissionMode::BypassPermissions);
+        shared.store(PermissionMode::Bypass);
+        assert_eq!(shared.load(), PermissionMode::Bypass);
     }
 
     #[test]
     fn test_shared_cycle_single_thread() {
         let shared = SharedPermissionMode::new(PermissionMode::Default);
-        assert_eq!(shared.cycle(), PermissionMode::AcceptEdits);
-        assert_eq!(shared.cycle(), PermissionMode::Auto);
-        assert_eq!(shared.cycle(), PermissionMode::BypassPermissions);
         assert_eq!(shared.cycle(), PermissionMode::DontAsk);
+        assert_eq!(shared.cycle(), PermissionMode::AcceptEdit);
+        assert_eq!(shared.cycle(), PermissionMode::AutoMode);
+        assert_eq!(shared.cycle(), PermissionMode::Bypass);
         assert_eq!(shared.cycle(), PermissionMode::Default);
     }
 
@@ -200,10 +200,10 @@ mod tests {
         assert!(matches!(
             final_mode,
             PermissionMode::Default
-                | PermissionMode::AcceptEdits
-                | PermissionMode::Auto
-                | PermissionMode::BypassPermissions
                 | PermissionMode::DontAsk
+                | PermissionMode::AcceptEdit
+                | PermissionMode::AutoMode
+                | PermissionMode::Bypass
         ));
     }
 }

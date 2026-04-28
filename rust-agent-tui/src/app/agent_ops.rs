@@ -255,17 +255,34 @@ impl App {
                 } else {
                     // 父 Agent 层：检查是否可聚合到现有 ToolCallGroup
                     if let Some(cat) = ToolCategory::from_tool_name(&name) {
-                        // 只读工具：尝试聚合到末尾的同类别 ToolCallGroup
-                        let can_merge = matches!(
-                            self.core.view_messages.last(),
-                            Some(MessageViewModel::ToolCallGroup { category, .. }) if *category == cat
-                        );
+                        // 只读工具：尝试聚合到附近的 ToolCallGroup（跳过中间的空 thinking bubble，允许跨类别合并）
+                        let mut thinking_count = 0;
+                        let mut found_group = false;
 
-                        if can_merge {
+                        for vm in self.core.view_messages.iter().rev() {
+                            if vm.is_reasoning_only() {
+                                thinking_count += 1;
+                            } else if matches!(vm, MessageViewModel::ToolCallGroup { .. }) {
+                                found_group = true;
+                                break;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        if found_group {
+                            // 移除中间的空 thinking bubbles（它们在 UI 上不可见，只阻隔了分组合并）
+                            for _ in 0..thinking_count {
+                                self.core.view_messages.pop();
+                                let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
+                            }
+
+                            // 现在 last 是 ToolCallGroup，添加新工具（保持原有 category）
                             if let Some(MessageViewModel::ToolCallGroup { tools, .. }) =
                                 self.core.view_messages.last_mut()
                             {
                                 tools.push(ToolEntry {
+                                    tool_name: name.clone(),
                                     display_name: display.clone(),
                                     args_display: args.clone(),
                                     content: String::new(),
@@ -280,6 +297,7 @@ impl App {
                             let vm = MessageViewModel::ToolCallGroup {
                                 category: cat,
                                 tools: vec![ToolEntry {
+                                    tool_name: name.clone(),
                                     display_name: display.clone(),
                                     args_display: args.clone(),
                                     content: String::new(),
@@ -503,6 +521,16 @@ impl App {
                         });
                         // 构建 AskUser 批量请求
                         self.agent.pending_ask_user = Some(false);
+                        // 在消息流中显示 AI 向用户提出了什么问题
+                        {
+                            let q_lines: Vec<String> = requests.iter().map(|q| {
+                                let hint = if q.multi_select { " [多选]" } else { " [单选]" };
+                                format!("{}{}: {}", q.header, hint, q.question)
+                            }).collect();
+                            let vm = MessageViewModel::system(format!("❓ 向你提问:\n{}", q_lines.join("\n")));
+                            self.core.view_messages.push(vm.clone());
+                            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                        }
                         let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
                         // 用桥接的 sender 覆盖 batch_req 的 response_tx
                         let batch_req_bridged = AskUserBatchRequest { questions: batch_req.questions, response_tx: bridge_tx };
@@ -544,7 +572,7 @@ impl App {
             AgentEvent::CompactDone { summary, new_thread_id: _ } => {
                 // 创建新 Thread，带摘要截断名称
                 let truncated: String = summary.chars().take(30).collect();
-                let ellipsis = if summary.chars().count() > 30 { "..." } else { "" };
+                let ellipsis = if summary.chars().count() > 30 { "…" } else { "" };
                 let thread_title = format!("📦 Compact: {}{}", truncated, ellipsis);
                 let mut meta = ThreadMeta::new(&self.cwd);
                 meta.title = Some(thread_title);

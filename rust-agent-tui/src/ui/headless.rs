@@ -156,7 +156,7 @@ mod tests {
     }
 
     mod markdown_tests {
-        use crate::ui::markdown::parse_markdown;
+        use crate::ui::markdown::parse_markdown_default;
         use crate::ui::theme;
         use ratatui::style::Modifier;
 
@@ -170,37 +170,43 @@ mod tests {
 
         #[test]
         fn test_md_heading() {
-            let text = parse_markdown("# Hello World");
-            // H1 首行无前缀，直接显示文字
-            let first_line = &text.lines[0];
+            use perihelion_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
+            let theme = DefaultMarkdownTheme;
+
+            let text = parse_markdown_default("# Hello World");
+            // 标题前有空行，标题在 index 1
+            let heading_line = &text.lines[1];
             let all_content: String =
-                first_line.spans.iter().map(|s| s.content.as_ref()).collect();
+                heading_line.spans.iter().map(|s| s.content.as_ref()).collect();
             assert!(
                 all_content.contains("Hello World"),
-                "H1 首行应含标题文字，实际: {all_content:?}"
+                "H1 应含标题文字，实际: {all_content:?}"
             );
-            // 检查颜色为 WARNING（v1.1 降噪）
-            let has_warning = first_line
+            let has_heading_color = heading_line
                 .spans
                 .iter()
-                .any(|s| s.style.fg == Some(theme::WARNING));
-            assert!(has_warning, "H1 应为 WARNING 颜色（v1.1）");
+                .any(|s| s.style.fg == Some(theme.heading()));
+            assert!(has_heading_color, "H1 应为 markdown 主题 heading 颜色");
         }
 
         #[test]
         fn test_md_heading_h2() {
-            let text = parse_markdown("## Section Title");
-            let first_line = &text.lines[0];
-            let has_warning = first_line
+            use perihelion_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
+            let theme = DefaultMarkdownTheme;
+
+            let text = parse_markdown_default("## Section Title");
+            // 标题前有空行，标题在 index 1
+            let heading_line = &text.lines[1];
+            let has_heading_color = heading_line
                 .spans
                 .iter()
-                .any(|s| s.style.fg == Some(theme::WARNING));
-            assert!(has_warning, "H2 应为 WARNING 颜色（v1.1）");
+                .any(|s| s.style.fg == Some(theme.heading()));
+            assert!(has_heading_color, "H2 应为 markdown 主题 heading 颜色");
         }
 
         #[test]
         fn test_md_inline_styles() {
-            let text = parse_markdown("**bold** *italic* ~~strike~~");
+            let text = parse_markdown_default("**bold** *italic* ~~strike~~");
             let all = all_text(&text);
             assert!(all.contains("bold"), "应含 bold 文字");
             assert!(all.contains("italic"), "应含 italic 文字");
@@ -227,16 +233,19 @@ mod tests {
 
         #[test]
         fn test_md_inline_code() {
-            let text = parse_markdown("`hello`");
+            use perihelion_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
+            let theme = DefaultMarkdownTheme;
+
+            let text = parse_markdown_default("`hello`");
             let has_code = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.fg == Some(theme::WARNING) && s.content.contains("hello")
+                s.style.fg == Some(theme.code()) && s.content.contains("hello")
             });
-            assert!(has_code, "行内代码应为 WARNING 颜色，含 hello 文字");
+            assert!(has_code, "行内代码应为 markdown 主题 code 颜色，含 hello 文字");
         }
 
         #[test]
         fn test_md_code_block() {
-            let text = parse_markdown("```rust\nfn main() {}\n```");
+            let text = parse_markdown_default("```rust\nfn main() {}\n```");
             let all_lines: Vec<String> = text
                 .lines
                 .iter()
@@ -250,7 +259,7 @@ mod tests {
 
         #[test]
         fn test_md_unordered_list() {
-            let text = parse_markdown("- item1\n- item2");
+            let text = parse_markdown_default("- item1\n- item2");
             let all_lines: Vec<String> = text
                 .lines
                 .iter()
@@ -263,7 +272,7 @@ mod tests {
 
         #[test]
         fn test_md_ordered_list() {
-            let text = parse_markdown("1. first\n2. second");
+            let text = parse_markdown_default("1. first\n2. second");
             let all_lines: Vec<String> = text
                 .lines
                 .iter()
@@ -277,7 +286,7 @@ mod tests {
 
         #[test]
         fn test_md_blockquote() {
-            let text = parse_markdown("> quoted text");
+            let text = parse_markdown_default("> quoted text");
             let has_prefix = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
                 s.content.contains('▍')
             });
@@ -286,7 +295,7 @@ mod tests {
 
         #[test]
         fn test_md_rule() {
-            let text = parse_markdown("---");
+            let text = parse_markdown_default("---");
             let has_rule = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
                 s.content.matches('─').count() >= 10
             });
@@ -296,7 +305,7 @@ mod tests {
         #[test]
         fn test_md_incomplete_does_not_panic() {
             // 不完整 Markdown 不应 panic，应降级为纯文本
-            let text = parse_markdown("**unclosed bold");
+            let text = parse_markdown_default("**unclosed bold");
             let all = all_text(&text);
             assert!(
                 all.contains("unclosed bold"),
@@ -307,7 +316,7 @@ mod tests {
         #[test]
         fn test_md_table_basic() {
             let md = "| Name  | Value |\n|-------|-------|\n| foo   | 123   |\n| bar   | 456   |";
-            let text = parse_markdown(md);
+            let text = parse_markdown_default(md);
             let all = all_text(&text);
             // Should contain header and data cells
             assert!(all.contains("Name"), "Table should contain header 'Name', got: {all:?}");
@@ -323,7 +332,7 @@ mod tests {
         #[test]
         fn test_md_table_cell_count() {
             let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-            let text = parse_markdown(md);
+            let text = parse_markdown_default(md);
             // Should produce exactly: top border + header + separator + 1 data row + bottom border = 5 lines
             assert_eq!(text.lines.len(), 5, "2-col table should produce 5 lines, got: {}", text.lines.len());
         }
@@ -331,7 +340,7 @@ mod tests {
         #[test]
         fn test_md_table_border_alignment() {
             let md = "| Name | Value |\n|------|-------|\n| foo  | 123   |";
-            let text = parse_markdown(md);
+            let text = parse_markdown_default(md);
             // Debug: print each line
             for (i, line) in text.lines.iter().enumerate() {
                 let content: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -352,7 +361,7 @@ mod tests {
         #[test]
         fn test_md_table_alignment() {
             let md = "| Left | Center | Right |\n|:-----|:------:|------:|\n| a    | b      | c     |";
-            let text = parse_markdown(md);
+            let text = parse_markdown_default(md);
             let all = all_text(&text);
             assert!(all.contains("Left"), "Should contain 'Left' header, got: {all:?}");
             assert!(all.contains("a"), "Should contain data 'a', got: {all:?}");
@@ -361,7 +370,7 @@ mod tests {
         #[test]
         fn test_md_table_with_inline_code() {
             let md = "| Command |\n|---------|\n| `ls`    |";
-            let text = parse_markdown(md);
+            let text = parse_markdown_default(md);
             let all = all_text(&text);
             assert!(all.contains("ls"), "Should contain inline code content, got: {all:?}");
         }
@@ -1281,8 +1290,8 @@ mod tests {
         use rust_agent_middlewares::prelude::PermissionMode;
         assert_eq!(
             app.permission_mode.load(),
-            PermissionMode::BypassPermissions,
-            "headless App 默认应为 BypassPermissions"
+            PermissionMode::Bypass,
+            "headless App 默认应为 Bypass"
         );
     }
 
@@ -1292,10 +1301,10 @@ mod tests {
         use rust_agent_middlewares::prelude::PermissionMode;
         for mode in [
             PermissionMode::Default,
-            PermissionMode::AcceptEdits,
-            PermissionMode::Auto,
-            PermissionMode::BypassPermissions,
             PermissionMode::DontAsk,
+            PermissionMode::AcceptEdit,
+            PermissionMode::AutoMode,
+            PermissionMode::Bypass,
         ] {
             app.permission_mode.store(mode);
             assert_eq!(app.permission_mode.load(), mode, "store/load 应一致: {:?}", mode);
@@ -1306,64 +1315,64 @@ mod tests {
     async fn test_permission_mode_cycle() {
         let (app, _handle) = App::new_headless(80, 24);
         use rust_agent_middlewares::prelude::PermissionMode;
-        // cycle 从 BypassPermissions 开始 → DontAsk
+        // cycle 从 Bypass 开始 → Default
         let next = app.permission_mode.cycle();
-        assert_eq!(next, PermissionMode::DontAsk);
-        // 继续循环 → Default
+        assert_eq!(next, PermissionMode::Default);
+        // 继续循环 → DontAsk
         let next2 = app.permission_mode.cycle();
-        assert_eq!(next2, PermissionMode::Default);
+        assert_eq!(next2, PermissionMode::DontAsk);
     }
 
     #[tokio::test]
     async fn test_status_bar_shows_permission_mode() {
         use rust_agent_middlewares::prelude::PermissionMode;
         let (mut app, mut handle) = App::new_headless(120, 24);
-        // 默认 BypassPermissions → 应显示 "YOLO"
+        // 默认 Bypass → 应显示 "Bypass"
         handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("YOLO"), "状态栏应显示 YOLO 模式，实际:\n{}", handle.snapshot().join("\n"));
+        assert!(handle.contains("Bypass"), "状态栏应显示 Bypass 模式，实际:\n{}", handle.snapshot().join("\n"));
     }
 
     #[tokio::test]
     async fn test_status_bar_updates_after_mode_switch() {
         use rust_agent_middlewares::prelude::PermissionMode;
         let (mut app, mut handle) = App::new_headless(120, 24);
-        // 切换到 Default
+        // 切换到 Default - 不显示标签
         app.permission_mode.store(PermissionMode::Default);
         handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("DEFAULT"), "切换后状态栏应显示 DEFAULT，实际:\n{}", handle.snapshot().join("\n"));
-
-        // 切换到 AcceptEdits
-        app.permission_mode.store(PermissionMode::AcceptEdits);
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("AUTO-EDIT"), "切换后状态栏应显示 AUTO-EDIT，实际:\n{}", handle.snapshot().join("\n"));
-
-        // 切换到 Auto
-        app.permission_mode.store(PermissionMode::Auto);
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("AUTO"), "切换后状态栏应显示 AUTO，实际:\n{}", handle.snapshot().join("\n"));
+        assert!(!handle.contains("DEFAULT"), "Default 模式不应显示标签，实际:\n{}", handle.snapshot().join("\n"));
 
         // 切换到 DontAsk
         app.permission_mode.store(PermissionMode::DontAsk);
         handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("NO-ASK"), "切换后状态栏应显示 NO-ASK，实际:\n{}", handle.snapshot().join("\n"));
+        assert!(handle.contains("Don't Ask"), "切换后状态栏应显示 Don't Ask，实际:\n{}", handle.snapshot().join("\n"));
+
+        // 切换到 AcceptEdit
+        app.permission_mode.store(PermissionMode::AcceptEdit);
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("Accept Edit"), "切换后状态栏应显示 Accept Edit，实际:\n{}", handle.snapshot().join("\n"));
+
+        // 切换到 AutoMode
+        app.permission_mode.store(PermissionMode::AutoMode);
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        assert!(handle.contains("Auto Mode"), "切换后状态栏应显示 Auto Mode，实际:\n{}", handle.snapshot().join("\n"));
     }
 
     #[tokio::test]
     async fn test_shift_tab_cycles_permission_mode() {
         use rust_agent_middlewares::prelude::PermissionMode;
         let (mut app, _handle) = App::new_headless(120, 24);
-        // 初始 BypassPermissions
-        assert_eq!(app.permission_mode.load(), PermissionMode::BypassPermissions);
+        // 初始 Bypass
+        assert_eq!(app.permission_mode.load(), PermissionMode::Bypass);
         // 模拟 Shift+Tab 按键效果（直接调用 cycle）
         let next = app.permission_mode.cycle();
-        assert_eq!(next, PermissionMode::DontAsk, "BypassPermissions 之后应为 DontAsk");
-        assert_eq!(app.permission_mode.load(), PermissionMode::DontAsk);
-        // 继续循环 4 次回到 BypassPermissions
-        app.permission_mode.cycle(); // Default
-        app.permission_mode.cycle(); // AcceptEdits
-        app.permission_mode.cycle(); // Auto
-        let final_mode = app.permission_mode.cycle(); // BypassPermissions
-        assert_eq!(final_mode, PermissionMode::BypassPermissions, "循环 5 次回到起点");
+        assert_eq!(next, PermissionMode::Default, "Bypass 之后应为 Default");
+        assert_eq!(app.permission_mode.load(), PermissionMode::Default);
+        // 继续循环 4 次回到 Bypass
+        app.permission_mode.cycle(); // DontAsk
+        app.permission_mode.cycle(); // AcceptEdit
+        app.permission_mode.cycle(); // AutoMode
+        let final_mode = app.permission_mode.cycle(); // Bypass
+        assert_eq!(final_mode, PermissionMode::Bypass, "循环 5 次回到起点");
     }
 
     #[tokio::test]

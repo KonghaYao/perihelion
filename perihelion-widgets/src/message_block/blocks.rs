@@ -44,7 +44,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
                     lines
                 } else {
                     let theme = DefaultMarkdownTheme;
-                    let text = crate::markdown::parse_markdown(content, &theme);
+                    let text = crate::markdown::parse_markdown(content, &theme, width);
                     text.lines.into_iter().collect()
                 }
             }

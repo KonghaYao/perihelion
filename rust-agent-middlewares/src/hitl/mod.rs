@@ -201,12 +201,12 @@ impl HumanInTheLoopMiddleware {
         tool_call: &ToolCall,
     ) -> AgentResult<ToolCall> {
         match mode.load() {
-            PermissionMode::BypassPermissions => Ok(tool_call.clone()),
+            PermissionMode::Bypass => Ok(tool_call.clone()),
             PermissionMode::DontAsk => Err(AgentError::ToolRejected {
                 tool: tool_call.name.clone(),
-                reason: "DontAsk 模式：自动拒绝".to_string(),
+                reason: "Don't Ask 模式：自动拒绝".to_string(),
             }),
-            PermissionMode::AcceptEdits => {
+            PermissionMode::AcceptEdit => {
                 if is_edit_tool(&tool_call.name) {
                     Ok(tool_call.clone())
                 } else {
@@ -216,7 +216,7 @@ impl HumanInTheLoopMiddleware {
                     }
                 }
             }
-            PermissionMode::Auto => {
+            PermissionMode::AutoMode => {
                 match &self.auto_classifier {
                     Some(classifier) => {
                         let result = classifier.classify(&tool_call.name, &tool_call.input).await;
@@ -535,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bypass_permissions_allows_all() {
-        let mw = make_mw_with_mode(PermissionMode::BypassPermissions, None);
+        let mw = make_mw_with_mode(PermissionMode::Bypass, None);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -553,7 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_accept_edits_allows_write_file() {
-        let mw = make_mw_with_mode(PermissionMode::AcceptEdits, None);
+        let mw = make_mw_with_mode(PermissionMode::AcceptEdit, None);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("write_file");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -562,7 +562,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_accept_edits_approves_bash_via_broker() {
-        let mw = make_mw_with_mode(PermissionMode::AcceptEdits, None);
+        let mw = make_mw_with_mode(PermissionMode::AcceptEdit, None);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -580,7 +580,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_allow() {
-        let mw = make_mw_with_mode(PermissionMode::Auto, Some(Arc::new(MockClassifier::new(Classification::Allow))));
+        let mw = make_mw_with_mode(PermissionMode::AutoMode, Some(Arc::new(MockClassifier::new(Classification::Allow))));
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -589,7 +589,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_deny() {
-        let mw = make_mw_with_mode(PermissionMode::Auto, Some(Arc::new(MockClassifier::new(Classification::Deny))));
+        let mw = make_mw_with_mode(PermissionMode::AutoMode, Some(Arc::new(MockClassifier::new(Classification::Deny))));
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await;
@@ -598,7 +598,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_unsure_falls_back_to_broker() {
-        let mw = make_mw_with_mode(PermissionMode::Auto, Some(Arc::new(MockClassifier::new(Classification::Unsure))));
+        let mw = make_mw_with_mode(PermissionMode::AutoMode, Some(Arc::new(MockClassifier::new(Classification::Unsure))));
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -607,7 +607,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_no_classifier_falls_back_to_broker() {
-        let mw = make_mw_with_mode(PermissionMode::Auto, None);
+        let mw = make_mw_with_mode(PermissionMode::AutoMode, None);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -616,7 +616,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_batch_bypass_permissions() {
-        let mw = make_mw_with_mode(PermissionMode::BypassPermissions, None);
+        let mw = make_mw_with_mode(PermissionMode::Bypass, None);
         let calls = vec![make_tool_call("bash"), make_tool_call("write_file"), make_tool_call("read_file")];
         let results = mw.process_batch(&calls).await;
         assert_eq!(results.len(), 3);
@@ -635,7 +635,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_batch_accept_edits_mixed() {
-        let mw = make_mw_with_mode(PermissionMode::AcceptEdits, None);
+        let mw = make_mw_with_mode(PermissionMode::AcceptEdit, None);
         let calls = vec![make_tool_call("write_file"), make_tool_call("bash"), make_tool_call("read_file")];
         let results = mw.process_batch(&calls).await;
         assert_eq!(results.len(), 3);

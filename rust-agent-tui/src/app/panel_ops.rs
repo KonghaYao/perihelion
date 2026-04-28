@@ -226,7 +226,7 @@ impl App {
             cron: super::CronState::default(),
             setup_wizard: None,
             permission_mode: rust_agent_middlewares::prelude::SharedPermissionMode::new(
-                rust_agent_middlewares::prelude::PermissionMode::BypassPermissions,
+                rust_agent_middlewares::prelude::PermissionMode::Bypass,
             ),
             mode_highlight_until: None,
             spinner_state: perihelion_widgets::SpinnerState::new(perihelion_widgets::SpinnerMode::Idle),

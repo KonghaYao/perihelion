@@ -3,7 +3,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use super::message_view::{ContentBlockView, MessageViewModel};
+use super::message_view::{ContentBlockView, MessageViewModel, ToolCategory};
 use super::theme;
 
 /// 将单个 ViewModel 渲染为 Vec<Line>
@@ -39,7 +39,6 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             is_streaming,
             ..
         } => {
-            let streaming_suffix = if *is_streaming { "…" } else { "" };
             let mut lines = Vec::new();
             let mut first_text_merged = false;
 
@@ -53,7 +52,7 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                                 // 第一行文本合并到标题行，保留 markdown 样式 spans
                                 let mut spans = vec![
                                     Span::styled(
-                                        format!("●{}", streaming_suffix),
+                                        format!("●"),
                                         Style::default().fg(Color::White),
                                     ),
                                     Span::raw(" "),
@@ -285,15 +284,16 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             }
             lines
         }
-        MessageViewModel::ToolCallGroup { category, tools, collapsed } => {
+        MessageViewModel::ToolCallGroup { tools, collapsed, .. } => {
             let count = tools.len();
             let mut lines = Vec::new();
+            let summary = ToolCategory::summary_for_tools(tools);
 
             if *collapsed {
                 // 折叠：单行摘要
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("  {}", category.summary(count)),
+                        format!("  {}", summary),
                         Style::default().fg(theme::MUTED),
                     ),
                 ]));
@@ -302,7 +302,7 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                 let arrow = if count == 1 { " " } else { " " };
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("  {}{}", arrow, category.summary(count)),
+                        format!("  {}{}", arrow, summary),
                         Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
                     ),
                 ]));

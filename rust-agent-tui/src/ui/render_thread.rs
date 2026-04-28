@@ -81,7 +81,7 @@ impl RenderTask {
         // 处理 dirty blocks
         if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
             for block in blocks.iter_mut() {
-                ensure_rendered(block);
+                ensure_rendered(block, width);
             }
         }
 

@@ -3,7 +3,7 @@ use ratatui::text::Text;
 use crate::ui::theme;
 use rust_create_agent::messages::{BaseMessage, ContentBlock};
 
-use super::markdown::parse_markdown;
+use super::markdown::parse_markdown_default;
 
 /// 只读工具分类，用于折叠聚合
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,18 +41,45 @@ impl ToolCategory {
             }
         }
     }
+
+    /// 根据 tools 列表生成摘要，支持混合类别（如 search + read）
+    pub fn summary_for_tools(tools: &[ToolEntry]) -> String {
+        let count = tools.len();
+        let has_search = tools.iter().any(|t| t.tool_name == "search_files_rg");
+        let has_read = tools.iter().any(|t| t.tool_name == "read_file");
+        let has_glob = tools.iter().any(|t| t.tool_name == "glob_files");
+        let mixed = [has_search, has_read, has_glob].iter().filter(|&&b| b).count() > 1;
+
+        if mixed {
+            if count == 1 {
+                "1 operation".to_string()
+            } else {
+                format!("{} operations", count)
+            }
+        } else if has_search {
+            ToolCategory::Search.summary(count)
+        } else if has_read {
+            ToolCategory::Read.summary(count)
+        } else if has_glob {
+            ToolCategory::Glob.summary(count)
+        } else {
+            if count == 1 { "1 operation".to_string() }
+            else { format!("{} operations", count) }
+        }
+    }
 }
 
 /// ToolCallGroup 中的单条工具记录
 #[derive(Debug, Clone)]
 pub struct ToolEntry {
+    pub tool_name: String,
     pub display_name: String,
     pub args_display: Option<String>,
     pub content: String,
     pub is_error: bool,
 }
 
-/// 将 view_messages 中相邻的同类别只读 ToolBlock 聚合为 ToolCallGroup
+/// 将 view_messages 中相邻的只读 ToolBlock 聚合为 ToolCallGroup（支持跨类别，跳过空 thinking bubble）
 pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
     let mut result: Vec<MessageViewModel> = Vec::with_capacity(messages.len());
     let mut i = 0;
@@ -62,14 +89,14 @@ pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
         let vm = &original[i];
         if let MessageViewModel::ToolBlock { tool_name, .. } = vm {
             if let Some(cat) = ToolCategory::from_tool_name(tool_name) {
-                // 收集连续的同类别 ToolBlock
+                // 收集连续的只读 ToolBlock（跳过中间的空 thinking bubble，允许跨类别合并）
                 let mut entries: Vec<ToolEntry> = Vec::new();
-                let cat_clone = cat.clone();
                 let mut j = i;
                 while j < original.len() {
                     if let MessageViewModel::ToolBlock { tool_name: tn, display_name, args_display, content, is_error, .. } = &original[j] {
-                        if ToolCategory::from_tool_name(tn) == Some(cat_clone.clone()) {
+                        if ToolCategory::from_tool_name(tn).is_some() {
                             entries.push(ToolEntry {
+                                tool_name: tn.clone(),
                                 display_name: display_name.clone(),
                                 args_display: args_display.clone(),
                                 content: content.clone(),
@@ -78,6 +105,11 @@ pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
                             j += 1;
                             continue;
                         }
+                    }
+                    // 跳过中间的空 thinking bubble
+                    if original[j].is_reasoning_only() {
+                        j += 1;
+                        continue;
                     }
                     break;
                 }
@@ -172,7 +204,7 @@ impl MessageViewModel {
         match msg {
             BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
-                let rendered = parse_markdown(&raw);
+                let rendered = parse_markdown_default(&raw);
                 MessageViewModel::UserBubble {
                     content: raw,
                     rendered,
@@ -190,7 +222,7 @@ impl MessageViewModel {
                     .map(|block| match block {
                         ContentBlock::Text { text } => ContentBlockView::Text {
                             raw: text.clone(),
-                            rendered: parse_markdown(&text),
+                            rendered: parse_markdown_default(&text),
                             dirty: false,
                         },
                         ContentBlock::Reasoning { text, .. } => ContentBlockView::Reasoning {
@@ -339,9 +371,25 @@ impl MessageViewModel {
         matches!(self, MessageViewModel::AssistantBubble { .. })
     }
 
+    /// 判断是否为"仅含推理内容"的 AssistantBubble（渲染时不可见）
+    /// 用于在工具分组合并时跳过中间的空 thinking bubble
+    pub fn is_reasoning_only(&self) -> bool {
+        match self {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                blocks.is_empty()
+                    || blocks.iter().all(|b| match b {
+                        ContentBlockView::Reasoning { .. } => true,
+                        ContentBlockView::Text { raw, .. } => raw.trim().is_empty(),
+                        _ => false,
+                    })
+            }
+            _ => false,
+        }
+    }
+
     /// 创建用户消息
     pub fn user(content: String) -> Self {
-        let rendered = parse_markdown(&content);
+        let rendered = parse_markdown_default(&content);
         MessageViewModel::UserBubble { content, rendered }
     }
 
