@@ -393,6 +393,9 @@ impl MessagePipeline {
         self.finalize_current_ai();
         // 重置流式状态以准备下一轮
         self.current_ai_finalized = false;
+        // 清理残留的 pending_tools（普通工具的 ToolEnd 被 map_executor_event 过滤，
+        // 不会到达 pipeline，所以 done 时必须清理以防止内存泄漏）
+        self.pending_tools.clear();
         // 清理已完成的 SubAgent
         self.subagent_stack.retain(|s| s.is_running);
     }

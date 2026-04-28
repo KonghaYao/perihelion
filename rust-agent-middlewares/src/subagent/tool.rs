@@ -245,7 +245,10 @@ impl BaseTool for SubAgentTool {
             .await
         {
             Ok(output) => Ok(format_subagent_result(&output)),
-            Err(e) => Ok(format!("子 agent 执行失败：{}", e)),
+            Err(e) => {
+                let msg = format!("子 agent 执行失败：{}", e);
+                Err(msg.into())
+            }
         }
     }
 }

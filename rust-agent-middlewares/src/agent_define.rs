@@ -56,7 +56,16 @@ impl AgentDefineMiddleware {
     }
 
     /// 根据 cwd 和 agent_id 构建候选路径列表
+    ///
+    /// 如果 agent_id 包含路径分隔符或 `..`，返回空列表以防止路径遍历。
     pub fn candidate_paths(cwd: &str, agent_id: &str) -> Vec<PathBuf> {
+        if agent_id.is_empty()
+            || agent_id.contains('/')
+            || agent_id.contains('\\')
+            || agent_id.contains("..")
+        {
+            return Vec::new();
+        }
         let cwd = Path::new(cwd);
         vec![
             cwd.join(".claude").join("agents").join(agent_id).join("agent.md"),
@@ -188,6 +197,16 @@ mod tests {
     fn test_load_overrides_no_file_returns_none() {
         let ov = AgentDefineMiddleware::load_overrides("/nonexistent", "unknown");
         assert!(ov.is_none());
+    }
+
+    #[test]
+    fn test_candidate_paths_rejects_traversal() {
+        assert!(AgentDefineMiddleware::candidate_paths("/tmp", "../etc/passwd").is_empty());
+        assert!(AgentDefineMiddleware::candidate_paths("/tmp", "foo/../../bar").is_empty());
+        assert!(AgentDefineMiddleware::candidate_paths("/tmp", "a\\b").is_empty());
+        assert!(AgentDefineMiddleware::candidate_paths("/tmp", "").is_empty());
+        // 正常 agent_id 应产生 4 条候选路径
+        assert_eq!(AgentDefineMiddleware::candidate_paths("/tmp", "my-agent").len(), 4);
     }
 
     #[test]

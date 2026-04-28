@@ -127,10 +127,11 @@ impl LlmAutoClassifier {
         match response {
             Ok(resp) => {
                 let text = resp.message.content().trim().to_uppercase();
-                if text.contains("ALLOW") {
-                    Classification::Allow
-                } else if text.contains("DENY") {
+                // 先检测 DENY，避免 "NOT ALLOWED" 等回复被 ALLOW 误匹配
+                if text.contains("DENY") {
                     Classification::Deny
+                } else if text.contains("ALLOW") {
+                    Classification::Allow
                 } else {
                     Classification::Unsure
                 }
