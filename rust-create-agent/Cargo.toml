@@ -31,6 +31,7 @@ tracing-subscriber = { version = "0.3", features = [
 tokio-util = { version = "0.7.18", features = ["rt"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 parking_lot = "0.12"
+rand = "0.8"
 
 [dev-dependencies]
 tokio-test = "0.4"

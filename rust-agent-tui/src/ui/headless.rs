@@ -1425,4 +1425,20 @@ mod tests {
         }).unwrap();
         assert!(handle.contains("bash"), "should render tool name");
     }
+
+    #[tokio::test]
+    async fn test_retry_status_shows_in_status_bar() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 直接设置 retry_status 并渲染
+        app.agent.retry_status = Some(crate::app::RetryStatus {
+            attempt: 2,
+            max_attempts: 5,
+            delay_ms: 2000,
+        });
+
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        assert!(handle.contains("2/5"), "状态栏应显示重试次数 2/5，实际:\n{}", snap.join("\n"));
+    }
 }

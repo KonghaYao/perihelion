@@ -66,21 +66,10 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(theme::MODEL_INFO),
     ));
 
-    render_truncated_line(f, spans, Vec::new(), area);
-}
-
-/// 第二行：上下文使用率 │ [Agent 面板信息] │ [快捷键提示]
-fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
-    let mut left_spans: Vec<Span> = Vec::new();
-    let mut has_content = false;
-
     // 上下文使用率
     {
         let tracker = &app.agent.session_token_tracker;
         if let Some(pct) = tracker.context_usage_percent(app.agent.context_window) {
-            if has_content {
-                left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
-            }
             let used = tracker.estimated_context_tokens().unwrap_or(0);
             let total = app.agent.context_window;
             let color = if pct >= 85.0 {
@@ -90,13 +79,31 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 theme::SAGE
             };
-            left_spans.push(Span::styled(
+            spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+            spans.push(Span::styled(
                 format!("ctx: {:.0}% ({:.0}K/{:.0}K)", pct, used as f64 / 1000.0, total as f64 / 1000.0),
                 Style::default().fg(color),
             ));
-            has_content = true;
         }
     }
+
+    // 重试状态
+    if let Some(ref retry) = app.agent.retry_status {
+        let delay_sec = retry.delay_ms as f64 / 1000.0;
+        spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        spans.push(Span::styled(
+            format!(" ⟳ 重试 {}/{} ({:.1}s)", retry.attempt, retry.max_attempts, delay_sec),
+            Style::default().fg(theme::WARNING),
+        ));
+    }
+
+    render_truncated_line(f, spans, Vec::new(), area);
+}
+
+/// 第二行：[Agent 面板信息] │ [快捷键提示]
+fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
+    let mut left_spans: Vec<Span> = Vec::new();
+    let mut has_content = false;
 
     // Agent 面板信息（仅面板激活时）
     if let Some(panel) = &app.core.agent_panel {

@@ -14,6 +14,7 @@ mod cron_ops;
 mod agent_comm;
 mod agent_ops;
 mod langfuse_state;
+mod message_pipeline;
 mod ask_user_ops;
 mod ask_user_prompt;
 mod hint_ops;
@@ -60,6 +61,7 @@ use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
 pub use agent_comm::AgentComm;
+pub use agent_comm::RetryStatus;
 pub use core::AppCore;
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;

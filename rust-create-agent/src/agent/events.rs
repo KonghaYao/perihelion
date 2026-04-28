@@ -35,6 +35,13 @@ pub enum AgentEvent {
         total_tokens: u64,
         percentage: f64,
     },
+    /// LLM 调用重试中
+    LlmRetrying {
+        attempt: usize,
+        max_attempts: usize,
+        delay_ms: u64,
+        error: String,
+    },
 }
 
 /// 事件回调 trait（应用层实现）
@@ -85,6 +92,26 @@ mod tests {
             assert_eq!(used_tokens, 150000);
             assert_eq!(total_tokens, 200000);
             assert!((percentage - 75.0).abs() < 0.01);
+        } else {
+            panic!("Deserialized to wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_llm_retrying_serde_roundtrip() {
+        let ev = AgentEvent::LlmRetrying {
+            attempt: 2,
+            max_attempts: 5,
+            delay_ms: 2000,
+            error: "API 错误 503: Service Unavailable".to_string(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
+        if let AgentEvent::LlmRetrying { attempt, max_attempts, delay_ms, error } = deserialized {
+            assert_eq!(attempt, 2);
+            assert_eq!(max_attempts, 5);
+            assert_eq!(delay_ms, 2000);
+            assert_eq!(error, "API 错误 503: Service Unavailable");
         } else {
             panic!("Deserialized to wrong variant");
         }

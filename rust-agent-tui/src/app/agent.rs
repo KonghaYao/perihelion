@@ -66,8 +66,43 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
     let provider_for_factory = provider.clone();
     let provider_name = provider.display_name().to_string();
+
+    // 事件回调 → TUI AgentEvent channel（在 model 之前创建，供 RetryableLLM 使用）
+    let tx_event = tx.clone();
+    let cwd_for_handler = cwd.clone();
+    let langfuse_for_handler = langfuse_tracer.clone();
+    let provider_name_for_handler = provider_name.clone();
+    let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
+        // Langfuse hook（在 TUI 事件映射前执行，使用原始 ExecutorEvent）
+        if let Some(ref tracer) = langfuse_for_handler {
+            let mut t = tracer.lock();
+            match &event {
+                ExecutorEvent::LlmCallStart { step, messages, tools } =>
+                    t.on_llm_start(*step, messages, tools),
+                ExecutorEvent::LlmCallEnd { step, model, output, usage } =>
+                    t.on_llm_end(*step, model, &provider_name_for_handler, output, usage.as_ref()),
+                ExecutorEvent::ToolStart { tool_call_id, name, input, .. } =>
+                    t.on_tool_start(tool_call_id, name, input),
+                ExecutorEvent::ToolEnd { tool_call_id, is_error, output, .. } =>
+                    t.on_tool_end(tool_call_id, output, *is_error),
+                // 累积最终回答（避免从 UI 截断视图提取）
+                ExecutorEvent::TextChunk { chunk: text, .. } =>
+                    t.on_text_chunk(text),
+                _ => {}
+            }
+        }
+
+        // 映射为 TUI AgentEvent
+        if let Some(msg) = map_executor_event(event, &cwd_for_handler) {
+            let _ = tx_event.try_send(msg);
+        }
+    }));
+
     // 不使用 .with_system()，改由 with_system_prompt() 注入到 state，使 Langfuse 可见
-    let model = BaseModelReactLLM::new(provider.into_model());
+    let model = rust_create_agent::llm::RetryableLLM::new(
+        BaseModelReactLLM::new(provider.into_model()),
+        rust_create_agent::llm::RetryConfig::default(),
+    ).with_event_handler(Arc::clone(&handler));
 
     // Todo channel：TodoMiddleware → TUI
     let (todo_tx, mut todo_rx) = mpsc::channel::<Vec<TodoItem>>(8);
@@ -103,37 +138,6 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         broker as Arc<dyn rust_create_agent::interaction::UserInteractionBroker>,
     );
 
-    // 事件回调 → TUI AgentEvent channel
-    let tx_event = tx.clone();
-    let cwd_for_handler = cwd.clone();
-    let langfuse_for_handler = langfuse_tracer.clone();
-    let provider_name_for_handler = provider_name.clone();
-    let handler: Arc<dyn rust_create_agent::agent::events::AgentEventHandler> = Arc::new(FnEventHandler(move |event: ExecutorEvent| {
-        // Langfuse hook（在 TUI 事件映射前执行，使用原始 ExecutorEvent）
-        if let Some(ref tracer) = langfuse_for_handler {
-            let mut t = tracer.lock();
-            match &event {
-                ExecutorEvent::LlmCallStart { step, messages, tools } =>
-                    t.on_llm_start(*step, messages, tools),
-                ExecutorEvent::LlmCallEnd { step, model, output, usage } =>
-                    t.on_llm_end(*step, model, &provider_name_for_handler, output, usage.as_ref()),
-                ExecutorEvent::ToolStart { tool_call_id, name, input, .. } =>
-                    t.on_tool_start(tool_call_id, name, input),
-                ExecutorEvent::ToolEnd { tool_call_id, is_error, output, .. } =>
-                    t.on_tool_end(tool_call_id, output, *is_error),
-                // 累积最终回答（避免从 UI 截断视图提取）
-                ExecutorEvent::TextChunk { chunk: text, .. } =>
-                    t.on_text_chunk(text),
-                _ => {}
-            }
-        }
-
-        // 映射为 TUI AgentEvent
-        if let Some(msg) = map_executor_event(event, &cwd_for_handler) {
-            let _ = tx_event.try_send(msg);
-        }
-    }));
-
     // 构建父工具集（供子 agent 继承），来自 Filesystem + Terminal
     let mut parent_tools: Vec<Box<dyn rust_create_agent::tools::BaseTool>> =
         FilesystemMiddleware::build_tools(&cwd);
@@ -147,10 +151,16 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     let llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync> = Arc::new(move |model_alias: Option<&str>| {
         if let Some(alias) = model_alias {
             if let Some(p) = LlmProvider::from_config_for_alias(&config_for_factory, alias) {
-                return Box::new(BaseModelReactLLM::new(p.into_model()));
+                return Box::new(rust_create_agent::llm::RetryableLLM::new(
+                    BaseModelReactLLM::new(p.into_model()),
+                    rust_create_agent::llm::RetryConfig::default(),
+                ));
             }
         }
-        Box::new(BaseModelReactLLM::new(provider_clone.clone().into_model()))
+        Box::new(rust_create_agent::llm::RetryableLLM::new(
+            BaseModelReactLLM::new(provider_clone.clone().into_model()),
+            rust_create_agent::llm::RetryConfig::default(),
+        ))
     });
 
     // 系统提示构建器：根据 agent overrides 构建包含 tone/proactiveness 的完整系统提示
@@ -282,6 +292,9 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
         ExecutorEvent::LlmCallEnd { usage: None, .. } => return None,
         // 核心层事件，TUI 层不消费
         ExecutorEvent::ContextWarning { .. } => return None,
+        ExecutorEvent::LlmRetrying { attempt, max_attempts, delay_ms, error } => {
+            AgentEvent::LlmRetrying { attempt, max_attempts, delay_ms, error }
+        }
     })
 }
 

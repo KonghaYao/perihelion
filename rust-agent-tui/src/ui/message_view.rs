@@ -197,10 +197,22 @@ pub enum ContentBlockView {
 }
 
 impl MessageViewModel {
-    /// 从 BaseMessage 转换为视图模型
+    /// 从 BaseMessage 转换为视图模型（向后兼容，cwd 为 None）
     ///
     /// `prev_ai_tool_calls` 用于为 Tool 消息提供工具名和参数（BaseMessage::Tool 只存储 tool_use_id）
     pub fn from_base_message(msg: &BaseMessage, prev_ai_tool_calls: &[(String, String, serde_json::Value)]) -> Self {
+        Self::from_base_message_with_cwd(msg, prev_ai_tool_calls, None)
+    }
+
+    /// 从 BaseMessage 转换为视图模型（带 cwd 上下文，统一管线入口）
+    ///
+    /// `cwd` 用于工具参数路径缩短，确保流式和恢复路径产生一致的显示。
+    /// 这是统一管线的核心转换函数——`MessagePipeline::messages_to_view_models()` 调用此方法。
+    pub fn from_base_message_with_cwd(
+        msg: &BaseMessage,
+        prev_ai_tool_calls: &[(String, String, serde_json::Value)],
+        cwd: Option<&str>,
+    ) -> Self {
         match msg {
             BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
@@ -305,9 +317,10 @@ impl MessageViewModel {
                         final_result: Some(raw_content),
                     };
                 }
-                // 使用统一格式化函数生成 display_name（与实时流式一致）
+                // 使用统一格式化函数生成 display_name 和 args_display
+                // cwd 参数确保流式和恢复路径产生一致的路径显示
                 let display_name = crate::app::tool_display::format_tool_name(&tool_name);
-                let args_display = crate::app::tool_display::format_tool_args(&tool_name, &input, None);
+                let args_display = crate::app::tool_display::format_tool_args(&tool_name, &input, cwd);
                 let color = if *is_error {
                     theme::ERROR
                 } else {

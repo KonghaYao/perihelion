@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod openai;
+pub mod retry;
 pub mod types;
 
 mod adapter;
@@ -20,5 +21,6 @@ pub trait BaseModel: Send + Sync {
 pub use adapter::MockLLM;
 pub use anthropic::ChatAnthropic;
 pub use openai::ChatOpenAI;
+pub use retry::{RetryConfig, RetryableLLM};
 // BaseModelReactLLM 保留用于向后兼容，但不再是推荐用法
 pub use react_adapter::BaseModelReactLLM;

@@ -222,6 +222,7 @@ impl App {
                 args,
                 is_error,
             } => {
+                self.agent.retry_status = None;
                 // 切换 spinner 到 ToolUse 模式，动词显示工具名+参数摘要
                 self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::ToolUse);
                 let verb_text = match args.as_deref() {
@@ -318,6 +319,7 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
+                self.agent.retry_status = None;
                 // 切换 spinner 到 Responding 模式
                 self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
                 if let Some(idx) = self.core.subagent_group_idx {
@@ -372,6 +374,7 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Done => {
+                self.agent.retry_status = None;
                 // 将最后一个 AssistantBubble 的 is_streaming 设为 false
                 if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
                     self.core.view_messages.last_mut()
@@ -661,6 +664,10 @@ impl App {
                 }
 
                 (true, false, true)
+            }
+            AgentEvent::LlmRetrying { attempt, max_attempts, delay_ms, error: _ } => {
+                self.agent.retry_status = Some(super::agent_comm::RetryStatus { attempt, max_attempts, delay_ms });
+                (true, false, false)
             }
         }
     }

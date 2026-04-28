@@ -47,4 +47,11 @@ pub enum AgentEvent {
         usage: rust_create_agent::llm::types::TokenUsage,
         model: String,
     },
+    /// LLM 调用重试中（从核心层 LlmRetrying 映射而来）
+    LlmRetrying {
+        attempt: usize,
+        max_attempts: usize,
+        delay_ms: u64,
+        error: String,
+    },
 }

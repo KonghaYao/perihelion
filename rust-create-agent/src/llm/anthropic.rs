@@ -461,7 +461,10 @@ impl BaseModel for ChatAnthropic {
                 msg_count,
                 "LLM API 错误"
             );
-            return Err(AgentError::LlmError(format!("API 错误 {status}: {msg}")));
+            return Err(AgentError::LlmHttpError {
+                status: status.as_u16(),
+                message: format!("API 错误 {status}: {msg}"),
+            });
         }
 
         tracing::info!(

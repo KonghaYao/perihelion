@@ -10,6 +10,13 @@ use super::events::AgentEvent;
 #[allow(unused)]
 use super::InteractionPrompt;
 
+/// LLM 重试状态（由 AgentEvent::LlmRetrying 更新）
+pub struct RetryStatus {
+    pub attempt: usize,
+    pub max_attempts: usize,
+    pub delay_ms: u64,
+}
+
 /// Agent 通信状态：事件接收、交互弹窗、取消/计时
 pub struct AgentComm {
     pub agent_rx: Option<mpsc::Receiver<AgentEvent>>,
@@ -39,6 +46,8 @@ pub struct AgentComm {
     pub needs_auto_compact: bool,
     /// 连续 auto-compact 失败次数（circuit breaker，达到 3 次后停止自动触发）
     pub auto_compact_failures: u32,
+    /// LLM 重试状态（重试中时为 Some，收到下一个正常事件时清除）
+    pub retry_status: Option<RetryStatus>,
 }
 
 impl Default for AgentComm {
@@ -58,6 +67,7 @@ impl Default for AgentComm {
             context_window: 200_000,
             needs_auto_compact: false,
             auto_compact_failures: 0,
+            retry_status: None,
         }
     }
 }

@@ -61,7 +61,7 @@ impl ChatOpenAI {
     /// - `Text(s)` → 字符串
     /// - `Blocks(v)` → array of content parts
     /// - `Raw(v)` → 透传
-    fn content_to_openai(content: &MessageContent) -> Value {
+    pub(crate) fn content_to_openai(content: &MessageContent) -> Value {
         match content {
             MessageContent::Text(s) => json!(s),
             MessageContent::Blocks(blocks) => {
@@ -93,8 +93,14 @@ impl ChatOpenAI {
             }
             // ToolUse / ToolResult 在 assistant / tool 角色消息中处理，此处跳过
             ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. } => None,
-            // OpenAI 的 reasoning_effort 模式不在 content 里暴露，跳过
-            ContentBlock::Reasoning { .. } => None,
+            // deepseek-v4-pro 等模型要求将 thinking content 回传给 API
+            ContentBlock::Reasoning { text, signature } => {
+                let mut obj = json!({ "type": "thinking", "thinking": text });
+                if let Some(sig) = signature {
+                    obj["signature"] = json!(sig);
+                }
+                Some(obj)
+            }
             // Document / Unknown 透传为 raw JSON（OpenAI 可能不支持，但透传保持兼容）
             ContentBlock::Document { source, title } => {
                 let src = serde_json::to_value(source).unwrap_or_default();
@@ -104,7 +110,7 @@ impl ChatOpenAI {
         }
     }
 
-    fn messages_to_json(messages: &[BaseMessage]) -> Vec<Value> {
+    pub(crate) fn messages_to_json(messages: &[BaseMessage]) -> Vec<Value> {
         // 单次遍历：收集 System 消息并处理其他消息
         let mut system_parts: Vec<String> = Vec::new();
         let mut result: Vec<Value> = Vec::new();
@@ -356,7 +362,10 @@ impl BaseModel for ChatOpenAI {
                 msg_count,
                 "LLM API 错误"
             );
-            return Err(AgentError::LlmError(format!("API 错误 {status}: {msg}")));
+            return Err(AgentError::LlmHttpError {
+                status: status.as_u16(),
+                message: format!("API 错误 {status}: {msg}"),
+            });
         }
 
         tracing::info!(
@@ -467,5 +476,69 @@ impl ReactLLM for ChatOpenAI {
 
     fn model_name(&self) -> String {
         self.model.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Reasoning block（thinking 内容）应序列化为 thinking 类型而非被丢弃
+    #[test]
+    fn test_reasoning_block_serialized() {
+        let content = MessageContent::Blocks(vec![
+            ContentBlock::reasoning("step 1"),
+            ContentBlock::text("answer"),
+        ]);
+        let val = ChatOpenAI::content_to_openai(&content);
+        let arr = val.as_array().expect("content 应为 array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["type"], "thinking");
+        assert_eq!(arr[0]["thinking"], "step 1");
+        assert_eq!(arr[1]["type"], "text");
+        assert_eq!(arr[1]["text"], "answer");
+    }
+
+    /// 仅 reasoning block 无 text 的序列化
+    #[test]
+    fn test_reasoning_only_block() {
+        let content = MessageContent::Blocks(vec![
+            ContentBlock::reasoning("deep thinking"),
+        ]);
+        let val = ChatOpenAI::content_to_openai(&content);
+        let arr = val.as_array().expect("content 应为 array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "thinking");
+        assert_eq!(arr[0]["thinking"], "deep thinking");
+    }
+
+    /// messages_to_json 中，含 reasoning 的 assistant 消息应正确序列化
+    #[test]
+    fn test_messages_to_json_with_reasoning() {
+        let msgs = vec![
+            BaseMessage::ai_from_blocks(vec![
+                ContentBlock::reasoning("r1"),
+                ContentBlock::text("t1"),
+            ]),
+        ];
+        let vals = ChatOpenAI::messages_to_json(&msgs);
+        assert_eq!(vals.len(), 1);
+        let assistant = &vals[0];
+        assert_eq!(assistant["role"], "assistant");
+        let content = assistant["content"].as_array().expect("content 应为 array");
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[1]["type"], "text");
+    }
+
+    /// 无 reasoning 的纯文本 AI 消息，content 应为字符串（保持兼容）
+    #[test]
+    fn test_messages_to_json_text_only() {
+        let msgs = vec![BaseMessage::ai("hello")];
+        let vals = ChatOpenAI::messages_to_json(&msgs);
+        let assistant = &vals[0];
+        assert_eq!(assistant["role"], "assistant");
+        assert!(assistant["content"].is_string());
+        assert_eq!(assistant["content"], "hello");
     }
 }

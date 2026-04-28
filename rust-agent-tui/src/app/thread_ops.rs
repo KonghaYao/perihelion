@@ -61,33 +61,10 @@ impl App {
         });
         self.core.view_messages.clear();
         self.agent.agent_state_messages = base_msgs.clone();
-        // 维护前一条 Ai 消息的 tool_calls，用于 Tool 消息获取工具名和参数
-        let mut prev_ai_tool_calls: Vec<(String, String, serde_json::Value)> = Vec::new();
-        for msg in &base_msgs {
-            // 先收集 Ai 消息的 tool_calls
-            if let BaseMessage::Ai { tool_calls, .. } = msg {
-                prev_ai_tool_calls = tool_calls
-                    .iter()
-                    .map(|tc| (tc.id.clone(), tc.name.clone(), tc.arguments.clone()))
-                    .collect();
-            }
-            let vm = MessageViewModel::from_base_message(msg, &prev_ai_tool_calls);
-            // 跳过没有可见文本内容的 AssistantBubble（纯 ToolUse 或空文本 + ToolUse）
-            if let MessageViewModel::AssistantBubble { blocks, .. } = &vm {
-                let has_visible = blocks.iter().any(|b| match b {
-                    ContentBlockView::Text { raw, .. } => !raw.trim().is_empty(),
-                    ContentBlockView::Reasoning { char_count } => *char_count > 0,
-                    ContentBlockView::ToolUse { .. } => false,
-                });
-                if !has_visible {
-                    continue;
-                }
-            }
-            self.core.view_messages.push(vm);
-        }
 
-        // 聚合相邻的只读工具调用为 ToolCallGroup
-        crate::ui::message_view::aggregate_tool_groups(&mut self.core.view_messages);
+        // 使用统一管线转换：与流式路径共享同一个 messages_to_view_models()
+        self.core.view_messages =
+            message_pipeline::MessagePipeline::messages_to_view_models(&base_msgs, &self.cwd);
 
         self.current_thread_id = Some(thread_id);
         self.core.thread_browser = None;

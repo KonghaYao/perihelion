@@ -39,7 +39,13 @@ impl OpenAiAdapter {
                 Some(json!({ "type": "image_url", "image_url": image_url }))
             }
             ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. } => None,
-            ContentBlock::Reasoning { .. } => None,
+            ContentBlock::Reasoning { text, signature } => {
+                let mut obj = json!({ "type": "thinking", "thinking": text });
+                if let Some(sig) = signature {
+                    obj["signature"] = json!(sig);
+                }
+                Some(obj)
+            }
             ContentBlock::Document { source, title } => {
                 let src = serde_json::to_value(source).unwrap_or_default();
                 Some(json!({ "type": "document", "source": src, "title": title }))
@@ -329,5 +335,71 @@ mod tests {
             .map(|arr| arr.iter().any(|b| b["type"] == "tool_use"))
             .unwrap_or(false);
         assert!(!content_has_tool_use, "OpenAI content 中不应出现 ToolUse block");
+    }
+
+    /// Reasoning block 应序列化为 thinking 类型（deepseek-v4-pro 要求回传）
+    #[test]
+    fn test_reasoning_block_serialized_as_thinking() {
+        let msg = BaseMessage::ai_from_blocks(vec![
+            ContentBlock::reasoning("step 1: analyze first"),
+            ContentBlock::text("final answer"),
+        ]);
+        let val = OpenAiAdapter::from_base_messages(&[msg]);
+        let arr = val.as_array().unwrap();
+        let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
+        let content = assistant["content"].as_array().expect("content 应为 array");
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[0]["thinking"], "step 1: analyze first");
+        assert_eq!(content[1]["type"], "text");
+        assert_eq!(content[1]["text"], "final answer");
+    }
+
+    /// Reasoning + tool_calls 序列化：thinking 在 content，tool_calls 在顶层
+    #[test]
+    fn test_reasoning_with_tool_calls_serialization() {
+        let msg = BaseMessage::ai_from_blocks(vec![
+            ContentBlock::reasoning("need bash"),
+            ContentBlock::text("running..."),
+            ContentBlock::tool_use("tc1", "bash", json!({"command": "ls"})),
+        ]);
+        let val = OpenAiAdapter::from_base_messages(&[msg]);
+        let arr = val.as_array().unwrap();
+        let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
+        // content 包含 thinking 和 text，但不含 tool_use（已在 tool_calls 字段）
+        let content = assistant["content"].as_array().expect("content 应为 array");
+        assert!(content.iter().any(|b| b["type"] == "thinking"));
+        assert!(content.iter().any(|b| b["type"] == "text"));
+        assert!(!content.iter().any(|b| b["type"] == "tool_use"),
+            "tool_use 不应出现在 content 中");
+        // tool_calls 在顶层
+        assert!(assistant["tool_calls"].is_array());
+        assert_eq!(assistant["tool_calls"][0]["id"], "tc1");
+    }
+
+    /// 仅 reasoning block（无 text）序列化
+    #[test]
+    fn test_reasoning_only_serialization() {
+        let msg = BaseMessage::ai_from_blocks(vec![
+            ContentBlock::reasoning("thinking only"),
+        ]);
+        let val = OpenAiAdapter::from_base_messages(&[msg]);
+        let arr = val.as_array().unwrap();
+        let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
+        let content = assistant["content"].as_array().expect("content 应为 array");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[0]["thinking"], "thinking only");
+    }
+
+    /// 无 reasoning block 的消息不应包含 thinking
+    #[test]
+    fn test_no_reasoning_no_thinking_in_content() {
+        let msg = BaseMessage::ai("just text");
+        let val = OpenAiAdapter::from_base_messages(&[msg]);
+        let arr = val.as_array().unwrap();
+        let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
+        // content 为纯文本字符串，非 array
+        assert!(assistant["content"].is_string());
     }
 }
