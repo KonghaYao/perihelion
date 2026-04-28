@@ -674,6 +674,10 @@ impl App {
         for trigger in cron_triggers {
             if !self.core.loading {
                 self.submit_message(trigger.prompt);
+            } else {
+                // Agent 正在执行，缓冲触发事件等待 Done 后自动发送
+                tracing::debug!(prompt = %trigger.prompt, "cron trigger buffered (agent busy)");
+                self.core.pending_messages.push(trigger.prompt);
             }
         }
     }

@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::path::Path;
 
 use super::resolve_path;
+use chrono::{TimeZone, Utc};
 
 /// folder_operations tool - 与 TypeScript folder_tool 对齐
 pub struct FolderOperationsTool {
@@ -33,13 +34,10 @@ fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Se
             .ok()
             .and_then(|t| {
                 t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| {
-                    let secs = d.as_secs();
-                    let days = secs / 86400;
-                    let years = 1970 + days / 365;
-                    let rem_days = days % 365;
-                    let month = rem_days / 30 + 1;
-                    let day = rem_days % 30 + 1;
-                    format!("{}/{}/{}", month, day, years)
+                    Utc.timestamp_opt(d.as_secs() as i64, 0)
+                        .single()
+                        .map(|dt| dt.format("%Y/%m/%d").to_string())
+                        .unwrap_or_else(|| "unknown".to_string())
                 })
             })
             .unwrap_or_else(|| "unknown".to_string());
