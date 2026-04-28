@@ -96,13 +96,12 @@ async fn test_agent_tool_not_found() {
     let agent = ReActAgent::new(llm);
     let mut state = AgentState::new("/test");
 
-    let result = agent.execute(AgentInput::text("use missing tool"), &mut state, None).await;
+    let output = agent.execute(AgentInput::text("use missing tool"), &mut state, None).await.unwrap();
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        AgentError::ToolNotFound(name) => assert_eq!(name, "nonexistent_tool"),
-        e => panic!("Unexpected error: {e}"),
-    }
+    // ToolNotFound 现在作为 ToolResult::error 返回，Agent 继续运行直到 LLM 给出最终回答
+    assert_eq!(output.tool_calls.len(), 1);
+    assert!(output.tool_calls[0].1.is_error, "ToolNotFound 应产生错误结果");
+    assert!(output.tool_calls[0].1.output.contains("不存在"));
 }
 
 #[tokio::test]

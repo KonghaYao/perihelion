@@ -256,6 +256,13 @@ pub async fn full_compact(
 
                 let rounds = group_messages_by_round(&current_messages);
                 let truncated_messages = truncate_for_ptl(&current_messages, &rounds, 1);
+                // 截断无变化 → 无法继续降级，立即返回错误
+                if truncated_messages.len() == current_messages.len() {
+                    return Err(AgentError::Other(anyhow::anyhow!(
+                        "Full Compact PTL 降级失败：消息已无法进一步缩减 ({})",
+                        e
+                    )));
+                }
                 current_messages = truncated_messages;
             }
             Err(e) => {
@@ -592,7 +599,7 @@ mod tests {
         let result = full_compact(&msgs, &model, &config, "").await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("PTL 降级重试"));
+        assert!(err_msg.contains("PTL"), "错误消息应提及 PTL，实际: {}", err_msg);
     }
 
     #[tokio::test]

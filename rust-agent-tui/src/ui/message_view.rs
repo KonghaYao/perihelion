@@ -247,6 +247,28 @@ impl MessageViewModel {
                                 name,
                             }
                         }
+                        ContentBlock::Image { .. } => ContentBlockView::Text {
+                            raw: "[Image]".to_string(),
+                            rendered: Text::raw("[Image]"),
+                            dirty: false,
+                        },
+                        ContentBlock::Document { title, .. } => {
+                            let label = title.as_deref().unwrap_or("Document");
+                            ContentBlockView::Text {
+                                raw: format!("[Document: {}]", label),
+                                rendered: Text::raw(format!("[Document: {}]", label)),
+                                dirty: false,
+                            }
+                        }
+                        ContentBlock::Unknown(v) => {
+                            let type_name = v.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+                            ContentBlockView::Text {
+                                raw: format!("[{}]", type_name),
+                                rendered: Text::raw(format!("[{}]", type_name)),
+                                dirty: false,
+                            }
+                        }
+                        // ToolResult 在 Ai 消息中不常见，静默跳过
                         _ => ContentBlockView::Text {
                             raw: String::new(),
                             rendered: Text::raw(""),

@@ -347,9 +347,12 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                             ToolResult::success(&modified_call.id, &modified_call.name, output)
                         }
                         Err(AgentError::ToolNotFound(ref name)) => {
-                            let e = AgentError::ToolNotFound(name.clone());
-                            self.chain.run_on_error(state, &e).await?;
-                            return Err(e);
+                            tracing::warn!(tool.name = %name, "工具未找到，作为错误结果返回");
+                            ToolResult::error(
+                                &modified_call.id,
+                                &modified_call.name,
+                                format!("工具 '{}' 不存在", name),
+                            )
                         }
                         Err(ref e) => {
                             self.chain.run_on_error(state, e).await?;

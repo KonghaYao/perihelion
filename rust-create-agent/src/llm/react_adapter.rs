@@ -111,7 +111,11 @@ impl ReactLLM for BaseModelReactLLM {
             Ok(r)
         } else {
             // 最终答案：text_content() 提取所有文字（跳过 reasoning block）
-            let text = response.message.content();
+            let mut text = response.message.content();
+            if response.stop_reason == StopReason::MaxTokens {
+                tracing::warn!("LLM 输出因 max_tokens 截断，回答可能不完整");
+                text.push_str("\n\n[⚠ 回答因输出长度限制被截断]");
+            }
             let mut r = Reasoning::with_answer("", text);
             r.source_message = Some(response.message);
             r.usage = usage;

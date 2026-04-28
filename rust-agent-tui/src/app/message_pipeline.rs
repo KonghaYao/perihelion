@@ -396,10 +396,9 @@ impl MessagePipeline {
             match sub.recent_messages.last_mut() {
                 Some(m) if m.is_assistant() => m.append_chunk(chunk),
                 _ => {
+                    sub.total_steps += 1;
                     if sub.recent_messages.len() >= 4 {
                         sub.recent_messages.remove(0);
-                    } else {
-                        sub.total_steps += 1;
                     }
                     let mut bubble = MessageViewModel::assistant();
                     bubble.append_chunk(chunk);

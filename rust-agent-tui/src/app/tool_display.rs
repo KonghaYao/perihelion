@@ -48,10 +48,11 @@ pub fn format_tool_args(
             .as_str()
             .map(|p| truncate(&strip_cwd(p, cwd), 60)),
         "search_files_rg" => input["args"].as_array().map(|a| {
-            a.iter()
+            let s: String = a.iter()
                 .filter_map(|x| x.as_str())
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join(" ");
+            truncate(&s, 60)
         }),
         "folder_operations" => {
             let op = input["operation"].as_str().unwrap_or("?");
