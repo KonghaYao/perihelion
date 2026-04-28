@@ -124,4 +124,38 @@ mod tests {
             .unwrap();
         assert!(result.contains("written successfully"), "unexpected message: {result}");
     }
+
+    #[tokio::test]
+    async fn test_write_file_no_tmp_residual() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = WriteFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({"file_path": "clean.txt", "content": "data"}))
+            .await
+            .unwrap();
+        // 原子写入后不应残留 .tmp 文件
+        assert!(
+            !dir.path().join("clean.tmp").exists(),
+            "临时文件应在 rename 后被清除"
+        );
+        assert!(dir.path().join("clean.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn test_write_file_error_propagates() {
+        let dir = tempfile::tempdir().unwrap();
+        // 在只读目录上写入应返回 Err
+        let readonly_dir = dir.path().join("readonly");
+        std::fs::create_dir(&readonly_dir).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&readonly_dir, std::fs::Permissions::from_mode(0o444)).unwrap();
+        }
+        let tool = WriteFileTool::new(readonly_dir.to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "sub/nope.txt", "content": "x"}))
+            .await;
+        #[cfg(unix)]
+        assert!(result.is_err(), "写入只读目录应返回 Err");
+    }
 }

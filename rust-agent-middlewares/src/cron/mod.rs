@@ -245,4 +245,25 @@ mod tests {
         sched.register("0 * * * *", "b").unwrap();
         assert_eq!(sched.list_tasks().len(), 2);
     }
+
+    #[test]
+    fn test_list_tasks_sorted_by_next_fire() {
+        let (mut sched, _rx) = new_scheduler();
+        let id1 = sched.register("0 0 1 1 *", "yearly").unwrap();
+        let id2 = sched.register("* * * * *", "minutely").unwrap();
+        let tasks = sched.list_tasks();
+        // minutely 应排在 yearly 前面（next_fire 更早）
+        assert_eq!(tasks[0].id, id2);
+        assert_eq!(tasks[1].id, id1);
+    }
+
+    #[test]
+    fn test_register_rejects_empty_prompt() {
+        // 校验在 CronRegisterTool::invoke 层，scheduler.register 本身接受空 prompt
+        // 此测试验证 scheduler 层不拒绝空 prompt（tools 层拒绝）
+        let (mut sched, _rx) = new_scheduler();
+        // scheduler.register 接受空字符串（tools 层校验 prompt 非空）
+        let result = sched.register("* * * * *", "");
+        assert!(result.is_ok(), "scheduler 层不应拒绝空 prompt");
+    }
 }

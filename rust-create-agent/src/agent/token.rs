@@ -32,11 +32,11 @@ impl TokenTracker {
     }
 
     pub fn estimated_context_tokens(&self) -> Option<u64> {
+        // input_tokens 已包含 cache_creation 和 cache_read 部分，
+        // 直接相加会导致重复计算，使 auto-compact 过早触发。
+        // 实际上下文 ≈ input_tokens + output_tokens
         self.last_usage.as_ref().map(|u| {
-            u.input_tokens as u64
-                + u.output_tokens as u64
-                + u.cache_creation_input_tokens.unwrap_or(0) as u64
-                + u.cache_read_input_tokens.unwrap_or(0) as u64
+            u.input_tokens as u64 + u.output_tokens as u64
         })
     }
 
@@ -174,29 +174,29 @@ mod tests {
     fn test_estimated_context_tokens_some() {
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(1000, 500, Some(200), Some(300)));
-        // 1000 + 500 + 200 + 300 = 2000
-        assert_eq!(tracker.estimated_context_tokens(), Some(2000));
+        // input_tokens(1000) + output_tokens(500) = 1500（不含 cache 重复计算）
+        assert_eq!(tracker.estimated_context_tokens(), Some(1500));
     }
 
     #[test]
     fn test_context_usage_percent() {
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(50000, 25000, Some(12500), Some(12500)));
-        // 50000 + 25000 + 12500 + 12500 = 100000
+        // 50000 + 25000 = 75000（不含 cache 重复计算）
         let pct = tracker.context_usage_percent(200_000).unwrap();
-        assert!((pct - 50.0).abs() < 0.01);
+        assert!((pct - 37.5).abs() < 0.01);
     }
 
     #[test]
     fn test_context_budget_should_auto_compact() {
         let budget = ContextBudget::new(200_000);
         let mut tracker = TokenTracker::default();
-        // 85% of 200K = 170K
-        tracker.accumulate(&make_usage(85000, 42500, Some(21250), Some(21250)));
+        // 85% of 200K = 170K → input 100K + output 70K = 170K
+        tracker.accumulate(&make_usage(100000, 70000, Some(21250), Some(21250)));
         assert!(budget.should_auto_compact(&tracker));
-        // 80% = 160K
+        // 80% = 160K → input 90K + output 70K = 160K
         let mut tracker2 = TokenTracker::default();
-        tracker2.accumulate(&make_usage(80000, 40000, Some(20000), Some(20000)));
+        tracker2.accumulate(&make_usage(90000, 70000, Some(20000), Some(20000)));
         assert!(!budget.should_auto_compact(&tracker2));
     }
 
@@ -204,12 +204,12 @@ mod tests {
     fn test_context_budget_should_warn() {
         let budget = ContextBudget::new(200_000);
         let mut tracker = TokenTracker::default();
-        // 70% of 200K = 140K
-        tracker.accumulate(&make_usage(70000, 35000, Some(17500), Some(17500)));
+        // 70% of 200K = 140K → input 80K + output 60K = 140K
+        tracker.accumulate(&make_usage(80000, 60000, Some(17500), Some(17500)));
         assert!(budget.should_warn(&tracker));
-        // 60% = 120K
+        // 60% = 120K → input 70K + output 50K = 120K
         let mut tracker2 = TokenTracker::default();
-        tracker2.accumulate(&make_usage(60000, 30000, Some(15000), Some(15000)));
+        tracker2.accumulate(&make_usage(70000, 50000, Some(15000), Some(15000)));
         assert!(!budget.should_warn(&tracker2));
     }
 
@@ -369,12 +369,12 @@ mod tests {
     #[test]
     fn test_context_budget_with_warning_threshold() {
         let budget = ContextBudget::new(200_000).with_warning_threshold(0.5);
-        // 55% of 200K = 110K, 50% threshold = 100K → should warn
+        // 50% of 200K = 100K → input 60K + output 40K = 100K → should warn
         let mut tracker = TokenTracker::default();
-        tracker.accumulate(&make_usage(55000, 27500, Some(13750), Some(13750)));
+        tracker.accumulate(&make_usage(60000, 40000, Some(13750), Some(13750)));
         assert!(
             budget.should_warn(&tracker),
-            "55% should trigger warning at 50% threshold"
+            "50% should trigger warning at 50% threshold"
         );
     }
 }
