@@ -115,6 +115,8 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(":Quit  ", Style::default().fg(theme::DIM)),
         Span::styled("Ctrl+C", Style::default().fg(theme::DIM)),
         Span::styled(":Stop  ", Style::default().fg(theme::DIM)),
+        Span::styled("Alt+Enter", Style::default().fg(theme::DIM)),
+        Span::styled(":NewLine  ", Style::default().fg(theme::DIM)),
         Span::styled("Shift+Tab", Style::default().fg(theme::DIM)),
         Span::styled(":Mode", Style::default().fg(theme::DIM)),
     ]));

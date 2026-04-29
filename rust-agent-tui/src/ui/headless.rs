@@ -1898,4 +1898,50 @@ mod tests {
         app.core.command_registry = registry;
         assert!(known, "/help 应是已知命令，优先于同名 Skill");
     }
+
+    // ── Input Placeholder Hint ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_textarea_shows_placeholder_hint() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            snap_text.contains("Alt+Enter") || snap_text.contains("输入消息"),
+            "输入框应显示占位提示（含 Alt+Enter 换行），实际:\n{}",
+            snap_text
+        );
+    }
+
+    // ── Welcome Card Alt+Enter Hint ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_welcome_card_shows_alt_enter_hint() {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            snap_text.contains("Alt+Enter"),
+            "Welcome Card 应显示 Alt+Enter 快捷键提示，实际:\n{}",
+            snap_text
+        );
+    }
+
+    // ── Command Ambiguity Feedback ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_ambiguous_command_shows_candidates() {
+        let (mut app, _handle) = App::new_headless(120, 30);
+        // /c 前缀匹配 clear/compact/cron
+        let registry = &app.core.command_registry;
+        let matches = registry.match_prefix("c");
+        assert!(matches.len() >= 2, "/c 应匹配多个命令，实际: {:?}", matches);
+        // dispatch 应返回 false（歧义）
+        let registry = std::mem::take(&mut app.core.command_registry);
+        let known = registry.dispatch(&mut app, "/c");
+        app.core.command_registry = registry;
+        assert!(!known, "歧义前缀 dispatch 应返回 false");
+    }
 }

@@ -425,11 +425,23 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                     // Skill 命中：将整条消息提交给 agent
                                     return Ok(Some(Action::Submit(text)));
                                 } else {
-                                    // 完全无匹配
-                                    app.core.view_messages.push(MessageViewModel::system(format!(
-                                        "未知命令或 Skill: {}  （输入 /help 查看可用命令）",
-                                        text
-                                    )));
+                                    // 区分"前缀歧义"和"完全未知"
+                                    let registry = &app.core.command_registry;
+                                    let prefix = text.trim_start_matches('/');
+                                    let cmd_matches = registry.match_prefix(prefix);
+                                    if cmd_matches.len() > 1 {
+                                        let names: Vec<&str> = cmd_matches.iter().map(|(n, _)| *n).collect();
+                                        app.core.view_messages.push(MessageViewModel::system(format!(
+                                            "命令 '{}' 匹配多个: {}  （请输入完整命令名）",
+                                            text,
+                                            names.iter().map(|n| format!("/{}", n)).collect::<Vec<_>>().join(", ")
+                                        )));
+                                    } else {
+                                        app.core.view_messages.push(MessageViewModel::system(format!(
+                                            "未知命令或 Skill: {}  （输入 /help 查看可用命令）",
+                                            text
+                                        )));
+                                    }
                                 }
                             }
                         } else {

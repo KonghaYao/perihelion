@@ -278,7 +278,7 @@ pub fn ensure_cursor_visible(cursor_row: u16, scroll_offset: u16, visible_height
 }
 
 pub fn build_textarea(disabled: bool) -> TextArea<'static> {
-    build_textarea_with_hint(disabled, "")
+    build_textarea_with_hint(disabled, " 输入消息… (Alt+Enter 换行)")
 }
 
 fn build_textarea_with_hint(_disabled: bool, hint: &str) -> TextArea<'static> {

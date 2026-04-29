@@ -206,7 +206,12 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(":关闭", Style::default().fg(theme::MUTED)),
             ]
         } else {
-            vec![]
+            vec![
+                Span::styled("/", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled("命令  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Alt+Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":换行", Style::default().fg(theme::MUTED)),
+            ]
         }
     };
 
