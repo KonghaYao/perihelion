@@ -36,7 +36,7 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
 
     let inner = BorderedPanel::new(
         Span::styled(
-            format!(" 📝 选择对话 [{}]  ↑↓:移动  Enter:确认  Ctrl+D:删除  Esc:关闭", app.cwd),
+            " 📝 选择对话 ",
             Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
         )
     )
@@ -44,6 +44,19 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
         .render(f, popup_area);
 
     let mut lines: Vec<Line> = Vec::new();
+
+    // 工作目录 + 快捷键提示行
+    lines.push(Line::from(vec![
+        Span::styled(format!(" {} ", app.cwd), Style::default().fg(theme::DIM)),
+        Span::styled(" ↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":移动 ", Style::default().fg(theme::MUTED)),
+        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":确认 ", Style::default().fg(theme::MUTED)),
+        Span::styled("Ctrl+D", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":删除 ", Style::default().fg(theme::MUTED)),
+        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":关闭", Style::default().fg(theme::MUTED)),
+    ]));
 
     // 第 0 项：新建对话
     let is_new_cursor = browser.cursor == 0;

@@ -155,7 +155,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
         Span::styled(":确认  ", Style::default().fg(theme::MUTED)),
         Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
-        Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
+        Span::styled(":Thinking开关  ", Style::default().fg(theme::MUTED)),
         Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
         Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));

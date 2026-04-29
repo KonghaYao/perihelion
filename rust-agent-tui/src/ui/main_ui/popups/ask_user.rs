@@ -122,6 +122,17 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(display, style),
     ]));
 
+    // 底部快捷键提示
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(" Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":切换问题  ", Style::default().fg(theme::MUTED)),
+        Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":选择  ", Style::default().fg(theme::MUTED)),
+        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":确认", Style::default().fg(theme::MUTED)),
+    ]));
+
     let mut scroll_state = ScrollState::with_offset(prompt.scroll_offset);
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
