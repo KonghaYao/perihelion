@@ -97,6 +97,23 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
+    // 任务运行时长（仅在 loading 时显示）
+    if app.core.loading {
+        if let Some(duration) = app.get_current_task_duration() {
+            let secs = duration.as_secs();
+            let time_str = if secs >= 60 {
+                format!("{}m{}s", secs / 60, secs % 60)
+            } else {
+                format!("{}s", secs)
+            };
+            spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+            spans.push(Span::styled(
+                format!(" ⏱ {}", time_str),
+                Style::default().fg(theme::MUTED),
+            ));
+        }
+    }
+
     render_truncated_line(f, spans, Vec::new(), area);
 }
 

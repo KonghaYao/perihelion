@@ -55,11 +55,8 @@ impl App {
             Some(p) => p,
             None => {
                 self.apply_pipeline_action(PipelineAction::AddMessage(
-                    MessageViewModel::tool_block(
-                        "error".to_string(),
-                        "config-error".to_string(),
-                        None,
-                        true,
+                    MessageViewModel::system(
+                        "未配置 API Key，请输入 /login 配置 Provider".to_string(),
                     ),
                 ));
                 self.set_loading(false);
@@ -680,7 +677,7 @@ impl App {
                     let vm = MessageViewModel::tool_block(
                         "error".to_string(),
                         "agent-error".to_string(),
-                        Some("agent channel disconnected unexpectedly".to_string()),
+                        Some("Agent 连接异常断开，请重试发送消息".to_string()),
                         true,
                     );
                     self.apply_pipeline_action(PipelineAction::AddMessage(vm));
