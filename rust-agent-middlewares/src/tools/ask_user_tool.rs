@@ -94,8 +94,10 @@ impl BaseTool for AskUserTool {
                     });
                     if let Some(text) = answer.text.filter(|t| !t.is_empty()) {
                         Ok(text)
-                    } else {
+                    } else if !answer.selected.is_empty() {
                         Ok(answer.selected.join(", "))
+                    } else {
+                        Ok("(用户未提供回答)".to_string())
                     }
                 } else {
                     let parts: Vec<String> = headers.iter().zip(answers.iter()).map(|(header, answer)| {
@@ -206,7 +208,7 @@ mod tests {
     async fn test_single_question_empty_selected() {
         let tool = make_tool(make_answer(&[], None));
         let result = tool.invoke(single_question_input()).await.unwrap();
-        assert_eq!(result, "", "empty selected and no text should return empty string");
+        assert_eq!(result, "(用户未提供回答)", "empty selected and no text should return meaningful message");
     }
 
     // ── 多问题返回格式 ──

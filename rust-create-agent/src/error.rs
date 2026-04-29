@@ -48,9 +48,15 @@ impl AgentError {
             }
             Self::LlmError(msg) => {
                 let msg_lower = msg.to_lowercase();
-                msg_lower.contains("connection")
+                msg_lower.contains("connection refused")
+                    || msg_lower.contains("connection reset")
+                    || msg_lower.contains("connection aborted")
+                    || msg_lower.contains("connection timed out")
+                    || msg_lower.contains("broken pipe")
                     || msg_lower.contains("timeout")
                     || msg_lower.contains("dns")
+                    || msg_lower.contains("rate limit")
+                    || msg_lower.contains("overloaded")
             }
             _ => false,
         }
@@ -101,6 +107,18 @@ mod tests {
     fn test_retryable_network_connection() {
         let err = AgentError::LlmError("connection refused".into());
         assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_retryable_connection_reset() {
+        let err = AgentError::LlmError("connection reset by peer".into());
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_not_retryable_connection_pool() {
+        let err = AgentError::LlmError("connection pool is full".into());
+        assert!(!err.is_retryable(), "connection pool 满不是临时网络错误");
     }
 
     #[test]
