@@ -334,6 +334,14 @@ ReActAgent::new(llm)
 - **EditField 导航**：`next()/prev()` 链必须与表单实际渲染字段一致。
 - **快捷键设计**：禁止使用 `Shift + 字母`（A-Z）组合。编辑状态下 `Shift+字母` 等同于输入大写字母，二者不可区分。全局操作用 `Ctrl + 字母` 或功能键，面板操作用 `↑/↓`、`Space`、`Enter`、`Esc`。
 - **字符串显示宽度**：终端列宽计算使用 `unicode-width` crate（`UnicodeWidthStr::width()` / `UnicodeWidthChar::width()`），CJK 等全角字符占 2 列。面板列表项截断需基于显示宽度而非 `char` 数量。
+- **鼠标文字选区**：TUI 启用了 `EnableMouseCapture`，终端将鼠标事件发送给应用而非终端自身的选区处理器。应用自行实现了三级文字选区系统：
+  - **消息区选区**（`TextSelection`）：通过 `wrap_map`（`WrappedLineInfo`）将屏幕像素坐标映射为逻辑行+字符偏移，支持自动换行后的字符级精度。坐标映射流程：`visual_row = screen_y - area.y + scroll_offset` → 二分查找 `wrap_map` → `char_widths` 累积宽度定位字符。
+  - **面板选区**（`PanelTextSelection`）：用于 thread_browser / agent / cron 等列表面板。面板文字无自动换行，使用 `Vec<String>` 纯文本行直接按行索引 + 字符偏移提取。坐标为内容空间（含 scroll offset）。
+  - **输入框选区**：直接使用 `tui_textarea` 内置的 `start_selection()` / `copy()` / `yank_text()` / `cancel_selection()` API。
+  - **Ctrl+C 优先级链**：消息区选区 > 面板选区 > textarea 选区 > 无选区（中断/退出）。在 `event.rs` 全局拦截，位于面板键盘处理之前。
+  - **高亮渲染**：`highlight_line_spans()` 将 `Span` 在字符边界拆分并追加 `Modifier::REVERSED`。所有 `String` 切割通过 `char_indices().nth()` 转换为 byte 索引，保证 Unicode 安全。
+  - **剪贴板**：使用 `arboard::Clipboard` 写入系统剪贴板。
+  - **面板渲染签名**：支持选区的面板（thread_browser / agent / cron）签名需为 `&mut App`（非 `&App`），因为渲染时需写入 `panel_area` / `panel_plain_lines` / `panel_scroll_offset` 元数据。
 
 ## 面板快捷键设计规范
 

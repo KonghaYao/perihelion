@@ -98,6 +98,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
     // 输入框前缀 ❯ + 文本区
     f.render_widget(&app.core.textarea, chunks[4]);
+    app.core.textarea_area = Some(chunks[4]);
 
     // ❯ 前缀：渲染在输入框文字前面（叠加在 textarea 第一行起始位置）
     let prompt_x = chunks[4].x;
@@ -163,6 +164,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     }
 
     let inner = messages_area;
+    app.core.messages_area = Some(inner);
     let visible_height = inner.height;
 
     // 计算 loading spinner 行（Claude Code 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
@@ -264,6 +266,43 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     }
     app.core.scroll_offset = offset;
 
+    // 字符级选区高亮
+    if app.core.text_selection.is_active() {
+        let ts = &app.core.text_selection;
+        if let (Some(start), Some(end)) = (ts.start, ts.end) {
+            let cache = app.core.render_cache.read();
+            let wrap_map = &cache.wrap_map;
+            let usable_width = app.core.messages_area
+                .map(|a| a.width.saturating_sub(1))
+                .unwrap_or(0);
+
+            // 映射为逻辑坐标
+            let ((sr, sc), (er, ec)) = if start <= end { (start, end) } else { (end, start) };
+            let logical_start = crate::app::text_selection::visual_to_logical(sr, sc, wrap_map, usable_width);
+            let logical_end = crate::app::text_selection::visual_to_logical(er, ec, wrap_map, usable_width);
+
+            if let (Some((start_line, start_char)), Some((end_line, end_char))) = (logical_start, logical_end) {
+                for line_idx in start_line..=end_line {
+                    if line_idx >= all_lines.len() {
+                        continue;
+                    }
+                    let (cs, ce) = if line_idx == start_line && line_idx == end_line {
+                        (start_char, end_char)
+                    } else if line_idx == start_line {
+                        (start_char, usize::MAX)
+                    } else if line_idx == end_line {
+                        (0, end_char)
+                    } else {
+                        (0, usize::MAX)
+                    };
+                    let spans = std::mem::take(&mut all_lines[line_idx].spans);
+                    all_lines[line_idx] = Line::from(highlight_line_spans(spans, cs, ce));
+                }
+            }
+            drop(cache);
+        }
+    }
+
     // 仅在有滚动条时显示 sticky header
     if max_scroll > 0 {
         sticky_header::render_sticky_header(f, app, header_area);
@@ -330,4 +369,130 @@ fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
+/// 对一行的 spans 做字符级选区高亮。
+/// `char_start` / `char_end` 是该行 plain_text 的字符偏移（非 byte 索引）。
+/// 将 spans 中对应范围的字符的 style 追加 Modifier::REVERSED，范围外的 span 保持原样。
+/// 使用 char_indices() 保证 unicode 安全切割。
+pub fn highlight_line_spans<'a>(
+    spans: Vec<Span<'a>>,
+    char_start: usize,
+    char_end: usize,
+) -> Vec<Span<'a>> {
+    let mut result = Vec::new();
+    let mut cursor: usize = 0; // 当前在 plain_text 中的字符位置
+    for span in spans {
+        let span_char_len = span.content.chars().count();
+        let span_start = cursor;
+        let span_end = cursor + span_char_len;
 
+        if span_end <= char_start || span_start >= char_end {
+            // 完全在选区外 → 保持原样
+            result.push(span);
+        } else if span_start >= char_start && span_end <= char_end {
+            // 完全在选区内 → 整个 span 反色
+            result.push(span.patch_style(Style::default().add_modifier(Modifier::REVERSED)));
+        } else {
+            // 部分重叠 → 拆分为 2~3 个子 span
+            // 左段（选区外）
+            if span_start < char_start {
+                let skip = char_start - span_start;
+                let byte_cut = span.content.char_indices()
+                    .nth(skip).map(|(i,_)| i).unwrap_or(span.content.len());
+                result.push(Span::styled(
+                    span.content[..byte_cut].to_string(),
+                    span.style,
+                ));
+            }
+            // 中段（选区内，反色）
+            let hl_char_start = span_start.max(char_start) - span_start;
+            let hl_char_end = span_end.min(char_end) - span_start;
+            let byte_start = span.content.char_indices()
+                .nth(hl_char_start).map(|(i,_)| i).unwrap_or(0);
+            let byte_end = span.content.char_indices()
+                .nth(hl_char_end).map(|(i,_)| i).unwrap_or(span.content.len());
+            result.push(Span::styled(
+                span.content[byte_start..byte_end].to_string(),
+                span.style.add_modifier(Modifier::REVERSED),
+            ));
+            // 右段（选区外）
+            if span_end > char_end {
+                let skip = char_end - span_start;
+                let byte_cut = span.content.char_indices()
+                    .nth(skip).map(|(i,_)| i).unwrap_or(span.content.len());
+                result.push(Span::styled(
+                    span.content[byte_cut..].to_string(),
+                    span.style,
+                ));
+            }
+        }
+        cursor = span_end;
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_highlight_line_spans_full_span() {
+        let spans = vec![Span::from("Hello"), Span::from("World")];
+        let result = highlight_line_spans(spans, 0, 10);
+        assert_eq!(result.len(), 2);
+        assert!(result[0].style.add_modifier.contains(Modifier::REVERSED));
+        assert!(result[1].style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn test_highlight_line_spans_partial_start() {
+        let spans = vec![Span::from("Hello")];
+        let result = highlight_line_spans(spans, 3, 10);
+        // 前 3 字符原样，后 2 字符反色
+        assert_eq!(result.len(), 2);
+        assert!(!result[0].style.add_modifier.contains(Modifier::REVERSED));
+        assert!(result[1].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(result[0].content, "Hel");
+        assert_eq!(result[1].content, "lo");
+    }
+
+    #[test]
+    fn test_highlight_line_spans_partial_both() {
+        let spans = vec![Span::from("Hello")];
+        let result = highlight_line_spans(spans, 1, 4);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].content, "H");
+        assert!(!result[0].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(result[1].content, "ell");
+        assert!(result[1].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(result[2].content, "o");
+        assert!(!result[2].style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn test_highlight_line_spans_multi_span() {
+        let spans = vec![Span::from("Hel"), Span::from("lo Wo"), Span::from("rld")];
+        let result = highlight_line_spans(spans, 2, 8);
+        // 选中范围 char 2..8 = "llo Wo"
+        // span0 "Hel": 前 2 原样 + 后 1 反色
+        // span1 "lo Wo": 全部反色
+        // span2 "rld": 不在选区（span2 starts at char 8）
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].content, "He");
+        assert!(!result[0].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(result[1].content, "l");
+        assert!(result[1].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(result[2].content, "lo Wo");
+        assert!(result[2].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(result[3].content, "rld");
+        assert!(!result[3].style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn test_highlight_line_spans_outside() {
+        let spans = vec![Span::from("Hello")];
+        let result = highlight_line_spans(spans, 10, 15);
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(result[0].content, "Hello");
+    }
+}

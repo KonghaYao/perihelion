@@ -9,6 +9,21 @@ use super::markdown::ensure_rendered;
 use super::message_render::render_view_model;
 use super::message_view::MessageViewModel;
 
+/// 单个逻辑行的换行映射信息
+#[derive(Debug, Clone)]
+pub struct WrappedLineInfo {
+    /// 该行在 cache.lines 中的索引
+    pub line_idx: usize,
+    /// 该逻辑行渲染后的起始视觉行号（基于 0）
+    pub visual_row_start: u16,
+    /// 该逻辑行渲染后的结束视觉行号（不含）
+    pub visual_row_end: u16,
+    /// 该逻辑行的纯文本内容（去样式，用于复制）
+    pub plain_text: String,
+    /// 每个字符的显示宽度序列（ASCII=1, CJK=2）
+    pub char_widths: Vec<u8>,
+}
+
 /// 渲染缓存，由渲染线程写入、UI 线程读取
 pub struct RenderCache {
     /// 所有消息渲染后的行
@@ -19,6 +34,7 @@ pub struct RenderCache {
     pub total_lines: usize,
     /// 版本号，UI 线程比较是否有变化以决定是否重绘
     pub version: u64,
+    pub wrap_map: Vec<WrappedLineInfo>,
 }
 
 impl RenderCache {
@@ -28,6 +44,7 @@ impl RenderCache {
             message_offsets: Vec::new(),
             total_lines: 0,
             version: 0,
+            wrap_map: Vec::new(),
         }
     }
 
@@ -76,6 +93,43 @@ struct RenderTask {
 }
 
 impl RenderTask {
+    /// 根据 cache.lines 和当前宽度计算 wrap_map
+    fn build_wrap_map(lines: &[Line<'static>], width: u16) -> Vec<WrappedLineInfo> {
+        let usable_width = width.saturating_sub(1) as usize; // 右侧留 1 列给滚动条
+        if usable_width == 0 || lines.is_empty() {
+            return Vec::new();
+        }
+        let mut wrap_map = Vec::with_capacity(lines.len());
+        let mut visual_row: u16 = 0;
+
+        for (idx, line) in lines.iter().enumerate() {
+            // 1. 提取纯文本
+            let plain_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            // 2. 计算每个字符的显示宽度
+            let char_widths: Vec<u8> = plain_text.chars()
+                .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u8)
+                .collect();
+            // 3. 模拟 word-wrap 计算该行占几个视觉行
+            let line_display_width: usize = char_widths.iter().map(|&w| w as usize).sum();
+            let visual_count = if line_display_width == 0 {
+                1 // 空行占 1 个视觉行
+            } else {
+                (line_display_width + usable_width - 1) / usable_width // 向上取整
+            };
+            let visual_count = visual_count.max(1) as u16;
+
+            wrap_map.push(WrappedLineInfo {
+                line_idx: idx,
+                visual_row_start: visual_row,
+                visual_row_end: visual_row + visual_count,
+                plain_text,
+                char_widths,
+            });
+            visual_row += visual_count;
+        }
+        wrap_map
+    }
+
     /// 渲染单条消息为 lines（含前后空行分隔）
     fn render_one(vm: &mut MessageViewModel, index: usize, width: usize) -> Vec<Line<'static>> {
         // 处理 dirty blocks
@@ -109,6 +163,7 @@ impl RenderTask {
         cache.lines = all_lines;
         cache.message_offsets = offsets;
         cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+        cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
         cache.version += 1;
     }
 
@@ -128,6 +183,7 @@ impl RenderTask {
                     cache.message_offsets.push(offset);
                     cache.lines.extend(lines);
                     cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                    cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                     cache.version += 1;
                 }
                 RenderEvent::AppendChunk(chunk) => {
@@ -170,6 +226,7 @@ impl RenderTask {
                     cache.lines.truncate(start);
                     cache.lines.extend(new_lines);
                     cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                    cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                     cache.version += 1;
                 }
                 RenderEvent::StreamingDone => {
@@ -190,6 +247,7 @@ impl RenderTask {
                             cache.lines.truncate(start);
                             cache.lines.extend(new_lines);
                             cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                            cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                             cache.version += 1;
                         }
                     }
@@ -204,6 +262,7 @@ impl RenderTask {
                     cache.lines.clear();
                     cache.message_offsets.clear();
                     cache.total_lines = 0;
+                    cache.wrap_map = Vec::new();
                     cache.version += 1;
                 }
                 RenderEvent::LoadHistory(vms) => {
@@ -236,6 +295,7 @@ impl RenderTask {
                             cache.lines.truncate(start);
                             cache.lines.extend(new_lines);
                             cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                            cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                             cache.version += 1;
                         }
                     }
@@ -254,6 +314,7 @@ impl RenderTask {
                             cache.lines.clear();
                         }
                         cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                        cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                         cache.version += 1;
                     }
                 }
@@ -339,5 +400,63 @@ mod tests {
         assert!(c.version > v1, "version should increment after AppendChunk");
         // offset 不应增加（仍是同一条消息）
         assert_eq!(c.message_offsets.len(), 1, "should still have 1 message offset");
+    }
+
+    #[test]
+    fn test_build_wrap_map_empty() {
+        let result = RenderTask::build_wrap_map(&[], 80);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_build_wrap_map_single_short_line() {
+        let lines = vec![Line::from("Hello")];
+        let result = RenderTask::build_wrap_map(&lines, 80);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].visual_row_start, 0);
+        assert_eq!(result[0].visual_row_end, 1);
+        assert_eq!(result[0].plain_text, "Hello");
+    }
+
+    #[test]
+    fn test_build_wrap_map_single_long_line_wraps() {
+        let long_text: String = "A".repeat(200);
+        let lines: Vec<Line<'static>> = vec![Line::from(long_text)];
+        let result = RenderTask::build_wrap_map(&lines, 40);
+        assert_eq!(result.len(), 1);
+        // usable_width = 40 - 1 = 39; 200 / 39 = 5.13 → 6 visual rows
+        assert_eq!(result[0].visual_row_start, 0);
+        assert_eq!(result[0].visual_row_end, 6);
+    }
+
+    #[test]
+    fn test_build_wrap_map_cjk_char_width() {
+        let lines = vec![Line::from("你好世界")];
+        let result = RenderTask::build_wrap_map(&lines, 80);
+        assert_eq!(result[0].char_widths, vec![2, 2, 2, 2]);
+        // line_display_width = 8, usable_width = 79, fits in 1 row
+        assert_eq!(result[0].visual_row_end - result[0].visual_row_start, 1);
+    }
+
+    #[test]
+    fn test_build_wrap_map_multi_line_visual_rows() {
+        // First line: 80 chars, width=41 → usable=40, 80/40=2 visual rows
+        let first_line: String = "A".repeat(80);
+        let second_line = Line::from("short");
+        let lines: Vec<Line<'static>> = vec![Line::from(first_line), second_line];
+        let result = RenderTask::build_wrap_map(&lines, 41);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].visual_row_start, 0);
+        assert_eq!(result[0].visual_row_end, 2);
+        assert_eq!(result[1].visual_row_start, 2);
+        assert_eq!(result[1].visual_row_end, 3);
+    }
+
+    #[test]
+    fn test_build_wrap_map_empty_line() {
+        let lines = vec![Line::from("")];
+        let result = RenderTask::build_wrap_map(&lines, 80);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].visual_row_end - result[0].visual_row_start, 1);
     }
 }

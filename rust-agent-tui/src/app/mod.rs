@@ -1,3 +1,4 @@
+pub mod text_selection;
 pub mod agent;
 pub mod agent_panel;
 pub mod events;

@@ -24,6 +24,17 @@ pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span> = Vec::new();
 
+    // 复制成功提示
+    if let Some(until) = app.core.copy_message_until {
+        if std::time::Instant::now() < until {
+            spans.push(Span::styled(
+                format!(" ✅ 已复制 {} 个字符", app.core.copy_char_count),
+                Style::default().fg(theme::SAGE),
+            ));
+            spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        }
+    }
+
     // 权限模式标签
     {
         use rust_agent_middlewares::prelude::PermissionMode;

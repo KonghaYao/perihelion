@@ -1,6 +1,6 @@
 use anyhow::Result;
 use base64::Engine as _;
-use ratatui::crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
+use ratatui::crossterm::event::{self, Event, KeyEventKind, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use tui_textarea::{Input, Key};
 use std::time::Duration;
 
@@ -30,6 +30,40 @@ pub enum Action {
     Redraw,
 }
 
+/// 将选区文本复制到系统剪贴板并更新 UI 提示。返回 true 表示成功复制。
+fn copy_selection_to_clipboard(app: &mut App) -> bool {
+    if let Some(text) = app.core.text_selection.selected_text.take() {
+        let char_count = text.chars().count();
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            let _ = clipboard.set_text(&text);
+        }
+        app.core.copy_char_count = char_count;
+        app.core.copy_message_until = Some(
+            std::time::Instant::now() + std::time::Duration::from_millis(2000)
+        );
+        app.core.text_selection.clear();
+        return true;
+    }
+    false
+}
+
+/// 将面板选区文本复制到系统剪贴板。返回 true 表示成功复制。
+fn copy_panel_selection_to_clipboard(app: &mut App) -> bool {
+    if let Some(text) = app.core.panel_selection.selected_text.take() {
+        let char_count = text.chars().count();
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            let _ = clipboard.set_text(&text);
+        }
+        app.core.copy_char_count = char_count;
+        app.core.copy_message_until = Some(
+            std::time::Instant::now() + std::time::Duration::from_millis(2000)
+        );
+        app.core.panel_selection.clear();
+        return true;
+    }
+    false
+}
+
 pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     if !event::poll(Duration::from_millis(50))? {
         return Ok(None);
@@ -40,6 +74,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     match ev {
         Event::Resize(w, _) => {
             let _ = app.core.render_tx.send(RenderEvent::Resize(w));
+            app.core.text_selection.clear();
         }
         Event::Key(key_event) => {
             // 只处理 Press 事件，忽略 Release（防止按键重复触发）
@@ -54,6 +89,46 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 let _new_mode = app.permission_mode.cycle();
                 app.mode_highlight_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 return Ok(Some(Action::Redraw));
+            }
+
+            // macOS: Cmd+C (Super+C) 复制选区文本（遵循系统剪贴板快捷键惯例）
+            // tui_textarea::Input 没有 super 字段，需在转换前从原始 key_event 检测。
+            if key_event.code == KeyCode::Char('c')
+                && key_event.modifiers.contains(KeyModifiers::SUPER)
+            {
+                if copy_selection_to_clipboard(app) {
+                    return Ok(Some(Action::Redraw));
+                }
+            }
+
+            // 全局复制：有选区时 Ctrl+C 优先复制，不被任何面板拦截
+            if key_event.code == KeyCode::Char('c')
+                && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && !key_event.modifiers.contains(KeyModifiers::SHIFT)
+            {
+                // 优先级：消息区选区 > 面板选区 > textarea 选区
+                if copy_selection_to_clipboard(app) {
+                    return Ok(Some(Action::Redraw));
+                }
+                if copy_panel_selection_to_clipboard(app) {
+                    return Ok(Some(Action::Redraw));
+                }
+                if app.core.textarea.is_selecting() {
+                    app.core.textarea.copy();
+                    let text = app.core.textarea.yank_text();
+                    if !text.is_empty() {
+                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                            let _ = clipboard.set_text(&text);
+                        }
+                        let char_count = text.chars().count();
+                        app.core.copy_char_count = char_count;
+                        app.core.copy_message_until = Some(
+                            std::time::Instant::now() + std::time::Duration::from_millis(2000)
+                        );
+                        app.core.textarea.cancel_selection();
+                        return Ok(Some(Action::Redraw));
+                    }
+                }
             }
 
             let input = Input::from(ev);
@@ -212,13 +287,14 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             match input {
+                // Ctrl+C：有选区时复制优先，无选区时中断/退出
+                // Ctrl+C：无选区时中断/退出（有选区的复制已在全局拦截处理）
                 Input {
                     key: Key::Char('c'),
                     ctrl: true,
                     ..
                 } => {
                     if app.core.loading {
-                        // loading 时：中断 Agent（不退出）
                         app.interrupt();
                     } else {
                         return Ok(Some(Action::Quit));
@@ -449,6 +525,105 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
         Event::Mouse(mouse) => match mouse.kind {
             MouseEventKind::ScrollUp => app.scroll_up(),
             MouseEventKind::ScrollDown => app.scroll_down(),
+            MouseEventKind::Down(MouseButton::Left) => {
+                // 面板区域：开始面板选区
+                if let Some(area) = app.core.panel_area {
+                    if mouse.row >= area.y
+                        && mouse.row < area.y + area.height
+                        && mouse.column >= area.x
+                        && mouse.column < area.x + area.width
+                    {
+                        let content_row = mouse.row - area.y + app.core.panel_scroll_offset;
+                        let col = mouse.column - area.x;
+                        app.core.panel_selection.start_drag(content_row, col);
+                        app.core.text_selection.clear();
+                        // 不再处理其他区域的选区
+                        return Ok(Some(Action::Redraw));
+                    }
+                }
+                if let Some(area) = app.core.messages_area {
+                    if mouse.row >= area.y
+                        && mouse.row < area.y + area.height
+                        && mouse.column >= area.x
+                        && mouse.column < area.x + area.width
+                    {
+                        let visual_row = mouse.row - area.y + app.core.scroll_offset;
+                        let visual_col = mouse.column - area.x;
+                        app.core.text_selection.start_drag(visual_row, visual_col);
+                    }
+                }
+                // 输入框区域：开始 textarea 选区
+                if let Some(area) = app.core.textarea_area {
+                    if mouse.row >= area.y
+                        && mouse.row < area.y + area.height
+                        && mouse.column >= area.x
+                        && mouse.column < area.x + area.width
+                    {
+                        let row = (mouse.row - area.y).saturating_sub(1) as usize; // 跳过顶部边框
+                        let col = mouse.column.saturating_sub(area.x) as usize;
+                        app.core.textarea.move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
+                        app.core.textarea.start_selection();
+                    }
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                // 面板选区拖拽
+                if app.core.panel_selection.dragging {
+                    if let Some(area) = app.core.panel_area {
+                        let content_row = mouse.row.saturating_sub(area.y)
+                            .saturating_add(app.core.panel_scroll_offset);
+                        let col = mouse.column.saturating_sub(area.x);
+                        app.core.panel_selection.update_drag(content_row, col);
+                    }
+                }
+                if app.core.text_selection.dragging {
+                    if let Some(area) = app.core.messages_area {
+                        let visual_row = mouse.row.saturating_sub(area.y)
+                            .saturating_add(app.core.scroll_offset);
+                        let visual_col = mouse.column.saturating_sub(area.x);
+                        app.core.text_selection.update_drag(visual_row, visual_col);
+                    }
+                }
+                // 输入框区域：扩展 textarea 选区
+                if app.core.textarea.is_selecting() {
+                    if let Some(area) = app.core.textarea_area {
+                        if mouse.row >= area.y && mouse.row < area.y + area.height {
+                            let row = (mouse.row - area.y).saturating_sub(1) as usize;
+                            let col = mouse.column.saturating_sub(area.x) as usize;
+                            app.core.textarea.move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
+                        }
+                    }
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                // 面板选区松开
+                if app.core.panel_selection.dragging {
+                    app.core.panel_selection.end_drag();
+                    let sel = &app.core.panel_selection;
+                    if let (Some(start), Some(end)) = (sel.start, sel.end) {
+                        let text = crate::app::text_selection::extract_panel_text(
+                            start, end, &app.core.panel_plain_lines,
+                        );
+                        app.core.panel_selection.set_selected_text(text);
+                    }
+                }
+                if app.core.text_selection.dragging {
+                    app.core.text_selection.end_drag();
+                    let ts = &app.core.text_selection;
+                    if let (Some(start), Some(end)) = (ts.start, ts.end) {
+                        let usable_width = app.core.messages_area
+                            .map(|a| a.width.saturating_sub(1))
+                            .unwrap_or(0);
+                        let cache = app.core.render_cache.read();
+                        let text = crate::app::text_selection::extract_selected_text(
+                            start, end, &cache.wrap_map, usable_width,
+                        );
+                        drop(cache);
+                        app.core.text_selection.set_selected_text(text);
+                    }
+                }
+                // textarea 选区在 mouse up 时不做额外处理，保持 tui_textarea 的选区状态
+            }
             _ => {}
         },
         _ => {}
@@ -469,6 +644,8 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         Input { key: Key::Esc, .. } => {
             // Esc 关闭面板，回到当前对话
             app.core.thread_browser = None;
+            app.core.panel_selection.clear();
+            app.core.panel_area = None;
         }
         Input { key: Key::Up, .. } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
@@ -508,6 +685,8 @@ fn handle_agent_panel(app: &mut App, input: Input) {
         } => {}
         Input { key: Key::Esc, .. } => {
             app.close_agent_panel();
+            app.core.panel_selection.clear();
+            app.core.panel_area = None;
         }
         Input { key: Key::Up, .. } => {
             app.agent_panel_move_up();
@@ -704,6 +883,8 @@ fn handle_cron_panel(app: &mut App, input: Input) {
             key: Key::Esc, ..
         } => {
             app.cron_panel_close();
+            app.core.panel_selection.clear();
+            app.core.panel_area = None;
         }
         _ => {}
     }

@@ -47,6 +47,23 @@ pub struct AppCore {
     pub history_index: Option<usize>,
     /// 进入历史浏览前的草稿内容，退出浏览时恢复
     pub draft_input: Option<String>,
+    pub text_selection: crate::app::text_selection::TextSelection,
+    /// 消息渲染区域的 Rect，每次 render() 时更新，用于鼠标事件坐标判定
+    pub messages_area: Option<ratatui::layout::Rect>,
+    /// 输入框渲染区域的 Rect，每次 render() 时更新，用于鼠标选区坐标判定
+    pub textarea_area: Option<ratatui::layout::Rect>,
+    /// 复制成功提示截止时间，None 表示不显示
+    pub copy_message_until: Option<std::time::Instant>,
+    /// 复制的字符数（用于提示文案）
+    pub copy_char_count: usize,
+    /// 面板文字选区状态（thread_browser / agent / cron 等列表面板）
+    pub panel_selection: crate::app::text_selection::PanelTextSelection,
+    /// 面板 inner 区域（去掉边框后），每次面板渲染时更新
+    pub panel_area: Option<ratatui::layout::Rect>,
+    /// 当前面板渲染内容的纯文本行
+    pub panel_plain_lines: Vec<String>,
+    /// 当前面板的滚动偏移
+    pub panel_scroll_offset: u16,
 }
 
 impl AppCore {
@@ -88,6 +105,15 @@ impl AppCore {
             input_history: Vec::new(),
             history_index: None,
             draft_input: None,
+            text_selection: crate::app::text_selection::TextSelection::new(),
+            messages_area: None,
+            textarea_area: None,
+            copy_message_until: None,
+            copy_char_count: 0,
+            panel_selection: crate::app::text_selection::PanelTextSelection::new(),
+            panel_area: None,
+            panel_plain_lines: Vec::new(),
+            panel_scroll_offset: 0,
         }
     }
 }
@@ -104,6 +130,7 @@ mod tests {
             message_offsets: Vec::new(),
             total_lines: 0,
             version: 0,
+            wrap_map: Vec::new(),
         }));
         let render_notify = Arc::new(tokio::sync::Notify::new());
         let command_registry = crate::command::default_registry();
