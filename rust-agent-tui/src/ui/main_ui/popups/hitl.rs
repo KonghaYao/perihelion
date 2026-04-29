@@ -78,16 +78,25 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
 
     lines.push(Line::from(""));
 
-    // 底部提示（仅多项时显示"按 Enter 按当前设置确认"）
+    // 底部提示
     if item_count > 1 {
         lines.push(Line::from(vec![
             Span::styled(
-                format!("已选: {} 批准 / {} 拒绝",
+                format!("已选: {} 批准 / {} 拒绝  ",
                     prompt.approved.iter().filter(|&&v| v).count(),
                     prompt.approved.iter().filter(|&&v| !v).count()
                 ),
                 Style::default().fg(theme::MUTED),
             ),
+            Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+            Span::styled(":确认", Style::default().fg(theme::MUTED)),
+        ]));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+            Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
+            Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+            Span::styled(":确认", Style::default().fg(theme::MUTED)),
         ]));
     }
 
@@ -125,5 +134,60 @@ fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
         format!("{}…", s.chars().take(max_len - 1).collect::<String>())
     } else {
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{HitlBatchPrompt, InteractionPrompt};
+    use crate::app::App;
+    use rust_agent_middlewares::hitl::BatchItem;
+
+    fn render_headless_hitl_single() -> (App, crate::ui::headless::HeadlessHandle) {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let items = vec![BatchItem {
+            tool_name: "bash".to_string(),
+            input: serde_json::json!({"command": "ls"}),
+        }];
+        let prompt = HitlBatchPrompt::new(items, tx);
+        app.agent.interaction_prompt = Some(InteractionPrompt::Approval(prompt));
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        (app, handle)
+    }
+
+    fn render_headless_hitl_multi() -> (App, crate::ui::headless::HeadlessHandle) {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let items = vec![
+            BatchItem { tool_name: "bash".to_string(), input: serde_json::json!({"command": "ls"}) },
+            BatchItem { tool_name: "write_file".to_string(), input: serde_json::json!({"path": "test.rs"}) },
+        ];
+        let prompt = HitlBatchPrompt::new(items, tx);
+        app.agent.interaction_prompt = Some(InteractionPrompt::Approval(prompt));
+        // 通过 main_ui::render 渲染完整布局，确保面板高度正确
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        (app, handle)
+    }
+
+    #[tokio::test]
+    async fn test_hitl_single_no_single_letter_hints() {
+        let (_, handle) = render_headless_hitl_single();
+        let snap = handle.snapshot().join("\n");
+        // 不应出现单字母快捷键 y 或 n（作为独立快捷键提示）
+        assert!(!snap.contains(":批准") || !snap.contains("y:"), "不应显示 y:批准 单字母快捷键");
+        assert!(!snap.contains(":拒绝") || !snap.contains("n:"), "不应显示 n:拒绝 单字母快捷键");
+        // 应显示合规快捷键
+        assert!(handle.contains("Space"), "应显示 Space 快捷键");
+        assert!(handle.contains("Enter"), "应显示 Enter 快捷键");
+    }
+
+    #[tokio::test]
+    async fn test_hitl_multi_shows_enter_hint() {
+        let (_, handle) = render_headless_hitl_multi();
+        let snap = handle.snapshot().join("\n");
+        // 多项应显示 Enter 确认
+        assert!(snap.contains("Enter"), "多项应显示 Enter 快捷键，实际:\n{}", snap);
     }
 }

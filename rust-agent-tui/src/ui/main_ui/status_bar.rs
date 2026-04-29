@@ -159,10 +159,6 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(":移动  ", Style::default().fg(theme::MUTED)),
                 Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
                 Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
-                Span::styled("y", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
-                Span::styled(":全批准  ", Style::default().fg(theme::MUTED)),
-                Span::styled("n", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
-                Span::styled(":全拒绝  ", Style::default().fg(theme::MUTED)),
                 Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
                 Span::styled(":确认", Style::default().fg(theme::MUTED)),
             ]

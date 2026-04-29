@@ -106,7 +106,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
     // 自定义输入行（始终显示）
     lines.push(Line::from(""));
     let is_cur = cur.in_custom_input;
-    let ph = "输入自定义内容…";
+    let ph = "↓ 自定义输入…";
     let display = if cur.custom_input.is_empty() && !is_cur {
         ph.to_string()
     } else {

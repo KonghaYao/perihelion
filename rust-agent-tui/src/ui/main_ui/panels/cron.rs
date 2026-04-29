@@ -76,7 +76,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
         ),
         Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
         Span::styled(
-            "d",
+            "Ctrl+D",
             Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD),
         ),
         Span::styled(":删除  ", Style::default().fg(theme::MUTED)),

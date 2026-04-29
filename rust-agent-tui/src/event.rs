@@ -254,27 +254,11 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     Input { key: Key::Up, .. } => app.hitl_move(-1),
                     Input { key: Key::Down, .. } => app.hitl_move(1),
 
-                    // 空格/t：切换当前项
+                    // Space：切换当前项
                     Input {
                         key: Key::Char(' '),
                         ..
-                    }
-                    | Input {
-                        key: Key::Char('t'),
-                        ..
                     } => app.hitl_toggle(),
-
-                    // y / A：全部批准并确认
-                    Input {
-                        key: Key::Char('y'),
-                        ..
-                    } => app.hitl_approve_all(),
-
-                    // n / N：全部拒绝并确认
-                    Input {
-                        key: Key::Char('n'),
-                        ..
-                    } => app.hitl_reject_all(),
 
                     // Enter：按当前各项选择确认
                     Input {
@@ -672,8 +656,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         }
         Input {
             key: Key::Char('d'),
-            ctrl: false,
-            alt: false,
+            ctrl: true,
             ..
         } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
@@ -739,14 +722,13 @@ fn handle_login_panel(app: &mut App, input: Input) {
             Input { key: Key::Down, .. } => {
                 app.core.login_panel.as_mut().unwrap().move_cursor(1);
             }
-            Input { key: Key::Char('e'), ctrl: false, alt: false, .. }
-            | Input { key: Key::Enter, .. } => {
+            Input { key: Key::Enter, .. } => {
                 app.core.login_panel.as_mut().unwrap().enter_edit();
             }
-            Input { key: Key::Char('n'), ctrl: false, alt: false, .. } => {
+            Input { key: Key::Char('n'), ctrl: true, .. } => {
                 app.core.login_panel.as_mut().unwrap().enter_new();
             }
-            Input { key: Key::Char('d'), ctrl: false, alt: false, .. } => {
+            Input { key: Key::Char('d'), ctrl: true, .. } => {
                 app.core.login_panel.as_mut().unwrap().request_delete();
             }
             Input { key: Key::Char(' '), .. } => {
@@ -905,8 +887,7 @@ fn handle_cron_panel(app: &mut App, input: Input) {
         }
         Input {
             key: Key::Char('d'),
-            ctrl: false,
-            alt: false,
+            ctrl: true,
             ..
         } => {
             app.cron_panel_delete();

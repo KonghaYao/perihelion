@@ -83,7 +83,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
             }
             if panel.providers.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    "  （无 provider，按 n 新建）",
+                    "  （无 provider，按 Ctrl+N 新建）",
                     Style::default().fg(theme::MUTED),
                 )));
             }
@@ -91,11 +91,11 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
             lines.push(Line::from(vec![
                 Span::styled(" Space", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
                 Span::styled(":选中  ", Style::default().fg(theme::MUTED)),
-                Span::styled("Enter/e", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
                 Span::styled(":编辑  ", Style::default().fg(theme::MUTED)),
-                Span::styled("n", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
+                Span::styled("Ctrl+N", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
                 Span::styled(":新建  ", Style::default().fg(theme::MUTED)),
-                Span::styled("d", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                Span::styled("Ctrl+D", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
                 Span::styled(":删除", Style::default().fg(theme::MUTED)),
             ]));
             lines.truncate(inner.height as usize);
@@ -214,4 +214,51 @@ fn mask_api_key(key: &str) -> String {
     let prefix: String = chars[..4].iter().collect();
     let suffix: String = chars[len - 4..].iter().collect();
     format!("{}****{}", prefix, suffix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::login_panel::{LoginPanel, LoginPanelMode, LoginEditField};
+    use crate::app::App;
+    use crate::config::ProviderConfig;
+
+    fn render_headless_login_browse() -> (App, crate::ui::headless::HeadlessHandle) {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        app.core.login_panel = Some(LoginPanel {
+            providers: vec![ProviderConfig {
+                id: "test".to_string(),
+                provider_type: "openai".to_string(),
+                base_url: "http://localhost".to_string(),
+                api_key: "sk-test".to_string(),
+                models: crate::config::ProviderModels {
+                    opus: "opus-model".to_string(),
+                    sonnet: "sonnet-model".to_string(),
+                    haiku: "haiku-model".to_string(),
+                },
+                ..Default::default()
+            }],
+            mode: LoginPanelMode::Browse,
+            cursor: 0,
+            edit_field: LoginEditField::Name,
+            buf_name: String::new(),
+            buf_type: String::new(),
+            buf_base_url: String::new(),
+            buf_api_key: String::new(),
+            buf_opus_model: String::new(),
+            buf_sonnet_model: String::new(),
+            buf_haiku_model: String::new(),
+            scroll_offset: 0,
+        });
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        (app, handle)
+    }
+
+    #[tokio::test]
+    async fn test_login_browse_no_single_letter_hints() {
+        let (_, handle) = render_headless_login_browse();
+        let snap = handle.snapshot().join("\n");
+        assert!(snap.contains("Ctrl+N"), "新建应显示 Ctrl+N 而非单字母 n，实际:\n{}", snap);
+        assert!(snap.contains("Ctrl+D"), "删除应显示 Ctrl+D 而非单字母 d，实际:\n{}", snap);
+    }
 }
