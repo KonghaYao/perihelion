@@ -6,9 +6,26 @@ use ratatui::{
 };
 
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
 use crate::ui::theme;
+
+fn truncate_display(s: &str, max_width: usize) -> String {
+    if s.width() <= max_width {
+        return s.to_string();
+    }
+    let target = max_width.saturating_sub(1); // 留 1 列给 …
+    let mut cum = 0;
+    for (i, c) in s.char_indices() {
+        let cw = c.width().unwrap_or(0);
+        if cum + cw > target {
+            return format!("{}…", &s[..i]);
+        }
+        cum += cw;
+    }
+    s.to_string()
+}
 
 /// Thread 浏览面板（底部展开区）
 pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
@@ -45,12 +62,11 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &App, area: Rect) {
     ]));
 
     // 历史 thread
+    let max_label = inner.width.saturating_sub(3) as usize;
     for (i, meta) in browser.threads.iter().enumerate() {
         let is_cursor = browser.cursor == i + 1;
         let title = meta.title.as_deref().unwrap_or("(无标题)");
-        let updated = meta.updated_at.format("%m-%d %H:%M").to_string();
-        let cwd_short: String = meta.cwd.chars().rev().take(20).collect::<String>().chars().rev().collect();
-        let label = format!("{title}  [{updated}] …{cwd_short}");
+        let label = truncate_display(title, max_label);
 
         lines.push(Line::from(vec![
             Span::styled(
