@@ -72,7 +72,12 @@ impl App {
         let Some(cfg) = self.zen_config.as_mut() else {
             return;
         };
-        panel.apply_edit(cfg);
+        if !panel.apply_edit(cfg) {
+            self.core.view_messages.push(MessageViewModel::system(
+                "保存失败：Provider 名称不能为空".to_string(),
+            ));
+            return;
+        }
         if let Err(e) = crate::config::save(cfg) {
             self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
         }
@@ -90,7 +95,15 @@ impl App {
         let Some(cfg) = self.zen_config.as_mut() else {
             return;
         };
+        let deleted_name = panel.providers.get(panel.cursor)
+            .map(|p| p.display_name().to_string())
+            .unwrap_or_default();
         panel.confirm_delete(cfg);
+        if !deleted_name.is_empty() {
+            self.core.view_messages.push(MessageViewModel::system(
+                format!("已删除 Provider: {}", deleted_name),
+            ));
+        }
         if let Err(e) = crate::config::save(cfg) {
             self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
         }

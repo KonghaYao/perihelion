@@ -172,6 +172,39 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled("Esc", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
                 Span::styled(":取消", Style::default().fg(theme::MUTED)),
             ]
+        } else if app.cron.cron_panel.is_some() {
+            vec![
+                Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":移动  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Ctrl+D", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":删除  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Esc", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                Span::styled(":关闭", Style::default().fg(theme::MUTED)),
+            ]
+        } else if app.core.login_panel.is_some() {
+            vec![
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":编辑  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Ctrl+N", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
+                Span::styled(":新建  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Ctrl+D", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":删除  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Esc", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                Span::styled(":关闭", Style::default().fg(theme::MUTED)),
+            ]
+        } else if app.core.model_panel.is_some() {
+            vec![
+                Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":导航  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":确认  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":Thinking  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Esc", Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)),
+                Span::styled(":关闭", Style::default().fg(theme::MUTED)),
+            ]
         } else {
             vec![]
         }

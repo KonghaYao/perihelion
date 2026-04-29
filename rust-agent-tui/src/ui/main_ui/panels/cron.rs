@@ -67,6 +67,15 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
         ]));
     }
 
+    // 空列表引导
+    if panel.tasks.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  （无定时任务，使用 /loop 命令创建）",
+            Style::default().fg(theme::MUTED),
+        )));
+    }
+
     // 底部提示行
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
@@ -129,4 +138,25 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
         .render(f, inner, &mut scroll_state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::CronPanel;
+    use crate::app::App;
+
+    fn render_headless_cron_empty() -> (App, crate::ui::headless::HeadlessHandle) {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        app.cron.cron_panel = Some(CronPanel::new(vec![]));
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        (app, handle)
+    }
+
+    #[tokio::test]
+    async fn test_cron_empty_shows_guide() {
+        let (_, handle) = render_headless_cron_empty();
+        let snap = handle.snapshot().join("\n");
+        assert!(snap.contains("loop"), "空 Cron 面板应显示 /loop 创建引导，实际:\n{}", snap);
+    }
 }

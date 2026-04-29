@@ -153,6 +153,8 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(":切换Type  ", Style::default().fg(theme::MUTED)),
                 Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
                 Span::styled(":保存  ", Style::default().fg(theme::MUTED)),
+                Span::styled("Ctrl+V", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled(":粘贴  ", Style::default().fg(theme::MUTED)),
                 Span::styled("Esc", Style::default().fg(theme::MUTED)),
                 Span::styled(":取消", Style::default().fg(theme::MUTED)),
             ]));
@@ -260,5 +262,32 @@ mod tests {
         let snap = handle.snapshot().join("\n");
         assert!(snap.contains("Ctrl+N"), "新建应显示 Ctrl+N 而非单字母 n，实际:\n{}", snap);
         assert!(snap.contains("Ctrl+D"), "删除应显示 Ctrl+D 而非单字母 d，实际:\n{}", snap);
+    }
+
+    fn render_headless_login_edit() -> (App, crate::ui::headless::HeadlessHandle) {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        app.core.login_panel = Some(LoginPanel {
+            providers: vec![],
+            mode: LoginPanelMode::New,
+            cursor: 0,
+            edit_field: LoginEditField::Name,
+            buf_name: String::new(),
+            buf_type: "openai".to_string(),
+            buf_base_url: String::new(),
+            buf_api_key: String::new(),
+            buf_opus_model: String::new(),
+            buf_sonnet_model: String::new(),
+            buf_haiku_model: String::new(),
+            scroll_offset: 0,
+        });
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        (app, handle)
+    }
+
+    #[tokio::test]
+    async fn test_login_edit_has_paste_hint() {
+        let (_, handle) = render_headless_login_edit();
+        let snap = handle.snapshot().join("\n");
+        assert!(snap.contains("Ctrl+V"), "编辑模式应显示 Ctrl+V 粘贴提示，实际:\n{}", snap);
     }
 }
