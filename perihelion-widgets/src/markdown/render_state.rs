@@ -7,6 +7,9 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::MarkdownTheme;
 
+#[cfg(feature = "markdown-highlight")]
+use super::highlight::highlight_code_block;
+
 // ── 辅助类型 ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -555,7 +558,26 @@ impl<'a> RenderState<'a> {
                     ));
                     self.flush_line();
                 } else if end > 1 {
-                    // 多行代码块：│ 前缀 + muted 色，不去着色，整洁就好
+                    // 多行代码块
+                    #[cfg(feature = "markdown-highlight")]
+                    if let Some(highlighted) = highlight_code_block(&self.code_block_lang, &lines[..end]) {
+                        self.lines.extend(highlighted);
+                    } else {
+                        // syntect 未识别语言，回退到统一颜色
+                        for line_text in &lines[..end] {
+                            self.current_spans.push(Span::styled(
+                                "│ ".to_string(),
+                                Style::default().fg(self.theme.muted()),
+                            ));
+                            self.current_spans.push(Span::styled(
+                                line_text.clone(),
+                                Style::default().fg(self.theme.text()),
+                            ));
+                            self.flush_line();
+                        }
+                    }
+
+                    #[cfg(not(feature = "markdown-highlight"))]
                     for line_text in &lines[..end] {
                         self.current_spans.push(Span::styled(
                             "│ ".to_string(),

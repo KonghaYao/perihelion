@@ -1,5 +1,8 @@
 mod render_state;
 
+#[cfg(feature = "markdown-highlight")]
+mod highlight;
+
 use pulldown_cmark::{Options, Parser};
 use ratatui::style::Color;
 use ratatui::text::Text;
@@ -235,5 +238,47 @@ mod tests {
 
         // 窄版本应该有更多行（因为换行）
         assert!(text_narrow.lines.len() >= text_wide.lines.len(), "Narrower width should result in more lines");
+    }
+
+    #[cfg(feature = "markdown-highlight")]
+    #[test]
+    fn parse_multiline_code_block_rust_highlight() {
+        let text = parse_markdown("```rust\nfn main() {\n    println!(\"hello\");\n}\n```", &default_theme(), 80);
+        // 3 行代码内容
+        assert!(text.lines.len() >= 3, "多行代码块应至少产生 3 行");
+        // 验证非单行模式：至少有一行包含 │ 前缀
+        let has_prefix = text.lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains('│')));
+        assert!(has_prefix, "多行代码块应有 │ 前缀");
+        // 验证语法高亮产生了多种颜色（不全是统一 text 颜色）
+        let all_colors: std::collections::HashSet<_> = text.lines.iter()
+            .flat_map(|l| l.spans.iter().filter_map(|s| s.style.fg))
+            .collect();
+        assert!(all_colors.len() > 1, "语法高亮应产生多种颜色，实际颜色数: {}", all_colors.len());
+    }
+
+    #[cfg(feature = "markdown-highlight")]
+    #[test]
+    fn parse_multiline_code_block_unknown_lang_fallback() {
+        let text = parse_markdown("```unknown_lang_xyz\ncode here\nmore code\n```", &default_theme(), 80);
+        assert!(text.lines.len() >= 2, "未识别语言仍应输出代码行");
+        // 回退模式：每行应有 │ 前缀
+        let has_prefix = text.lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains('│')));
+        assert!(has_prefix, "回退模式应有 │ 前缀");
+        // 回退模式：所有代码文本使用统一 text 颜色
+        let code_spans: Vec<_> = text.lines.iter()
+            .flat_map(|l| l.spans.iter().filter(|s| !s.content.contains('│') && !s.content.trim().is_empty()))
+            .collect();
+        for span in &code_spans {
+            assert_eq!(span.style.fg, Some(default_theme().text()), "回退模式代码应使用 text 颜色");
+        }
+    }
+
+    #[cfg(feature = "markdown-highlight")]
+    #[test]
+    fn parse_multiline_code_block_no_lang_fallback() {
+        let text = parse_markdown("```\ncode here\nmore code\n```", &default_theme(), 80);
+        assert!(text.lines.len() >= 2, "省略语言标签仍应输出代码行");
+        let has_prefix = text.lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains('│')));
+        assert!(has_prefix, "回退模式应有 │ 前缀");
     }
 }
