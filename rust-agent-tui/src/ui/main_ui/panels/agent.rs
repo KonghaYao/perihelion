@@ -94,9 +94,20 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    // 空列表引导
+    if agent_count == 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  在 .claude/agents/ 目录中添加 Agent 定义文件",
+            Style::default().fg(theme::MUTED),
+        )));
+    }
+
     // 底部提示
     lines.push(Line::from(vec![
-        Span::styled(" Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(" ↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(":导航  ", Style::default().fg(theme::MUTED)),
+        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
         Span::styled(":选择  ", Style::default().fg(theme::MUTED)),
         Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
         Span::styled(":关闭", Style::default().fg(theme::MUTED)),
@@ -144,5 +155,36 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
         .render(f, inner, &mut scroll_state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::agent_panel::AgentPanel;
+    use crate::app::App;
+
+    fn render_headless_agent_empty() -> (App, crate::ui::headless::HeadlessHandle) {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        app.core.agent_panel = Some(AgentPanel::new(vec![], None));
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        (app, handle)
+    }
+
+    #[tokio::test]
+    async fn test_agent_empty_shows_guide() {
+        let (_, handle) = render_headless_agent_empty();
+        let snap = handle.snapshot().join("\n");
+        // 空列表应显示引导提示（用 ASCII 子串避免 CJK 宽字符问题）
+        assert!(snap.contains("agents/"), "空列表应显示 Agent 定义文件引导，实际:\n{}", snap);
+    }
+
+    #[tokio::test]
+    async fn test_agent_panel_has_nav_hint() {
+        let (_, handle) = render_headless_agent_empty();
+        let snap = handle.snapshot().join("\n");
+        // 面板内或状态栏应包含导航相关提示
+        let has_nav = snap.contains("导航") || snap.contains("选择") || snap.contains("Enter");
+        assert!(has_nav, "Agent 面板应包含操作提示，实际:\n{}", snap);
+    }
 }
 

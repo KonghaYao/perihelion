@@ -34,7 +34,11 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     // Provider header
     if panel.provider_name.is_empty() {
         lines.push(Line::from(Span::styled(
-            "  未选择 Provider",
+            "  未配置 Provider",
+            Style::default().fg(theme::WARNING),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  请选择下方 /login 或输入 /login 命令配置",
             Style::default().fg(theme::MUTED),
         )));
     } else {
@@ -162,4 +166,32 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
 
     lines.truncate(inner.height as usize);
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::model_panel::{AliasTab, ModelPanel, ROW_OPUS};
+    use crate::app::App;
+
+    fn render_headless_model_no_provider() -> (App, crate::ui::headless::HeadlessHandle) {
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        app.core.model_panel = Some(ModelPanel {
+            provider_name: String::new(),
+            cursor: ROW_OPUS,
+            active_tab: AliasTab::Opus,
+            buf_thinking_enabled: false,
+            buf_thinking_budget: String::new(),
+        });
+        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        (app, handle)
+    }
+
+    #[tokio::test]
+    async fn test_model_no_provider_shows_guide() {
+        let (_, handle) = render_headless_model_no_provider();
+        let snap = handle.snapshot().join("\n");
+        // 无 Provider 时应显示 /login 引导
+        assert!(snap.contains("login"), "无 Provider 应显示 login 引导，实际:\n{}", snap);
+    }
 }
