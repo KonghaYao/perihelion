@@ -241,6 +241,12 @@ pub async fn full_compact(
         match model.invoke(request).await {
             Ok(response) => {
                 let raw_summary = response.message.content();
+                if raw_summary.trim().is_empty() {
+                    tracing::warn!("Full Compact: LLM 返回空摘要，跳过压缩");
+                    return Err(AgentError::Other(anyhow::anyhow!(
+                        "Full Compact 失败：LLM 返回空摘要"
+                    )));
+                }
                 let summary = postprocess_summary(&raw_summary);
                 return Ok(FullCompactResult {
                     summary,
@@ -626,5 +632,27 @@ mod tests {
         let result = full_compact(&msgs, &FailModel, &config, "").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("connection refused"));
+    }
+
+    #[tokio::test]
+    async fn test_full_compact_empty_summary_rejected() {
+        let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
+        let model = MockBaseModel::new("");
+        let config = CompactConfig::default();
+        let result = full_compact(&msgs, &model, &config, "").await;
+        assert!(result.is_err(), "空摘要应被拒绝");
+        assert!(
+            result.unwrap_err().to_string().contains("空摘要"),
+            "错误消息应提及空摘要"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_full_compact_whitespace_only_summary_rejected() {
+        let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
+        let model = MockBaseModel::new("   \n  \t  ");
+        let config = CompactConfig::default();
+        let result = full_compact(&msgs, &model, &config, "").await;
+        assert!(result.is_err(), "纯空白摘要应被拒绝");
     }
 }

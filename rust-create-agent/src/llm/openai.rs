@@ -203,8 +203,17 @@ impl ChatOpenAI {
                     let id = tc["id"].as_str()?;
                     let name = tc["function"]["name"].as_str()?;
                     let args_str = tc["function"]["arguments"].as_str().unwrap_or("{}");
-                    let arguments = serde_json::from_str::<Value>(args_str)
-                        .unwrap_or(Value::String(args_str.to_string()));
+                    let arguments = match serde_json::from_str::<Value>(args_str) {
+                        Ok(v) => v,
+                        Err(_) => {
+                            tracing::warn!(
+                                tool = name,
+                                raw_args = %args_str,
+                                "OpenAI tool_call arguments JSON 解析失败，使用空对象"
+                            );
+                            serde_json::json!({"_raw_arguments": args_str})
+                        }
+                    };
                     blocks.push(ContentBlock::tool_use(id, name, arguments.clone()));
                     Some(ToolCallRequest::new(id, name, arguments))
                 })
@@ -540,5 +549,19 @@ mod tests {
         assert_eq!(assistant["role"], "assistant");
         assert!(assistant["content"].is_string());
         assert_eq!(assistant["content"], "hello");
+    }
+
+    /// 格式错误的 JSON 工具参数应被记录并保留原始内容而非静默丢弃
+    #[test]
+    fn test_malformed_tool_args_preserved() {
+        let args_str = "{invalid json";
+        let arguments = match serde_json::from_str::<Value>(args_str) {
+            Ok(v) => v,
+            Err(_) => serde_json::json!({"_raw_arguments": args_str}),
+        };
+        assert!(
+            arguments.get("_raw_arguments").is_some(),
+            "格式错误的参数应保留在 _raw_arguments 中: {arguments}"
+        );
     }
 }

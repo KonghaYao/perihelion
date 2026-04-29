@@ -436,6 +436,13 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     .final_answer
                     .unwrap_or_else(|| reasoning.thought.clone());
 
+                if answer.trim().is_empty() {
+                    tracing::warn!(
+                        step,
+                        "LLM 返回空最终回答（无 tool_calls 且 final_answer/thought 为空）"
+                    );
+                }
+
                 // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
                 let ai_msg = reasoning.source_message
                     .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
