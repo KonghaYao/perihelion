@@ -55,8 +55,10 @@ fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Se
     let truncated = total > MAX_LIST_ENTRIES;
 
     if truncated {
-        folders.truncate(MAX_LIST_ENTRIES.min(folders.len()));
-        files.truncate(MAX_LIST_ENTRIES.saturating_sub(folders.len()).min(files.len()));
+        // 公平分配：folders 和 files 各占一半配额
+        let half = MAX_LIST_ENTRIES / 2;
+        folders.truncate(half.min(folders.len()));
+        files.truncate((MAX_LIST_ENTRIES - folders.len()).min(files.len()));
     }
 
     let mut result = format!("📁 {}\n\n", resolved.display());
@@ -239,5 +241,31 @@ mod tests {
             .await
             .unwrap();
         assert!(result.contains("file.txt"), "should list file.txt: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_folder_list_truncation_keeps_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("bigdir");
+        std::fs::create_dir(&subdir).unwrap();
+        // 创建超过 MAX_LIST_ENTRIES 的子目录
+        for i in 0..600 {
+            std::fs::create_dir(subdir.join(format!("d{}", i))).unwrap();
+        }
+        // 同时创建一些文件
+        for i in 0..5 {
+            std::fs::write(subdir.join(format!("f{}.txt", i)), "x").unwrap();
+        }
+        let tool = FolderOperationsTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({"operation": "list", "folder_path": "bigdir"}))
+            .await
+            .unwrap();
+        // 文件不应被全部丢弃
+        assert!(
+            result.contains("f0.txt") || result.contains("f1.txt"),
+            "截断后应保留部分文件: {result}"
+        );
+        assert!(result.contains("truncated"), "应显示截断提示: {result}");
     }
 }
