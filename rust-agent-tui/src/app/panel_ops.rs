@@ -25,7 +25,9 @@ impl App {
             return;
         };
         panel.apply_to_config(cfg);
-        let _ = crate::config::save(cfg);
+        if let Err(e) = crate::config::save(cfg) {
+            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+        }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
@@ -53,7 +55,9 @@ impl App {
         let Some(panel) = self.core.login_panel.as_mut() else { return };
         let Some(cfg) = self.zen_config.as_mut() else { return };
         panel.select_provider(cfg);
-        let _ = crate::config::save(cfg);
+        if let Err(e) = crate::config::save(cfg) {
+            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+        }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
@@ -69,7 +73,9 @@ impl App {
             return;
         };
         panel.apply_edit(cfg);
-        let _ = crate::config::save(cfg);
+        if let Err(e) = crate::config::save(cfg) {
+            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+        }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
@@ -85,7 +91,9 @@ impl App {
             return;
         };
         panel.confirm_delete(cfg);
-        let _ = crate::config::save(cfg);
+        if let Err(e) = crate::config::save(cfg) {
+            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+        }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();

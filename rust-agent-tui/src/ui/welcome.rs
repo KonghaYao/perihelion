@@ -94,6 +94,19 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         Span::styled("/compact", Style::default().fg(theme::WARNING)),
     ]));
 
+    // ── 快捷键提示 ──────────────────────────────────────────────────────
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(" Esc", Style::default().fg(theme::DIM)),
+        Span::styled(":Quit  ", Style::default().fg(theme::DIM)),
+        Span::styled("Ctrl+C", Style::default().fg(theme::DIM)),
+        Span::styled(":Stop  ", Style::default().fg(theme::DIM)),
+        Span::styled("Ctrl+V", Style::default().fg(theme::DIM)),
+        Span::styled(":Paste  ", Style::default().fg(theme::DIM)),
+        Span::styled("Shift+Tab", Style::default().fg(theme::DIM)),
+        Span::styled(":Mode", Style::default().fg(theme::DIM)),
+    ]));
+
     // ── 动态信息 ────────────────────────────────────────────────────────
     let skills_count = app.core.skills.len();
     if skills_count > 0 {

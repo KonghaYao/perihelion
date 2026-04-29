@@ -670,6 +670,16 @@ fn handle_thread_browser(app: &mut App, input: Input) {
                 }
             }
         }
+        Input {
+            key: Key::Char('d'),
+            ctrl: false,
+            alt: false,
+            ..
+        } => {
+            if let Some(b) = app.core.thread_browser.as_mut() {
+                b.delete_selected();
+            }
+        }
         _ => {}
     }
 }
@@ -731,6 +741,9 @@ fn handle_login_panel(app: &mut App, input: Input) {
             }
             Input { key: Key::Char('n'), ctrl: false, alt: false, .. } => {
                 app.core.login_panel.as_mut().unwrap().enter_new();
+            }
+            Input { key: Key::Char('d'), ctrl: false, alt: false, .. } => {
+                app.core.login_panel.as_mut().unwrap().request_delete();
             }
             Input { key: Key::Char(' '), .. } => {
                 app.login_panel_select_provider();
