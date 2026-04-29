@@ -130,7 +130,7 @@ impl SkillsMiddleware {
         }
 
         lines.push(String::new());
-        lines.push("如需加载某 skill 的完整内容，在消息中提及其 name 即可。用户一般会使用 '#skill_name' 的形式。".to_string());
+        lines.push("如需加载某 skill 的完整内容，在消息中提及其 name 即可。用户一般会使用 '/skill-name' 的形式。".to_string());
 
         lines.join("\n")
     }
@@ -231,5 +231,35 @@ mod tests {
 
         assert_eq!(state.messages().len(), 1);
         assert!(state.messages()[0].content().contains("custom-skill"));
+    }
+
+    #[tokio::test]
+    async fn test_build_summary_contains_slash_prefix() {
+        let dir = tempdir().unwrap();
+        let skills_dir = dir.path().join(".claude").join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+        write_skill(&skills_dir, "test-skill", "test description");
+
+        let mw = SkillsMiddleware::new();
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert!(content.contains("'/skill-name'"), "提示词应包含 '/skill-name' 格式，实际: {}", content);
+    }
+
+    #[tokio::test]
+    async fn test_build_summary_does_not_contain_hash_prefix() {
+        let dir = tempdir().unwrap();
+        let skills_dir = dir.path().join(".claude").join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+        write_skill(&skills_dir, "test-skill", "test description");
+
+        let mw = SkillsMiddleware::new();
+        let mut state = AgentState::new(dir.path().to_str().unwrap());
+        mw.before_agent(&mut state).await.unwrap();
+
+        let content = state.messages()[0].content();
+        assert!(!content.contains("#skill_name"), "提示词不应包含旧 #skill_name 格式，实际: {}", content);
     }
 }

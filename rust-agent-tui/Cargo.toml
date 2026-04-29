@@ -37,7 +37,7 @@ arboard = "3"
 png = "0.18"
 base64 = { version = "0.22", features = ["alloc"] }
 langfuse-client = { path = "../langfuse-client" }
-perihelion-widgets = { path = "../perihelion-widgets", features = ["markdown"] }
+perihelion-widgets = { path = "../perihelion-widgets", features = ["markdown-highlight"] }
 reqwest = { version = "0.13", default-features = false, features = [
     "rustls",
     "json",

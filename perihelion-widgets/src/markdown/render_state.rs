@@ -3,9 +3,12 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::MarkdownTheme;
+
+#[cfg(feature = "markdown-highlight")]
+use super::highlight::highlight_code_block;
 
 // ── 辅助类型 ──────────────────────────────────────────────────────────────────
 
@@ -105,7 +108,8 @@ impl TableBuilder {
         }
 
         // 计算可用宽度（减去边框和间距）
-        let border_width = num_cols + 1; // 每列两边的空格和边框
+        // 每行: │<space>内容<space>│<space>内容<space>│  → 1 + 3*num_cols 非内容字符
+        let border_width = 1 + 3 * num_cols;
         let available_width = max_width.saturating_sub(border_width);
 
         // 计算每列的最小和理想宽度
@@ -289,7 +293,7 @@ impl TableBuilder {
         lines
     }
 
-    /// 包装单个单元格的文本
+    /// 包装单个单元格的文本，按视觉宽度折行（正确支持 CJK 双宽字符）
     fn wrap_cell_text(&self, cell: &[Span], max_width: usize) -> Vec<Vec<Span<'static>>> {
         if max_width == 0 || cell.is_empty() {
             return vec![vec![]];
@@ -301,41 +305,57 @@ impl TableBuilder {
 
         if full_text.width() <= max_width {
             // 不需要换行，将所有 Span 转换为 'static
-            let static_spans: Vec<Span<'static>> = cell.iter().map(|s| Span::styled(s.content.as_ref().to_string(), s.style)).collect();
+            let static_spans: Vec<Span<'static>> = cell.iter()
+                .map(|s| Span::styled(s.content.as_ref().to_string(), s.style))
+                .collect();
             return vec![static_spans];
         }
 
-        // 需要换行
+        // 需要换行 — 用视觉宽度逐字符推进
         let mut lines = Vec::new();
-        let mut current_pos = 0;
-        let chars: Vec<char> = full_text.chars().collect();
+        let text = full_text.as_str();
+        let mut byte_pos = 0;
 
-        while current_pos < chars.len() {
-            let remaining = chars.len() - current_pos;
-            let take_len = remaining.min(max_width);
+        while byte_pos < text.len() {
+            // 从 byte_pos 开始，累积视觉宽度直到超过 max_width
+            let mut cur_width = 0usize;
+            let mut content_end = byte_pos; // 按宽度截断的字节位置
 
-            // 尽量在空格处换行
-            let mut break_pos = current_pos + take_len;
-            if break_pos < chars.len() {
-                // 向前查找最近的空格
-                for i in (current_pos..break_pos).rev() {
-                    if chars[i].is_whitespace() {
-                        break_pos = i;
-                        break;
-                    }
+            for (i, c) in text[byte_pos..].char_indices() {
+                let cw = c.width().unwrap_or(0);
+                // 至少推进一个字符，防止单字符超宽死循环
+                if content_end > byte_pos && cur_width + cw > max_width {
+                    break;
+                }
+                // 字符本身超宽（如 CJK 在很窄的列里），强制放入
+                cur_width += cw;
+                content_end = byte_pos + i + c.len_utf8();
+            }
+
+            // 从 content_end 往回找最后一个空格，优先在单词边界断行
+            let mut break_at = content_end;
+            for (i, c) in text[byte_pos..content_end].char_indices().rev() {
+                if c.is_whitespace() {
+                    break_at = byte_pos + i;
+                    break;
                 }
             }
 
-            let line_text: String = chars[current_pos..break_pos].iter().collect();
-            let trimmed = line_text.trim();
+            let line = &text[byte_pos..break_at];
+            let trimmed = line.trim();
             if !trimmed.is_empty() {
                 lines.push(vec![Span::styled(trimmed.to_string(), base_style)]);
             }
 
-            current_pos = break_pos;
-            // 跳过空格
-            while current_pos < chars.len() && chars[current_pos].is_whitespace() {
-                current_pos += 1;
+            byte_pos = break_at;
+            // 跳过后续空白
+            while byte_pos < text.len() {
+                let c = text[byte_pos..].chars().next().unwrap();
+                if c.is_whitespace() {
+                    byte_pos += c.len_utf8();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -432,6 +452,8 @@ pub(super) struct RenderState<'a> {
     pub quote_depth: u32,
     pub in_code_block: bool,
     pub code_block_lang: String,
+    /// 缓冲多行代码块的所有行，在 TagEnd::CodeBlock 时统一输出
+    code_lines: Vec<String>,
     table: Option<TableBuilder>,
     theme: &'a dyn MarkdownTheme,
     max_width: usize,
@@ -447,6 +469,7 @@ impl<'a> RenderState<'a> {
             quote_depth: 0,
             in_code_block: false,
             code_block_lang: String::new(),
+            code_lines: Vec::new(),
             table: None,
             theme,
             max_width: 80, // 默认宽度
@@ -506,19 +529,67 @@ impl<'a> RenderState<'a> {
 
             // ── 代码块 ────────────────────────────────────────────────────────
             Event::Start(Tag::CodeBlock(kind)) => {
+                // 先清理前一段落可能残留的 spans，避免首行粘黏
+                if !self.current_spans.is_empty() {
+                    self.flush_line();
+                }
                 self.in_code_block = true;
                 self.code_block_lang = match kind {
                     CodeBlockKind::Fenced(lang) => lang.into_string(),
                     CodeBlockKind::Indented => String::new(),
                 };
-                // 不再立即输出标签，而是在第一行代码时显示
+                self.code_lines.clear();
             }
             Event::End(TagEnd::CodeBlock) => {
-                if !self.current_spans.is_empty() {
-                    self.flush_line();
-                }
                 self.in_code_block = false;
-                self.code_block_lang.clear();
+                let lines = std::mem::take(&mut self.code_lines);
+
+                // 过滤尾部空行
+                let mut end = lines.len();
+                while end > 0 && lines[end - 1].is_empty() {
+                    end -= 1;
+                }
+
+                if end == 1 {
+                    // 单行代码块：只改颜色，不要 [lang] 和 │ 前缀，简洁
+                    self.current_spans.push(Span::styled(
+                        lines[0].clone(),
+                        Style::default().fg(self.theme.code()),
+                    ));
+                    self.flush_line();
+                } else if end > 1 {
+                    // 多行代码块
+                    #[cfg(feature = "markdown-highlight")]
+                    if let Some(highlighted) = highlight_code_block(&self.code_block_lang, &lines[..end]) {
+                        self.lines.extend(highlighted);
+                    } else {
+                        // syntect 未识别语言，回退到统一颜色
+                        for line_text in &lines[..end] {
+                            self.current_spans.push(Span::styled(
+                                "│ ".to_string(),
+                                Style::default().fg(self.theme.muted()),
+                            ));
+                            self.current_spans.push(Span::styled(
+                                line_text.clone(),
+                                Style::default().fg(self.theme.text()),
+                            ));
+                            self.flush_line();
+                        }
+                    }
+
+                    #[cfg(not(feature = "markdown-highlight"))]
+                    for line_text in &lines[..end] {
+                        self.current_spans.push(Span::styled(
+                            "│ ".to_string(),
+                            Style::default().fg(self.theme.muted()),
+                        ));
+                        self.current_spans.push(Span::styled(
+                            line_text.clone(),
+                            Style::default().fg(self.theme.text()),
+                        ));
+                        self.flush_line();
+                    }
+                }
             }
 
             // ── 列表 ─────────────────────────────────────────────────────────
@@ -578,32 +649,9 @@ impl<'a> RenderState<'a> {
             Event::Text(text) => {
                 let text_str = text.into_string();
                 if self.in_code_block {
-                    let code_lines: Vec<&str> = text_str.split('\n').collect();
-                    for (i, line_text) in code_lines.iter().enumerate() {
-                        if i == code_lines.len() - 1 && line_text.is_empty() {
-                            continue;
-                        }
-
-                        // 在第一行添加语言标签
-                        if i == 0 && !self.code_block_lang.is_empty() {
-                            let tag = format!("[{}] ", self.code_block_lang);
-                            self.current_spans.push(Span::styled(
-                                tag,
-                                Style::default()
-                                    .fg(self.theme.code())
-                                    .add_modifier(Modifier::BOLD),
-                            ));
-                        }
-
-                        self.current_spans.push(Span::styled(
-                            "│ ".to_string(),
-                            Style::default().fg(self.theme.code_prefix()),
-                        ));
-                        self.current_spans.push(Span::styled(
-                            line_text.to_string(),
-                            Style::default().fg(self.theme.text()),
-                        ));
-                        self.flush_line();
+                    // 缓冲所有行，等 TagEnd::CodeBlock 时统一输出
+                    for line in text_str.split('\n') {
+                        self.code_lines.push(line.to_string());
                     }
                 } else if self.table.is_some() {
                     let style = self.inline_style;

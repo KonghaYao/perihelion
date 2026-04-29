@@ -112,9 +112,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
     f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
     status_bar::render_status_bar(f, app, chunks[5]);
 
-    // 命令/Skills 提示条（浮动在输入框上方）
-    popups::hints::render_command_hint(f, app, chunks[4]);
-    popups::hints::render_skill_hint(f, app, chunks[4]);
+    // 统一命令/Skills 提示条（浮动在输入框上方）
+    popups::hints::render_unified_hint(f, app, chunks[4]);
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
