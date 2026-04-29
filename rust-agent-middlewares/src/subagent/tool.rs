@@ -200,7 +200,8 @@ impl BaseTool for SubAgentTool {
             .as_deref()
             .filter(|m| !m.is_empty() && *m != "inherit");
         let llm = (self.llm_factory)(model_alias);
-        let max_iterations = agent_def.frontmatter.max_turns.unwrap_or(200) as usize;
+        let raw_turns = agent_def.frontmatter.max_turns.unwrap_or(200);
+        let max_iterations = if raw_turns == 0 { 200 } else { raw_turns as usize };
 
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
 

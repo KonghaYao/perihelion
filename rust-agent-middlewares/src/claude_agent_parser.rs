@@ -152,22 +152,40 @@ pub fn format_agent_id(id: &str) -> String {
 ///
 /// 返回 frontmatter 和 markdown 正文
 pub fn parse_agent_file(content: &str) -> Option<ClaudeAgent> {
-    // 检查是否有 YAML frontmatter
+    parse_agent_file_inner(content).map_err(|e| {
+        tracing::warn!("agent 文件解析失败: {e}");
+        e
+    }).ok()
+}
+
+/// 内部实现，返回具体错误信息
+fn parse_agent_file_inner(content: &str) -> Result<ClaudeAgent, String> {
     let content = content.trim();
 
     if !content.starts_with("---") {
-        return None;
+        return Err("文件不以 '---' 开头，缺少 YAML frontmatter".to_string());
     }
 
-    // 找到第二个 "---" 的位置
-    let first_end = content[3..].find("---")?;
-    let yaml_content = &content[3..first_end + 3];
-    let markdown_content = content[first_end + 6..].trim();
+    // 按行查找闭合 "---"，避免匹配 YAML 值中的行内 ---
+    let after_open = &content[3..];
+    let close_pos = after_open
+        .lines()
+        .enumerate()
+        .skip_while(|(_, line)| line.trim().is_empty())
+        .find(|(_, line)| line.trim() == "---")
+        .map(|(i, _)| {
+            // 计算到该行末尾的字节偏移
+            after_open.lines().take(i + 1).map(|l| l.len() + 1).sum::<usize>()
+        })
+        .ok_or_else(|| "未找到闭合的 '---' 分隔符".to_string())?;
 
-    // 解析 YAML frontmatter
-    let frontmatter: ClaudeAgentFrontmatter = serde_yaml::from_str(yaml_content).ok()?;
+    let yaml_content = &after_open[..close_pos.saturating_sub(4)]; // 减去 "---\n"
+    let markdown_content = after_open[close_pos..].trim();
 
-    Some(ClaudeAgent {
+    let frontmatter: ClaudeAgentFrontmatter = serde_yaml::from_str(yaml_content)
+        .map_err(|e| format!("YAML frontmatter 解析失败: {e}"))?;
+
+    Ok(ClaudeAgent {
         frontmatter,
         system_prompt: markdown_content.to_string(),
     })
@@ -241,5 +259,40 @@ Basic system prompt.
     fn test_parse_no_frontmatter() {
         let content = "Just plain markdown without frontmatter.";
         assert!(parse_agent_file(content).is_none());
+    }
+
+    #[test]
+    fn test_parse_yaml_with_inline_dashes() {
+        // YAML 值中包含 --- 不应被误判为 frontmatter 结束
+        let content = r#"---
+name: test-agent
+description: Use --- for separators
+tools: Read
+---
+
+System prompt here.
+"#;
+        let agent = parse_agent_file(content).unwrap();
+        assert_eq!(agent.frontmatter.name, "test-agent");
+        assert_eq!(agent.frontmatter.description, "Use --- for separators");
+    }
+
+    #[test]
+    fn test_parse_malformed_yaml_returns_none() {
+        let content = "---\ninvalid: [yaml: broken\n---\n\nprompt";
+        assert!(parse_agent_file(content).is_none());
+    }
+
+    #[test]
+    fn test_max_turns_zero_falls_back() {
+        let content = r#"---
+name: zero-turn
+description: test
+maxTurns: 0
+---
+prompt"#;
+        let agent = parse_agent_file(content).unwrap();
+        assert_eq!(agent.frontmatter.max_turns, Some(0));
+        // 验证 tool.rs 中的 maxTurns:0 降级逻辑（这里只验证解析正确）
     }
 }

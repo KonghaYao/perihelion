@@ -59,14 +59,21 @@ fn collect_files(base: &Path, pattern: &str, results: &mut Vec<String>) {
             }
         });
 
-    for entry in walker.flatten() {
-        if entry.file_type().is_file() {
-            let abs_path = entry.path().to_string_lossy().to_string();
-            if let Ok(rel) = entry.path().strip_prefix(base) {
-                let rel_str = rel.to_string_lossy().replace('\\', "/");
-                if glob_match(pattern, &rel_str) {
-                    results.push(abs_path);
+    for entry in walker {
+        match entry {
+            Ok(e) => {
+                if e.file_type().is_file() {
+                    let abs_path = e.path().to_string_lossy().to_string();
+                    if let Ok(rel) = e.path().strip_prefix(base) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        if glob_match(pattern, &rel_str) {
+                            results.push(abs_path);
+                        }
+                    }
                 }
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "glob walk error (skipped)");
             }
         }
     }
