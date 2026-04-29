@@ -662,7 +662,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
                 if b.is_new() {
                     app.new_thread();
                 } else if let Some(id) = b.selected_id().cloned() {
-                    app.open_thread(id);
+                    app.open_thread_with_feedback(id);
                 }
             }
         }
