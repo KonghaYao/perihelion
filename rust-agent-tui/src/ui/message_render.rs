@@ -291,10 +291,10 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             let summary = ToolCategory::summary_for_tools(tools);
 
             if *collapsed {
-                // 折叠：单行摘要
+                // 折叠：单行摘要 + ▶ 展开提示
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("  {}", summary),
+                        format!("  ▶ {}", summary),
                         Style::default().fg(theme::MUTED),
                     ),
                 ]));

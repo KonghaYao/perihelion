@@ -76,25 +76,31 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
     ]));
 
     // 历史 thread
-    let max_label = inner.width.saturating_sub(3) as usize;
+    let max_label = inner.width.saturating_sub(5) as usize;
     for (i, meta) in browser.threads.iter().enumerate() {
         let is_cursor = browser.cursor == i + 1;
+        let is_current = app.current_thread_id.as_ref() == Some(&meta.id);
         let title = meta.title.as_deref().unwrap_or("(无标题)");
         let label = truncate_display(title, max_label);
+
+        let current_tag = if is_current { "✓ " } else { "  " };
+        let row_style = if is_cursor {
+            Style::default().fg(Color::White).bg(theme::ACCENT)
+        } else if is_current {
+            Style::default().fg(theme::ACCENT)
+        } else {
+            Style::default().fg(theme::TEXT)
+        };
 
         lines.push(Line::from(vec![
             Span::styled(
                 if is_cursor { "▶ " } else { "  " },
                 Style::default().fg(theme::ACCENT),
             ),
-            Span::styled(
-                label,
-                if is_cursor {
-                    Style::default().fg(Color::White).bg(theme::ACCENT)
-                } else {
-                    Style::default().fg(theme::TEXT)
-                },
-            ),
+            Span::styled(current_tag.to_string(), Style::default().fg(
+                if is_current { theme::SAGE } else { theme::MUTED }
+            )),
+            Span::styled(label, row_style),
         ]));
     }
 
