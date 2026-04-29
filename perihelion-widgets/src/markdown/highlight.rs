@@ -10,9 +10,6 @@ use syntect::parsing::SyntaxSet;
 pub static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
 pub static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 
-/// │ 前缀的固定灰色，与 TUI 暗色背景视觉协调
-const PREFIX_COLOR: Color = Color::Rgb(130, 140, 150);
-
 /// 对多行代码块进行语法高亮，返回着色后的 Line 列表。
 /// 当语言标签未识别时返回 None，调用方应回退到统一颜色渲染。
 pub fn highlight_code_block(lang: &str, lines: &[String]) -> Option<Vec<Line<'static>>> {
@@ -24,7 +21,6 @@ pub fn highlight_code_block(lang: &str, lines: &[String]) -> Option<Vec<Line<'st
     let mut result = Vec::with_capacity(lines.len());
     for line_text in lines {
         let mut spans = Vec::new();
-        spans.push(Span::styled("│ ".to_string(), Style::default().fg(PREFIX_COLOR)));
 
         let ranges = highlighter.highlight_line(line_text, ss).ok()?;
         for (style, text) in ranges {
@@ -46,10 +42,10 @@ mod tests {
         assert!(result.is_some(), "rust 代码应被识别");
         let lines = result.unwrap();
         assert_eq!(lines.len(), 1);
-        let has_prefix = lines[0].spans.iter().any(|s| s.content.contains("│"));
-        assert!(has_prefix, "应有 │ 前缀");
+        let has_content = lines[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains("fn main");
+        assert!(has_content, "应有代码内容");
         let has_syntax_color = lines[0].spans.iter().any(|s| {
-            s.style.fg.map_or(false, |c| c != PREFIX_COLOR) && !s.content.contains("│")
+            s.style.fg.is_some()
         });
         assert!(has_syntax_color, "应有非前缀颜色的语法着色 span");
     }

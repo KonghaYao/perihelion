@@ -566,10 +566,6 @@ impl<'a> RenderState<'a> {
                         // syntect 未识别语言，回退到统一颜色
                         for line_text in &lines[..end] {
                             self.current_spans.push(Span::styled(
-                                "│ ".to_string(),
-                                Style::default().fg(self.theme.muted()),
-                            ));
-                            self.current_spans.push(Span::styled(
                                 line_text.clone(),
                                 Style::default().fg(self.theme.text()),
                             ));
@@ -579,10 +575,6 @@ impl<'a> RenderState<'a> {
 
                     #[cfg(not(feature = "markdown-highlight"))]
                     for line_text in &lines[..end] {
-                        self.current_spans.push(Span::styled(
-                            "│ ".to_string(),
-                            Style::default().fg(self.theme.muted()),
-                        ));
                         self.current_spans.push(Span::styled(
                             line_text.clone(),
                             Style::default().fg(self.theme.text()),

@@ -2612,6 +2612,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tui-textarea-2",
+ "unicode-width",
  "uuid",
 ]
 
