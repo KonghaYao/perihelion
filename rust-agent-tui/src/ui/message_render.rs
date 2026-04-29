@@ -147,6 +147,13 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                     Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
                 ),
             ];
+            // Running 状态添加文字标签
+            if matches!(state.status, perihelion_widgets::ToolCallStatus::Running) {
+                header_spans.push(Span::styled(
+                    " 运行中…".to_string(),
+                    Style::default().fg(theme::WARNING),
+                ));
+            }
             if !state.args_summary.is_empty() {
                 let summary = perihelion_widgets::tool_call::display::format_args_summary(&state.args_summary, 40);
                 header_spans.push(Span::styled(

@@ -91,8 +91,22 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         Span::styled("  ", Style::default().fg(theme::MUTED)),
         Span::styled("/help", Style::default().fg(theme::WARNING)),
         Span::styled("  ", Style::default().fg(theme::MUTED)),
-        Span::styled("/compact", Style::default().fg(theme::WARNING)),
+        Span::styled("/agents", Style::default().fg(theme::WARNING)),
     ]));
+
+    // ── 首次使用引导（未配置 Provider 时显示）───────────────────────────
+    let has_provider = app.zen_config.as_ref()
+        .map(|c| !c.config.providers.is_empty())
+        .unwrap_or(false);
+    if !has_provider {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(" ▶ ", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+            Span::styled("请输入 ", Style::default().fg(theme::TEXT)),
+            Span::styled("/login", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+            Span::styled(" 配置 API Key 开始使用", Style::default().fg(theme::TEXT)),
+        ]));
+    }
 
     // ── 快捷键提示 ──────────────────────────────────────────────────────
     lines.push(Line::from(""));
@@ -101,8 +115,6 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(":Quit  ", Style::default().fg(theme::DIM)),
         Span::styled("Ctrl+C", Style::default().fg(theme::DIM)),
         Span::styled(":Stop  ", Style::default().fg(theme::DIM)),
-        Span::styled("Ctrl+V", Style::default().fg(theme::DIM)),
-        Span::styled(":Paste  ", Style::default().fg(theme::DIM)),
         Span::styled("Shift+Tab", Style::default().fg(theme::DIM)),
         Span::styled(":Mode", Style::default().fg(theme::DIM)),
     ]));

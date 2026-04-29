@@ -685,6 +685,21 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_welcome_card_shows_login_guide_when_no_provider() {
+        // 无 Provider 时 Welcome Card 应显示 /login 首次引导
+        let (mut app, mut handle) = App::new_headless(120, 30);
+        // zen_config 默认为 None，无 provider
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+        assert!(
+            snap_text.contains("login"),
+            "无 Provider 时 Welcome Card 应显示 /login 引导，实际:\n{}",
+            snap_text
+        );
+    }
+
     // ── Sticky Human Message Header ────────────────────────────────────────────
 
     #[tokio::test]
