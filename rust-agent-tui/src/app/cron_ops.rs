@@ -26,7 +26,6 @@ impl crate::app::App {
     }
 
     /// CronPanel: 删除当前任务
-    #[allow(dead_code)]
     pub fn cron_panel_delete(&mut self) {
         if let Some(ref mut panel) = self.cron.cron_panel {
             let idx = panel.cursor;

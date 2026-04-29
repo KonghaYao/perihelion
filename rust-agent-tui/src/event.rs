@@ -677,7 +677,11 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             ..
         } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
-                b.delete_selected();
+                if let Some(title) = b.delete_selected() {
+                    app.core.view_messages.push(MessageViewModel::system(
+                        format!("已删除对话: {}", title),
+                    ));
+                }
             }
         }
         _ => {}
@@ -898,6 +902,14 @@ fn handle_cron_panel(app: &mut App, input: Input) {
             app.cron_panel_close();
             app.core.panel_selection.clear();
             app.core.panel_area = None;
+        }
+        Input {
+            key: Key::Char('d'),
+            ctrl: false,
+            alt: false,
+            ..
+        } => {
+            app.cron_panel_delete();
         }
         _ => {}
     }

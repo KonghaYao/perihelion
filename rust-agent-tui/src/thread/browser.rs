@@ -46,14 +46,15 @@ impl ThreadBrowser {
         self.selected_thread().map(|t| &t.id)
     }
 
-    /// 删除光标所在的历史 thread（同步，block_in_place），返回是否成功删除
-    pub fn delete_selected(&mut self) -> bool {
+    /// 删除光标所在的历史 thread（同步，block_in_place），返回被删除的对话标题
+    pub fn delete_selected(&mut self) -> Option<String> {
         if self.cursor == 0 {
-            return false;
+            return None;
         }
         let idx = self.cursor - 1;
-        let Some(meta) = self.threads.get(idx) else { return false };
+        let Some(meta) = self.threads.get(idx) else { return None };
         let id = meta.id.clone();
+        let title = meta.title.clone().unwrap_or_else(|| "(无标题)".to_string());
         let store = self.store.clone();
         let ok = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
@@ -67,7 +68,9 @@ impl ThreadBrowser {
             if self.cursor >= total {
                 self.cursor = total.saturating_sub(1);
             }
+            Some(title)
+        } else {
+            None
         }
-        ok
     }
 }
