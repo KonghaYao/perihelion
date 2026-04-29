@@ -247,10 +247,11 @@ mod tests {
                 .iter()
                 .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
                 .collect();
-            let has_lang_tag = all_lines.iter().any(|l| l.contains("[rust]"));
-            assert!(has_lang_tag, "代码块首行应含 [rust] 标签，实际行:\n{all_lines:#?}");
-            let has_prefix = all_lines.iter().any(|l| l.contains("│ "));
-            assert!(has_prefix, "代码块应含 │ 前缀，实际行:\n{all_lines:#?}");
+            // 单行代码块：无 [lang] 标签，无 │ 前缀
+            assert_eq!(all_lines.len(), 1, "单行代码块应只产生一行，got: {all_lines:#?}");
+            assert!(!all_lines[0].contains("[rust]"), "单行代码块不应含 [lang] 标签");
+            assert!(!all_lines[0].contains('│'), "单行代码块不应含 │ 前缀");
+            assert!(all_lines[0].contains("fn main"), "应包含代码内容");
         }
 
         #[test]
@@ -1721,5 +1722,165 @@ mod tests {
         assert!(has_tool, "应有 ToolBlock");
         assert!(has_assistant, "应有 AssistantBubble");
         assert!(handle.contains("result is here"), "应显示 AI 回复");
+    }
+
+    // ── 统一提示浮层测试 ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_unified_hint_shows_commands_and_skills() {
+        use rust_agent_middlewares::skills::loader::SkillMetadata;
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 设置输入框内容为 /
+        app.core.textarea = crate::app::build_textarea(false);
+        app.core.textarea.insert_str("/");
+
+        // 注入 2 个 Skills
+        app.core.skills.push(SkillMetadata {
+            name: "commit".into(),
+            description: "commit changes".into(),
+            path: "/tmp/commit.md".into(),
+        });
+        app.core.skills.push(SkillMetadata {
+            name: "review".into(),
+            description: "review code".into(),
+            path: "/tmp/review.md".into(),
+        });
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        // 应包含命令名和 Skill 名
+        assert!(snap_text.contains("model"), "应显示 model 命令，实际:\n{}", snap_text);
+        assert!(snap_text.contains("commit"), "应显示 commit Skill，实际:\n{}", snap_text);
+
+        // 应包含分组标题（CJK 字符在 TestBackend 中有宽字符填充，只断言 ASCII 标题）
+        assert!(snap_text.contains("Skills"), "应包含 Skills 分组标题，实际:\n{}", snap_text);
+    }
+
+    #[tokio::test]
+    async fn test_unified_hint_filters_by_prefix() {
+        use rust_agent_middlewares::skills::loader::SkillMetadata;
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        app.core.textarea = crate::app::build_textarea(false);
+        app.core.textarea.insert_str("/mo");
+
+        app.core.skills.push(SkillMetadata {
+            name: "commit".into(),
+            description: "commit changes".into(),
+            path: "/tmp/commit.md".into(),
+        });
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        // 应包含匹配的命令 model
+        assert!(snap_text.contains("model"), "应包含匹配前缀 /mo 的命令 model，实际:\n{}", snap_text);
+        // 不应包含不匹配的 Skill（commit 不含 "mo"）
+        assert!(!snap_text.contains("commit"), "不应包含不匹配的 Skill，实际:\n{}", snap_text);
+    }
+
+    #[tokio::test]
+    async fn test_unified_hint_no_result_for_hash() {
+        use rust_agent_middlewares::skills::loader::SkillMetadata;
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        app.core.textarea = crate::app::build_textarea(false);
+        app.core.textarea.insert_str("#skill");
+
+        app.core.skills.push(SkillMetadata {
+            name: "skill".into(),
+            description: "a skill".into(),
+            path: "/tmp/skill.md".into(),
+        });
+
+        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        let snap = handle.snapshot();
+        let snap_text = snap.join("\n");
+
+        // # 前缀不应触发浮层
+        assert!(!snap_text.contains("Skills"), "# 前缀不应触发 Skills 浮层，实际:\n{}", snap_text);
+    }
+
+    // ── Enter 触发 Skill fallback 测试 ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_enter_skill_name_submits_message() {
+        use rust_agent_middlewares::skills::loader::SkillMetadata;
+        let (mut app, _handle) = App::new_headless(120, 30);
+
+        app.core.textarea = crate::app::build_textarea(false);
+        app.core.textarea.insert_str("/review");
+        app.core.skills.push(SkillMetadata {
+            name: "review".into(),
+            description: "code review".into(),
+            path: "/tmp/review.md".into(),
+        });
+
+        // 模拟 Enter 事件处理
+        let text: String = app.core.textarea.lines().join("\n");
+        let text = text.trim().to_string();
+        assert!(text.starts_with('/'));
+
+        // 验证命令 dispatch 不匹配后 Skill fallback
+        let registry = std::mem::take(&mut app.core.command_registry);
+        let known = registry.dispatch(&mut app, &text);
+        app.core.command_registry = registry;
+        assert!(!known, "review 不应是已知命令");
+
+        // 验证 Skill 匹配
+        let skill_name: String = text.trim_start_matches('/')
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        assert_eq!(skill_name, "review");
+        let skill_found = app.core.skills.iter().find(|s| s.name == skill_name);
+        assert!(skill_found.is_some(), "应找到 review Skill");
+    }
+
+    #[tokio::test]
+    async fn test_enter_unknown_command_shows_error() {
+        let (mut app, _handle) = App::new_headless(120, 30);
+
+        app.core.textarea = crate::app::build_textarea(false);
+        app.core.textarea.insert_str("/nonexistent");
+
+        // 模拟 Enter 处理逻辑
+        let text: String = app.core.textarea.lines().join("\n");
+        let text = text.trim().to_string();
+        let registry = std::mem::take(&mut app.core.command_registry);
+        let known = registry.dispatch(&mut app, &text);
+        app.core.command_registry = registry;
+        assert!(!known, "nonexistent 不应是已知命令");
+
+        // Skill fallback 也应失败
+        let skill_name: String = text.trim_start_matches('/')
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        let skill_found = app.core.skills.iter().find(|s| s.name == skill_name);
+        assert!(skill_found.is_none(), "不应找到 nonexistent Skill");
+    }
+
+    #[tokio::test]
+    async fn test_enter_known_command_no_skill_fallback() {
+        use rust_agent_middlewares::skills::loader::SkillMetadata;
+        let (mut app, _handle) = App::new_headless(120, 30);
+
+        // 注入名为 help 的 Skill
+        app.core.skills.push(SkillMetadata {
+            name: "help".into(),
+            description: "help skill".into(),
+            path: "/tmp/help.md".into(),
+        });
+
+        // /help 应被命令 dispatch 拦截，不走 Skill fallback
+        let registry = std::mem::take(&mut app.core.command_registry);
+        let known = registry.dispatch(&mut app, "/help");
+        app.core.command_registry = registry;
+        assert!(known, "/help 应是已知命令，优先于同名 Skill");
     }
 }

@@ -1,9 +1,9 @@
 /// Random tips shown below the loading spinner, inspired by Claude Code.
 const TIPS: &[&str] = &[
-    "使用 # 前缀快速搜索可用 Skills",
+    "输入 / 前缀搜索可用命令和 Skills",
     "按 / 输入命令，如 /login 配置 Provider",
     "按 Ctrl+C 中断正在运行的 Agent",
-    "按 Tab 在 Skills 或命令提示中补全",
+    "按 Tab 在命令或 Skills 提示中补全",
     "使用 /model 切换 LLM 模型",
     "将文件拖入终端可自动添加为附件",
     "使用 /history 浏览历史对话记录",
@@ -33,4 +33,30 @@ const TIPS: &[&str] = &[
 /// Pick a tip based on a tick counter. Tip changes every ~180 ticks (roughly every 3 seconds at 60fps).
 pub fn pick_tip(tick: u64) -> &'static str {
     TIPS[((tick / 180) as usize) % TIPS.len()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tips_no_hash_prefix_for_skills() {
+        for tip in TIPS {
+            assert!(!tip.contains("# 前缀"), "tips 不应包含 '# 前缀': {}", tip);
+            assert!(!tip.contains("#skill"), "tips 不应包含 '#skill': {}", tip);
+            assert!(!tip.contains("#Skill"), "tips 不应包含 '#Skill': {}", tip);
+        }
+    }
+
+    #[test]
+    fn test_tips_contains_slash_skills_hint() {
+        let has_merged = TIPS.iter().any(|t| t.contains("命令和 Skills"));
+        assert!(has_merged, "tips 应包含合并后的 '/ 前缀搜索命令和 Skills' 提示");
+    }
+
+    #[test]
+    fn test_tips_tab_hint_order() {
+        let has_ordered = TIPS.iter().any(|t| t.contains("命令或 Skills 提示中补全"));
+        assert!(has_ordered, "tips 应包含 '命令或 Skills 提示中补全'");
+    }
 }

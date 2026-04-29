@@ -93,18 +93,13 @@ mod tests {
     #[test]
     fn parse_code_block() {
         let text = parse_markdown("```rust\nfn main() {}\n```", &default_theme(), 80);
-        assert!(text.lines.len() >= 1);
-        // 语言标签现在在第一行，而不是单独一行
-        let has_tag = text.lines.iter().any(|l| {
-            let line_str: String = l.spans.iter().map(|s| s.content.clone()).collect();
-            line_str.contains("[rust]")
-        });
-        assert!(has_tag, "Expected [rust] tag");
-        let has_code = text.lines.iter().any(|l| {
-            let line_str: String = l.spans.iter().map(|s| s.content.clone()).collect();
-            line_str.contains("│") && line_str.contains("fn main")
-        });
-        assert!(has_code, "Expected code line with │ prefix");
+        assert_eq!(text.lines.len(), 1, "单行代码块只应产生一行，got {} lines: {:?}", text.lines.len(), text.lines);
+        // 单行代码块：只着色，无 [lang] 和 │ 前缀
+        let line = &text.lines[0];
+        let has_code_color = line.spans.iter().any(|s| s.style.fg == Some(default_theme().code()) && s.content.contains("fn main"));
+        assert!(has_code_color, "Expected code text with code color");
+        let no_prefix = !line.spans.iter().any(|s| s.content.contains('│'));
+        assert!(no_prefix, "Single-line code block should not have │ prefix");
     }
 
     #[test]
@@ -224,10 +219,12 @@ mod tests {
     fn parse_code_block_with_language() {
         let text = parse_markdown("```rust\nfn main() {}\n```", &default_theme(), 80);
         assert!(text.lines.len() >= 1);
-        // 语言标签应该显示在第一行（与代码在同一行）
-        let first_line = &text.lines[0];
-        let has_lang_tag = first_line.spans.iter().any(|s| s.content.contains("[rust]"));
-        assert!(has_lang_tag, "Expected language tag in first line");
+        let all: String = text.lines.iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect();
+        // 不再输出 [lang] 标签
+        assert!(!all.contains("[rust]"), "Should not have language tag, got: {all:?}");
+        assert!(all.contains("fn main"), "Should contain code content");
     }
 
     #[test]

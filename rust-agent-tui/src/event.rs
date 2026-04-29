@@ -353,11 +353,24 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             let registry = std::mem::take(&mut app.core.command_registry);
                             let known = registry.dispatch(app, &text);
                             app.core.command_registry = registry;
-                            if !known {
-                                app.core.view_messages.push(MessageViewModel::system(format!(
-                                    "未知命令: {}  （输入 /help 查看可用命令）",
-                                    text
-                                )));
+                            if known {
+                                // 命令命中，结束
+                            } else {
+                                // 命令未命中，尝试 Skill 匹配
+                                let skill_name: String = text.trim_start_matches('/')
+                                    .chars()
+                                    .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                                    .collect();
+                                if let Some(_skill) = app.core.skills.iter().find(|s| s.name == skill_name) {
+                                    // Skill 命中：将整条消息提交给 agent
+                                    return Ok(Some(Action::Submit(text)));
+                                } else {
+                                    // 完全无匹配
+                                    app.core.view_messages.push(MessageViewModel::system(format!(
+                                        "未知命令或 Skill: {}  （输入 /help 查看可用命令）",
+                                        text
+                                    )));
+                                }
                             }
                         } else {
                             app.core.textarea = crate::app::build_textarea(false);
