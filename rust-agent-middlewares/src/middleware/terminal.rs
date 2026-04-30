@@ -121,7 +121,7 @@ impl BaseTool for BashTool {
             .as_str()
             .ok_or("Missing command parameter")?;
 
-        let timeout_secs = input["timeout_secs"].as_u64().unwrap_or(120).min(300);
+        let timeout_secs = input["timeout_secs"].as_u64().unwrap_or(120).clamp(1, 300);
 
         let (shell, flag) = if cfg!(target_os = "windows") {
             ("cmd", "/C")
@@ -339,5 +339,42 @@ mod tests {
         assert!(desc.contains("dedicated tool"), "description 应强调优先使用专用工具");
         assert!(desc.contains("timeout"), "description 应提及超时");
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
+    }
+
+    /// 零超时应被 clamp 到至少 1 秒，避免命令立即超时无法执行
+    #[tokio::test]
+    async fn test_bash_timeout_clamped_to_minimum() {
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+        let start = Instant::now();
+        // timeout_secs = 0 → clamp 到 1 秒，命令应在 1 秒内执行完毕
+        let result = tool
+            .invoke(serde_json::json!({
+                "command": "echo quick",
+                "timeout_secs": 0
+            }))
+            .await
+            .unwrap();
+        let elapsed = start.elapsed();
+        assert!(result.contains("quick"), "echo quick 应正常输出: {result}");
+        // 不应超时，命令应正常完成
+        assert!(
+            elapsed.as_millis() < 500,
+            "零超时被 clamp 后应快速完成，实际耗时 {:?}",
+            elapsed
+        );
+    }
+
+    /// 显式超时 300 秒应被允许（上限）
+    #[tokio::test]
+    async fn test_bash_timeout_maximum_accepted() {
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "command": "echo ok",
+                "timeout_secs": 300
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("ok"));
     }
 }

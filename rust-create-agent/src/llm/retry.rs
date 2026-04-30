@@ -78,11 +78,11 @@ impl<L: ReactLLM> ReactLLM for RetryableLLM<L> {
         messages: &[BaseMessage],
         tools: &[&dyn BaseTool],
     ) -> AgentResult<Reasoning> {
-        let mut last_error = None;
-        for attempt in 0..=self.config.max_retries {
+        // 重试循环：attempt 0..max_retries，每次失败若可重试则延迟后继续
+        for attempt in 0..self.config.max_retries {
             match self.inner.generate_reasoning(messages, tools).await {
                 Ok(r) => return Ok(r),
-                Err(e) if e.is_retryable() && attempt < self.config.max_retries => {
+                Err(e) if e.is_retryable() => {
                     let delay = self.config.exponential_delay(attempt);
                     tracing::warn!(
                         attempt = attempt + 1,
@@ -98,12 +98,12 @@ impl<L: ReactLLM> ReactLLM for RetryableLLM<L> {
                         error: e.to_string(),
                     });
                     tokio::time::sleep(Duration::from_millis(delay)).await;
-                    last_error = Some(e);
                 }
                 Err(e) => return Err(e),
             }
         }
-        Err(last_error.unwrap())
+        // 最终尝试（不重试），直接返回结果或错误
+        self.inner.generate_reasoning(messages, tools).await
     }
 
     fn model_name(&self) -> String {
@@ -270,5 +270,37 @@ mod tests {
                 attempt, delay, lower, upper,
             );
         }
+    }
+
+    /// 验证最终尝试（重试耗尽后）直接返回结果，不进入重试逻辑
+    #[tokio::test]
+    async fn test_final_attempt_no_retry() {
+        // 重试耗尽后的最终尝试：可重试错误也直接返回
+        let mock = MockLLM::new(vec![
+            http_error(429),
+            http_error(429),
+            http_error(429),
+        ]);
+        let config = RetryConfig::default().with_max_retries(2).with_base_delay_ms(1);
+        let retry = RetryableLLM::new(mock, config);
+        let result = retry.generate_reasoning(&[], &[]).await;
+        assert!(result.is_err());
+        // 重试 2 次（attempt 0,1）+ 最终尝试（返回错误）= 共 3 次调用
+        // 脚本只有 3 个错误，恰好覆盖
+        if let Err(AgentError::LlmHttpError { status, .. }) = result {
+            assert_eq!(status, 429, "最终尝试应返回最后一次错误");
+        } else {
+            panic!("Expected LlmHttpError(429)");
+        }
+    }
+
+    /// 验证 max_retries=0 时只执行一次调用（无重试）
+    #[tokio::test]
+    async fn test_zero_retries_single_attempt() {
+        let mock = MockLLM::new(vec![ok_reasoning()]);
+        let config = RetryConfig::default().with_max_retries(0);
+        let retry = RetryableLLM::new(mock, config);
+        let result = retry.generate_reasoning(&[], &[]).await;
+        assert!(result.is_ok(), "max_retries=0 时应直接返回结果");
     }
 }

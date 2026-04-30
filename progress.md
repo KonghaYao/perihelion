@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第20轮
+
+RetryableLLM 逻辑清理：generate_reasoning 方法存在不可达死代码（Err(last_error.unwrap())在第106行），循环结构 0..=max_retries 配合 attempt < max_retries 条件使最终迭代必走 Err(e) => return 分支。将循环重构为 0..max_retries 重试 + 末尾最终尝试，消除死代码和潜在 panic。BashTool 超时参数无下限保护——timeout_secs=0 会导致 Duration::from_secs(0) 立即超时命令永不执行，改为 clamp(1, 300)。新增4个测试（零超时被clamp、300上限、RetryableLLM最终尝试不重试、max_retries=0单次调用）。833测试通过。
+
 ## 2026-04-30 第19轮
 
 ContextBudget 事件链路审查：发现 AgentEvent::ContextWarning 事件定义完整但从未被 executor 发出——executor 的上下文监控仅产 tracing 日志（用户不可见），TUI 的 map_executor_event 也将其映射为 return None。为 executor 的 ContextBudget 路径和回退路径新增 ContextWarning 事件发出（仅当阈值达标时），TUI 新增 ContextWarning 变体并映射到 auto-compact 触发逻辑。新增 3 个测试覆盖 budget/回退/低用量三种场景。829 测试通过。
