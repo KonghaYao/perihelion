@@ -21,10 +21,20 @@ impl App {
         let Some(panel) = self.core.model_panel.as_ref() else {
             return;
         };
+        let alias_label = panel.active_tab.label().to_string();
+        let thinking_on = panel.buf_thinking_enabled;
         let Some(cfg) = self.zen_config.as_mut() else {
             return;
         };
         panel.apply_to_config(cfg);
+        // 始终显示切换反馈（与保存结果无关）
+        let thinking_info = if thinking_on { " (Thinking)" } else { "" };
+        self.core
+            .view_messages
+            .push(MessageViewModel::system(format!(
+                "模型已切换为: {}{}",
+                alias_label, thinking_info
+            )));
         if let Err(e) = crate::config::save(cfg) {
             self.core
                 .view_messages
@@ -57,10 +67,23 @@ impl App {
         let Some(panel) = self.core.login_panel.as_mut() else {
             return;
         };
+        let selected_name = panel
+            .providers
+            .get(panel.cursor)
+            .map(|p| p.display_name().to_string())
+            .unwrap_or_default();
         let Some(cfg) = self.zen_config.as_mut() else {
             return;
         };
         panel.select_provider(cfg);
+        if !selected_name.is_empty() {
+            self.core
+                .view_messages
+                .push(MessageViewModel::system(format!(
+                    "已激活 Provider: {}",
+                    selected_name
+                )));
+        }
         if let Err(e) = crate::config::save(cfg) {
             self.core
                 .view_messages
@@ -78,6 +101,8 @@ impl App {
         let Some(panel) = self.core.login_panel.as_mut() else {
             return;
         };
+        let edit_name = panel.buf_name.clone();
+        let is_new = matches!(panel.mode, login_panel::LoginPanelMode::New);
         let Some(cfg) = self.zen_config.as_mut() else {
             return;
         };
@@ -87,6 +112,18 @@ impl App {
             ));
             return;
         }
+        let action = if is_new { "新建" } else { "保存" };
+        let display = if edit_name.is_empty() {
+            "Provider".to_string()
+        } else {
+            edit_name
+        };
+        self.core
+            .view_messages
+            .push(MessageViewModel::system(format!(
+                "已{} Provider: {}",
+                action, display
+            )));
         if let Err(e) = crate::config::save(cfg) {
             self.core
                 .view_messages
