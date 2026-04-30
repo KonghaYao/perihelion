@@ -18,16 +18,9 @@ const TIPS: &[&str] = &[
     "在 .claude/agents/ 中添加自定义 SubAgent",
     "对复杂任务可以让 Claude 先制定计划",
     "拖拽图片到终端可自动附加到消息",
-    "使用 /rename 给当前对话起个名字",
+    "按 Alt+Enter 在输入框中换行",
     "长按 Ctrl+V 粘贴剪贴板图片",
-    "使用 /config 自定义 UI 和行为",
-    "双按 Esc 可以回退对话",
-    "按 Ctrl+O 切换对话详情模式",
-    "使用 /todo 让 Claude 创建任务列表",
-    "使用 /feedback 告诉我们如何改进",
     "让 Claude 使用子 Agent 并行工作",
-    "运行多个对话时用 /color 区分颜色",
-    "可以使用 /export 导出对话记录",
 ];
 
 /// Pick a tip based on a tick counter. Tip changes every ~180 ticks (roughly every 3 seconds at 60fps).
@@ -58,5 +51,32 @@ mod tests {
     fn test_tips_tab_hint_order() {
         let has_ordered = TIPS.iter().any(|t| t.contains("命令或 Skills 提示中补全"));
         assert!(has_ordered, "tips 应包含 '命令或 Skills 提示中补全'");
+    }
+
+    #[test]
+    fn test_tips_only_reference_existing_commands() {
+        // tips 中引用的 /xxx 命令必须存在于 command registry
+        let existing_commands = [
+            "login", "model", "history", "agents", "loop", "clear",
+            "help", "compact", "cron",
+        ];
+        for tip in TIPS {
+            // 提取 tip 中的 /xxx 命令引用
+            for word in tip.split_whitespace() {
+                if word.starts_with('/') && word.len() > 1 && word.chars().nth(1).map_or(false, |c| c.is_alphabetic()) {
+                    let cmd_name: String = word[1..].chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                        .collect();
+                    if !cmd_name.is_empty() {
+                        assert!(
+                            existing_commands.contains(&cmd_name.as_str()),
+                            "tip 引用了不存在的命令 /{}: {}",
+                            cmd_name,
+                            tip
+                        );
+                    }
+                }
+            }
+        }
     }
 }
