@@ -163,6 +163,15 @@ impl App {
         );
     }
 
+    /// 发送缓冲的 cron 消息（每次只发一条，其余留待后续 Done 周期发送）
+    /// 多条独立 cron 任务不应合并为一个 LLM 消息，避免语义混淆
+    fn flush_pending_messages(&mut self) {
+        if let Some(msg) = self.core.pending_messages.first().cloned() {
+            self.core.pending_messages.remove(0);
+            self.submit_message(msg);
+        }
+    }
+
     /// 将 PipelineAction 映射到 view_messages 更新 + RenderEvent 发送
     fn apply_pipeline_action(&mut self, action: PipelineAction) {
         match action {
@@ -388,9 +397,7 @@ impl App {
                 }
                 // 检查缓冲消息，合并发送
                 if !self.core.pending_messages.is_empty() {
-                    let combined = self.core.pending_messages.join("\n\n");
-                    self.core.pending_messages.clear();
-                    self.submit_message(combined);
+                    self.flush_pending_messages();
                 }
                 (true, false, true)
             }
@@ -438,9 +445,7 @@ impl App {
                 }
                 // 检查缓冲消息，合并发送
                 if !self.core.pending_messages.is_empty() {
-                    let combined = self.core.pending_messages.join("\n\n");
-                    self.core.pending_messages.clear();
-                    self.submit_message(combined);
+                    self.flush_pending_messages();
                 }
                 (true, false, true)
             }
@@ -621,9 +626,7 @@ impl App {
                 self.agent.pre_compact_token_snapshot = None;
 
                 if !self.core.pending_messages.is_empty() {
-                    let combined = self.core.pending_messages.join("\n\n");
-                    self.core.pending_messages.clear();
-                    self.submit_message(combined);
+                    self.flush_pending_messages();
                 }
 
                 (true, false, true)
@@ -641,9 +644,7 @@ impl App {
                 }
 
                 if !self.core.pending_messages.is_empty() {
-                    let combined = self.core.pending_messages.join("\n\n");
-                    self.core.pending_messages.clear();
-                    self.submit_message(combined);
+                    self.flush_pending_messages();
                 }
 
                 (true, false, true)

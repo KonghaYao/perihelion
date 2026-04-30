@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第21轮
+
+Cron 缓冲消息合并缺陷：多个 cron 触发在 agent 执行期间被缓冲到 pending_messages，但 Done/Error 处理器用 \n\n 连接后作为单条消息提交——独立的 cron 任务提示被合并为语义混淆的组合请求。改为 flush_pending_messages 每次只提交第一条、保留其余至后续 Done 周期逐一发送，保证各 cron 任务独立到达 LLM。833 测试全通过。
+
 ## 2026-04-30 第20轮
 
 RetryableLLM 逻辑清理：generate_reasoning 方法存在不可达死代码（Err(last_error.unwrap())在第106行），循环结构 0..=max_retries 配合 attempt < max_retries 条件使最终迭代必走 Err(e) => return 分支。将循环重构为 0..max_retries 重试 + 末尾最终尝试，消除死代码和潜在 panic。BashTool 超时参数无下限保护——timeout_secs=0 会导致 Duration::from_secs(0) 立即超时命令永不执行，改为 clamp(1, 300)。新增4个测试（零超时被clamp、300上限、RetryableLLM最终尝试不重试、max_retries=0单次调用）。833测试通过。
