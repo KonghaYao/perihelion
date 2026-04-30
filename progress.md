@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第18轮
+
+LLM 适配层审查：发现 BaseModelReactLLM::context_window() 用字符串前缀硬编码上下文窗口（claude→200K/deepseek→128K/gpt-4o→128K），导致 GPT-3.5-turbo（真实 16K）等模型返回错误的 200K 默认值。为 BaseModel trait 新增 context_window() 默认 200K，ChatOpenAI 覆盖为精确模型名推断（gpt-4→128K/o1→200K/gpt3.5→16K/deepseek→128K），适配器改为委托 model.context_window()。新增 7 个测试验证各模型窗口值。826 测试通过。
+
 ## 2026-04-30 第17轮
 
 Anthropic Prompt Caching 审查：发现 apply_cache_to_messages 将 cache_control 标记放在最后一条 user 消息上，但 ReAct 循环中该消息每轮变化导致缓存失效命中率为零。改为在第一条 user 消息上加 cache_control（稳定边界），与 system 缓存共同构成稳定缓存段，后续轮次持续命中。新增 5 个测试覆盖边界行为（首条/跳过assistant/多block/空block/无user消息）。823 测试通过。
