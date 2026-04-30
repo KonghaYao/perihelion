@@ -50,6 +50,8 @@ pub struct AgentComm {
     pub pre_compact_token_snapshot: Option<rust_create_agent::agent::token::TokenTracker>,
     /// LLM 重试状态（重试中时为 Some，收到下一个正常事件时清除）
     pub retry_status: Option<RetryStatus>,
+    /// SubAgent 执行深度计数器（>0 表示当前在 SubAgent 内，忽略其 TokenUsageUpdate）
+    pub subagent_depth: u32,
 }
 
 impl Default for AgentComm {
@@ -71,6 +73,7 @@ impl Default for AgentComm {
             auto_compact_failures: 0,
             pre_compact_token_snapshot: None,
             retry_status: None,
+            subagent_depth: 0,
         }
     }
 }

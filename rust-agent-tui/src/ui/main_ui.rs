@@ -263,10 +263,22 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
                     TodoStatus::Completed => ("  ✓  ", Style::default().fg(Color::Green)),
                     TodoStatus::Pending => ("  ○  ", Style::default().fg(theme::MUTED)),
                 };
-                all_lines.push(Line::from(vec![
+                let hint = match item.status {
+                    TodoStatus::Pending => Some("可开始"),
+                    TodoStatus::InProgress => Some("可完成"),
+                    TodoStatus::Completed => None,
+                };
+                let mut spans = vec![
                     Span::styled(icon, style),
                     Span::styled(&item.content, style),
-                ]));
+                ];
+                if let Some(hint) = hint {
+                    spans.push(Span::styled(
+                        format!(" ({hint})"),
+                        Style::default().fg(theme::MUTED),
+                    ));
+                }
+                all_lines.push(Line::from(spans));
             }
         }
     }

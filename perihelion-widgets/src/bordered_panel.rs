@@ -32,7 +32,7 @@ impl<'a> BorderedPanel<'a> {
         f.render_widget(Clear, area);
         let block = Block::default()
             .title(self.title)
-            .borders(Borders::ALL)
+            .borders(Borders::TOP | Borders::BOTTOM)
             .border_style(self.border_style);
         let inner = block.inner(area);
         f.render_widget(&block, area);
@@ -59,9 +59,9 @@ mod tests {
                     .render(f, area);
             })
             .unwrap();
-        // inner width = 10 - 2 (borders) = 8
-        assert_eq!(inner.width, 8);
-        // inner height = 6 - 2 (borders) = 4
+        // inner width = 10 (no left/right borders)
+        assert_eq!(inner.width, 10);
+        // inner height = 6 - 2 (top + bottom borders) = 4
         assert_eq!(inner.height, 4);
     }
 
@@ -78,7 +78,7 @@ mod tests {
                     .render(f, area);
             })
             .unwrap();
-        assert_eq!(inner.width, 8);
+        assert_eq!(inner.width, 10);
         assert_eq!(inner.height, 4);
     }
 }

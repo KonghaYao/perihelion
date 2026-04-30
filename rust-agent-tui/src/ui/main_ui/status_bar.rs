@@ -153,18 +153,18 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         }
         if let Some(agent) = panel.current_agent() {
             left_spans.push(Span::styled(
-                format!(" 🤖 {}", agent.name),
+                format!(" {}", agent.name),
                 Style::default().fg(theme::MUTED),
             ));
         } else {
-            left_spans.push(Span::styled(" 🤖 无", Style::default().fg(theme::MUTED)));
+            left_spans.push(Span::styled(" 无", Style::default().fg(theme::MUTED)));
         }
     } else if let Some(id) = app.get_agent_id() {
         if has_content {
             left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         }
         left_spans.push(Span::styled(
-            format!(" 🤖 {}", id),
+            format!(" {}", id),
             Style::default().fg(theme::MUTED),
         ));
     }

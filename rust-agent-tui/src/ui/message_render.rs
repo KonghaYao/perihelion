@@ -226,7 +226,7 @@ pub fn render_view_model(
                     ""
                 };
                 lines.push(Line::from(vec![Span::styled(
-                    format!("● 🤖 {}", agent_id),
+                    format!("● {}", agent_id),
                     Style::default()
                         .fg(agent_color)
                         .add_modifier(Modifier::BOLD),

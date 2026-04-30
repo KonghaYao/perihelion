@@ -117,7 +117,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
                     format!("{} ", arrow),
                     ratatui::style::Style::default().fg(ratatui::style::Color::Cyan),
                 ),
-                ratatui::text::Span::raw(format!("🤖 {}", agent_id)),
+                ratatui::text::Span::raw(format!("{}", agent_id)),
             ])];
             if !collapsed {
                 if let Some(res) = result {

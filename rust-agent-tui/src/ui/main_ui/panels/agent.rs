@@ -21,9 +21,9 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
     let popup_area = area;
 
     let title = if agent_count == 0 {
-        " 🤖 Agent 选择 (无) "
+        " Agent 选择 (无) "
     } else {
-        " 🤖 Agent 选择 "
+        " Agent 选择 "
     };
 
     let inner = BorderedPanel::new(Span::styled(

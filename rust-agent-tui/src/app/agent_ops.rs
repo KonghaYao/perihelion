@@ -258,6 +258,7 @@ impl App {
                 agent_id,
                 task_preview,
             } => {
+                self.agent.subagent_depth += 1;
                 // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     tracer.lock().on_subagent_start(&agent_id, &task_preview);
@@ -273,6 +274,7 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
+                self.agent.subagent_depth = self.agent.subagent_depth.saturating_sub(1);
                 // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     tracer.lock().on_subagent_end(&result, is_error);
@@ -311,6 +313,11 @@ impl App {
                 usage,
                 model: _model,
             } => {
+                // SubAgent 的 TokenUsageUpdate 不应污染父 agent 的 tracker
+                // （SubAgent 上下文远小于父 agent，会覆盖 last_usage 导致 ctx 突降）
+                if self.agent.subagent_depth > 0 {
+                    return (true, false, false);
+                }
                 // 累积到会话追踪器
                 self.agent.session_token_tracker.accumulate(&usage);
                 // 更新 spinner 的 token 显示
@@ -592,19 +599,19 @@ impl App {
                         {
                             let q_lines: Vec<String> = requests
                                 .iter()
-                                .map(|q| {
+                                .flat_map(|q| {
                                     let hint = if q.multi_select {
                                         " [多选]"
                                     } else {
                                         " [单选]"
                                     };
-                                    format!("{}{}: {}", q.header, hint, q.question)
+                                    vec![
+                                        format!("{}{}", q.header, hint),
+                                        format!("  > {}", q.question),
+                                    ]
                                 })
                                 .collect();
-                            let vm = MessageViewModel::system(format!(
-                                "❓ 向你提问:\n{}",
-                                q_lines.join("\n")
-                            ));
+                            let vm = MessageViewModel::system(q_lines.join("\n"));
                             self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                         }
                         let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
