@@ -213,35 +213,49 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     // 使用 ContextBudget（若已设置）进行上下文用量监控
                     if let Some(ref budget) = self.context_budget {
                         let tracker = state.token_tracker();
-                        if budget.should_warn(tracker) {
-                            if let Some(pct) = tracker.context_usage_percent(self.llm.context_window()) {
+                        if let Some(pct_used) = tracker.estimated_context_tokens() {
+                            if budget.should_warn(tracker) {
                                 tracing::warn!(
                                     used_tokens = ?tracker.estimated_context_tokens(),
-                                    total_tokens = self.llm.context_window(),
+                                    total_tokens = budget.context_window,
+                                    percentage = tracker.context_usage_percent(budget.context_window).map(|p| p as u32).unwrap_or(0),
+                                    model = %self.llm.model_name(),
+                                    step,
+                                    "context 接近上限"
+                                );
+                            }
+                            if budget.should_warn(tracker) || budget.should_auto_compact(tracker) {
+                                if let Some(percentage) = tracker.context_usage_percent(budget.context_window) {
+                                    self.emit(AgentEvent::ContextWarning {
+                                        used_tokens: pct_used,
+                                        total_tokens: budget.context_window as u64,
+                                        percentage,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        // Fallback: 无 ContextBudget 时使用硬编码 80% 阈值（向后兼容）
+                        let tracker = state.token_tracker();
+                        let total = self.llm.context_window();
+                        if let Some(used) = tracker.estimated_context_tokens() {
+                            let pct = used as f64 / total as f64 * 100.0;
+                            if pct as u32 >= 80 {
+                                tracing::warn!(
+                                    used_tokens = used,
+                                    total_tokens = total,
                                     percentage = pct as u32,
                                     model = %self.llm.model_name(),
                                     step,
                                     "context 接近上限"
                                 );
                             }
-                        }
-                        // auto-compact 由 TUI 层根据 AgentEvent::ContextWarning 触发
-                        // ContextBudget::should_auto_compact 可在此检查并发出事件
-                    } else {
-                        // Fallback: 无 ContextBudget 时使用硬编码 80% 阈值（向后兼容）
-                        let tracker = state.token_tracker();
-                        let total = self.llm.context_window();
-                        if let Some(used) = tracker.estimated_context_tokens() {
-                            let pct = (used as f64 / total as f64 * 100.0) as u32;
-                            if pct >= 80 {
-                                tracing::warn!(
-                                    used_tokens = used,
-                                    total_tokens = total,
-                                    percentage = pct,
-                                    model = %self.llm.model_name(),
-                                    step,
-                                    "context 接近上限"
-                                );
+                            if pct as u32 >= 80 {
+                                self.emit(AgentEvent::ContextWarning {
+                                    used_tokens: used,
+                                    total_tokens: total as u64,
+                                    percentage: pct,
+                                });
                             }
                         }
                     }
@@ -1190,6 +1204,141 @@ mod tests {
         let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
         assert_eq!(output.text, "ok");
         assert_eq!(state.token_tracker().llm_call_count, 1);
+    }
+
+    /// 验证 ContextBudget 路径下 ContextWarning 事件被发出
+    #[tokio::test]
+    async fn test_context_budget_emits_warning_event() {
+        use crate::agent::events::{AgentEvent, FnEventHandler};
+        use std::sync::{Arc, Mutex};
+
+        struct TokenLLM { input_tokens: u32, output_tokens: u32 }
+        #[async_trait::async_trait]
+        impl ReactLLM for TokenLLM {
+            async fn generate_reasoning(
+                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                let mut r = Reasoning::with_answer("", "ok");
+                r.usage = Some(crate::llm::types::TokenUsage {
+                    input_tokens: self.input_tokens, output_tokens: self.output_tokens,
+                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                });
+                Ok(r)
+            }
+        }
+
+        let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(vec![]));
+        let events_clone = events.clone();
+
+        // context_window=1000, warning_threshold=0.5 → 400+200=600/1000=60% > 50%
+        let budget = ContextBudget::new(1000).with_warning_threshold(0.5);
+        let agent = ReActAgent::new(TokenLLM { input_tokens: 400, output_tokens: 200 })
+            .max_iterations(3)
+            .with_context_budget(budget)
+            .with_event_handler(Arc::new(FnEventHandler(move |ev| {
+                events_clone.lock().unwrap().push(ev);
+            })));
+
+        let mut state = AgentState::new("/tmp");
+        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        assert_eq!(output.text, "ok");
+
+        let evs = events.lock().unwrap();
+        let warnings: Vec<_> = evs.iter()
+            .filter(|e| matches!(e, AgentEvent::ContextWarning { .. }))
+            .collect();
+        assert_eq!(warnings.len(), 1, "ContextWarning 应在超过警告阈值时发出");
+        if let AgentEvent::ContextWarning { used_tokens, total_tokens, percentage } = warnings[0] {
+            assert_eq!(*used_tokens, 600, "used_tokens = input+output = 400+200");
+            assert_eq!(*total_tokens, 1000, "total_tokens = budget.context_window");
+            assert!((*percentage - 60.0).abs() < 1.0, "percentage ≈ 60%");
+        }
+    }
+
+    /// 验证无 ContextBudget 时回退路径也发出 ContextWarning 事件
+    #[tokio::test]
+    async fn test_fallback_path_emits_warning_event() {
+        use crate::agent::events::{AgentEvent, FnEventHandler};
+        use std::sync::{Arc, Mutex};
+
+        struct HighTokenLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for HighTokenLLM {
+            async fn generate_reasoning(
+                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                let mut r = Reasoning::with_answer("", "ok");
+                // context_window 默认 200K，90K+80K=170K = 85% > 80% 硬编码阈值
+                r.usage = Some(crate::llm::types::TokenUsage {
+                    input_tokens: 90000, output_tokens: 80000,
+                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                });
+                Ok(r)
+            }
+        }
+
+        let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(vec![]));
+        let events_clone = events.clone();
+
+        let agent = ReActAgent::new(HighTokenLLM)
+            .max_iterations(3)
+            .with_event_handler(Arc::new(FnEventHandler(move |ev| {
+                events_clone.lock().unwrap().push(ev);
+            })));
+
+        let mut state = AgentState::new("/tmp");
+        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        assert_eq!(output.text, "ok");
+
+        let evs = events.lock().unwrap();
+        let warnings: Vec<_> = evs.iter()
+            .filter(|e| matches!(e, AgentEvent::ContextWarning { .. }))
+            .collect();
+        assert_eq!(warnings.len(), 1, "无 budget 时回退路径也应发出 ContextWarning");
+        if let AgentEvent::ContextWarning { used_tokens, total_tokens, percentage } = warnings[0] {
+            assert_eq!(*used_tokens, 170000, "used_tokens = input+output");
+            assert!((*percentage - 85.0).abs() < 1.0, "percentage ≈ 85%");
+        }
+    }
+
+    /// 验证低 token 用量时不发出 ContextWarning
+    #[tokio::test]
+    async fn test_low_usage_no_warning_event() {
+        use crate::agent::events::{AgentEvent, FnEventHandler};
+        use std::sync::{Arc, Mutex};
+
+        struct LowTokenLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for LowTokenLLM {
+            async fn generate_reasoning(
+                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                let mut r = Reasoning::with_answer("", "ok");
+                r.usage = Some(crate::llm::types::TokenUsage {
+                    input_tokens: 100, output_tokens: 50,
+                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                });
+                Ok(r)
+            }
+        }
+
+        let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(vec![]));
+        let events_clone = events.clone();
+
+        let agent = ReActAgent::new(LowTokenLLM)
+            .max_iterations(3)
+            .with_event_handler(Arc::new(FnEventHandler(move |ev| {
+                events_clone.lock().unwrap().push(ev);
+            })));
+
+        let mut state = AgentState::new("/tmp");
+        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        assert_eq!(output.text, "ok");
+
+        let evs = events.lock().unwrap();
+        // LLM 必然有 LlmCallEnd，但 low usage 不触发 ContextWarning
+        let has_warning = evs.iter().any(|e| matches!(e, AgentEvent::ContextWarning { .. }));
+        assert!(!has_warning, "低 token 用量不应发出 ContextWarning");
     }
 
 }

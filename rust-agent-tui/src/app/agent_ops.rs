@@ -267,6 +267,20 @@ impl App {
                 for action in actions { self.apply_pipeline_action(action); }
                 (true, false, false)
             }
+            AgentEvent::ContextWarning { used_tokens: _, total_tokens: _, percentage: _ } => {
+                // 核心层上下文警告：触发 auto-compact 标记
+                if std::env::var("DISABLE_COMPACT").is_ok() {
+                    return (true, false, false);
+                }
+                let compact_config = self.get_compact_config();
+                if !compact_config.auto_compact_enabled {
+                    return (true, false, false);
+                }
+                if (self.agent.auto_compact_failures as u32) < compact_config.max_consecutive_failures {
+                    self.agent.needs_auto_compact = true;
+                }
+                (true, false, false)
+            }
             AgentEvent::TokenUsageUpdate { usage, model: _model } => {
                 // 累积到会话追踪器
                 self.agent.session_token_tracker.accumulate(&usage);

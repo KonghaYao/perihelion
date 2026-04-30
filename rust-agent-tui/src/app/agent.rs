@@ -292,12 +292,14 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             output: truncate(&output, 200),
             is_error: false,
         },
+        // 上下文使用警告：映射为 TUI 层事件，由 handle_agent_event 触发 auto-compact
+        ExecutorEvent::ContextWarning { used_tokens, total_tokens, percentage } => {
+            AgentEvent::ContextWarning { used_tokens, total_tokens, percentage }
+        }
         ExecutorEvent::LlmCallEnd { usage: Some(usage), model, .. } => {
             AgentEvent::TokenUsageUpdate { usage, model }
         }
         ExecutorEvent::LlmCallEnd { usage: None, .. } => return None,
-        // 核心层事件，TUI 层不消费
-        ExecutorEvent::ContextWarning { .. } => return None,
         ExecutorEvent::LlmRetrying { attempt, max_attempts, delay_ms, error } => {
             AgentEvent::LlmRetrying { attempt, max_attempts, delay_ms, error }
         }

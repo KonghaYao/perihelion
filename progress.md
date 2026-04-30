@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第19轮
+
+ContextBudget 事件链路审查：发现 AgentEvent::ContextWarning 事件定义完整但从未被 executor 发出——executor 的上下文监控仅产 tracing 日志（用户不可见），TUI 的 map_executor_event 也将其映射为 return None。为 executor 的 ContextBudget 路径和回退路径新增 ContextWarning 事件发出（仅当阈值达标时），TUI 新增 ContextWarning 变体并映射到 auto-compact 触发逻辑。新增 3 个测试覆盖 budget/回退/低用量三种场景。829 测试通过。
+
 ## 2026-04-30 第18轮
 
 LLM 适配层审查：发现 BaseModelReactLLM::context_window() 用字符串前缀硬编码上下文窗口（claude→200K/deepseek→128K/gpt-4o→128K），导致 GPT-3.5-turbo（真实 16K）等模型返回错误的 200K 默认值。为 BaseModel trait 新增 context_window() 默认 200K，ChatOpenAI 覆盖为精确模型名推断（gpt-4→128K/o1→200K/gpt3.5→16K/deepseek→128K），适配器改为委托 model.context_window()。新增 7 个测试验证各模型窗口值。826 测试通过。

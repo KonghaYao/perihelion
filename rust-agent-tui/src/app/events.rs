@@ -64,4 +64,10 @@ pub enum AgentEvent {
         delay_ms: u64,
         error: String,
     },
+    /// 上下文使用警告（从核心层 ContextWarning 映射而来）
+    ContextWarning {
+        used_tokens: u64,
+        total_tokens: u64,
+        percentage: f64,
+    },
 }

@@ -214,7 +214,8 @@ impl MessagePipeline {
             | AgentEvent::CompactDone { .. }
             | AgentEvent::CompactError(_)
             | AgentEvent::TokenUsageUpdate { .. }
-            | AgentEvent::LlmRetrying { .. } => {
+            | AgentEvent::LlmRetrying { .. }
+            | AgentEvent::ContextWarning { .. } => {
                 vec![PipelineAction::None]
             }
         }
