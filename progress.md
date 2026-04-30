@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第14轮
+
+业务逻辑层审查优化：发现 HITL 中间件 process_batch 批量审批方法已定义但 ReActExecutor 从未调用——每个敏感工具单独触发弹窗打断用户。新增 Middleware trait before_tools_batch 钩子（默认逐条回退），MiddlewareChain 新增 run_before_tools_batch 链式批量执行，HITL 覆盖该钩子调用已有 process_batch。Executor 阶段一从逐个 before_tool 改为批量调用。多个敏感工具现在合并为一次审批弹窗。新增 3 个测试覆盖混合审批、批量等价性、端到端执行。812 测试全部通过。
+
 ## 2026-04-29 第1轮
 
 修复4个UX问题：thread_browser和login_panel的'd'键删除功能缺失（帮助栏提示但未实现）、Welcome Card缺少全局快捷键提示、所有配置保存点从静默忽略改为检查错误并显示反馈。772个测试全部通过。
