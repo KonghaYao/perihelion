@@ -6,6 +6,7 @@ use tracing::instrument;
 use crate::agent::events::{AgentEvent, AgentEventHandler};
 use crate::agent::react::{AgentInput, AgentOutput, ReactLLM, ToolCall, ToolResult};
 use crate::agent::state::State;
+use crate::agent::token::ContextBudget;
 use crate::error::{AgentError, AgentResult};
 use crate::messages::{BaseMessage, ToolCallRequest};
 use crate::middleware::chain::MiddlewareChain;
@@ -30,6 +31,8 @@ where
     event_handler: Option<Arc<dyn AgentEventHandler>>,
     /// 固定系统提示词：在所有中间件 before_agent 执行完毕后 prepend，无顺序约束
     system_prompt: Option<String>,
+    /// 上下文窗口预算配置（用于监控 token 用量和触发 compact 建议）
+    context_budget: Option<ContextBudget>,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -42,6 +45,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             max_iterations: 10,
             event_handler: None,
             system_prompt: None,
+            context_budget: None,
         }
     }
 
@@ -79,6 +83,15 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 不依赖中间件注册顺序，可在 builder 链任意位置调用。
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
+        self
+    }
+
+    /// 设置上下文窗口预算配置
+    ///
+    /// 用于监控 token 用量：当 context 使用率超过 `warning_threshold` 时发出日志警告，
+    /// 提示用户使用 `/compact` 压缩上下文。设置为 None 则禁用监控。
+    pub fn with_context_budget(mut self, budget: ContextBudget) -> Self {
+        self.context_budget = Some(budget);
         self
     }
 
@@ -197,19 +210,39 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 // 自动累积 token 用量到 state
                 if let Some(ref usage) = reasoning.usage {
                     state.token_tracker_mut().accumulate(usage);
-                    let tracker = state.token_tracker();
-                    let total = self.llm.context_window();
-                    if let Some(used) = tracker.estimated_context_tokens() {
-                        let pct = (used as f64 / total as f64 * 100.0) as u32;
-                        if pct >= 80 {
-                            tracing::warn!(
-                                used_tokens = used,
-                                total_tokens = total,
-                                percentage = pct,
-                                model = %self.llm.model_name(),
-                                step,
-                                "context 接近上限"
-                            );
+                    // 使用 ContextBudget（若已设置）进行上下文用量监控
+                    if let Some(ref budget) = self.context_budget {
+                        let tracker = state.token_tracker();
+                        if budget.should_warn(tracker) {
+                            if let Some(pct) = tracker.context_usage_percent(self.llm.context_window()) {
+                                tracing::warn!(
+                                    used_tokens = ?tracker.estimated_context_tokens(),
+                                    total_tokens = self.llm.context_window(),
+                                    percentage = pct as u32,
+                                    model = %self.llm.model_name(),
+                                    step,
+                                    "context 接近上限"
+                                );
+                            }
+                        }
+                        // auto-compact 由 TUI 层根据 AgentEvent::ContextWarning 触发
+                        // ContextBudget::should_auto_compact 可在此检查并发出事件
+                    } else {
+                        // Fallback: 无 ContextBudget 时使用硬编码 80% 阈值（向后兼容）
+                        let tracker = state.token_tracker();
+                        let total = self.llm.context_window();
+                        if let Some(used) = tracker.estimated_context_tokens() {
+                            let pct = (used as f64 / total as f64 * 100.0) as u32;
+                            if pct >= 80 {
+                                tracing::warn!(
+                                    used_tokens = used,
+                                    total_tokens = total,
+                                    percentage = pct,
+                                    model = %self.llm.model_name(),
+                                    step,
+                                    "context 接近上限"
+                                );
+                            }
                         }
                     }
                 }
@@ -1102,6 +1135,61 @@ mod tests {
             .filter(|e| matches!(e, AgentEvent::ToolStart { .. }))
             .collect();
         assert_eq!(tool_starts.len(), 2, "应有 2 个 ToolStart 事件");
+    }
+
+    /// 验证 with_context_budget 设置后 executor 使用 ContextBudget 阈值
+    #[tokio::test]
+    async fn test_context_budget_wiring() {
+        struct TokenLLM { input_tokens: u32, output_tokens: u32 }
+        #[async_trait::async_trait]
+        impl ReactLLM for TokenLLM {
+            async fn generate_reasoning(
+                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                let mut r = Reasoning::with_answer("", "ok");
+                r.usage = Some(crate::llm::types::TokenUsage {
+                    input_tokens: self.input_tokens, output_tokens: self.output_tokens,
+                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                });
+                Ok(r)
+            }
+        }
+
+        // context_window=1000, warning_threshold=0.5 → 600/1000=60% > 50%
+        let budget = ContextBudget::new(1000).with_warning_threshold(0.5);
+        let agent = ReActAgent::new(TokenLLM { input_tokens: 400, output_tokens: 200 })
+            .max_iterations(3).with_context_budget(budget);
+        let mut state = AgentState::new("/tmp");
+        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        assert_eq!(output.text, "ok");
+        let t = state.token_tracker();
+        assert_eq!(t.total_input_tokens, 400);
+        assert_eq!(t.total_output_tokens, 200);
+        assert_eq!(t.llm_call_count, 1);
+    }
+
+    /// 验证无 ContextBudget 时回退到硬编码 80% 阈值（向后兼容）
+    #[tokio::test]
+    async fn test_no_context_budget_fallback() {
+        struct LowTokenLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for LowTokenLLM {
+            async fn generate_reasoning(
+                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                let mut r = Reasoning::with_answer("", "ok");
+                r.usage = Some(crate::llm::types::TokenUsage {
+                    input_tokens: 10, output_tokens: 5,
+                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                });
+                Ok(r)
+            }
+        }
+        let agent = ReActAgent::new(LowTokenLLM).max_iterations(3);
+        let mut state = AgentState::new("/tmp");
+        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        assert_eq!(output.text, "ok");
+        assert_eq!(state.token_tracker().llm_call_count, 1);
     }
 
 }
