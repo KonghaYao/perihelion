@@ -163,10 +163,12 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             }
             let mut lines = vec![Line::from(header_spans)];
             if !state.collapsed && !state.result_lines.is_empty() {
+                let result_color = if *is_error { theme::ERROR } else { theme::MUTED };
+                let border_color = if *is_error { theme::ERROR } else { Color::DarkGray };
                 for line in &state.result_lines {
                     lines.push(Line::from(vec![
-                        Span::styled("  │ ".to_string(), Style::default().fg(Color::DarkGray)),
-                        Span::styled(line.clone(), Style::default().fg(theme::MUTED)),
+                        Span::styled("  │ ".to_string(), Style::default().fg(border_color)),
+                        Span::styled(line.clone(), Style::default().fg(result_color)),
                     ]));
                 }
                 if let Some(_omitted) = state.omitted_lines {
@@ -277,10 +279,19 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
         }
         MessageViewModel::SystemNote { content } => {
             let mut lines = Vec::new();
+            let is_error = content.contains("❌") || content.contains("失败") || content.contains("错误");
+            let is_warn = content.contains("⚠") || content.contains("已中断");
+            let (icon, icon_color, text_color) = if is_error {
+                ("✗ ", theme::ERROR, theme::ERROR)
+            } else if is_warn {
+                ("⚠ ", theme::WARNING, theme::WARNING)
+            } else {
+                ("ℹ ", theme::SAGE, theme::MUTED)
+            };
             for line in content.lines() {
                 lines.push(Line::from(vec![
-                    Span::styled("ℹ ", Style::default().fg(theme::SAGE)),
-                    Span::styled(line.to_string(), Style::default().fg(theme::MUTED)),
+                    Span::styled(icon.to_string(), Style::default().fg(icon_color)),
+                    Span::styled(line.to_string(), Style::default().fg(text_color)),
                 ]));
             }
             lines

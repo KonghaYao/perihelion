@@ -29,6 +29,10 @@ impl Command for HelpCommand {
             lines.push("Skills: 将 .md 文件放入 .claude/skills/ 目录即可添加".to_string());
         }
 
+        // 全局快捷键提示
+        lines.push("".to_string());
+        lines.push("快捷键：Shift+Tab 切换权限模式 │ Esc 退出 │ Ctrl+C 中断".to_string());
+
         let vm = MessageViewModel::system(lines.join("\n"));
         app.core.view_messages.push(vm.clone());
         let _ = app.core.render_tx.send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
