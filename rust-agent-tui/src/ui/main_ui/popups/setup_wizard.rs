@@ -42,16 +42,14 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
-    let inner = BorderedPanel::new(
-        Span::styled(
-            " ── Perihelion Setup ── Step 1/2: Provider & API Key ",
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ),
-    )
-        .border_style(Style::default().fg(theme::ACCENT))
-        .render(f, area);
+    let inner = BorderedPanel::new(Span::styled(
+        " ── Perihelion Setup ── Step 1/2: Provider & API Key ",
+        Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::ACCENT))
+    .render(f, area);
 
     // 焦点样式辅助
     let focused = |is_active: bool| -> (Style, Style) {
@@ -201,16 +199,14 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
 }
 
 fn render_step_model_alias(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
-    let inner = BorderedPanel::new(
-        Span::styled(
-            " ── Step 2/2: Model Aliases ",
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ),
-    )
-        .border_style(Style::default().fg(theme::ACCENT))
-        .render(f, area);
+    let inner = BorderedPanel::new(Span::styled(
+        " ── Step 2/2: Model Aliases ",
+        Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::ACCENT))
+    .render(f, area);
 
     let alias_labels = ["Opus ", "Sonnet", "Haiku "];
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -273,16 +269,14 @@ fn render_step_model_alias(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect)
 }
 
 fn render_step_done(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
-    let inner = BorderedPanel::new(
-        Span::styled(
-            " ── Setup Complete ✓ ",
-            Style::default()
-                .fg(theme::SAGE)
-                .add_modifier(Modifier::BOLD),
-        ),
-    )
-        .border_style(Style::default().fg(theme::SAGE))
-        .render(f, area);
+    let inner = BorderedPanel::new(Span::styled(
+        " ── Setup Complete ✓ ",
+        Style::default()
+            .fg(theme::SAGE)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::SAGE))
+    .render(f, area);
 
     let alias_labels = ["Opus", "Sonnet", "Haiku"];
 
@@ -368,7 +362,10 @@ mod tests {
     fn render_headless(wizard: SetupWizardPanel) -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30);
         app.setup_wizard = Some(wizard);
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
         (app, handle)
     }
 
@@ -389,7 +386,10 @@ mod tests {
         let (_, handle) = render_headless(wizard);
         // API key should be masked with bullets, not visible in plain text
         let snapshot = handle.snapshot().join("\n");
-        assert!(!snapshot.contains("sk-abc123xyz789"), "should not show raw key");
+        assert!(
+            !snapshot.contains("sk-abc123xyz789"),
+            "should not show raw key"
+        );
     }
 
     #[tokio::test]
@@ -414,6 +414,9 @@ mod tests {
         let mut wizard = SetupWizardPanel::new();
         wizard.confirm_skip = true;
         let (_, handle) = render_headless(wizard);
-        assert!(handle.contains("Enter") || handle.contains("setup"), "should show skip confirmation");
+        assert!(
+            handle.contains("Enter") || handle.contains("setup"),
+            "should show skip confirmation"
+        );
     }
 }

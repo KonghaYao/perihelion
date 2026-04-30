@@ -76,7 +76,8 @@ impl SpinnerState {
 
     pub fn advance_tick(&mut self) {
         self.raw_tick = self.raw_tick.wrapping_add(1);
-        self.displayed_tokens = animation::smooth_increment(self.displayed_tokens, self.token_count);
+        self.displayed_tokens =
+            animation::smooth_increment(self.displayed_tokens, self.token_count);
         // 每 2 个 raw tick 才推进一帧（星号旋转更快）
         if self.raw_tick % 2 == 0 {
             self.tick += 1;
@@ -160,7 +161,10 @@ impl<'a> Widget for SpinnerWidget<'a> {
         }
 
         if self.show_tokens && displayed_tokens > 0 {
-            suffix_parts.push(format!("↓ {} tokens", animation::format_tokens(displayed_tokens)));
+            suffix_parts.push(format!(
+                "↓ {} tokens",
+                animation::format_tokens(displayed_tokens)
+            ));
         }
 
         if !suffix_parts.is_empty() {

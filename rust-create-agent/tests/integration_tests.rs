@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
 use rust_create_agent::prelude::*;
+use std::sync::{Arc, Mutex};
 
 // ── 辅助 ──────────────────────────────────────────────────────────────────────
 
@@ -16,10 +16,19 @@ impl CounterTool {
 
 #[async_trait]
 impl BaseTool for CounterTool {
-    fn name(&self) -> &str { "counter" }
-    fn description(&self) -> &str { "Increments a counter" }
-    fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
-    async fn invoke(&self, _input: serde_json::Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    fn name(&self) -> &str {
+        "counter"
+    }
+    fn description(&self) -> &str {
+        "Increments a counter"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+    async fn invoke(
+        &self,
+        _input: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut c = self.count.lock().unwrap();
         *c += 1;
         Ok(format!("count = {}", *c))
@@ -38,15 +47,32 @@ impl CallRecorder {
 
 #[async_trait]
 impl Middleware<AgentState> for CallRecorder {
-    fn name(&self) -> &str { "recorder" }
+    fn name(&self) -> &str {
+        "recorder"
+    }
 
-    async fn before_tool(&self, _state: &mut AgentState, tool_call: &ToolCall) -> AgentResult<ToolCall> {
-        self.calls.lock().unwrap().push(format!("before:{}", tool_call.name));
+    async fn before_tool(
+        &self,
+        _state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> AgentResult<ToolCall> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("before:{}", tool_call.name));
         Ok(tool_call.clone())
     }
 
-    async fn after_tool(&self, _state: &mut AgentState, tool_call: &ToolCall, _result: &ToolResult) -> AgentResult<()> {
-        self.calls.lock().unwrap().push(format!("after:{}", tool_call.name));
+    async fn after_tool(
+        &self,
+        _state: &mut AgentState,
+        tool_call: &ToolCall,
+        _result: &ToolResult,
+    ) -> AgentResult<()> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("after:{}", tool_call.name));
         Ok(())
     }
 }
@@ -56,8 +82,14 @@ impl Middleware<AgentState> for CallRecorder {
 #[tokio::test]
 async fn test_full_react_loop() {
     let llm = MockLLM::new(vec![
-        Reasoning::with_tools("step 1", vec![ToolCall::new("c1", "counter", serde_json::json!({}))]),
-        Reasoning::with_tools("step 2", vec![ToolCall::new("c2", "counter", serde_json::json!({}))]),
+        Reasoning::with_tools(
+            "step 1",
+            vec![ToolCall::new("c1", "counter", serde_json::json!({}))],
+        ),
+        Reasoning::with_tools(
+            "step 2",
+            vec![ToolCall::new("c2", "counter", serde_json::json!({}))],
+        ),
         Reasoning::with_answer("done", "Final: counted twice"),
     ]);
 
@@ -69,7 +101,10 @@ async fn test_full_react_loop() {
         .add_middleware(Box::new(CallRecorder::new(calls.clone())));
 
     let mut state = AgentState::new("/workspace");
-    let output = agent.execute(AgentInput::text("count twice"), &mut state, None).await.unwrap();
+    let output = agent
+        .execute(AgentInput::text("count twice"), &mut state, None)
+        .await
+        .unwrap();
 
     assert_eq!(*count.lock().unwrap(), 2);
     assert_eq!(output.tool_calls.len(), 2);
@@ -78,7 +113,12 @@ async fn test_full_react_loop() {
     let recorded = calls.lock().unwrap().clone();
     assert_eq!(
         recorded,
-        vec!["before:counter", "after:counter", "before:counter", "after:counter"]
+        vec![
+            "before:counter",
+            "after:counter",
+            "before:counter",
+            "after:counter"
+        ]
     );
 }
 
@@ -93,26 +133,47 @@ async fn test_multiple_middlewares() {
 
     #[async_trait]
     impl Middleware<AgentState> for Tagger {
-        fn name(&self) -> &str { &self.tag }
+        fn name(&self) -> &str {
+            &self.tag
+        }
 
         async fn before_agent(&self, _state: &mut AgentState) -> AgentResult<()> {
-            self.log.lock().unwrap().push(format!("{}:before", self.tag));
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{}:before", self.tag));
             Ok(())
         }
 
-        async fn after_agent(&self, _state: &mut AgentState, output: &AgentOutput) -> AgentResult<AgentOutput> {
+        async fn after_agent(
+            &self,
+            _state: &mut AgentState,
+            output: &AgentOutput,
+        ) -> AgentResult<AgentOutput> {
             self.log.lock().unwrap().push(format!("{}:after", self.tag));
             Ok(output.clone())
         }
     }
 
     let agent = ReActAgent::new(MockLLM::always_answer("ok"))
-        .add_middleware(Box::new(Tagger { tag: "A".into(), log: log.clone() }))
-        .add_middleware(Box::new(Tagger { tag: "B".into(), log: log.clone() }))
-        .add_middleware(Box::new(Tagger { tag: "C".into(), log: log.clone() }));
+        .add_middleware(Box::new(Tagger {
+            tag: "A".into(),
+            log: log.clone(),
+        }))
+        .add_middleware(Box::new(Tagger {
+            tag: "B".into(),
+            log: log.clone(),
+        }))
+        .add_middleware(Box::new(Tagger {
+            tag: "C".into(),
+            log: log.clone(),
+        }));
 
     let mut state = AgentState::new("/test");
-    agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+    agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await
+        .unwrap();
 
     let recorded = log.lock().unwrap().clone();
     assert_eq!(

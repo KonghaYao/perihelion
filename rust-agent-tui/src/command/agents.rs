@@ -95,7 +95,12 @@ fn scan_dir_for_agents(dir: &Path, agents: &mut Vec<AgentItem>, seen: &mut HashS
 fn parse_agent_info(path: &Path, fallback_id: &str) -> (String, String) {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
-        Err(_) => return (rust_agent_middlewares::format_agent_id(fallback_id), String::new()),
+        Err(_) => {
+            return (
+                rust_agent_middlewares::format_agent_id(fallback_id),
+                String::new(),
+            )
+        }
     };
 
     // 尝试解析 YAML frontmatter
@@ -104,7 +109,10 @@ fn parse_agent_info(path: &Path, fallback_id: &str) -> (String, String) {
     }
 
     // 没有有效 frontmatter，返回格式化的 id 和空描述
-    (rust_agent_middlewares::format_agent_id(fallback_id), String::new())
+    (
+        rust_agent_middlewares::format_agent_id(fallback_id),
+        String::new(),
+    )
 }
 
 /// Agent 项

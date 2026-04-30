@@ -33,7 +33,12 @@ pub struct AskUserBatchRequest {
 impl AskUserBatchRequest {
     pub fn new(questions: Vec<AskUserQuestionData>) -> (Self, oneshot::Receiver<Vec<String>>) {
         let (response_tx, response_rx) = oneshot::channel();
-        (Self { questions, response_tx }, response_rx)
+        (
+            Self {
+                questions,
+                response_tx,
+            },
+            response_rx,
+        )
     }
 }
-

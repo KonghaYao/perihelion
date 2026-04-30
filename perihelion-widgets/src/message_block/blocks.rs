@@ -30,8 +30,8 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
         BlockRenderStrategy::Text { content, .. } => {
             #[cfg(feature = "markdown")]
             {
-                use crate::markdown::DefaultMarkdownTheme;
                 use super::highlight::is_diff_content;
+                use crate::markdown::DefaultMarkdownTheme;
 
                 if is_diff_content(content) {
                     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -58,7 +58,8 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
         BlockRenderStrategy::ToolCall(state) => {
             let _ = width;
             // Use ToolCallWidget to render into lines
-            let indicator = crate::tool_call::display::format_indicator(state.status.clone(), state.tick);
+            let indicator =
+                crate::tool_call::display::format_indicator(state.status.clone(), state.tick);
             let arrow = if state.collapsed { "▸" } else { "▾" };
             let mut header_spans: Vec<ratatui::text::Span<'_>> = vec![
                 ratatui::text::Span::styled(
@@ -77,7 +78,8 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
                 ),
             ];
             if !state.args_summary.is_empty() {
-                let summary = crate::tool_call::display::format_args_summary(&state.args_summary, 40);
+                let summary =
+                    crate::tool_call::display::format_args_summary(&state.args_summary, 40);
                 header_spans.push(ratatui::text::Span::styled(
                     format!("({})", summary),
                     ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
@@ -95,12 +97,10 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
                     ]));
                 }
                 if let Some(omitted) = state.omitted_lines {
-                    lines.push(Line::from(vec![
-                        ratatui::text::Span::styled(
-                            format!("  … ({} more lines)", omitted),
-                            ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
-                        ),
-                    ]));
+                    lines.push(Line::from(vec![ratatui::text::Span::styled(
+                        format!("  … ({} more lines)", omitted),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
+                    )]));
                 }
             }
             lines
@@ -133,10 +133,8 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
             expanded,
         } => {
             let _ = width;
-            let mut lines: Vec<Line<'_>> = vec![Line::from(format!(
-                "💭 思考 ({} chars)",
-                char_count
-            ))];
+            let mut lines: Vec<Line<'_>> =
+                vec![Line::from(format!("💭 思考 ({} chars)", char_count))];
             if *expanded {
                 lines.push(Line::raw("(thinking content)"));
             }

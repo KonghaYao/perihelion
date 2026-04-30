@@ -14,7 +14,10 @@ pub struct RadioOption<'a> {
 
 impl<'a> RadioOption<'a> {
     pub fn new(label: &'a str) -> Self {
-        Self { label, description: None }
+        Self {
+            label,
+            description: None,
+        }
     }
 
     pub fn description(mut self, desc: &'a str) -> Self {
@@ -32,26 +35,37 @@ pub struct RadioState {
 
 impl RadioState {
     pub fn new() -> Self {
-        Self { selected: None, cursor: 0 }
+        Self {
+            selected: None,
+            cursor: 0,
+        }
     }
 
     pub fn select(&mut self, index: usize) {
         self.selected = Some(index);
     }
 
-    pub fn selected(&self) -> Option<usize> { self.selected }
+    pub fn selected(&self) -> Option<usize> {
+        self.selected
+    }
 
-    pub fn cursor(&self) -> usize { self.cursor }
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
 
     pub fn move_cursor(&mut self, delta: i32, total: usize) {
-        if total == 0 { return; }
+        if total == 0 {
+            return;
+        }
         let new = self.cursor as i32 + delta;
         self.cursor = new.clamp(0, (total - 1) as i32) as usize;
     }
 }
 
 impl Default for RadioState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// 单选按钮组 widget
@@ -89,13 +103,23 @@ impl StatefulWidget for RadioGroup<'_> {
     type State = RadioState;
 
     fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
-        if self.options.is_empty() { return; }
+        if self.options.is_empty() {
+            return;
+        }
         let mut lines: Vec<Line<'static>> = Vec::new();
         for (i, opt) in self.options.iter().enumerate() {
             let is_cursor = i == state.cursor;
             let is_selected = state.selected == Some(i);
-            let marker = if is_selected { self.marker_char.to_string() } else { "○".to_string() };
-            let style = if is_cursor { self.cursor_style } else { self.normal_style };
+            let marker = if is_selected {
+                self.marker_char.to_string()
+            } else {
+                "○".to_string()
+            };
+            let style = if is_cursor {
+                self.cursor_style
+            } else {
+                self.normal_style
+            };
             let mut spans = vec![
                 Span::styled(format!("{} ", marker), style),
                 Span::styled(opt.label.to_string(), style),
@@ -146,15 +170,21 @@ mod tests {
             RadioOption::new("Option A"),
             RadioOption::new("Option B").description("desc"),
         ];
-        terminal.draw(|f| {
-            let area = Rect::new(0, 0, 30, 5);
-            f.render_stateful_widget(RadioGroup::new(options), area, &mut state);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 30, 5);
+                f.render_stateful_widget(RadioGroup::new(options), area, &mut state);
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
         let row0: String = (0..30)
             .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
             .collect();
-        assert!(row0.contains("●"), "Expected filled marker, got: {:?}", row0);
+        assert!(
+            row0.contains("●"),
+            "Expected filled marker, got: {:?}",
+            row0
+        );
         let row1: String = (0..30)
             .map(|x| buf.cell((x, 1)).unwrap().symbol().to_string())
             .collect();

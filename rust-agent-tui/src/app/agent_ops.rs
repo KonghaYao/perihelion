@@ -1,6 +1,6 @@
+use super::message_pipeline::PipelineAction;
 use super::*;
 use rust_agent_middlewares::hitl::BatchItem;
-use super::message_pipeline::PipelineAction;
 
 /// 从输入文本中提取 `/skill-name` 格式的 token（字母、数字、连字符、下划线）
 fn extract_skill_tokens(input: &str) -> Vec<String> {
@@ -54,11 +54,9 @@ impl App {
         {
             Some(p) => p,
             None => {
-                self.apply_pipeline_action(PipelineAction::AddMessage(
-                    MessageViewModel::system(
-                        "未配置 API Key，请输入 /login 配置 Provider".to_string(),
-                    ),
-                ));
+                self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
+                    "未配置 API Key，请输入 /login 配置 Provider".to_string(),
+                )));
                 self.set_loading(false);
                 return;
             }
@@ -211,7 +209,11 @@ impl App {
             PipelineAction::UpdateToolResult { tool_call_id, vm } => {
                 // 按 tool_call_id 精确查找 ToolBlock（并行工具调用时避免 UpdateLast 互相覆盖）
                 let idx = self.core.view_messages.iter().position(|m| {
-                    if let MessageViewModel::ToolBlock { tool_call_id: tc_id, .. } = m {
+                    if let MessageViewModel::ToolBlock {
+                        tool_call_id: tc_id,
+                        ..
+                    } = m
+                    {
                         tc_id == &tool_call_id
                     } else {
                         false
@@ -252,16 +254,22 @@ impl App {
     /// 处理单个 AgentEvent，返回 `(updated, should_break, should_return)`
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         match event {
-            AgentEvent::SubAgentStart { agent_id, task_preview } => {
+            AgentEvent::SubAgentStart {
+                agent_id,
+                task_preview,
+            } => {
                 // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     tracer.lock().on_subagent_start(&agent_id, &task_preview);
                 }
                 // Pipeline：创建 SubAgentGroup VM
-                let actions = self.core.pipeline.handle_event(
-                    AgentEvent::SubAgentStart { agent_id, task_preview }
-                );
-                for action in actions { self.apply_pipeline_action(action); }
+                let actions = self.core.pipeline.handle_event(AgentEvent::SubAgentStart {
+                    agent_id,
+                    task_preview,
+                });
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 (true, false, false)
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
@@ -270,13 +278,20 @@ impl App {
                     tracer.lock().on_subagent_end(&result, is_error);
                 }
                 // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
-                let actions = self.core.pipeline.handle_event(
-                    AgentEvent::SubAgentEnd { result, is_error }
-                );
-                for action in actions { self.apply_pipeline_action(action); }
+                let actions = self
+                    .core
+                    .pipeline
+                    .handle_event(AgentEvent::SubAgentEnd { result, is_error });
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 (true, false, false)
             }
-            AgentEvent::ContextWarning { used_tokens: _, total_tokens: _, percentage: _ } => {
+            AgentEvent::ContextWarning {
+                used_tokens: _,
+                total_tokens: _,
+                percentage: _,
+            } => {
                 // 核心层上下文警告：触发 auto-compact 标记
                 if std::env::var("DISABLE_COMPACT").is_ok() {
                     return (true, false, false);
@@ -285,12 +300,17 @@ impl App {
                 if !compact_config.auto_compact_enabled {
                     return (true, false, false);
                 }
-                if (self.agent.auto_compact_failures as u32) < compact_config.max_consecutive_failures {
+                if (self.agent.auto_compact_failures as u32)
+                    < compact_config.max_consecutive_failures
+                {
                     self.agent.needs_auto_compact = true;
                 }
                 (true, false, false)
             }
-            AgentEvent::TokenUsageUpdate { usage, model: _model } => {
+            AgentEvent::TokenUsageUpdate {
+                usage,
+                model: _model,
+            } => {
                 // 累积到会话追踪器
                 self.agent.session_token_tracker.accumulate(&usage);
                 // 更新 spinner 的 token 显示
@@ -308,7 +328,9 @@ impl App {
                     return (true, false, false);
                 }
                 // circuit breaker: 连续失败达到上限后不再自动触发
-                if (self.agent.auto_compact_failures as u32) < compact_config.max_consecutive_failures {
+                if (self.agent.auto_compact_failures as u32)
+                    < compact_config.max_consecutive_failures
+                {
                     let budget = rust_create_agent::agent::token::ContextBudget::new(
                         self.agent.context_window,
                     )
@@ -319,10 +341,17 @@ impl App {
                 }
                 (true, false, false)
             }
-            AgentEvent::ToolStart { tool_call_id, name, display, args, input } => {
+            AgentEvent::ToolStart {
+                tool_call_id,
+                name,
+                display,
+                args,
+                input,
+            } => {
                 self.agent.retry_status = None;
                 // 跨切面：spinner
-                self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::ToolUse);
+                self.spinner_state
+                    .set_mode(perihelion_widgets::SpinnerMode::ToolUse);
                 let verb_text = if !args.is_empty() {
                     let summary: String = args.chars().take(40).collect();
                     format!("{} {}", display, summary)
@@ -331,36 +360,58 @@ impl App {
                 };
                 self.spinner_state.set_verb(Some(&verb_text));
                 // Pipeline：创建 ToolBlock / 路由进 SubAgentGroup
-                let actions = self.core.pipeline.handle_event(
-                    AgentEvent::ToolStart { tool_call_id, name, display, args, input }
-                );
-                for action in actions { self.apply_pipeline_action(action); }
+                let actions = self.core.pipeline.handle_event(AgentEvent::ToolStart {
+                    tool_call_id,
+                    name,
+                    display,
+                    args,
+                    input,
+                });
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 (true, false, false)
             }
-            AgentEvent::ToolEnd { tool_call_id, name, output, is_error } => {
+            AgentEvent::ToolEnd {
+                tool_call_id,
+                name,
+                output,
+                is_error,
+            } => {
                 // Pipeline：更新 ToolBlock 结果 / SubAgentGroup 完成
-                let actions = self.core.pipeline.handle_event(
-                    AgentEvent::ToolEnd { tool_call_id, name, output, is_error }
-                );
-                for action in actions { self.apply_pipeline_action(action); }
+                let actions = self.core.pipeline.handle_event(AgentEvent::ToolEnd {
+                    tool_call_id,
+                    name,
+                    output,
+                    is_error,
+                });
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
                 self.agent.retry_status = None;
                 // 跨切面：spinner
-                self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
+                self.spinner_state
+                    .set_mode(perihelion_widgets::SpinnerMode::Responding);
                 // Pipeline：路由到 SubAgentGroup 或父 Agent AssistantBubble
-                let actions = self.core.pipeline.handle_event(
-                    AgentEvent::AssistantChunk(chunk)
-                );
-                for action in actions { self.apply_pipeline_action(action); }
+                let actions = self
+                    .core
+                    .pipeline
+                    .handle_event(AgentEvent::AssistantChunk(chunk));
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 (true, false, false)
             }
             AgentEvent::Done => {
                 self.agent.retry_status = None;
                 // Pipeline：finalize 当前 AI 消息 + reconcile 重建 view_messages
                 let actions = self.core.pipeline.handle_event(AgentEvent::Done);
-                for action in actions { self.apply_pipeline_action(action); }
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
@@ -371,7 +422,9 @@ impl App {
                 // Auto-compact 两级策略
                 if self.agent.needs_auto_compact {
                     self.agent.needs_auto_compact = false;
-                    tracing::info!("auto-compact: context threshold reached, triggering full compact");
+                    tracing::info!(
+                        "auto-compact: context threshold reached, triggering full compact"
+                    );
                     self.start_compact("auto".to_string());
                     return (true, false, true);
                 } else {
@@ -404,7 +457,9 @@ impl App {
             AgentEvent::Interrupted => {
                 // Pipeline：finalize 当前状态
                 let actions = self.core.pipeline.handle_event(AgentEvent::Interrupted);
-                for action in actions { self.apply_pipeline_action(action); }
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 // 系统消息由 agent_ops 直接显示
                 let vm = MessageViewModel::system(
                     "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
@@ -424,14 +479,18 @@ impl App {
                     true,
                 );
                 // 将完整错误信息放入 content，并默认展开，确保用户能看到
-                if let MessageViewModel::ToolBlock { content, collapsed, .. } = &mut vm {
+                if let MessageViewModel::ToolBlock {
+                    content, collapsed, ..
+                } = &mut vm
+                {
                     *content = e.clone();
                     *collapsed = false;
                 }
                 self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 // Langfuse：错误路径也需结束 Trace
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
-                    self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
+                    self.langfuse.langfuse_flush_handle =
+                        Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
                 }
                 self.langfuse.langfuse_tracer = None;
                 self.set_loading(false);
@@ -450,17 +509,22 @@ impl App {
                 (true, false, true)
             }
             AgentEvent::InteractionRequest { ctx, response_tx } => {
+                use rust_agent_middlewares::ask_user::{
+                    AskUserBatchRequest, AskUserOption, AskUserQuestionData,
+                };
                 use rust_create_agent::interaction::{
                     ApprovalDecision, InteractionContext, InteractionResponse, QuestionAnswer,
                 };
-                use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
                 use tokio::sync::oneshot;
 
                 match ctx {
                     InteractionContext::Approval { items } => {
                         let batch_items: Vec<BatchItem> = items
                             .iter()
-                            .map(|i| BatchItem { tool_name: i.tool_name.clone(), input: i.tool_input.clone() })
+                            .map(|i| BatchItem {
+                                tool_name: i.tool_name.clone(),
+                                input: i.tool_input.clone(),
+                            })
                             .collect();
                         let (bridge_tx, bridge_rx) = oneshot::channel::<Vec<HitlDecision>>();
                         tokio::spawn(async move {
@@ -469,15 +533,24 @@ impl App {
                                     .into_iter()
                                     .map(|d| match d {
                                         HitlDecision::Approve => ApprovalDecision::Approve,
-                                        HitlDecision::Reject => ApprovalDecision::Reject { reason: "用户拒绝".to_string() },
-                                        HitlDecision::Edit(v) => ApprovalDecision::Edit { new_input: v },
-                                        HitlDecision::Respond(msg) => ApprovalDecision::Respond { message: msg },
+                                        HitlDecision::Reject => ApprovalDecision::Reject {
+                                            reason: "用户拒绝".to_string(),
+                                        },
+                                        HitlDecision::Edit(v) => {
+                                            ApprovalDecision::Edit { new_input: v }
+                                        }
+                                        HitlDecision::Respond(msg) => {
+                                            ApprovalDecision::Respond { message: msg }
+                                        }
                                     })
                                     .collect();
-                                let _ = response_tx.send(InteractionResponse::Decisions(approval_decisions));
+                                let _ = response_tx
+                                    .send(InteractionResponse::Decisions(approval_decisions));
                             }
                         });
-                        self.agent.interaction_prompt = Some(InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)));
+                        self.agent.interaction_prompt = Some(InteractionPrompt::Approval(
+                            HitlBatchPrompt::new(batch_items, bridge_tx),
+                        ));
                         (true, true, false) // 暂停消费，等待用户确认
                     }
                     InteractionContext::Questions { requests } => {
@@ -488,10 +561,14 @@ impl App {
                                 question: q.question.clone(),
                                 header: q.header.clone(),
                                 multi_select: q.multi_select,
-                                options: q.options.iter().map(|o| AskUserOption {
-                                    label: o.label.clone(),
-                                    description: o.description.clone(),
-                                }).collect(),
+                                options: q
+                                    .options
+                                    .iter()
+                                    .map(|o| AskUserOption {
+                                        label: o.label.clone(),
+                                        description: o.description.clone(),
+                                    })
+                                    .collect(),
                             })
                             .collect();
                         let (bridge_tx, bridge_rx) = oneshot::channel::<Vec<String>>();
@@ -501,23 +578,43 @@ impl App {
                                 let question_answers: Vec<QuestionAnswer> = ids
                                     .into_iter()
                                     .zip(answers.into_iter())
-                                    .map(|(id, answer)| QuestionAnswer { id, selected: vec![answer.clone()], text: Some(answer) })
+                                    .map(|(id, answer)| QuestionAnswer {
+                                        id,
+                                        selected: vec![answer.clone()],
+                                        text: Some(answer),
+                                    })
                                     .collect();
-                                let _ = response_tx.send(InteractionResponse::Answers(question_answers));
+                                let _ = response_tx
+                                    .send(InteractionResponse::Answers(question_answers));
                             }
                         });
                         self.agent.pending_ask_user = Some(false);
                         {
-                            let q_lines: Vec<String> = requests.iter().map(|q| {
-                                let hint = if q.multi_select { " [多选]" } else { " [单选]" };
-                                format!("{}{}: {}", q.header, hint, q.question)
-                            }).collect();
-                            let vm = MessageViewModel::system(format!("❓ 向你提问:\n{}", q_lines.join("\n")));
+                            let q_lines: Vec<String> = requests
+                                .iter()
+                                .map(|q| {
+                                    let hint = if q.multi_select {
+                                        " [多选]"
+                                    } else {
+                                        " [单选]"
+                                    };
+                                    format!("{}{}: {}", q.header, hint, q.question)
+                                })
+                                .collect();
+                            let vm = MessageViewModel::system(format!(
+                                "❓ 向你提问:\n{}",
+                                q_lines.join("\n")
+                            ));
                             self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                         }
                         let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
-                        let batch_req_bridged = AskUserBatchRequest { questions: batch_req.questions, response_tx: bridge_tx };
-                        self.agent.interaction_prompt = Some(InteractionPrompt::Questions(AskUserBatchPrompt::from_request(batch_req_bridged)));
+                        let batch_req_bridged = AskUserBatchRequest {
+                            questions: batch_req.questions,
+                            response_tx: bridge_tx,
+                        };
+                        self.agent.interaction_prompt = Some(InteractionPrompt::Questions(
+                            AskUserBatchPrompt::from_request(batch_req_bridged),
+                        ));
                         (true, true, false) // 暂停消费，等待用户输入
                     }
                 }
@@ -530,7 +627,11 @@ impl App {
                 tracing::debug!(count = msgs.len(), "received StateSnapshot in poll_agent");
                 for msg in &msgs {
                     match msg {
-                        BaseMessage::Ai { content: _, tool_calls, .. } => {
+                        BaseMessage::Ai {
+                            content: _,
+                            tool_calls,
+                            ..
+                        } => {
                             tracing::debug!(
                                 has_tc = !tool_calls.is_empty(),
                                 tc_len = tool_calls.len(),
@@ -545,30 +646,44 @@ impl App {
                 }
                 self.agent.agent_state_messages.extend(msgs.clone());
                 // Pipeline：更新 completed 状态（用于后续 reconcile）
-                let actions = self.core.pipeline.handle_event(
-                    AgentEvent::StateSnapshot(msgs)
-                );
-                for action in actions { self.apply_pipeline_action(action); }
+                let actions = self
+                    .core
+                    .pipeline
+                    .handle_event(AgentEvent::StateSnapshot(msgs));
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 (true, false, false)
             }
-            AgentEvent::CompactDone { summary, new_thread_id: _ } => {
+            AgentEvent::CompactDone {
+                summary,
+                new_thread_id: _,
+            } => {
                 // 拆分摘要和重新注入内容
-                let (summary_text, re_inject_messages) = if let Some(idx) = summary.find("---RE_INJECT_SEPARATOR---\n") {
-                    let parts: (&str, &str) = summary.split_at(idx);
-                    let re_inject_part = parts.1.strip_prefix("---RE_INJECT_SEPARATOR---\n").unwrap_or("");
-                    // 使用唯一消息分隔符拆分，保留文件内容中的空行
-                    let re_inject_msgs: Vec<BaseMessage> = re_inject_part
-                        .split("\n---RE_INJECT_MSG_BREAK---\n")
-                        .filter(|s| !s.trim().is_empty())
-                        .map(|s| BaseMessage::system(s.to_string()))
-                        .collect();
-                    (parts.0.trim_end().to_string(), re_inject_msgs)
-                } else {
-                    (summary.clone(), Vec::new())
-                };
+                let (summary_text, re_inject_messages) =
+                    if let Some(idx) = summary.find("---RE_INJECT_SEPARATOR---\n") {
+                        let parts: (&str, &str) = summary.split_at(idx);
+                        let re_inject_part = parts
+                            .1
+                            .strip_prefix("---RE_INJECT_SEPARATOR---\n")
+                            .unwrap_or("");
+                        // 使用唯一消息分隔符拆分，保留文件内容中的空行
+                        let re_inject_msgs: Vec<BaseMessage> = re_inject_part
+                            .split("\n---RE_INJECT_MSG_BREAK---\n")
+                            .filter(|s| !s.trim().is_empty())
+                            .map(|s| BaseMessage::system(s.to_string()))
+                            .collect();
+                        (parts.0.trim_end().to_string(), re_inject_msgs)
+                    } else {
+                        (summary.clone(), Vec::new())
+                    };
 
                 let truncated: String = summary_text.chars().take(30).collect();
-                let ellipsis = if summary_text.chars().count() > 30 { "…" } else { "" };
+                let ellipsis = if summary_text.chars().count() > 30 {
+                    "…"
+                } else {
+                    ""
+                };
                 let thread_title = format!("Compact: {}{}", truncated, ellipsis);
                 let mut meta = ThreadMeta::new(&self.cwd);
                 meta.title = Some(thread_title);
@@ -598,11 +713,12 @@ impl App {
                 self.agent.agent_state_messages = new_messages;
 
                 self.core.pipeline.clear();
-                self.core.pipeline.restore_completed(self.agent.agent_state_messages.clone());
+                self.core
+                    .pipeline
+                    .restore_completed(self.agent.agent_state_messages.clone());
 
-                let compact_vm = MessageViewModel::system(
-                    "上下文已压缩（从旧对话迁移到新 Thread）".to_string(),
-                );
+                let compact_vm =
+                    MessageViewModel::system("上下文已压缩（从旧对话迁移到新 Thread）".to_string());
                 let summary_vm = MessageViewModel::from_base_message(
                     &BaseMessage::ai(format!("压缩摘要：\n{}", summary_text)),
                     &[],
@@ -611,9 +727,10 @@ impl App {
 
                 let inject_count = self.agent.agent_state_messages.len() - 1;
                 if inject_count > 0 {
-                    let inject_vm = MessageViewModel::system(
-                        format!("已重新注入 {} 条上下文（文件/Skills）", inject_count),
-                    );
+                    let inject_vm = MessageViewModel::system(format!(
+                        "已重新注入 {} 条上下文（文件/Skills）",
+                        inject_count
+                    ));
                     view_msgs.push(inject_vm);
                 }
                 self.apply_pipeline_action(PipelineAction::RebuildAll(view_msgs));
@@ -649,13 +766,27 @@ impl App {
 
                 (true, false, true)
             }
-            AgentEvent::LlmRetrying { attempt, max_attempts, delay_ms, error: _ } => {
-                self.agent.retry_status = Some(super::agent_comm::RetryStatus { attempt, max_attempts, delay_ms });
+            AgentEvent::LlmRetrying {
+                attempt,
+                max_attempts,
+                delay_ms,
+                error: _,
+            } => {
+                self.agent.retry_status = Some(super::agent_comm::RetryStatus {
+                    attempt,
+                    max_attempts,
+                    delay_ms,
+                });
                 (true, false, false)
             }
             AgentEvent::AiReasoning(text) => {
-                let actions = self.core.pipeline.handle_event(AgentEvent::AiReasoning(text));
-                for action in actions { self.apply_pipeline_action(action); }
+                let actions = self
+                    .core
+                    .pipeline
+                    .handle_event(AgentEvent::AiReasoning(text));
+                for action in actions {
+                    self.apply_pipeline_action(action);
+                }
                 (true, false, false)
             }
         }
@@ -697,7 +828,10 @@ impl App {
                     );
                     self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                     if let Some(ref tracer) = self.langfuse.langfuse_tracer {
-                        self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(Some("ERROR: agent channel disconnected unexpectedly")));
+                        self.langfuse.langfuse_flush_handle =
+                            Some(tracer.lock().on_trace_end(Some(
+                                "ERROR: agent channel disconnected unexpectedly",
+                            )));
                     }
                     self.langfuse.langfuse_tracer = None;
                     self.set_loading(false);
@@ -719,7 +853,10 @@ impl App {
 
     /// 每帧调用：检查 cron 触发事件，空闲时自动提交 prompt
     pub fn poll_cron_triggers(&mut self) {
-        let cron_triggers: Vec<_> = self.cron.trigger_rx.as_mut()
+        let cron_triggers: Vec<_> = self
+            .cron
+            .trigger_rx
+            .as_mut()
             .map(|rx| {
                 let mut triggers = Vec::new();
                 while let Ok(trigger) = rx.try_recv() {
@@ -753,10 +890,11 @@ impl App {
             tracing::info!(cleared, "micro-compact: enhanced compact completed");
             // 同步 pipeline.completed 与 agent_state_messages
             self.core.pipeline.clear();
-            self.core.pipeline.restore_completed(self.agent.agent_state_messages.clone());
-            let vm = MessageViewModel::system(
-                format!("自动清理：释放了 {} 个工具调用结果", cleared)
-            );
+            self.core
+                .pipeline
+                .restore_completed(self.agent.agent_state_messages.clone());
+            let vm =
+                MessageViewModel::system(format!("自动清理：释放了 {} 个工具调用结果", cleared));
             self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         }
     }

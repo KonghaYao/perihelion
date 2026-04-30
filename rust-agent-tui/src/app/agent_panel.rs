@@ -44,7 +44,7 @@ impl AgentPanel {
         self.cursor = ((self.cursor as isize + delta).rem_euclid(total as isize)) as usize;
     }
 
-/// 选择当前光标处的 agent（Enter 确认选择）
+    /// 选择当前光标处的 agent（Enter 确认选择）
     /// 返回 (is_none: bool, agent_id: Option<String>)
     pub fn get_selection(&self) -> (bool, Option<String>) {
         if self.cursor == 0 {

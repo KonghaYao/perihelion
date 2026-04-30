@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
-use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 use super::MessageAdapter;
+use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 
 /// Anthropic Messages API 格式的消息适配器
 pub struct AnthropicAdapter;
@@ -39,7 +39,11 @@ impl AnthropicAdapter {
                 "name": name,
                 "input": input
             })),
-            ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
                 let content_val: Vec<Value> = content
                     .iter()
                     .filter_map(Self::block_to_anthropic)
@@ -66,10 +70,8 @@ impl AnthropicAdapter {
         match content {
             MessageContent::Text(s) => json!(s),
             MessageContent::Blocks(blocks) => {
-                let parts: Vec<Value> = blocks
-                    .iter()
-                    .filter_map(Self::block_to_anthropic)
-                    .collect();
+                let parts: Vec<Value> =
+                    blocks.iter().filter_map(Self::block_to_anthropic).collect();
                 Value::Array(parts)
             }
             MessageContent::Raw(values) => Value::Array(values.clone()),
@@ -126,35 +128,34 @@ impl MessageAdapter for AnthropicAdapter {
 
     /// Anthropic 原生 message JSON → BaseMessage
     fn to_base_message(value: &Value) -> Result<BaseMessage> {
-        let role = value["role"].as_str().ok_or_else(|| anyhow!("缺少 role 字段"))?;
+        let role = value["role"]
+            .as_str()
+            .ok_or_else(|| anyhow!("缺少 role 字段"))?;
         match role {
             "user" => {
                 let content = parse_anthropic_content(&value["content"]);
                 Ok(BaseMessage::human(content))
             }
-            "assistant" => {
-                match &value["content"] {
-                    Value::String(s) => Ok(BaseMessage::ai(s.clone())),
-                    Value::Array(blocks) => {
-                        let (content_blocks, tool_calls) =
-                            Self::parse_content_blocks(blocks);
-                        if tool_calls.is_empty() {
-                            if content_blocks.len() == 1 {
-                                if let ContentBlock::Text { text } = &content_blocks[0] {
-                                    return Ok(BaseMessage::ai(text.clone()));
-                                }
+            "assistant" => match &value["content"] {
+                Value::String(s) => Ok(BaseMessage::ai(s.clone())),
+                Value::Array(blocks) => {
+                    let (content_blocks, tool_calls) = Self::parse_content_blocks(blocks);
+                    if tool_calls.is_empty() {
+                        if content_blocks.len() == 1 {
+                            if let ContentBlock::Text { text } = &content_blocks[0] {
+                                return Ok(BaseMessage::ai(text.clone()));
                             }
-                            Ok(BaseMessage::ai(MessageContent::Blocks(content_blocks)))
-                        } else {
-                            Ok(BaseMessage::ai_with_tool_calls(
-                                MessageContent::Blocks(content_blocks),
-                                tool_calls,
-                            ))
                         }
+                        Ok(BaseMessage::ai(MessageContent::Blocks(content_blocks)))
+                    } else {
+                        Ok(BaseMessage::ai_with_tool_calls(
+                            MessageContent::Blocks(content_blocks),
+                            tool_calls,
+                        ))
                     }
-                    _ => Ok(BaseMessage::ai("")),
                 }
-            }
+                _ => Ok(BaseMessage::ai("")),
+            },
             "system" => {
                 let content = parse_anthropic_content(&value["content"]);
                 Ok(BaseMessage::system(content))
@@ -185,7 +186,11 @@ impl AnthropicAdapter {
                         "content": Self::content_to_anthropic(content)
                     }));
                 }
-                BaseMessage::Ai { content, tool_calls, .. } => {
+                BaseMessage::Ai {
+                    content,
+                    tool_calls,
+                    ..
+                } => {
                     if tool_calls.is_empty() {
                         result.push(json!({
                             "role": "assistant",
@@ -215,7 +220,12 @@ impl AnthropicAdapter {
                         result.push(json!({ "role": "assistant", "content": content_val }));
                     }
                 }
-                BaseMessage::Tool { tool_call_id, content, is_error, .. } => {
+                BaseMessage::Tool {
+                    tool_call_id,
+                    content,
+                    is_error,
+                    ..
+                } => {
                     let tool_result_block = json!({
                         "type": "tool_result",
                         "tool_use_id": tool_call_id,
@@ -260,16 +270,10 @@ fn parse_anthropic_content(content: &Value) -> MessageContent {
         Value::Array(blocks) => {
             let parsed: Vec<ContentBlock> = blocks
                 .iter()
-                .filter_map(|b| {
-                    match b["type"].as_str() {
-                        Some("text") => {
-                            Some(ContentBlock::text(b["text"].as_str().unwrap_or("")))
-                        }
-                        Some("tool_result") => {
-                            Some(ContentBlock::Unknown(b.clone()))
-                        }
-                        _ => None,
-                    }
+                .filter_map(|b| match b["type"].as_str() {
+                    Some("text") => Some(ContentBlock::text(b["text"].as_str().unwrap_or(""))),
+                    Some("tool_result") => Some(ContentBlock::Unknown(b.clone())),
+                    _ => None,
                 })
                 .collect();
             if parsed.is_empty() {
@@ -291,10 +295,7 @@ mod tests {
 
     #[test]
     fn test_from_base_messages_basic() {
-        let msgs = vec![
-            BaseMessage::human("Hello"),
-            BaseMessage::ai("Hi"),
-        ];
+        let msgs = vec![BaseMessage::human("Hello"), BaseMessage::ai("Hi")];
         let val = AnthropicAdapter::from_base_messages(&msgs);
         let arr = val.as_array().unwrap();
         assert_eq!(arr.len(), 2);
@@ -307,7 +308,11 @@ mod tests {
         let msgs = vec![
             BaseMessage::ai_with_tool_calls(
                 "",
-                vec![ToolCallRequest::new("tc1", "bash", json!({"command": "ls"}))],
+                vec![ToolCallRequest::new(
+                    "tc1",
+                    "bash",
+                    json!({"command": "ls"}),
+                )],
             ),
             BaseMessage::tool_result("tc1", "file.txt"),
         ];
@@ -401,7 +406,11 @@ mod tests {
     fn test_text_content_with_tool_calls_serializes_correctly() {
         let msg = BaseMessage::ai_with_tool_calls(
             "I'll run bash",
-            vec![ToolCallRequest::new("tc2", "bash", json!({"command": "pwd"}))],
+            vec![ToolCallRequest::new(
+                "tc2",
+                "bash",
+                json!({"command": "pwd"}),
+            )],
         );
         let api_json = AnthropicAdapter::from_base_messages(&[msg]);
         let arr = api_json.as_array().unwrap();

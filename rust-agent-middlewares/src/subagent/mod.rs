@@ -1,7 +1,7 @@
-mod tool;
 mod skill_preload;
-pub use tool::SubAgentTool;
+mod tool;
 pub use skill_preload::SkillPreloadMiddleware;
+pub use tool::SubAgentTool;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -131,14 +131,22 @@ fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
-            let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+            let id = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             (id, path)
         } else if path.is_dir() {
             let nested = path.join("agent.md");
             if !nested.is_file() {
                 continue;
             }
-            let id = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let id = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             (id, nested)
         } else {
             continue;
@@ -150,7 +158,11 @@ fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
         };
 
         if let Some(agent) = parse_agent_file(&content) {
-            let name = if agent.frontmatter.name.is_empty() { agent_id.clone() } else { agent.frontmatter.name.clone() };
+            let name = if agent.frontmatter.name.is_empty() {
+                agent_id.clone()
+            } else {
+                agent.frontmatter.name.clone()
+            };
             let description = agent.frontmatter.description.clone();
             result.push((agent_id, name, description));
         }
@@ -173,7 +185,9 @@ fn build_agents_summary(agents: &[(String, String, String)]) -> String {
     }
 
     lines.push(String::new());
-    lines.push("调用时传入 `agent_id` 字段（括号内的标识符）和 `task` 字段（任务描述）。".to_string());
+    lines.push(
+        "调用时传入 `agent_id` 字段（括号内的标识符）和 `task` 字段（任务描述）。".to_string(),
+    );
 
     lines.join("\n")
 }
@@ -238,7 +252,10 @@ mod tests {
             Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         // 通过 Middleware<AgentState> 调用，明确泛型参数
-        assert_eq!(<SubAgentMiddleware as Middleware<AgentState>>::name(&m), "SubAgentMiddleware");
+        assert_eq!(
+            <SubAgentMiddleware as Middleware<AgentState>>::name(&m),
+            "SubAgentMiddleware"
+        );
     }
 
     #[test]
@@ -297,7 +314,8 @@ mod tests {
         std::fs::write(
             agent_dir.join("agent.md"),
             "---\nname: data-analyst\ndescription: Analyzes data\n---\n\nYou are an analyst.\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let result = scan_agents(dir.path().to_str().unwrap());
         assert_eq!(result.len(), 1);
@@ -315,7 +333,8 @@ mod tests {
         std::fs::write(
             agents_dir.join("tester.md"),
             "---\nname: tester\ndescription: Runs tests\n---\n\nYou run tests.\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let m = SubAgentMiddleware::new(
             vec![],
@@ -323,7 +342,9 @@ mod tests {
             Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         let mut state = AgentState::new(dir.path().to_str().unwrap());
-        <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state).await.unwrap();
+        <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state)
+            .await
+            .unwrap();
 
         assert_eq!(state.messages().len(), 1);
         let content = state.messages()[0].content();
@@ -340,7 +361,9 @@ mod tests {
             Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         let mut state = AgentState::new("/nonexistent");
-        <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state).await.unwrap();
+        <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state)
+            .await
+            .unwrap();
         assert_eq!(state.messages().len(), 0);
     }
 }

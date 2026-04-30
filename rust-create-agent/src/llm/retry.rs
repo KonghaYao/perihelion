@@ -29,9 +29,18 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
-    pub fn with_max_retries(mut self, n: usize) -> Self { self.max_retries = n; self }
-    pub fn with_base_delay_ms(mut self, ms: u64) -> Self { self.base_delay_ms = ms; self }
-    pub fn with_max_delay_ms(mut self, ms: u64) -> Self { self.max_delay_ms = ms; self }
+    pub fn with_max_retries(mut self, n: usize) -> Self {
+        self.max_retries = n;
+        self
+    }
+    pub fn with_base_delay_ms(mut self, ms: u64) -> Self {
+        self.base_delay_ms = ms;
+        self
+    }
+    pub fn with_max_delay_ms(mut self, ms: u64) -> Self {
+        self.max_delay_ms = ms;
+        self
+    }
 
     /// 指数退避 + 25% 随机抖动
     ///
@@ -39,8 +48,8 @@ impl RetryConfig {
     /// 以确保对 429 限流有足够等待时间。
     pub fn exponential_delay(&self, attempt: usize) -> u64 {
         let effective = attempt + 1;
-        let base = (self.base_delay_ms as f64 * 2f64.powi(effective as i32))
-            .min(self.max_delay_ms as f64);
+        let base =
+            (self.base_delay_ms as f64 * 2f64.powi(effective as i32)).min(self.max_delay_ms as f64);
         let mut rng = rand::thread_rng();
         let jitter = rng.gen_range(0.0..0.25) * base;
         (base + jitter) as u64
@@ -56,7 +65,11 @@ pub struct RetryableLLM<L: ReactLLM> {
 
 impl<L: ReactLLM> RetryableLLM<L> {
     pub fn new(inner: L, config: RetryConfig) -> Self {
-        Self { inner, config, event_handler: None }
+        Self {
+            inner,
+            config,
+            event_handler: None,
+        }
     }
 
     pub fn with_event_handler(mut self, handler: Arc<dyn AgentEventHandler>) -> Self {
@@ -198,11 +211,7 @@ mod tests {
     /// 前两次 503，第三次成功 → 最终 Ok
     #[tokio::test]
     async fn test_retry_then_success() {
-        let mock = MockLLM::new(vec![
-            http_error(503),
-            http_error(503),
-            ok_reasoning(),
-        ]);
+        let mock = MockLLM::new(vec![http_error(503), http_error(503), ok_reasoning()]);
         let retry = RetryableLLM::new(mock, RetryConfig::default().with_base_delay_ms(1));
         let result = retry.generate_reasoning(&[], &[]).await;
         assert!(result.is_ok());
@@ -225,12 +234,10 @@ mod tests {
     /// 重试耗尽，返回最后一次错误
     #[tokio::test]
     async fn test_retry_exhausted() {
-        let mock = MockLLM::new(vec![
-            http_error(429),
-            http_error(429),
-            http_error(429),
-        ]);
-        let config = RetryConfig::default().with_max_retries(2).with_base_delay_ms(1);
+        let mock = MockLLM::new(vec![http_error(429), http_error(429), http_error(429)]);
+        let config = RetryConfig::default()
+            .with_max_retries(2)
+            .with_base_delay_ms(1);
         let retry = RetryableLLM::new(mock, config);
         let result = retry.generate_reasoning(&[], &[]).await;
         assert!(result.is_err());
@@ -244,10 +251,7 @@ mod tests {
     /// 网络错误可重试
     #[tokio::test]
     async fn test_network_error_retryable() {
-        let mock = MockLLM::new(vec![
-            network_error("connection refused"),
-            ok_reasoning(),
-        ]);
+        let mock = MockLLM::new(vec![network_error("connection refused"), ok_reasoning()]);
         let retry = RetryableLLM::new(mock, RetryConfig::default().with_base_delay_ms(1));
         let result = retry.generate_reasoning(&[], &[]).await;
         assert!(result.is_ok());
@@ -267,7 +271,10 @@ mod tests {
             assert!(
                 delay >= lower && delay <= upper,
                 "attempt {}: delay {} not in [{}, {}]",
-                attempt, delay, lower, upper,
+                attempt,
+                delay,
+                lower,
+                upper,
             );
         }
     }
@@ -276,12 +283,10 @@ mod tests {
     #[tokio::test]
     async fn test_final_attempt_no_retry() {
         // 重试耗尽后的最终尝试：可重试错误也直接返回
-        let mock = MockLLM::new(vec![
-            http_error(429),
-            http_error(429),
-            http_error(429),
-        ]);
-        let config = RetryConfig::default().with_max_retries(2).with_base_delay_ms(1);
+        let mock = MockLLM::new(vec![http_error(429), http_error(429), http_error(429)]);
+        let config = RetryConfig::default()
+            .with_max_retries(2)
+            .with_base_delay_ms(1);
         let retry = RetryableLLM::new(mock, config);
         let result = retry.generate_reasoning(&[], &[]).await;
         assert!(result.is_err());

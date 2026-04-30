@@ -13,20 +13,34 @@ use crate::app::App;
 use crate::ui::theme;
 
 pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.core.model_panel else { return };
+    let Some(panel) = &app.core.model_panel else {
+        return;
+    };
 
-    let inner = BorderedPanel::new(
-        Span::styled(" /model — 模型选择 ", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
-    )
-        .border_style(Style::default().fg(theme::ACCENT))
-        .render(f, area);
+    let inner = BorderedPanel::new(Span::styled(
+        " /model — 模型选择 ",
+        Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::ACCENT))
+    .render(f, area);
 
-    let active_alias = app.zen_config.as_ref()
+    let active_alias = app
+        .zen_config
+        .as_ref()
         .map(|c| c.config.active_alias.as_str())
         .unwrap_or("opus");
 
-    let models = app.zen_config.as_ref()
-        .and_then(|c| c.config.providers.iter().find(|p| p.id == c.config.active_provider_id))
+    let models = app
+        .zen_config
+        .as_ref()
+        .and_then(|c| {
+            c.config
+                .providers
+                .iter()
+                .find(|p| p.id == c.config.active_provider_id)
+        })
         .map(|p| &p.models);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -44,7 +58,12 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     } else {
         lines.push(Line::from(vec![
             Span::styled("  Provider: ", Style::default().fg(theme::MUTED)),
-            Span::styled(panel.provider_name.clone(), Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                panel.provider_name.clone(),
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
     }
     lines.push(Line::from(""));
@@ -76,10 +95,17 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
 
         lines.push(Line::from(vec![
             Span::styled(format!(" {} {} ", cursor_char, bullet), row_style),
-            Span::styled(format!("{:8} ", label), row_style.add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{:8} ", label),
+                row_style.add_modifier(Modifier::BOLD),
+            ),
             Span::styled(
                 model_name.to_string(),
-                row_style.fg(if is_cursor { Color::White } else { theme::MUTED }),
+                row_style.fg(if is_cursor {
+                    Color::White
+                } else {
+                    theme::MUTED
+                }),
             ),
         ]));
     }
@@ -87,13 +113,21 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     // Thinking row
     {
         let is_cursor = panel.cursor == ROW_THINKING;
-        let enabled_tag = if panel.buf_thinking_enabled { "[ON] " } else { "[OFF]" };
+        let enabled_tag = if panel.buf_thinking_enabled {
+            "[ON] "
+        } else {
+            "[OFF]"
+        };
         let budget_display = if is_cursor {
             format!("{}█", panel.buf_thinking_budget)
         } else {
             panel.buf_thinking_budget.clone()
         };
-        let enabled_color = if panel.buf_thinking_enabled { theme::THINKING } else { theme::MUTED };
+        let enabled_color = if panel.buf_thinking_enabled {
+            theme::THINKING
+        } else {
+            theme::MUTED
+        };
         let row_style = if is_cursor {
             Style::default().fg(Color::White).bg(theme::ACCENT)
         } else {
@@ -101,10 +135,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         };
 
         lines.push(Line::from(vec![
-            Span::styled(
-                if is_cursor { " ▶   " } else { "     " },
-                row_style,
-            ),
+            Span::styled(if is_cursor { " ▶   " } else { "     " }, row_style),
             Span::styled("Thinking ", row_style.add_modifier(Modifier::BOLD)),
             Span::styled(
                 format!("{} ", enabled_tag),
@@ -129,7 +160,10 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     {
         let is_cursor = panel.cursor == ROW_LOGIN;
         let row_style = if is_cursor {
-            Style::default().fg(theme::WARNING).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::WARNING)
+                .bg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme::WARNING)
         };
@@ -137,7 +171,11 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled(
                 if is_cursor { " ▶   " } else { "     " },
-                if is_cursor { row_style } else { Style::default().fg(theme::MUTED) },
+                if is_cursor {
+                    row_style
+                } else {
+                    Style::default().fg(theme::MUTED)
+                },
             ),
             Span::styled("/login", row_style),
             Span::styled(
@@ -154,13 +192,33 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     // Help line
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled(" ↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " ↑↓",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":导航  ", Style::default().fg(theme::MUTED)),
-        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Enter",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":确认  ", Style::default().fg(theme::MUTED)),
-        Span::styled("Space", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Space",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":Thinking开关  ", Style::default().fg(theme::MUTED)),
-        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Esc",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));
 
@@ -183,7 +241,10 @@ mod tests {
             buf_thinking_enabled: false,
             buf_thinking_budget: String::new(),
         });
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
         (app, handle)
     }
 
@@ -192,6 +253,10 @@ mod tests {
         let (_, handle) = render_headless_model_no_provider();
         let snap = handle.snapshot().join("\n");
         // 无 Provider 时应显示 /login 引导
-        assert!(snap.contains("login"), "无 Provider 应显示 login 引导，实际:\n{}", snap);
+        assert!(
+            snap.contains("login"),
+            "无 Provider 应显示 login 引导，实际:\n{}",
+            snap
+        );
     }
 }

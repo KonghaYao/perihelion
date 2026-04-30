@@ -55,7 +55,10 @@ impl BaseTool for WriteFileTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let file_path = input["file_path"]
             .as_str()
             .ok_or("Missing file_path parameter")?;
@@ -144,7 +147,10 @@ mod tests {
             .invoke(serde_json::json!({"file_path": "msg.txt", "content": "x"}))
             .await
             .unwrap();
-        assert!(result.contains("written successfully"), "unexpected message: {result}");
+        assert!(
+            result.contains("written successfully"),
+            "unexpected message: {result}"
+        );
     }
 
     #[tokio::test]
@@ -155,7 +161,8 @@ mod tests {
             .await
             .unwrap();
         // 原子写入后不应残留任何 .tmp.* 临时文件
-        let tmp_files: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+        let tmp_files: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().starts_with("clean.tmp."))
             .collect();
@@ -172,7 +179,8 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&readonly_dir, std::fs::Permissions::from_mode(0o444)).unwrap();
+            std::fs::set_permissions(&readonly_dir, std::fs::Permissions::from_mode(0o444))
+                .unwrap();
         }
         let tool = WriteFileTool::new(readonly_dir.to_str().unwrap());
         let result = tool

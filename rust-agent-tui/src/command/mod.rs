@@ -70,7 +70,11 @@ impl CommandRegistry {
         }
 
         // 2. 前缀唯一匹配（快捷命令）
-        let matches: Vec<_> = self.commands.iter().filter(|c| c.name().starts_with(name)).collect();
+        let matches: Vec<_> = self
+            .commands
+            .iter()
+            .filter(|c| c.name().starts_with(name))
+            .collect();
         if matches.len() == 1 {
             matches[0].execute(app, args);
             return true;
@@ -81,7 +85,10 @@ impl CommandRegistry {
 
     /// 返回所有已注册命令的 (name, description) 列表
     pub fn list(&self) -> Vec<(&str, &str)> {
-        self.commands.iter().map(|c| (c.name(), c.description())).collect()
+        self.commands
+            .iter()
+            .map(|c| (c.name(), c.description()))
+            .collect()
     }
 
     /// 按前缀匹配命令，返回匹配的 (name, description) 列表
@@ -98,8 +105,8 @@ impl CommandRegistry {
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     };
 
     use super::*;
@@ -126,10 +133,24 @@ mod tests {
         }
     }
 
-    fn make_stub(name: &'static str) -> (StubCommand, Arc<AtomicBool>, Arc<parking_lot::Mutex<String>>) {
+    fn make_stub(
+        name: &'static str,
+    ) -> (
+        StubCommand,
+        Arc<AtomicBool>,
+        Arc<parking_lot::Mutex<String>>,
+    ) {
         let called = Arc::new(AtomicBool::new(false));
         let last_args = Arc::new(parking_lot::Mutex::new(String::new()));
-        (StubCommand { n: name, called: called.clone(), last_args: last_args.clone() }, called, last_args)
+        (
+            StubCommand {
+                n: name,
+                called: called.clone(),
+                last_args: last_args.clone(),
+            },
+            called,
+            last_args,
+        )
     }
 
     fn headless_app() -> App {
@@ -144,7 +165,10 @@ mod tests {
         let (stub, called, _) = make_stub("model");
         r.register(Box::new(stub));
         let mut app = headless_app();
-        assert!(r.dispatch(&mut app, "/model"), "exact match should return true");
+        assert!(
+            r.dispatch(&mut app, "/model"),
+            "exact match should return true"
+        );
         assert!(called.load(Ordering::Relaxed), "command should be called");
     }
 
@@ -154,7 +178,10 @@ mod tests {
         let (stub, _, _) = make_stub("model");
         r.register(Box::new(stub));
         let mut app = headless_app();
-        assert!(!r.dispatch(&mut app, "/unknown"), "unknown command should return false");
+        assert!(
+            !r.dispatch(&mut app, "/unknown"),
+            "unknown command should return false"
+        );
     }
 
     // ── 前缀唯一匹配 ──
@@ -165,8 +192,14 @@ mod tests {
         let (stub, called, _) = make_stub("model");
         r.register(Box::new(stub));
         let mut app = headless_app();
-        assert!(r.dispatch(&mut app, "/mo"), "unique prefix should return true");
-        assert!(called.load(Ordering::Relaxed), "command should be called via prefix");
+        assert!(
+            r.dispatch(&mut app, "/mo"),
+            "unique prefix should return true"
+        );
+        assert!(
+            called.load(Ordering::Relaxed),
+            "command should be called via prefix"
+        );
     }
 
     #[tokio::test]
@@ -177,7 +210,10 @@ mod tests {
         r.register(Box::new(stub1));
         r.register(Box::new(stub2));
         let mut app = headless_app();
-        assert!(!r.dispatch(&mut app, "/m"), "ambiguous prefix should return false");
+        assert!(
+            !r.dispatch(&mut app, "/m"),
+            "ambiguous prefix should return false"
+        );
         assert!(!called1.load(Ordering::Relaxed));
         assert!(!called2.load(Ordering::Relaxed));
     }
@@ -230,6 +266,9 @@ mod tests {
         r.register(Box::new(s2));
         let mut app = headless_app();
         // "/" → empty name, all commands match → ambiguous → false
-        assert!(!r.dispatch(&mut app, "/"), "empty prefix should return false when ambiguous");
+        assert!(
+            !r.dispatch(&mut app, "/"),
+            "empty prefix should return false when ambiguous"
+        );
     }
 }

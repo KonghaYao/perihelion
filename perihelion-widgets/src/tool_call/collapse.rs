@@ -1,4 +1,9 @@
-pub const READ_ONLY_TOOLS: &[&str] = &["read_file", "glob_files", "search_files_rg", "ask_user_question"];
+pub const READ_ONLY_TOOLS: &[&str] = &[
+    "read_file",
+    "glob_files",
+    "search_files_rg",
+    "ask_user_question",
+];
 
 pub const MAX_RESULT_LINES: usize = 20;
 

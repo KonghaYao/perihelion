@@ -52,9 +52,7 @@ impl AgentsMdMiddleware {
 
     /// 按优先级找到第一个存在的文件
     fn find_file(&self, cwd: &str) -> Option<PathBuf> {
-        self.candidate_paths(cwd)
-            .into_iter()
-            .find(|p| p.is_file())
+        self.candidate_paths(cwd).into_iter().find(|p| p.is_file())
     }
 }
 

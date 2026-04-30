@@ -1,23 +1,40 @@
+pub mod batcher;
+pub mod client;
 pub mod config;
 pub mod error;
 pub mod types;
-pub mod client;
-pub mod batcher;
 
 // 重导出常用类型
-pub use error::LangfuseError;
-pub use config::{ClientConfig, BatcherConfig, BackpressurePolicy};
-pub use client::LangfuseClient;
 pub use batcher::Batcher;
+pub use client::LangfuseClient;
+pub use config::{BackpressurePolicy, BatcherConfig, ClientConfig};
+pub use error::LangfuseError;
 pub use types::{
-    IngestionEvent,
-    TraceBody, SpanBody, GenerationBody, EventBody, ObservationBody,
-    ScoreBody, SdkLogBody,
-    ObservationType, ObservationLevel, ScoreDataType,
-    Usage, UsageDetails, CostDetails, IngestionUsage,
-    // OTLP types
-    OtelTraceExportRequest, OtelResourceSpan, OtelResource, OtelScopeSpan,
-    OtelScope, OtelSpan, OtelStatus, OtelAttribute, OtelAttributeValue,
-    OtelTraceResponse,
     ingestion_events_to_otel,
+    CostDetails,
+    EventBody,
+    GenerationBody,
+    IngestionEvent,
+    IngestionUsage,
+    ObservationBody,
+    ObservationLevel,
+    ObservationType,
+    OtelAttribute,
+    OtelAttributeValue,
+    OtelResource,
+    OtelResourceSpan,
+    OtelScope,
+    OtelScopeSpan,
+    OtelSpan,
+    OtelStatus,
+    // OTLP types
+    OtelTraceExportRequest,
+    OtelTraceResponse,
+    ScoreBody,
+    ScoreDataType,
+    SdkLogBody,
+    SpanBody,
+    TraceBody,
+    Usage,
+    UsageDetails,
 };

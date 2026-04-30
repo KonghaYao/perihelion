@@ -44,7 +44,10 @@ mod tests {
     #[test]
     fn test_tips_contains_slash_skills_hint() {
         let has_merged = TIPS.iter().any(|t| t.contains("命令和 Skills"));
-        assert!(has_merged, "tips 应包含合并后的 '/ 前缀搜索命令和 Skills' 提示");
+        assert!(
+            has_merged,
+            "tips 应包含合并后的 '/ 前缀搜索命令和 Skills' 提示"
+        );
     }
 
     #[test]
@@ -57,14 +60,17 @@ mod tests {
     fn test_tips_only_reference_existing_commands() {
         // tips 中引用的 /xxx 命令必须存在于 command registry
         let existing_commands = [
-            "login", "model", "history", "agents", "loop", "clear",
-            "help", "compact", "cron",
+            "login", "model", "history", "agents", "loop", "clear", "help", "compact", "cron",
         ];
         for tip in TIPS {
             // 提取 tip 中的 /xxx 命令引用
             for word in tip.split_whitespace() {
-                if word.starts_with('/') && word.len() > 1 && word.chars().nth(1).map_or(false, |c| c.is_alphabetic()) {
-                    let cmd_name: String = word[1..].chars()
+                if word.starts_with('/')
+                    && word.len() > 1
+                    && word.chars().nth(1).map_or(false, |c| c.is_alphabetic())
+                {
+                    let cmd_name: String = word[1..]
+                        .chars()
                         .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
                         .collect();
                     if !cmd_name.is_empty() {

@@ -215,7 +215,10 @@ mod tests {
         let rounds = group_messages_by_round(&msgs);
         assert_eq!(rounds.len(), 1);
         assert_eq!(rounds[0].end, 3);
-        assert_eq!(rounds[0].tool_call_ids, vec!["tc1".to_string(), "tc2".to_string()]);
+        assert_eq!(
+            rounds[0].tool_call_ids,
+            vec!["tc1".to_string(), "tc2".to_string()]
+        );
     }
 
     #[test]

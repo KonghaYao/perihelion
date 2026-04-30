@@ -23,7 +23,10 @@ fn default_stale_steps() -> usize {
     5
 }
 fn default_compactable_tools() -> Vec<String> {
-    DEFAULT_COMPACTABLE_TOOLS.iter().map(|s| s.to_string()).collect()
+    DEFAULT_COMPACTABLE_TOOLS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 fn default_summary_max_tokens() -> u32 {
     16000
@@ -150,7 +153,9 @@ mod tests {
         assert_eq!(config.micro_compact_stale_steps, 5);
         assert_eq!(config.micro_compactable_tools.len(), 6);
         assert!(config.micro_compactable_tools.contains(&"bash".to_string()));
-        assert!(config.micro_compactable_tools.contains(&"read_file".to_string()));
+        assert!(config
+            .micro_compactable_tools
+            .contains(&"read_file".to_string()));
         assert_eq!(config.summary_max_tokens, 16000);
         assert_eq!(config.re_inject_max_files, 5);
         assert_eq!(config.re_inject_max_tokens_per_file, 5000);

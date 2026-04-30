@@ -1,6 +1,6 @@
+use crate::ui::theme;
 use ratatui::style::Color;
 use ratatui::text::Text;
-use crate::ui::theme;
 use rust_create_agent::messages::{BaseMessage, ContentBlock};
 
 use super::markdown::parse_markdown_default;
@@ -28,16 +28,25 @@ impl ToolCategory {
     pub fn summary(&self, count: usize) -> String {
         match self {
             ToolCategory::Read => {
-                if count == 1 { "Read 1 file".to_string() }
-                else { format!("Read {} files", count) }
+                if count == 1 {
+                    "Read 1 file".to_string()
+                } else {
+                    format!("Read {} files", count)
+                }
             }
             ToolCategory::Search => {
-                if count == 1 { "Searched for 1 pattern".to_string() }
-                else { format!("Searched for {} patterns", count) }
+                if count == 1 {
+                    "Searched for 1 pattern".to_string()
+                } else {
+                    format!("Searched for {} patterns", count)
+                }
             }
             ToolCategory::Glob => {
-                if count == 1 { "Matched 1 pattern".to_string() }
-                else { format!("Matched {} patterns", count) }
+                if count == 1 {
+                    "Matched 1 pattern".to_string()
+                } else {
+                    format!("Matched {} patterns", count)
+                }
             }
         }
     }
@@ -48,7 +57,11 @@ impl ToolCategory {
         let has_search = tools.iter().any(|t| t.tool_name == "search_files_rg");
         let has_read = tools.iter().any(|t| t.tool_name == "read_file");
         let has_glob = tools.iter().any(|t| t.tool_name == "glob_files");
-        let mixed = [has_search, has_read, has_glob].iter().filter(|&&b| b).count() > 1;
+        let mixed = [has_search, has_read, has_glob]
+            .iter()
+            .filter(|&&b| b)
+            .count()
+            > 1;
 
         if mixed {
             if count == 1 {
@@ -63,8 +76,11 @@ impl ToolCategory {
         } else if has_glob {
             ToolCategory::Glob.summary(count)
         } else {
-            if count == 1 { "1 operation".to_string() }
-            else { format!("{} operations", count) }
+            if count == 1 {
+                "1 operation".to_string()
+            } else {
+                format!("{} operations", count)
+            }
         }
     }
 }
@@ -93,7 +109,15 @@ pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
                 let mut entries: Vec<ToolEntry> = Vec::new();
                 let mut j = i;
                 while j < original.len() {
-                    if let MessageViewModel::ToolBlock { tool_name: tn, display_name, args_display, content, is_error, .. } = &original[j] {
+                    if let MessageViewModel::ToolBlock {
+                        tool_name: tn,
+                        display_name,
+                        args_display,
+                        content,
+                        is_error,
+                        ..
+                    } = &original[j]
+                    {
                         if ToolCategory::from_tool_name(tn).is_some() {
                             entries.push(ToolEntry {
                                 tool_name: tn.clone(),
@@ -201,7 +225,10 @@ impl MessageViewModel {
     /// 从 BaseMessage 转换为视图模型（向后兼容，cwd 为 None）
     ///
     /// `prev_ai_tool_calls` 用于为 Tool 消息提供工具名和参数（BaseMessage::Tool 只存储 tool_use_id）
-    pub fn from_base_message(msg: &BaseMessage, prev_ai_tool_calls: &[(String, String, serde_json::Value)]) -> Self {
+    pub fn from_base_message(
+        msg: &BaseMessage,
+        prev_ai_tool_calls: &[(String, String, serde_json::Value)],
+    ) -> Self {
         Self::from_base_message_with_cwd(msg, prev_ai_tool_calls, None)
     }
 
@@ -241,13 +268,7 @@ impl MessageViewModel {
                         ContentBlock::Reasoning { text, .. } => ContentBlockView::Reasoning {
                             char_count: text.chars().count(),
                         },
-                        ContentBlock::ToolUse {
-                            name, ..
-                        } => {
-                            ContentBlockView::ToolUse {
-                                name,
-                            }
-                        }
+                        ContentBlock::ToolUse { name, .. } => ContentBlockView::ToolUse { name },
                         ContentBlock::Image { .. } => ContentBlockView::Text {
                             raw: "[Image]".to_string(),
                             rendered: Text::raw("[Image]"),
@@ -262,7 +283,8 @@ impl MessageViewModel {
                             }
                         }
                         ContentBlock::Unknown(v) => {
-                            let type_name = v.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+                            let type_name =
+                                v.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
                             ContentBlockView::Text {
                                 raw: format!("[{}]", type_name),
                                 rendered: Text::raw(format!("[{}]", type_name)),
@@ -320,10 +342,7 @@ impl MessageViewModel {
                 let raw_content = content.text_content();
                 // launch_agent 工具恢复为 SubAgentGroup（完成状态，折叠）
                 if tool_name == "launch_agent" {
-                    let agent_id = input["agent_id"]
-                        .as_str()
-                        .unwrap_or("unknown")
-                        .to_string();
+                    let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
                     let task_preview = input["task"]
                         .as_str()
                         .unwrap_or("")
@@ -333,7 +352,7 @@ impl MessageViewModel {
                     return MessageViewModel::SubAgentGroup {
                         agent_id,
                         task_preview,
-                        total_steps: 0, // 历史恢复时无法得知总步数
+                        total_steps: 0,              // 历史恢复时无法得知总步数
                         recent_messages: Vec::new(), // 子 agent 内部消息不持久化
                         is_running: false,
                         collapsed: true,
@@ -343,7 +362,8 @@ impl MessageViewModel {
                 // 使用统一格式化函数生成 display_name 和 args_display
                 // cwd 参数确保流式和恢复路径产生一致的路径显示
                 let display_name = crate::app::tool_display::format_tool_name(&tool_name);
-                let args_display = crate::app::tool_display::format_tool_args(&tool_name, &input, cwd);
+                let args_display =
+                    crate::app::tool_display::format_tool_args(&tool_name, &input, cwd);
                 let color = if *is_error {
                     theme::ERROR
                 } else {
@@ -368,7 +388,10 @@ impl MessageViewModel {
 
     /// 追加流式文本 chunk
     pub fn append_chunk(&mut self, chunk: &str) {
-        if let MessageViewModel::AssistantBubble { blocks, collapsed, .. } = self {
+        if let MessageViewModel::AssistantBubble {
+            blocks, collapsed, ..
+        } = self
+        {
             // 如果有内容追加，自动展开
             if *collapsed && !chunk.is_empty() {
                 *collapsed = false;
@@ -440,7 +463,12 @@ impl MessageViewModel {
     }
 
     /// 创建工具消息
-    pub fn tool_block(tool_name: String, display: String, args: Option<String>, is_error: bool) -> Self {
+    pub fn tool_block(
+        tool_name: String,
+        display: String,
+        args: Option<String>,
+        is_error: bool,
+    ) -> Self {
         Self::tool_block_with_id(String::new(), tool_name, display, args, is_error)
     }
 
@@ -491,7 +519,6 @@ impl MessageViewModel {
     pub fn is_subagent_group(&self) -> bool {
         matches!(self, MessageViewModel::SubAgentGroup { .. })
     }
-
 }
 
 /// 按工具名分配颜色（按操作类型分色）
@@ -509,8 +536,8 @@ pub fn tool_color(name: &str) -> Color {
         // 读取/搜索 — 哑光绿
         "read_file" | "glob_files" | "search_files_rg" => theme::SAGE,
         // 写入/编辑 — 暖米灰
-        "write_file" | "edit_file" | "folder_operations"
-        | "delete_file" | "delete_folder" | "rm" | "rm_rf" => theme::WARNING,
+        "write_file" | "edit_file" | "folder_operations" | "delete_file" | "delete_folder"
+        | "rm" | "rm_rf" => theme::WARNING,
         // 执行 — 棕金
         "bash" => theme::MODEL_INFO,
         // 代理/交互 — 紫色
@@ -573,7 +600,11 @@ mod tests {
     fn test_ai_message_with_text_and_tool_calls_renders_both() {
         let msg = BaseMessage::ai_with_tool_calls(
             MessageContent::text("I'll run a command"),
-            vec![ToolCallRequest::new("toolu_001", "bash", json!({"command": "ls"}))],
+            vec![ToolCallRequest::new(
+                "toolu_001",
+                "bash",
+                json!({"command": "ls"}),
+            )],
         );
 
         let vm = MessageViewModel::from_base_message(&msg, &[]);

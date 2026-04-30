@@ -106,7 +106,8 @@ impl RenderTask {
             // 1. 提取纯文本
             let plain_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
             // 2. 计算每个字符的显示宽度
-            let char_widths: Vec<u8> = plain_text.chars()
+            let char_widths: Vec<u8> = plain_text
+                .chars()
                 .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u8)
                 .collect();
             // 3. 模拟 word-wrap 计算该行占几个视觉行
@@ -182,7 +183,8 @@ impl RenderTask {
                     let offset = cache.lines.len();
                     cache.message_offsets.push(offset);
                     cache.lines.extend(lines);
-                    cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                    cache.total_lines =
+                        RenderCache::compute_wrapped_height(&cache.lines, render_width);
                     cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                     cache.version += 1;
                 }
@@ -209,7 +211,8 @@ impl RenderTask {
                     // 重新渲染最后一条消息，替换缓存中对应区间
                     let width = self.width.saturating_sub(1) as usize;
                     let last_idx = self.messages.len() - 1;
-                    let new_lines = Self::render_one(&mut self.messages[last_idx], last_idx + 1, width);
+                    let new_lines =
+                        Self::render_one(&mut self.messages[last_idx], last_idx + 1, width);
 
                     let render_width = self.width.saturating_sub(1);
                     let mut cache = self.cache.write();
@@ -225,7 +228,8 @@ impl RenderTask {
                     // 替换从 start 开始到末尾的所有行
                     cache.lines.truncate(start);
                     cache.lines.extend(new_lines);
-                    cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                    cache.total_lines =
+                        RenderCache::compute_wrapped_height(&cache.lines, render_width);
                     cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                     cache.version += 1;
                 }
@@ -240,13 +244,15 @@ impl RenderTask {
                     let width = self.width.saturating_sub(1) as usize;
                     if !self.messages.is_empty() {
                         let last_idx = self.messages.len() - 1;
-                        let new_lines = Self::render_one(&mut self.messages[last_idx], last_idx + 1, width);
+                        let new_lines =
+                            Self::render_one(&mut self.messages[last_idx], last_idx + 1, width);
                         let render_width = self.width.saturating_sub(1);
                         let mut cache = self.cache.write();
                         if let Some(&start) = cache.message_offsets.last() {
                             cache.lines.truncate(start);
                             cache.lines.extend(new_lines);
-                            cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                            cache.total_lines =
+                                RenderCache::compute_wrapped_height(&cache.lines, render_width);
                             cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                             cache.version += 1;
                         }
@@ -284,17 +290,15 @@ impl RenderTask {
                     let width = self.width.saturating_sub(1) as usize;
                     if !self.messages.is_empty() {
                         let last_idx = self.messages.len() - 1;
-                        let new_lines = Self::render_one(
-                            &mut self.messages[last_idx],
-                            last_idx + 1,
-                            width,
-                        );
+                        let new_lines =
+                            Self::render_one(&mut self.messages[last_idx], last_idx + 1, width);
                         let render_width = self.width.saturating_sub(1);
                         let mut cache = self.cache.write();
                         if let Some(&start) = cache.message_offsets.last() {
                             cache.lines.truncate(start);
                             cache.lines.extend(new_lines);
-                            cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                            cache.total_lines =
+                                RenderCache::compute_wrapped_height(&cache.lines, render_width);
                             cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                             cache.version += 1;
                         }
@@ -313,7 +317,8 @@ impl RenderTask {
                         } else {
                             cache.lines.clear();
                         }
-                        cache.total_lines = RenderCache::compute_wrapped_height(&cache.lines, render_width);
+                        cache.total_lines =
+                            RenderCache::compute_wrapped_height(&cache.lines, render_width);
                         cache.wrap_map = Self::build_wrap_map(&cache.lines, self.width);
                         cache.version += 1;
                     }
@@ -375,7 +380,10 @@ mod tests {
 
         let c = cache.read();
         assert!(c.version > 0, "version should increment after AddMessage");
-        assert!(!c.lines.is_empty(), "lines should not be empty after AddMessage");
+        assert!(
+            !c.lines.is_empty(),
+            "lines should not be empty after AddMessage"
+        );
     }
 
     #[tokio::test]
@@ -399,7 +407,11 @@ mod tests {
         let c = cache.read();
         assert!(c.version > v1, "version should increment after AppendChunk");
         // offset 不应增加（仍是同一条消息）
-        assert_eq!(c.message_offsets.len(), 1, "should still have 1 message offset");
+        assert_eq!(
+            c.message_offsets.len(),
+            1,
+            "should still have 1 message offset"
+        );
     }
 
     #[test]

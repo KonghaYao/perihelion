@@ -37,7 +37,10 @@ impl<S: State> MiddlewareChain<S> {
 
     /// 收集所有中间件提供的工具（按注册顺序，后注册的同名工具覆盖先注册的）
     pub fn collect_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        self.middlewares.iter().flat_map(|m| m.collect_tools(cwd)).collect()
+        self.middlewares
+            .iter()
+            .flat_map(|m| m.collect_tools(cwd))
+            .collect()
     }
 
     /// 顺序执行 before_agent 钩子
@@ -49,7 +52,11 @@ impl<S: State> MiddlewareChain<S> {
     }
 
     /// 顺序执行 before_tool 钩子（每个中间件可修改 tool_call）
-    pub async fn run_before_tool(&self, state: &mut S, tool_call: ToolCall) -> AgentResult<ToolCall> {
+    pub async fn run_before_tool(
+        &self,
+        state: &mut S,
+        tool_call: ToolCall,
+    ) -> AgentResult<ToolCall> {
         let mut current = tool_call;
         for middleware in &self.middlewares {
             current = middleware.before_tool(state, &current).await?;
@@ -159,7 +166,10 @@ mod tests {
 
     impl OrderRecorder {
         fn new(name: &str, log: Arc<Mutex<Vec<String>>>) -> Self {
-            Self { name: name.to_string(), log }
+            Self {
+                name: name.to_string(),
+                log,
+            }
         }
     }
 
@@ -170,7 +180,10 @@ mod tests {
         }
 
         async fn before_agent(&self, _state: &mut AgentState) -> AgentResult<()> {
-            self.log.lock().unwrap().push(format!("{}.before_agent", self.name));
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{}.before_agent", self.name));
             Ok(())
         }
 
@@ -179,7 +192,10 @@ mod tests {
             _state: &mut AgentState,
             tool_call: &ToolCall,
         ) -> AgentResult<ToolCall> {
-            self.log.lock().unwrap().push(format!("{}.before_tool", self.name));
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{}.before_tool", self.name));
             Ok(tool_call.clone())
         }
 
@@ -189,7 +205,10 @@ mod tests {
             _tool_call: &ToolCall,
             _result: &ToolResult,
         ) -> AgentResult<()> {
-            self.log.lock().unwrap().push(format!("{}.after_tool", self.name));
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{}.after_tool", self.name));
             Ok(())
         }
     }
@@ -246,7 +265,10 @@ mod tests {
         chain.run_before_agent(&mut state).await.unwrap();
 
         let calls = log.lock().unwrap().clone();
-        assert_eq!(calls, vec!["A.before_agent", "B.before_agent", "C.before_agent"]);
+        assert_eq!(
+            calls,
+            vec!["A.before_agent", "B.before_agent", "C.before_agent"]
+        );
     }
 
     #[tokio::test]
@@ -269,7 +291,9 @@ mod tests {
     #[tokio::test]
     async fn test_before_tool_modification_propagates() {
         let mut chain = MiddlewareChain::<AgentState>::new();
-        chain.add(Box::new(InputModifier { suffix: "_modified".to_string() }));
+        chain.add(Box::new(InputModifier {
+            suffix: "_modified".to_string(),
+        }));
 
         let mut state = AgentState::new("/tmp");
         let original = ToolCall::new("id1", "my_tool", serde_json::json!({}));
@@ -281,8 +305,12 @@ mod tests {
     #[tokio::test]
     async fn test_before_tool_chained_modifications() {
         let mut chain = MiddlewareChain::<AgentState>::new();
-        chain.add(Box::new(InputModifier { suffix: "_a".to_string() }));
-        chain.add(Box::new(InputModifier { suffix: "_b".to_string() }));
+        chain.add(Box::new(InputModifier {
+            suffix: "_a".to_string(),
+        }));
+        chain.add(Box::new(InputModifier {
+            suffix: "_b".to_string(),
+        }));
 
         let mut state = AgentState::new("/tmp");
         let original = ToolCall::new("id1", "tool", serde_json::json!({}));
@@ -298,7 +326,10 @@ mod tests {
         chain.run_before_agent(&mut state).await.unwrap();
 
         let original = ToolCall::new("id", "tool", serde_json::json!({}));
-        let result = chain.run_before_tool(&mut state, original.clone()).await.unwrap();
+        let result = chain
+            .run_before_tool(&mut state, original.clone())
+            .await
+            .unwrap();
         assert_eq!(result.name, original.name);
     }
 
@@ -311,8 +342,16 @@ mod tests {
 
         let mut state = AgentState::new("/tmp");
         let call = ToolCall::new("id", "tool", serde_json::json!({}));
-        let result = ToolResult { tool_call_id: "id".to_string(), tool_name: "tool".to_string(), output: "ok".to_string(), is_error: false };
-        chain.run_after_tool(&mut state, &call, &result).await.unwrap();
+        let result = ToolResult {
+            tool_call_id: "id".to_string(),
+            tool_name: "tool".to_string(),
+            output: "ok".to_string(),
+            is_error: false,
+        };
+        chain
+            .run_after_tool(&mut state, &call, &result)
+            .await
+            .unwrap();
 
         let calls = log.lock().unwrap().clone();
         assert_eq!(calls, vec!["A.after_tool", "B.after_tool"]);
@@ -325,8 +364,14 @@ mod tests {
         struct SuffixA;
         #[async_trait]
         impl Middleware<AgentState> for SuffixA {
-            fn name(&self) -> &str { "SuffixA" }
-            async fn before_tool(&self, _state: &mut AgentState, tc: &ToolCall) -> AgentResult<ToolCall> {
+            fn name(&self) -> &str {
+                "SuffixA"
+            }
+            async fn before_tool(
+                &self,
+                _state: &mut AgentState,
+                tc: &ToolCall,
+            ) -> AgentResult<ToolCall> {
                 let mut m = tc.clone();
                 m.name = format!("{}{}", tc.name, "_a");
                 Ok(m)
@@ -337,22 +382,28 @@ mod tests {
         struct RejectSecond;
         #[async_trait]
         impl Middleware<AgentState> for RejectSecond {
-            fn name(&self) -> &str { "RejectSecond" }
+            fn name(&self) -> &str {
+                "RejectSecond"
+            }
             async fn before_tools_batch(
                 &self,
                 _state: &mut AgentState,
                 calls: &[ToolCall],
             ) -> Vec<AgentResult<ToolCall>> {
-                calls.iter().enumerate().map(|(i, c)| {
-                    if i == 1 {
-                        Err(AgentError::ToolRejected {
-                            tool: c.name.clone(),
-                            reason: "拒绝第二个".to_string(),
-                        })
-                    } else {
-                        Ok(c.clone())
-                    }
-                }).collect()
+                calls
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        if i == 1 {
+                            Err(AgentError::ToolRejected {
+                                tool: c.name.clone(),
+                                reason: "拒绝第二个".to_string(),
+                            })
+                        } else {
+                            Ok(c.clone())
+                        }
+                    })
+                    .collect()
             }
         }
 
@@ -373,7 +424,9 @@ mod tests {
         assert!(results[0].is_ok());
         assert_eq!(results[0].as_ref().unwrap().name, "tool1_a");
         // 第二个：被 RejectSecond 拒绝
-        assert!(matches!(&results[1], Err(AgentError::ToolRejected { tool, .. }) if tool == "tool2_a"));
+        assert!(
+            matches!(&results[1], Err(AgentError::ToolRejected { tool, .. }) if tool == "tool2_a")
+        );
         // 第三个：通过
         assert!(results[2].is_ok());
         assert_eq!(results[2].as_ref().unwrap().name, "tool3_a");
@@ -385,8 +438,14 @@ mod tests {
         struct SuffixX;
         #[async_trait]
         impl Middleware<AgentState> for SuffixX {
-            fn name(&self) -> &str { "SuffixX" }
-            async fn before_tool(&self, _state: &mut AgentState, tc: &ToolCall) -> AgentResult<ToolCall> {
+            fn name(&self) -> &str {
+                "SuffixX"
+            }
+            async fn before_tool(
+                &self,
+                _state: &mut AgentState,
+                tc: &ToolCall,
+            ) -> AgentResult<ToolCall> {
                 let mut m = tc.clone();
                 m.name = format!("{}{}", tc.name, "_x");
                 Ok(m)
@@ -402,7 +461,9 @@ mod tests {
             ToolCall::new("id2", "t2", serde_json::json!({})),
         ];
 
-        let batch_results = chain.run_before_tools_batch(&mut state, calls.clone()).await;
+        let batch_results = chain
+            .run_before_tools_batch(&mut state, calls.clone())
+            .await;
         assert_eq!(batch_results.len(), 2);
         assert_eq!(batch_results[0].as_ref().unwrap().name, "t1_x");
         assert_eq!(batch_results[1].as_ref().unwrap().name, "t2_x");

@@ -1,10 +1,4 @@
-use ratatui::{
-    layout::Rect,
-    prelude::*,
-    style::Style,
-    text::Line,
-    widgets::StatefulWidget,
-};
+use ratatui::{layout::Rect, prelude::*, style::Style, text::Line, widgets::StatefulWidget};
 
 /// 文本输入状态——管理 buffer + cursor（UTF-8 字节偏移）+ masked 标志
 #[derive(Debug, Clone)]
@@ -23,12 +17,20 @@ impl Default for InputState {
 
 impl InputState {
     pub fn new() -> Self {
-        Self { buffer: String::new(), cursor: 0, masked: false }
+        Self {
+            buffer: String::new(),
+            cursor: 0,
+            masked: false,
+        }
     }
 
     pub fn with_value(value: String) -> Self {
         let cursor = value.len();
-        Self { buffer: value, cursor, masked: false }
+        Self {
+            buffer: value,
+            cursor,
+            masked: false,
+        }
     }
 
     pub fn masked(mut self, masked: bool) -> Self {
@@ -36,14 +38,18 @@ impl InputState {
         self
     }
 
-    pub fn value(&self) -> &str { &self.buffer }
+    pub fn value(&self) -> &str {
+        &self.buffer
+    }
 
     pub fn set_value(&mut self, value: String) {
         self.cursor = value.len();
         self.buffer = value;
     }
 
-    pub fn cursor(&self) -> usize { self.cursor }
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
 
     /// 在 cursor 位置插入一个字符
     pub fn insert(&mut self, c: char) {
@@ -84,10 +90,14 @@ impl InputState {
     }
 
     /// cursor 移到开头
-    pub fn cursor_home(&mut self) { self.cursor = 0; }
+    pub fn cursor_home(&mut self) {
+        self.cursor = 0;
+    }
 
     /// cursor 移到末尾
-    pub fn cursor_end(&mut self) { self.cursor = self.buffer.len(); }
+    pub fn cursor_end(&mut self) {
+        self.cursor = self.buffer.len();
+    }
 
     /// 在 cursor 位置粘贴文本
     pub fn paste(&mut self, text: &str) {
@@ -111,7 +121,10 @@ impl InputState {
                 format!(
                     "{}{}{}{}{}{}",
                     &chars[..4].iter().collect::<String>(),
-                    mask_char, mask_char, mask_char, mask_char,
+                    mask_char,
+                    mask_char,
+                    mask_char,
+                    mask_char,
                     &chars[w - 4..].iter().collect::<String>()
                 )
             }
@@ -293,7 +306,11 @@ mod tests {
         let field = InputField::new("Name").focused(true);
         let line = field.to_line(&s);
         let line_str: String = line.spans.iter().map(|s| s.content.clone()).collect();
-        assert!(line_str.contains('█'), "Expected cursor char, got: {}", line_str);
+        assert!(
+            line_str.contains('█'),
+            "Expected cursor char, got: {}",
+            line_str
+        );
     }
 
     #[test]
@@ -302,6 +319,10 @@ mod tests {
         let field = InputField::new("Name").focused(false);
         let line = field.to_line(&s);
         let line_str: String = line.spans.iter().map(|s| s.content.clone()).collect();
-        assert!(!line_str.contains('█'), "Expected no cursor char, got: {}", line_str);
+        assert!(
+            !line_str.contains('█'),
+            "Expected no cursor char, got: {}",
+            line_str
+        );
     }
 }

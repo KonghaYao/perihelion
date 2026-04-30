@@ -22,13 +22,12 @@ use std::collections::HashMap;
 
 use rust_create_agent::messages::{BaseMessage, ToolCallRequest};
 
+use crate::app::events::AgentEvent;
 use crate::app::tool_display;
 use crate::ui::message_view::{
-    MessageViewModel, ContentBlockView, aggregate_tool_groups,
-    tool_color,
+    aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel,
 };
 use crate::ui::theme;
-use crate::app::events::AgentEvent;
 
 // ─── 管线事件 ────────────────────────────────────────────────────────────────
 
@@ -132,7 +131,8 @@ impl MessagePipeline {
                     vec![PipelineAction::None]
                 } else if self.in_subagent() {
                     self.subagent_push_chunk(&chunk);
-                    vec![self.build_subagent_update()
+                    vec![self
+                        .build_subagent_update()
                         .map(PipelineAction::UpdateLast)
                         .unwrap_or(PipelineAction::None)]
                 } else {
@@ -144,7 +144,8 @@ impl MessagePipeline {
                 if self.in_subagent() {
                     // SubAgent 内部推理也作为 chunk 推送
                     self.subagent_push_chunk(&text);
-                    vec![self.build_subagent_update()
+                    vec![self
+                        .build_subagent_update()
                         .map(PipelineAction::UpdateLast)
                         .unwrap_or(PipelineAction::None)]
                 } else {
@@ -152,22 +153,40 @@ impl MessagePipeline {
                     vec![PipelineAction::None]
                 }
             }
-            AgentEvent::ToolStart { tool_call_id, name, display: _, args: _, input } => {
+            AgentEvent::ToolStart {
+                tool_call_id,
+                name,
+                display: _,
+                args: _,
+                input,
+            } => {
                 if self.in_subagent() {
                     self.subagent_tool_start(&tool_call_id, &name, input);
-                    vec![self.build_subagent_update()
+                    vec![self
+                        .build_subagent_update()
                         .map(PipelineAction::UpdateLast)
                         .unwrap_or(PipelineAction::None)]
                 } else {
                     vec![self.tool_start(&tool_call_id, &name, input)]
                 }
             }
-            AgentEvent::ToolEnd { tool_call_id, name, output, is_error } => {
+            AgentEvent::ToolEnd {
+                tool_call_id,
+                name,
+                output,
+                is_error,
+            } => {
                 if self.in_subagent() {
                     // 更新 recent_messages 中对应 ToolBlock 的内容（按 tool_call_id 精确匹配）
                     if let Some(sub) = self.subagent_stack.last_mut() {
                         for vm in sub.recent_messages.iter_mut().rev() {
-                            if let MessageViewModel::ToolBlock { tool_call_id: tc_id, content, is_error: err, .. } = vm {
+                            if let MessageViewModel::ToolBlock {
+                                tool_call_id: tc_id,
+                                content,
+                                is_error: err,
+                                ..
+                            } = vm
+                            {
                                 if tc_id == &tool_call_id {
                                     *content = output.clone();
                                     *err = is_error;
@@ -176,21 +195,27 @@ impl MessagePipeline {
                             }
                         }
                     }
-                    vec![self.build_subagent_update()
+                    vec![self
+                        .build_subagent_update()
                         .map(PipelineAction::UpdateLast)
                         .unwrap_or(PipelineAction::None)]
                 } else {
                     vec![self.tool_end(&tool_call_id, &name, &output, is_error)]
                 }
             }
-            AgentEvent::SubAgentStart { agent_id, task_preview } => {
+            AgentEvent::SubAgentStart {
+                agent_id,
+                task_preview,
+            } => {
                 let input = serde_json::json!({"agent_id": &agent_id, "task": &task_preview});
                 let tc_id = format!("subagent_{}", agent_id);
                 vec![self.tool_start(&tc_id, "launch_agent", input)]
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
                 // 使用最后一个 subagent 的 tool_call_id（与 SubAgentStart 一致）
-                let tc_id = self.subagent_stack.last()
+                let tc_id = self
+                    .subagent_stack
+                    .last()
                     .map(|s| format!("subagent_{}", s.agent_id))
                     .unwrap_or_else(|| "subagent_end".to_string());
                 vec![self.tool_end(&tc_id, "launch_agent", &result, is_error)]
@@ -246,18 +271,12 @@ impl MessagePipeline {
         self.finalize_current_ai();
 
         // 记录 tool_call
-        self.current_ai_tool_calls.push(ToolCallRequest::new(
-            tool_call_id,
-            name,
-            input.clone(),
-        ));
+        self.current_ai_tool_calls
+            .push(ToolCallRequest::new(tool_call_id, name, input.clone()));
 
         // 构建 ToolBlock VM（从 BaseMessage 路径，保持一致）
         if name == "launch_agent" {
-            let agent_id = input["agent_id"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
+            let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
             let task_preview: String = input["task"]
                 .as_str()
                 .unwrap_or("")
@@ -281,7 +300,8 @@ impl MessagePipeline {
                 },
             );
             return PipelineAction::AddMessage(MessageViewModel::subagent_group(
-                agent_id, task_preview,
+                agent_id,
+                task_preview,
             ));
         }
 
@@ -308,7 +328,10 @@ impl MessagePipeline {
     ) -> PipelineAction {
         // 取出 PendingTool 以保留原始 input（用于 args_display）
         let pending = self.pending_tools.remove(tool_call_id);
-        let input = pending.as_ref().map(|p| p.input.clone()).unwrap_or(serde_json::Value::Null);
+        let input = pending
+            .as_ref()
+            .map(|p| p.input.clone())
+            .unwrap_or(serde_json::Value::Null);
 
         // launch_agent ToolEnd → SubAgentEnd
         if name == "launch_agent" {
@@ -330,11 +353,7 @@ impl MessagePipeline {
 
         // ask_user_question ToolEnd → 更新 ToolBlock 显示用户回答
         if name == "ask_user_question" {
-            let args = tool_display::format_tool_args(
-                "ask_user_question",
-                &input,
-                None,
-            );
+            let args = tool_display::format_tool_args("ask_user_question", &input, None);
             let vm = MessageViewModel::ToolBlock {
                 tool_name: "ask_user_question".to_string(),
                 tool_call_id: tool_call_id.to_string(),
@@ -360,7 +379,11 @@ impl MessagePipeline {
             content: output.to_string(),
             is_error,
             collapsed: true,
-            color: if is_error { theme::ERROR } else { tool_color(name) },
+            color: if is_error {
+                theme::ERROR
+            } else {
+                tool_color(name)
+            },
         };
         PipelineAction::UpdateToolResult {
             tool_call_id: tool_call_id.to_string(),
@@ -369,7 +392,12 @@ impl MessagePipeline {
     }
 
     /// SubAgent 内部工具调用（路由进 SubAgentGroup）
-    pub fn subagent_tool_start(&mut self, tool_call_id: &str, name: &str, input: serde_json::Value) {
+    pub fn subagent_tool_start(
+        &mut self,
+        tool_call_id: &str,
+        name: &str,
+        input: serde_json::Value,
+    ) {
         if let Some(sub) = self.subagent_stack.last_mut() {
             let display = tool_display::format_tool_name(name);
             let args = tool_display::format_tool_args(name, &input, Some(&self.cwd));
@@ -464,15 +492,17 @@ impl MessagePipeline {
 
     /// 构建 SubAgentGroup 更新 VM
     pub fn build_subagent_update(&self) -> Option<MessageViewModel> {
-        self.subagent_stack.last().map(|sub| MessageViewModel::SubAgentGroup {
-            agent_id: sub.agent_id.clone(),
-            task_preview: sub.task_preview.clone(),
-            total_steps: sub.total_steps,
-            recent_messages: sub.recent_messages.clone(),
-            is_running: sub.is_running,
-            collapsed: false,
-            final_result: None,
-        })
+        self.subagent_stack
+            .last()
+            .map(|sub| MessageViewModel::SubAgentGroup {
+                agent_id: sub.agent_id.clone(),
+                task_preview: sub.task_preview.clone(),
+                total_steps: sub.total_steps,
+                recent_messages: sub.recent_messages.clone(),
+                is_running: sub.is_running,
+                collapsed: false,
+                final_result: None,
+            })
     }
 
     /// 获取已完成的 BaseMessages（用于持久化）
@@ -517,7 +547,8 @@ impl MessagePipeline {
                     .collect();
             }
 
-            let vm = MessageViewModel::from_base_message_with_cwd(msg, &prev_ai_tool_calls, Some(cwd));
+            let vm =
+                MessageViewModel::from_base_message_with_cwd(msg, &prev_ai_tool_calls, Some(cwd));
 
             // 跳过没有可见文本内容的 AssistantBubble（纯 ToolUse 或空文本 + ToolUse）
             if let MessageViewModel::AssistantBubble { blocks, .. } = &vm {
@@ -571,7 +602,12 @@ impl MessagePipeline {
     }
 
     /// 构建 ToolStart 的 ToolBlock VM（与 from_base_message_with_cwd 的 Tool 路径一致）
-    fn build_tool_start_vm(&self, tool_call_id: &str, name: &str, input: &serde_json::Value) -> MessageViewModel {
+    fn build_tool_start_vm(
+        &self,
+        tool_call_id: &str,
+        name: &str,
+        input: &serde_json::Value,
+    ) -> MessageViewModel {
         let display_name = tool_display::format_tool_name(name);
         let args_display = tool_display::format_tool_args(name, input, Some(&self.cwd));
         MessageViewModel::ToolBlock {
@@ -603,10 +639,7 @@ mod tests {
         let cwd = "/Users/test/project";
 
         // 恢复路径
-        let msgs = vec![
-            BaseMessage::human("hello"),
-            BaseMessage::ai("world"),
-        ];
+        let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("world")];
         let restore_vms = MessagePipeline::messages_to_view_models(&msgs, cwd);
 
         // 流式路径：模拟事件序列
@@ -633,7 +666,11 @@ mod tests {
             BaseMessage::human("read file"),
             BaseMessage::ai_with_tool_calls(
                 MessageContent::text("I'll read the file"),
-                vec![ToolCallRequest::new("tc1", "read_file", json!({"file_path": "/Users/test/project/src/main.rs"}))],
+                vec![ToolCallRequest::new(
+                    "tc1",
+                    "read_file",
+                    json!({"file_path": "/Users/test/project/src/main.rs"}),
+                )],
             ),
             BaseMessage::Tool {
                 id: rust_create_agent::messages::MessageId::new(),
@@ -646,9 +683,14 @@ mod tests {
 
         // 找到 ToolBlock 或 ToolCallGroup
         let tool_vm = restore_vms.iter().find(|vm| {
-            matches!(vm, MessageViewModel::ToolBlock { .. }) || matches!(vm, MessageViewModel::ToolCallGroup { .. })
+            matches!(vm, MessageViewModel::ToolBlock { .. })
+                || matches!(vm, MessageViewModel::ToolCallGroup { .. })
         });
-        assert!(tool_vm.is_some(), "应有 ToolBlock/ToolCallGroup，实际 VMs: {:?}", restore_vms);
+        assert!(
+            tool_vm.is_some(),
+            "应有 ToolBlock/ToolCallGroup，实际 VMs: {:?}",
+            restore_vms
+        );
 
         if let Some(MessageViewModel::ToolBlock { args_display, .. }) = tool_vm {
             // 应该显示相对路径而非绝对路径
@@ -670,10 +712,7 @@ mod tests {
     /// 测试：恢复路径的 cwd=None 仍能正常工作（向后兼容）
     #[test]
     fn test_restore_without_cwd() {
-        let msgs = vec![
-            BaseMessage::human("hello"),
-            BaseMessage::ai("hi"),
-        ];
+        let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
         // cwd=None → fallback 行为
         let vms = MessagePipeline::messages_to_view_models(&msgs, "");
         assert_eq!(vms.len(), 2);
@@ -697,10 +736,7 @@ mod tests {
     #[test]
     fn test_pipeline_set_completed_single_source() {
         let mut pipeline = MessagePipeline::new("/tmp".to_string());
-        let msgs = vec![
-            BaseMessage::human("hello"),
-            BaseMessage::ai("world"),
-        ];
+        let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("world")];
         pipeline.set_completed(msgs.clone());
 
         assert_eq!(pipeline.completed_messages().len(), 2);
@@ -710,7 +746,8 @@ mod tests {
     #[test]
     fn test_pipeline_tool_end_no_duplicate() {
         let mut pipeline = MessagePipeline::new("/tmp".to_string());
-        let _action = pipeline.tool_start("tc1", "read_file", json!({"file_path": "/tmp/test.txt"}));
+        let _action =
+            pipeline.tool_start("tc1", "read_file", json!({"file_path": "/tmp/test.txt"}));
         let _action = pipeline.tool_end("tc1", "read_file", "content here", false);
 
         // tool_end 不 push 到 completed
@@ -720,7 +757,11 @@ mod tests {
         let snapshot = vec![
             BaseMessage::ai_with_tool_calls(
                 MessageContent::text("reading"),
-                vec![ToolCallRequest::new("tc1", "read_file", json!({"file_path": "/tmp/test.txt"}))],
+                vec![ToolCallRequest::new(
+                    "tc1",
+                    "read_file",
+                    json!({"file_path": "/tmp/test.txt"}),
+                )],
             ),
             BaseMessage::Tool {
                 id: rust_create_agent::messages::MessageId::new(),
@@ -730,7 +771,11 @@ mod tests {
             },
         ];
         pipeline.set_completed(snapshot);
-        assert_eq!(pipeline.completed_messages().len(), 2, "StateSnapshot 应无重复地填充 completed");
+        assert_eq!(
+            pipeline.completed_messages().len(),
+            2,
+            "StateSnapshot 应无重复地填充 completed"
+        );
     }
 
     /// 测试：from_base_message_with_cwd 与 from_base_message 向后兼容
@@ -786,7 +831,10 @@ mod tests {
         });
         assert_eq!(actions.len(), 1);
         // ToolEnd 返回 UpdateToolResult（按 tool_call_id 精确更新 ToolBlock）
-        assert!(matches!(actions[0], PipelineAction::UpdateToolResult { .. }));
+        assert!(matches!(
+            actions[0],
+            PipelineAction::UpdateToolResult { .. }
+        ));
         // Done → StreamingDone（不再 RebuildAll，流式路径已通过增量操作维护 view_messages）
         let actions = pipeline.handle_event(AgentEvent::Done);
         assert_eq!(actions.len(), 1);
@@ -853,7 +901,12 @@ mod tests {
         let mut found_a = false;
         let mut found_b = false;
         for vm in &sub.recent_messages {
-            if let MessageViewModel::ToolBlock { tool_call_id, content, .. } = vm {
+            if let MessageViewModel::ToolBlock {
+                tool_call_id,
+                content,
+                ..
+            } = vm
+            {
                 match tool_call_id.as_str() {
                     "tc_a" => {
                         assert_eq!(content, "content of a", "tc_a 应匹配自己的结果");

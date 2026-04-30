@@ -52,11 +52,13 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let area = Rect::new(0, 0, 10, 6);
         let mut inner = Rect::default();
-        terminal.draw(|f| {
-            inner = BorderedPanel::new("Title")
-                .border_style(Style::default())
-                .render(f, area);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                inner = BorderedPanel::new("Title")
+                    .border_style(Style::default())
+                    .render(f, area);
+            })
+            .unwrap();
         // inner width = 10 - 2 (borders) = 8
         assert_eq!(inner.width, 8);
         // inner height = 6 - 2 (borders) = 4
@@ -69,11 +71,13 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let area = Rect::new(0, 0, 10, 6);
         let mut inner = Rect::default();
-        terminal.draw(|f| {
-            inner = BorderedPanel::new("")
-                .border_style(Style::default())
-                .render(f, area);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                inner = BorderedPanel::new("")
+                    .border_style(Style::default())
+                    .render(f, area);
+            })
+            .unwrap();
         assert_eq!(inner.width, 8);
         assert_eq!(inner.height, 4);
     }

@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use langfuse_client::{
-    GenerationBody, IngestionEvent, ObservationBody, ObservationType,
-    SpanBody,
-};
+use langfuse_client::{GenerationBody, IngestionEvent, ObservationBody, ObservationType, SpanBody};
 use rust_create_agent::llm::types::TokenUsage;
 use rust_create_agent::messages::BaseMessage;
 use rust_create_agent::tools::ToolDefinition;
@@ -92,7 +89,14 @@ impl LangfuseTracer {
     }
 
     /// 获取当前活动的 tools batch 上下文
-    fn current_tools_context(&mut self) -> (&mut Option<String>, &mut Option<String>, &mut Option<String>, &mut HashMap<String, PendingTool>) {
+    fn current_tools_context(
+        &mut self,
+    ) -> (
+        &mut Option<String>,
+        &mut Option<String>,
+        &mut Option<String>,
+        &mut HashMap<String, PendingTool>,
+    ) {
         if let Some(subagent) = self.subagent_stack.last_mut() {
             (
                 &mut subagent.tools_batch_span_id,
@@ -195,12 +199,19 @@ impl LangfuseTracer {
     }
 
     /// LLM 调用开始：提交上一轮工具批次 Span，缓存本轮 input
-    pub fn on_llm_start(&mut self, step: usize, messages: &[BaseMessage], tools: &[ToolDefinition]) {
+    pub fn on_llm_start(
+        &mut self,
+        step: usize,
+        messages: &[BaseMessage],
+        tools: &[ToolDefinition],
+    ) {
         self.flush_tools_batch();
         let gen_id = uuid::Uuid::now_v7().to_string();
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        self.generation_data
-            .insert(step, (gen_id, messages.to_vec(), tools.to_vec(), start_time));
+        self.generation_data.insert(
+            step,
+            (gen_id, messages.to_vec(), tools.to_vec(), start_time),
+        );
     }
 
     /// LLM 调用结束：同步创建 Generation 事件
@@ -239,7 +250,10 @@ impl LangfuseTracer {
             map.insert("output".to_string(), u.output_tokens as i32);
             map.insert("total".to_string(), total as i32);
             if cache_creation > 0 {
-                map.insert("cache_creation_input_tokens".to_string(), cache_creation as i32);
+                map.insert(
+                    "cache_creation_input_tokens".to_string(),
+                    cache_creation as i32,
+                );
             }
             if cache_read > 0 {
                 map.insert("cache_read_input_tokens".to_string(), cache_read as i32);
@@ -278,21 +292,23 @@ impl LangfuseTracer {
         let (batch_id_ref, start_time_ref, _, pending_tools) = self.current_tools_context();
         if pending_tools.is_empty() {
             *batch_id_ref = Some(uuid::Uuid::now_v7().to_string());
-            *start_time_ref = Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+            *start_time_ref =
+                Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
         }
-        let parent_span_id = batch_id_ref
-            .clone()
-            .unwrap_or_else(|| current_agent_id);
+        let parent_span_id = batch_id_ref.clone().unwrap_or_else(|| current_agent_id);
 
         let span_id = uuid::Uuid::now_v7().to_string();
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        pending_tools.insert(tool_call_id.to_string(), PendingTool {
-            span_id,
-            name: name.to_string(),
-            input: input.clone(),
-            start_time,
-            parent_span_id,
-        });
+        pending_tools.insert(
+            tool_call_id.to_string(),
+            PendingTool {
+                span_id,
+                name: name.to_string(),
+                input: input.clone(),
+                start_time,
+                parent_span_id,
+            },
+        );
     }
 
     /// 工具调用结束：同步创建 tool observation
@@ -305,7 +321,11 @@ impl LangfuseTracer {
         };
         let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        let status_msg = if is_error { Some("error".to_string()) } else { None };
+        let status_msg = if is_error {
+            Some("error".to_string())
+        } else {
+            None
+        };
         let tool_name = tool.name.clone();
         let span_id = tool.span_id;
         let tool_name_for_body = tool.name.clone();
@@ -454,7 +474,11 @@ impl LangfuseTracer {
         };
 
         let end_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let status_message = if is_error { Some("error".to_string()) } else { None };
+        let status_message = if is_error {
+            Some("error".to_string())
+        } else {
+            None
+        };
 
         // 更新 SubAgent Observation
         let obs_body = ObservationBody {

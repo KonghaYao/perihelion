@@ -7,11 +7,20 @@ const DIFF_HUNK_COLOR: Color = Color::Cyan;
 
 pub fn highlight_diff_line(line: &str) -> Vec<Span<'static>> {
     if line.starts_with("@@ ") {
-        vec![Span::styled(line.to_string(), ratatui::style::Style::default().fg(DIFF_HUNK_COLOR))]
+        vec![Span::styled(
+            line.to_string(),
+            ratatui::style::Style::default().fg(DIFF_HUNK_COLOR),
+        )]
     } else if line.starts_with('+') {
-        vec![Span::styled(line.to_string(), ratatui::style::Style::default().fg(DIFF_ADD_COLOR))]
+        vec![Span::styled(
+            line.to_string(),
+            ratatui::style::Style::default().fg(DIFF_ADD_COLOR),
+        )]
     } else if line.starts_with('-') {
-        vec![Span::styled(line.to_string(), ratatui::style::Style::default().fg(DIFF_REMOVE_COLOR))]
+        vec![Span::styled(
+            line.to_string(),
+            ratatui::style::Style::default().fg(DIFF_REMOVE_COLOR),
+        )]
     } else {
         vec![Span::raw(line.to_string())]
     }
@@ -26,10 +35,11 @@ pub fn is_diff_content(text: &str) -> bool {
     false
 }
 
-
-
 pub fn highlight_code_line(line: &str, _lang: &str) -> Vec<Span<'static>> {
-    let keyword_re = regex::Regex::new(r"\b(fn|let|mut|pub|use|struct|enum|impl|if|else|match|return|for|while|async|await)\b").unwrap();
+    let keyword_re = regex::Regex::new(
+        r"\b(fn|let|mut|pub|use|struct|enum|impl|if|else|match|return|for|while|async|await)\b",
+    )
+    .unwrap();
     let string_re = regex::Regex::new(r#""[^"]*""#).unwrap();
     let comment_re = regex::Regex::new(r"//.*$").unwrap();
 
@@ -48,7 +58,11 @@ pub fn highlight_code_line(line: &str, _lang: &str) -> Vec<Span<'static>> {
     highlight_spans(line, &keyword_re, &string_re)
 }
 
-fn highlight_spans(text: &str, keyword_re: &regex::Regex, string_re: &regex::Regex) -> Vec<Span<'static>> {
+fn highlight_spans(
+    text: &str,
+    keyword_re: &regex::Regex,
+    string_re: &regex::Regex,
+) -> Vec<Span<'static>> {
     if text.is_empty() {
         return vec![Span::raw(String::new())];
     }

@@ -1,5 +1,5 @@
-use crate::app::{App, MessageViewModel};
 use super::Command;
+use crate::app::{App, MessageViewModel};
 
 pub struct CompactCommand;
 

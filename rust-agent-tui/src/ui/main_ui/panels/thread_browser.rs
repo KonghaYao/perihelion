@@ -9,8 +9,8 @@ use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
-use crate::ui::theme;
 use crate::ui::main_ui::highlight_line_spans;
+use crate::ui::theme;
 
 fn truncate_display(s: &str, max_width: usize) -> String {
     if s.width() <= max_width {
@@ -30,31 +30,53 @@ fn truncate_display(s: &str, max_width: usize) -> String {
 
 /// Thread 浏览面板（底部展开区）
 pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(browser) = &app.core.thread_browser else { return };
+    let Some(browser) = &app.core.thread_browser else {
+        return;
+    };
 
     let popup_area = area;
 
-    let inner = BorderedPanel::new(
-        Span::styled(
-            " 📝 选择对话 ",
-            Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
-        )
-    )
-        .border_style(Style::default().fg(theme::MUTED))
-        .render(f, popup_area);
+    let inner = BorderedPanel::new(Span::styled(
+        " 📝 选择对话 ",
+        Style::default()
+            .fg(theme::MUTED)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::MUTED))
+    .render(f, popup_area);
 
     let mut lines: Vec<Line> = Vec::new();
 
     // 工作目录 + 快捷键提示行
     lines.push(Line::from(vec![
         Span::styled(format!(" {} ", app.cwd), Style::default().fg(theme::DIM)),
-        Span::styled(" ↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " ↑↓",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":移动 ", Style::default().fg(theme::MUTED)),
-        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Enter",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":确认 ", Style::default().fg(theme::MUTED)),
-        Span::styled("Ctrl+D", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Ctrl+D",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":删除 ", Style::default().fg(theme::MUTED)),
-        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Esc",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));
 
@@ -68,7 +90,10 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
         Span::styled(
             "+ 新建对话",
             if is_new_cursor {
-                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .bg(theme::ACCENT)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme::SAGE)
             },
@@ -97,9 +122,14 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
                 if is_cursor { "▶ " } else { "  " },
                 Style::default().fg(theme::ACCENT),
             ),
-            Span::styled(current_tag.to_string(), Style::default().fg(
-                if is_current { theme::SAGE } else { theme::MUTED }
-            )),
+            Span::styled(
+                current_tag.to_string(),
+                Style::default().fg(if is_current {
+                    theme::SAGE
+                } else {
+                    theme::MUTED
+                }),
+            ),
             Span::styled(label, row_style),
         ]));
     }
@@ -107,15 +137,20 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
     // 存储面板元数据供鼠标选区使用
     app.core.panel_area = Some(inner);
     app.core.panel_scroll_offset = browser.scroll_offset;
-    app.core.panel_plain_lines = lines.iter().map(|l| {
-        l.spans.iter().map(|s| s.content.as_ref()).collect()
-    }).collect();
+    app.core.panel_plain_lines = lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
 
     // 应用面板选区高亮
     if app.core.panel_selection.is_active() {
         let sel = &app.core.panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
-            let ((sr, sc), (er, ec)) = if start <= end { (start, end) } else { (end, start) };
+            let ((sr, sc), (er, ec)) = if start <= end {
+                (start, end)
+            } else {
+                (end, start)
+            };
             let scroll = app.core.panel_scroll_offset as usize;
             let visible_start = scroll;
             let visible_end = scroll + inner.height as usize;

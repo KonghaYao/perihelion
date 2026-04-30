@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use ratatui::{Terminal, backend::TestBackend};
+use ratatui::{backend::TestBackend, Terminal};
 use tokio::sync::Notify;
 
 /// Headless 测试句柄，包含 TestBackend Terminal 和渲染通知
@@ -34,10 +34,9 @@ impl HeadlessHandle {
             .chunks(width)
             .map(|row| {
                 // skip=true 的 cell 是宽字符的占位填充，直接跳过
-                let line: String = row.iter()
-                    .filter_map(|cell| {
-                        if cell.skip { None } else { Some(cell.symbol()) }
-                    })
+                let line: String = row
+                    .iter()
+                    .filter_map(|cell| if cell.skip { None } else { Some(cell.symbol()) })
                     .collect();
                 line.trim_end().to_string()
             })
@@ -49,7 +48,7 @@ impl HeadlessHandle {
         self.snapshot().iter().any(|line| line.contains(text))
     }
 
-        /// 等待渲染线程完成一次渲染（内部 notify.notified().await，无 sleep）
+    /// 等待渲染线程完成一次渲染（内部 notify.notified().await，无 sleep）
     pub async fn wait_for_render(&self) {
         self.render_notify.notified().await;
     }
@@ -58,10 +57,10 @@ impl HeadlessHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::MessageViewModel;
     use crate::app::{AgentEvent, App};
     use crate::ui::main_ui;
     use crate::ui::render_thread::RenderEvent;
-    use crate::app::MessageViewModel;
 
     #[tokio::test]
     async fn test_snapshot_row_count() {
@@ -82,9 +81,16 @@ mod tests {
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
         tokio::join!(n1, n2);
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
-        assert!(handle.contains("Hello world"), "应显示消息内容，实际:\n{}", snap.join("\n"));
+        assert!(
+            handle.contains("Hello world"),
+            "应显示消息内容，实际:\n{}",
+            snap.join("\n")
+        );
     }
 
     #[tokio::test]
@@ -100,10 +106,15 @@ mod tests {
         });
         app.process_pending_events();
         notified.await;
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         // ToolStart 通过 Pipeline 创建 ToolBlock，display_name 为 format_tool_name 的结果
-        let has_tool = snap.iter().any(|l| l.contains("Read") || l.contains("read_file"));
+        let has_tool = snap
+            .iter()
+            .any(|l| l.contains("Read") || l.contains("read_file"));
         assert!(has_tool, "应显示工具调用块，实际内容:\n{}", snap.join("\n"));
     }
 
@@ -117,9 +128,16 @@ mod tests {
         app.core.view_messages.push(vm.clone());
         let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
         notified.await;
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
-        assert!(handle.contains("hello from user"), "应显示用户消息，实际内容:\n{}", snap.join("\n"));
+        assert!(
+            handle.contains("hello from user"),
+            "应显示用户消息，实际内容:\n{}",
+            snap.join("\n")
+        );
     }
 
     #[tokio::test]
@@ -172,8 +190,11 @@ mod tests {
             let text = parse_markdown_default("# Hello World");
             // 标题前有空行，标题在 index 1
             let heading_line = &text.lines[1];
-            let all_content: String =
-                heading_line.spans.iter().map(|s| s.content.as_ref()).collect();
+            let all_content: String = heading_line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect();
             assert!(
                 all_content.contains("Hello World"),
                 "H1 应含标题文字，实际: {all_content:?}"
@@ -209,20 +230,17 @@ mod tests {
             assert!(all.contains("strike"), "应含 strike 文字");
 
             let has_bold = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.add_modifier.contains(Modifier::BOLD)
-                    && s.content.contains("bold")
+                s.style.add_modifier.contains(Modifier::BOLD) && s.content.contains("bold")
             });
             assert!(has_bold, "bold span 应有 BOLD modifier");
 
             let has_italic = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.add_modifier.contains(Modifier::ITALIC)
-                    && s.content.contains("italic")
+                s.style.add_modifier.contains(Modifier::ITALIC) && s.content.contains("italic")
             });
             assert!(has_italic, "italic span 应有 ITALIC modifier");
 
             let has_strike = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.add_modifier.contains(Modifier::CROSSED_OUT)
-                    && s.content.contains("strike")
+                s.style.add_modifier.contains(Modifier::CROSSED_OUT) && s.content.contains("strike")
             });
             assert!(has_strike, "strikethrough span 应有 CROSSED_OUT modifier");
         }
@@ -233,10 +251,15 @@ mod tests {
             let theme = DefaultMarkdownTheme;
 
             let text = parse_markdown_default("`hello`");
-            let has_code = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.fg == Some(theme.code()) && s.content.contains("hello")
-            });
-            assert!(has_code, "行内代码应为 markdown 主题 code 颜色，含 hello 文字");
+            let has_code = text
+                .lines
+                .iter()
+                .flat_map(|l| l.spans.iter())
+                .any(|s| s.style.fg == Some(theme.code()) && s.content.contains("hello"));
+            assert!(
+                has_code,
+                "行内代码应为 markdown 主题 code 颜色，含 hello 文字"
+            );
         }
 
         #[test]
@@ -245,11 +268,23 @@ mod tests {
             let all_lines: Vec<String> = text
                 .lines
                 .iter()
-                .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .map(|l| {
+                    l.spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect::<String>()
+                })
                 .collect();
             // 单行代码块：无 [lang] 标签，无 │ 前缀
-            assert_eq!(all_lines.len(), 1, "单行代码块应只产生一行，got: {all_lines:#?}");
-            assert!(!all_lines[0].contains("[rust]"), "单行代码块不应含 [lang] 标签");
+            assert_eq!(
+                all_lines.len(),
+                1,
+                "单行代码块应只产生一行，got: {all_lines:#?}"
+            );
+            assert!(
+                !all_lines[0].contains("[rust]"),
+                "单行代码块不应含 [lang] 标签"
+            );
             assert!(!all_lines[0].contains('│'), "单行代码块不应含 │ 前缀");
             assert!(all_lines[0].contains("fn main"), "应包含代码内容");
         }
@@ -260,11 +295,19 @@ mod tests {
             let all_lines: Vec<String> = text
                 .lines
                 .iter()
-                .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .map(|l| {
+                    l.spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect::<String>()
+                })
                 .collect();
-            let bullet_lines: Vec<&String> =
-                all_lines.iter().filter(|l| l.contains('•')).collect();
-            assert_eq!(bullet_lines.len(), 2, "无序列表应有 2 行含 • ，实际:{all_lines:#?}");
+            let bullet_lines: Vec<&String> = all_lines.iter().filter(|l| l.contains('•')).collect();
+            assert_eq!(
+                bullet_lines.len(),
+                2,
+                "无序列表应有 2 行含 • ，实际:{all_lines:#?}"
+            );
         }
 
         #[test]
@@ -273,7 +316,12 @@ mod tests {
             let all_lines: Vec<String> = text
                 .lines
                 .iter()
-                .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .map(|l| {
+                    l.spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect::<String>()
+                })
                 .collect();
             let has_one = all_lines.iter().any(|l| l.contains("1."));
             let has_two = all_lines.iter().any(|l| l.contains("2."));
@@ -284,18 +332,22 @@ mod tests {
         #[test]
         fn test_md_blockquote() {
             let text = parse_markdown_default("> quoted text");
-            let has_prefix = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.content.contains('▍')
-            });
+            let has_prefix = text
+                .lines
+                .iter()
+                .flat_map(|l| l.spans.iter())
+                .any(|s| s.content.contains('▍'));
             assert!(has_prefix, "引用块应含 ▍ 前缀");
         }
 
         #[test]
         fn test_md_rule() {
             let text = parse_markdown_default("---");
-            let has_rule = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.content.matches('─').count() >= 10
-            });
+            let has_rule = text
+                .lines
+                .iter()
+                .flat_map(|l| l.spans.iter())
+                .any(|s| s.content.matches('─').count() >= 10);
             assert!(has_rule, "水平线应含多个 ─ 字符");
         }
 
@@ -316,14 +368,35 @@ mod tests {
             let text = parse_markdown_default(md);
             let all = all_text(&text);
             // Should contain header and data cells
-            assert!(all.contains("Name"), "Table should contain header 'Name', got: {all:?}");
-            assert!(all.contains("foo"), "Table should contain data 'foo', got: {all:?}");
-            assert!(all.contains("456"), "Table should contain data '456', got: {all:?}");
+            assert!(
+                all.contains("Name"),
+                "Table should contain header 'Name', got: {all:?}"
+            );
+            assert!(
+                all.contains("foo"),
+                "Table should contain data 'foo', got: {all:?}"
+            );
+            assert!(
+                all.contains("456"),
+                "Table should contain data '456', got: {all:?}"
+            );
             // Should have border characters
-            assert!(all.contains("│"), "Table should have vertical borders, got: {all:?}");
-            assert!(all.contains("┌"), "Table should have top-left corner, got: {all:?}");
-            assert!(all.contains("└"), "Table should have bottom-left corner, got: {all:?}");
-            assert!(all.contains("┼"), "Table should have header separator, got: {all:?}");
+            assert!(
+                all.contains("│"),
+                "Table should have vertical borders, got: {all:?}"
+            );
+            assert!(
+                all.contains("┌"),
+                "Table should have top-left corner, got: {all:?}"
+            );
+            assert!(
+                all.contains("└"),
+                "Table should have bottom-left corner, got: {all:?}"
+            );
+            assert!(
+                all.contains("┼"),
+                "Table should have header separator, got: {all:?}"
+            );
         }
 
         #[test]
@@ -331,7 +404,12 @@ mod tests {
             let md = "| A | B |\n|---|---|\n| 1 | 2 |";
             let text = parse_markdown_default(md);
             // Should produce exactly: top border + header + separator + 1 data row + bottom border = 5 lines
-            assert_eq!(text.lines.len(), 5, "2-col table should produce 5 lines, got: {}", text.lines.len());
+            assert_eq!(
+                text.lines.len(),
+                5,
+                "2-col table should produce 5 lines, got: {}",
+                text.lines.len()
+            );
         }
 
         #[test]
@@ -341,12 +419,24 @@ mod tests {
             // Debug: print each line
             for (i, line) in text.lines.iter().enumerate() {
                 let content: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-                eprintln!("line {}: {:?} (chars={})", i, content, content.chars().count());
+                eprintln!(
+                    "line {}: {:?} (chars={})",
+                    i,
+                    content,
+                    content.chars().count()
+                );
             }
             // Each line should have the same visual width (measured in chars, not bytes)
-            let widths: Vec<usize> = text.lines.iter().map(|line| {
-                line.spans.iter().map(|s| s.content.chars().count()).sum::<usize>()
-            }).collect();
+            let widths: Vec<usize> = text
+                .lines
+                .iter()
+                .map(|line| {
+                    line.spans
+                        .iter()
+                        .map(|s| s.content.chars().count())
+                        .sum::<usize>()
+                })
+                .collect();
             let unique_widths: std::collections::HashSet<usize> = widths.iter().copied().collect();
             assert!(
                 unique_widths.len() == 1,
@@ -357,10 +447,14 @@ mod tests {
 
         #[test]
         fn test_md_table_alignment() {
-            let md = "| Left | Center | Right |\n|:-----|:------:|------:|\n| a    | b      | c     |";
+            let md =
+                "| Left | Center | Right |\n|:-----|:------:|------:|\n| a    | b      | c     |";
             let text = parse_markdown_default(md);
             let all = all_text(&text);
-            assert!(all.contains("Left"), "Should contain 'Left' header, got: {all:?}");
+            assert!(
+                all.contains("Left"),
+                "Should contain 'Left' header, got: {all:?}"
+            );
             assert!(all.contains("a"), "Should contain data 'a', got: {all:?}");
         }
 
@@ -369,7 +463,10 @@ mod tests {
             let md = "| Command |\n|---------|\n| `ls`    |";
             let text = parse_markdown_default(md);
             let all = all_text(&text);
-            assert!(all.contains("ls"), "Should contain inline code content, got: {all:?}");
+            assert!(
+                all.contains("ls"),
+                "Should contain inline code content, got: {all:?}"
+            );
         }
     }
 
@@ -410,12 +507,19 @@ mod tests {
         app.process_pending_events();
         tokio::join!(n1, n2, n3, n4);
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
 
         // 验证 SubAgentGroup 头行存在（code-reviewer 名称）
         let has_agent = snap.iter().any(|l| l.contains("code-reviewer"));
-        assert!(has_agent, "应显示 SubAgentGroup 头行含 agent_id，实际:\n{}", snap.join("\n"));
+        assert!(
+            has_agent,
+            "应显示 SubAgentGroup 头行含 agent_id，实际:\n{}",
+            snap.join("\n")
+        );
 
         // 验证 total_steps 步数显示（2 步）
         let has_steps = snap.iter().any(|l| l.contains("2"));
@@ -424,7 +528,12 @@ mod tests {
         // 验证 SubAgentGroup 已完成（is_running=false）
         if let Some(vm) = app.core.view_messages.last() {
             assert!(vm.is_subagent_group(), "最后一条消息应为 SubAgentGroup");
-            if let crate::app::MessageViewModel::SubAgentGroup { is_running, total_steps, .. } = vm {
+            if let crate::app::MessageViewModel::SubAgentGroup {
+                is_running,
+                total_steps,
+                ..
+            } = vm
+            {
                 assert!(!is_running, "SubAgentEnd 后 is_running 应为 false");
                 assert_eq!(*total_steps, 2, "total_steps 应为 2");
             }
@@ -531,12 +640,21 @@ mod tests {
         app.toggle_collapsed_messages();
         notified2.await;
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
 
         let snap = handle.snapshot();
         // ToolStart 创建的 ToolBlock，display_name 为 format_tool_name 的结果
-        let has_tool_call_text = snap.iter().any(|l| l.contains("Shell") || l.contains("bash"));
-        assert!(has_tool_call_text, "ToolCall 创建的 ToolBlock 应在快照中可见，但实际内容为:\n{}", snap.join("\n"));
+        let has_tool_call_text = snap
+            .iter()
+            .any(|l| l.contains("Shell") || l.contains("bash"));
+        assert!(
+            has_tool_call_text,
+            "ToolCall 创建的 ToolBlock 应在快照中可见，但实际内容为:\n{}",
+            snap.join("\n")
+        );
     }
 
     #[tokio::test]
@@ -584,11 +702,17 @@ mod tests {
         app.process_pending_events();
         tokio::join!(n1, n2);
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
 
         // 应该只有 1 个 AssistantBubble，内容为 "Hello"
         assert_eq!(app.core.view_messages.len(), 1, "应只有 1 条消息");
-        assert!(app.core.view_messages[0].is_assistant(), "应为 AssistantBubble");
+        assert!(
+            app.core.view_messages[0].is_assistant(),
+            "应为 AssistantBubble"
+        );
         assert!(handle.contains("Hello"), "应显示 Hello 内容");
     }
 
@@ -609,10 +733,17 @@ mod tests {
         app.process_pending_events();
         notified.await;
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
 
         // 应该有 1 个 ToolBlock，不应有空白 AssistantBubble
-        assert_eq!(app.core.view_messages.len(), 1, "应有 1 条消息（ToolBlock）");
+        assert_eq!(
+            app.core.view_messages.len(),
+            1,
+            "应有 1 条消息（ToolBlock）"
+        );
         // 确保不是 AssistantBubble（空白气泡）
         assert!(
             !app.core.view_messages[0].is_assistant(),
@@ -624,7 +755,10 @@ mod tests {
     async fn test_welcome_card_renders_when_empty() {
         let (mut app, mut handle) = App::new_headless(120, 30);
         // 默认 view_messages 为空，应显示 Welcome Card
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         assert!(
@@ -650,7 +784,10 @@ mod tests {
         app.process_pending_events();
         tokio::join!(n1, n2);
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         assert!(
@@ -668,7 +805,10 @@ mod tests {
     #[tokio::test]
     async fn test_welcome_card_narrow_screen() {
         let (mut app, mut handle) = App::new_headless(40, 24);
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         // 窄屏不应显示 ASCII Art（包含 ██ 或 ╚═ 等 block 字符）
@@ -690,7 +830,10 @@ mod tests {
         // 无 Provider 时 Welcome Card 应显示 /login 首次引导
         let (mut app, mut handle) = App::new_headless(120, 30);
         // zen_config 默认为 None，无 provider
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         assert!(
@@ -710,7 +853,10 @@ mod tests {
             app.core.last_human_message.is_none(),
             "默认应无 last_human_message"
         );
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         assert!(
@@ -738,7 +884,10 @@ mod tests {
         // 设置 last_human_message（模拟 submit_message 的效果）
         app.core.last_human_message = Some("hello from user".to_string());
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
@@ -771,7 +920,10 @@ mod tests {
             "/clear 后 last_human_message 应为 None"
         );
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         assert!(
@@ -800,7 +952,10 @@ mod tests {
         // 模拟第二条消息（覆盖）
         app.core.last_human_message = Some("second message".to_string());
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
@@ -831,11 +986,15 @@ mod tests {
         }
 
         // 模拟超长消息（远超 header 可显示范围）
-        let long_msg = "hello this is a very long message that definitely exceeds header capacity".to_string();
+        let long_msg =
+            "hello this is a very long message that definitely exceeds header capacity".to_string();
         assert!(long_msg.chars().count() > 40);
         app.core.last_human_message = Some(long_msg.clone());
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
@@ -854,14 +1013,28 @@ mod tests {
         let (mut app, mut handle) = App::new_headless(120, 30);
 
         // Register a cron task
-        app.cron.scheduler.lock().register("* * * * *", "hello cron test").unwrap();
-        let tasks: Vec<_> = app.cron.scheduler.lock().list_tasks().into_iter().cloned().collect();
+        app.cron
+            .scheduler
+            .lock()
+            .register("* * * * *", "hello cron test")
+            .unwrap();
+        let tasks: Vec<_> = app
+            .cron
+            .scheduler
+            .lock()
+            .list_tasks()
+            .into_iter()
+            .cloned()
+            .collect();
         app.cron.cron_panel = Some(crate::app::CronPanel::new(tasks));
 
         let notified = handle.render_notify.notified();
         drop(notified);
 
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         eprintln!("SNAPSHOT:");
         for (i, line) in snap.iter().enumerate() {
@@ -869,8 +1042,14 @@ mod tests {
                 eprintln!("{:3}: {}", i, line);
             }
         }
-        assert!(handle.contains("hello cron test"), "should contain task prompt");
-        assert!(handle.contains("* * * * *"), "should contain cron expression");
+        assert!(
+            handle.contains("hello cron test"),
+            "should contain task prompt"
+        );
+        assert!(
+            handle.contains("* * * * *"),
+            "should contain cron expression"
+        );
     }
 
     #[tokio::test]
@@ -893,8 +1072,10 @@ mod tests {
     #[tokio::test]
     async fn test_tab_bar_integration() {
         // TabBar 集成冒烟测试：渲染 ask_user popup 验证 TabBar widget 正确工作
-        use rust_agent_middlewares::ask_user::{AskUserBatchRequest, AskUserQuestionData, AskUserOption};
         use crate::app::AskUserBatchPrompt;
+        use rust_agent_middlewares::ask_user::{
+            AskUserBatchRequest, AskUserOption, AskUserQuestionData,
+        };
 
         let (mut app, mut handle) = App::new_headless(120, 30);
 
@@ -905,8 +1086,14 @@ mod tests {
                 header: "Language".into(),
                 multi_select: false,
                 options: vec![
-                    AskUserOption { label: "Rust".into(), description: Some("Systems language".into()) },
-                    AskUserOption { label: "Go".into(), description: None },
+                    AskUserOption {
+                        label: "Rust".into(),
+                        description: Some("Systems language".into()),
+                    },
+                    AskUserOption {
+                        label: "Go".into(),
+                        description: None,
+                    },
                 ],
             },
             AskUserQuestionData {
@@ -914,9 +1101,10 @@ mod tests {
                 question: "Choose a framework?".into(),
                 header: "Framework".into(),
                 multi_select: true,
-                options: vec![
-                    AskUserOption { label: "Axum".into(), description: None },
-                ],
+                options: vec![AskUserOption {
+                    label: "Axum".into(),
+                    description: None,
+                }],
             },
         ]);
         let prompt = AskUserBatchPrompt::from_request(req);
@@ -974,9 +1162,15 @@ mod tests {
         #[tokio::test]
         async fn test_needs_setup_triggers_for_empty_config() {
             let (app, _handle) = App::new_headless(120, 30);
-            assert!(app.zen_config.is_none(), "headless App default has no config");
+            assert!(
+                app.zen_config.is_none(),
+                "headless App default has no config"
+            );
             let empty_cfg = crate::config::types::ZenConfig::default();
-            assert!(needs_setup(&empty_cfg.config), "empty providers should need setup");
+            assert!(
+                needs_setup(&empty_cfg.config),
+                "empty providers should need setup"
+            );
         }
 
         #[tokio::test]
@@ -1043,7 +1237,10 @@ mod tests {
             let content = std::fs::read_to_string(&config_path).expect("config file should exist");
             assert!(content.contains("anthropic"));
 
-            assert!(!needs_setup(&cfg.config), "after setup, should not need setup");
+            assert!(
+                !needs_setup(&cfg.config),
+                "after setup, should not need setup"
+            );
 
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
@@ -1319,7 +1516,12 @@ mod tests {
             PermissionMode::Bypass,
         ] {
             app.permission_mode.store(mode);
-            assert_eq!(app.permission_mode.load(), mode, "store/load 应一致: {:?}", mode);
+            assert_eq!(
+                app.permission_mode.load(),
+                mode,
+                "store/load 应一致: {:?}",
+                mode
+            );
         }
     }
 
@@ -1340,8 +1542,15 @@ mod tests {
         use rust_agent_middlewares::prelude::PermissionMode;
         let (mut app, mut handle) = App::new_headless(120, 24);
         // 默认 Bypass → 应显示 "Bypass"
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("Bypass"), "状态栏应显示 Bypass 模式，实际:\n{}", handle.snapshot().join("\n"));
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        assert!(
+            handle.contains("Bypass"),
+            "状态栏应显示 Bypass 模式，实际:\n{}",
+            handle.snapshot().join("\n")
+        );
     }
 
     #[tokio::test]
@@ -1350,23 +1559,51 @@ mod tests {
         let (mut app, mut handle) = App::new_headless(120, 24);
         // 切换到 Default - 不显示标签
         app.permission_mode.store(PermissionMode::Default);
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(!handle.contains("DEFAULT"), "Default 模式不应显示标签，实际:\n{}", handle.snapshot().join("\n"));
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        assert!(
+            !handle.contains("DEFAULT"),
+            "Default 模式不应显示标签，实际:\n{}",
+            handle.snapshot().join("\n")
+        );
 
         // 切换到 DontAsk
         app.permission_mode.store(PermissionMode::DontAsk);
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("Don't Ask"), "切换后状态栏应显示 Don't Ask，实际:\n{}", handle.snapshot().join("\n"));
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        assert!(
+            handle.contains("Don't Ask"),
+            "切换后状态栏应显示 Don't Ask，实际:\n{}",
+            handle.snapshot().join("\n")
+        );
 
         // 切换到 AcceptEdit
         app.permission_mode.store(PermissionMode::AcceptEdit);
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("Accept Edit"), "切换后状态栏应显示 Accept Edit，实际:\n{}", handle.snapshot().join("\n"));
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        assert!(
+            handle.contains("Accept Edit"),
+            "切换后状态栏应显示 Accept Edit，实际:\n{}",
+            handle.snapshot().join("\n")
+        );
 
         // 切换到 AutoMode
         app.permission_mode.store(PermissionMode::AutoMode);
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("Auto Mode"), "切换后状态栏应显示 Auto Mode，实际:\n{}", handle.snapshot().join("\n"));
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        assert!(
+            handle.contains("Auto Mode"),
+            "切换后状态栏应显示 Auto Mode，实际:\n{}",
+            handle.snapshot().join("\n")
+        );
     }
 
     #[tokio::test]
@@ -1394,8 +1631,12 @@ mod tests {
         assert!(app.mode_highlight_until.is_none(), "初始不应有闪烁");
         // 模拟 Shift+Tab: cycle + 设置 highlight
         app.permission_mode.cycle();
-        app.mode_highlight_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
-        assert!(app.mode_highlight_until.is_some(), "cycle 后应设置闪烁截止时间");
+        app.mode_highlight_until =
+            Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+        assert!(
+            app.mode_highlight_until.is_some(),
+            "cycle 后应设置闪烁截止时间"
+        );
         // 验证截止时间在未来
         let until = app.mode_highlight_until.unwrap();
         assert!(std::time::Instant::now() < until, "截止时间应在未来");
@@ -1405,12 +1646,20 @@ mod tests {
     async fn test_spinner_shows_verb_in_status_bar() {
         let (mut app, mut handle) = crate::app::App::new_headless(120, 30);
         // 添加一条消息，否则 render_messages 会走 welcome 分支提前 return
-        app.core.view_messages.push(crate::app::MessageViewModel::user("hello".into()));
+        app.core
+            .view_messages
+            .push(crate::app::MessageViewModel::user("hello".into()));
         app.spinner_state.set_verb(Some("Searching code"));
         app.core.loading = true;
 
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
-        assert!(handle.contains("Searching code"), "status bar should show spinner verb");
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
+        assert!(
+            handle.contains("Searching code"),
+            "status bar should show spinner verb"
+        );
     }
 
     #[tokio::test]
@@ -1432,10 +1681,13 @@ mod tests {
         // Render into a visible area for verification
         use ratatui::widgets::Paragraph;
         let paragraph = Paragraph::new(lines);
-        handle.terminal.draw(|f| {
-            let area = ratatui::layout::Rect::new(0, 0, 120, 10);
-            f.render_widget(paragraph, area);
-        }).unwrap();
+        handle
+            .terminal
+            .draw(|f| {
+                let area = ratatui::layout::Rect::new(0, 0, 120, 10);
+                f.render_widget(paragraph, area);
+            })
+            .unwrap();
         assert!(handle.contains("bash"), "should render tool name");
     }
 
@@ -1450,9 +1702,16 @@ mod tests {
             delay_ms: 2000,
         });
 
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
-        assert!(handle.contains("2/5"), "状态栏应显示重试次数 2/5，实际:\n{}", snap.join("\n"));
+        assert!(
+            handle.contains("2/5"),
+            "状态栏应显示重试次数 2/5，实际:\n{}",
+            snap.join("\n")
+        );
     }
 
     // ─── Compact 集成测试 ──────────────────────────────────────────────────
@@ -1462,7 +1721,10 @@ mod tests {
         let re_inject_content = if re_inject_parts.is_empty() {
             String::new()
         } else {
-            format!("\n\n---RE_INJECT_SEPARATOR---\n{}", re_inject_parts.join("\n\n"))
+            format!(
+                "\n\n---RE_INJECT_SEPARATOR---\n{}",
+                re_inject_parts.join("\n\n")
+            )
         };
         let combined = format!("{}{}", summary, re_inject_content);
         AgentEvent::CompactDone {
@@ -1581,7 +1843,10 @@ mod tests {
         app.process_pending_events();
         tokio::join!(n1, n2);
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
 
         // view_messages 应包含用户消息 + AI 消息
         assert!(
@@ -1630,7 +1895,10 @@ mod tests {
         app.process_pending_events();
         tokio::join!(n3, n4);
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
 
         // 应累积 4 条消息
         assert_eq!(
@@ -1676,16 +1944,13 @@ mod tests {
     /// 回归：StateSnapshot 是增量的，不应覆盖之前已完成的消息
     #[test]
     fn test_state_snapshot_is_incremental() {
-        use rust_create_agent::messages::{BaseMessage, MessageContent, MessageId};
         use crate::app::message_pipeline::MessagePipeline;
+        use rust_create_agent::messages::{BaseMessage, MessageContent, MessageId};
 
         let mut pipeline = MessagePipeline::new("/tmp".to_string());
 
         // 第一次 snapshot：Human + Ai
-        pipeline.set_completed(vec![
-            BaseMessage::human("hello"),
-            BaseMessage::ai("world"),
-        ]);
+        pipeline.set_completed(vec![BaseMessage::human("hello"), BaseMessage::ai("world")]);
         assert_eq!(pipeline.completed_messages().len(), 2);
 
         // 第二次 snapshot（增量）：Tool result
@@ -1723,17 +1988,18 @@ mod tests {
         app.process_pending_events();
         tokio::join!(n1, n2);
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
 
         // ToolBlock 和 AssistantBubble 都应存在
-        let has_tool = app.core.view_messages.iter().any(|m| {
-            matches!(m, MessageViewModel::ToolBlock { .. })
-        });
-        let has_assistant = app
+        let has_tool = app
             .core
             .view_messages
             .iter()
-            .any(|m| m.is_assistant());
+            .any(|m| matches!(m, MessageViewModel::ToolBlock { .. }));
+        let has_assistant = app.core.view_messages.iter().any(|m| m.is_assistant());
         assert!(has_tool, "应有 ToolBlock");
         assert!(has_assistant, "应有 AssistantBubble");
         assert!(handle.contains("result is here"), "应显示 AI 回复");
@@ -1762,16 +2028,31 @@ mod tests {
             path: "/tmp/review.md".into(),
         });
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
         // 应包含命令名和 Skill 名
-        assert!(snap_text.contains("model"), "应显示 model 命令，实际:\n{}", snap_text);
-        assert!(snap_text.contains("commit"), "应显示 commit Skill，实际:\n{}", snap_text);
+        assert!(
+            snap_text.contains("model"),
+            "应显示 model 命令，实际:\n{}",
+            snap_text
+        );
+        assert!(
+            snap_text.contains("commit"),
+            "应显示 commit Skill，实际:\n{}",
+            snap_text
+        );
 
         // 应包含分组标题（CJK 字符在 TestBackend 中有宽字符填充，只断言 ASCII 标题）
-        assert!(snap_text.contains("Skills"), "应包含 Skills 分组标题，实际:\n{}", snap_text);
+        assert!(
+            snap_text.contains("Skills"),
+            "应包含 Skills 分组标题，实际:\n{}",
+            snap_text
+        );
     }
 
     #[tokio::test]
@@ -1788,14 +2069,25 @@ mod tests {
             path: "/tmp/commit.md".into(),
         });
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
         // 应包含匹配的命令 model
-        assert!(snap_text.contains("model"), "应包含匹配前缀 /mo 的命令 model，实际:\n{}", snap_text);
+        assert!(
+            snap_text.contains("model"),
+            "应包含匹配前缀 /mo 的命令 model，实际:\n{}",
+            snap_text
+        );
         // 不应包含不匹配的 Skill（commit 不含 "mo"）
-        assert!(!snap_text.contains("commit"), "不应包含不匹配的 Skill，实际:\n{}", snap_text);
+        assert!(
+            !snap_text.contains("commit"),
+            "不应包含不匹配的 Skill，实际:\n{}",
+            snap_text
+        );
     }
 
     #[tokio::test]
@@ -1812,12 +2104,19 @@ mod tests {
             path: "/tmp/skill.md".into(),
         });
 
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
         // # 前缀不应触发浮层
-        assert!(!snap_text.contains("Skills"), "# 前缀不应触发 Skills 浮层，实际:\n{}", snap_text);
+        assert!(
+            !snap_text.contains("Skills"),
+            "# 前缀不应触发 Skills 浮层，实际:\n{}",
+            snap_text
+        );
     }
 
     // ── Enter 触发 Skill fallback 测试 ──────────────────────────────────────────
@@ -1847,7 +2146,8 @@ mod tests {
         assert!(!known, "review 不应是已知命令");
 
         // 验证 Skill 匹配
-        let skill_name: String = text.trim_start_matches('/')
+        let skill_name: String = text
+            .trim_start_matches('/')
             .chars()
             .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
             .collect();
@@ -1872,7 +2172,8 @@ mod tests {
         assert!(!known, "nonexistent 不应是已知命令");
 
         // Skill fallback 也应失败
-        let skill_name: String = text.trim_start_matches('/')
+        let skill_name: String = text
+            .trim_start_matches('/')
             .chars()
             .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
             .collect();
@@ -1904,7 +2205,10 @@ mod tests {
     #[tokio::test]
     async fn test_textarea_shows_placeholder_hint() {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         assert!(
@@ -1919,7 +2223,10 @@ mod tests {
     #[tokio::test]
     async fn test_welcome_card_shows_alt_enter_hint() {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        handle.terminal.draw(|f| main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| main_ui::render(f, &mut app))
+            .unwrap();
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
         assert!(
@@ -1957,14 +2264,13 @@ mod tests {
             "应检测到错误标记"
         );
         let warn_content = "⚠ 已中断";
-        assert!(
-            warn_content.contains("⚠"),
-            "应检测到警告标记"
-        );
+        assert!(warn_content.contains("⚠"), "应检测到警告标记");
         // 普通信息
         let info_content = "已加载对话";
         assert!(
-            !info_content.contains("❌") && !info_content.contains("失败") && !info_content.contains("⚠"),
+            !info_content.contains("❌")
+                && !info_content.contains("失败")
+                && !info_content.contains("⚠"),
             "普通消息不应被标记为错误"
         );
     }

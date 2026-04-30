@@ -2,9 +2,7 @@ use rust_create_agent::agent::react::ToolCall;
 use rust_create_agent::error::AgentError;
 
 // 从核心库导入 trait 和数据类型
-pub use rust_create_agent::ask_user::{
-    AskUserBatchRequest, AskUserOption, AskUserQuestionData,
-};
+pub use rust_create_agent::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
 
 // ─── 解析辅助 ──────────────────────────────────────────────────────────────────
 
@@ -33,21 +31,30 @@ pub fn parse_ask_user(tool_call: &ToolCall) -> Result<Vec<AskUserQuestionData>, 
     if tool_call.name != "ask_user_question" {
         return Ok(vec![]);
     }
-    let input: AskUserInput = serde_json::from_value(tool_call.input.clone())
-        .map_err(|e| AgentError::ToolExecutionFailed {
+    let input: AskUserInput = serde_json::from_value(tool_call.input.clone()).map_err(|e| {
+        AgentError::ToolExecutionFailed {
             tool: "ask_user_question".to_string(),
             reason: format!("参数解析失败: {e}"),
-        })?;
-    Ok(input.questions.into_iter().map(|q| AskUserQuestionData {
-        tool_call_id: tool_call.id.clone(),
-        question: q.question,
-        header: q.header,
-        multi_select: q.multi_select,
-        options: q.options.into_iter().map(|o| AskUserOption {
-            label: o.label,
-            description: o.description,
-        }).collect(),
-    }).collect())
+        }
+    })?;
+    Ok(input
+        .questions
+        .into_iter()
+        .map(|q| AskUserQuestionData {
+            tool_call_id: tool_call.id.clone(),
+            question: q.question,
+            header: q.header,
+            multi_select: q.multi_select,
+            options: q
+                .options
+                .into_iter()
+                .map(|o| AskUserOption {
+                    label: o.label,
+                    description: o.description,
+                })
+                .collect(),
+        })
+        .collect())
 }
 
 // ─── `ask_user_question` 工具定义 ─────────────────────────────────────────────
@@ -59,7 +66,8 @@ pub fn ask_user_tool_definition() -> rust_create_agent::tools::ToolDefinition {
         description: "向用户批量提问并提供选项，获取用户的选择或自定义输入。\
                       当任务需要用户提供细节、偏好或做出选择时使用。\
                       一次调用支持 1–4 个问题，全部打包展示给用户。\
-                      每个问题提供清晰的选项列表，用户始终可以输入自定义内容。".to_string(),
+                      每个问题提供清晰的选项列表，用户始终可以输入自定义内容。"
+            .to_string(),
         parameters: serde_json::json!({
             "type": "object",
             "properties": {

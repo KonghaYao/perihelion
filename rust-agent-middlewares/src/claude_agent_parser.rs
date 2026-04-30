@@ -152,10 +152,12 @@ pub fn format_agent_id(id: &str) -> String {
 ///
 /// 返回 frontmatter 和 markdown 正文
 pub fn parse_agent_file(content: &str) -> Option<ClaudeAgent> {
-    parse_agent_file_inner(content).map_err(|e| {
-        tracing::warn!("agent 文件解析失败: {e}");
-        e
-    }).ok()
+    parse_agent_file_inner(content)
+        .map_err(|e| {
+            tracing::warn!("agent 文件解析失败: {e}");
+            e
+        })
+        .ok()
 }
 
 /// 内部实现，返回具体错误信息
@@ -175,7 +177,11 @@ fn parse_agent_file_inner(content: &str) -> Result<ClaudeAgent, String> {
         .find(|(_, line)| line.trim() == "---")
         .map(|(i, _)| {
             // 计算到该行末尾的字节偏移
-            after_open.lines().take(i + 1).map(|l| l.len() + 1).sum::<usize>()
+            after_open
+                .lines()
+                .take(i + 1)
+                .map(|l| l.len() + 1)
+                .sum::<usize>()
         })
         .ok_or_else(|| "未找到闭合的 '---' 分隔符".to_string())?;
 

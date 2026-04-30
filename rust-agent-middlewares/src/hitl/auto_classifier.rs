@@ -25,11 +25,7 @@ pub enum Classification {
 /// 自动分类器 trait — 根据工具名称和输入判断是否放行
 #[async_trait]
 pub trait AutoClassifier: Send + Sync {
-    async fn classify(
-        &self,
-        tool_name: &str,
-        tool_input: &serde_json::Value,
-    ) -> Classification;
+    async fn classify(&self, tool_name: &str, tool_input: &serde_json::Value) -> Classification;
 }
 
 // ─── 缓存条目 ────────────────────────────────────────────────────────────────
@@ -63,10 +59,7 @@ impl LlmAutoClassifier {
     }
 
     /// 使用自定义缓存 TTL 创建分类器
-    pub fn with_cache_ttl(
-        model: Arc<AsyncMutex<Box<dyn BaseModel>>>,
-        cache_ttl: Duration,
-    ) -> Self {
+    pub fn with_cache_ttl(model: Arc<AsyncMutex<Box<dyn BaseModel>>>, cache_ttl: Duration) -> Self {
         Self {
             model,
             cache: Mutex::new(HashMap::new()),
@@ -99,18 +92,17 @@ impl LlmAutoClassifier {
         let mut cache = self.cache.lock();
         let now = Instant::now();
         cache.retain(|_, entry| entry.expires_at > now);
-        cache.insert(key, CacheEntry {
-            classification,
-            expires_at: now + self.cache_ttl,
-        });
+        cache.insert(
+            key,
+            CacheEntry {
+                classification,
+                expires_at: now + self.cache_ttl,
+            },
+        );
     }
 
     /// 调用 LLM 进行分类
-    async fn call_llm(
-        &self,
-        tool_name: &str,
-        tool_input: &serde_json::Value,
-    ) -> Classification {
+    async fn call_llm(&self, tool_name: &str, tool_input: &serde_json::Value) -> Classification {
         let prompt = format!(
             "判断以下工具调用是否安全。工具: {}, 输入: {}\n只回答 ALLOW / DENY / UNSURE，不要解释。",
             tool_name,
@@ -137,7 +129,10 @@ impl LlmAutoClassifier {
 
                 // 检查是否存在否定词（NOT, DON'T, WON'T, NEVER, etc.）
                 let has_negation = words.iter().any(|w| {
-                    matches!(*w, "NOT" | "DONT" | "WONT" | "CANT" | "NEVER" | "NO" | "NEITHER" | "NOR")
+                    matches!(
+                        *w,
+                        "NOT" | "DONT" | "WONT" | "CANT" | "NEVER" | "NO" | "NEITHER" | "NOR"
+                    )
                 });
 
                 // 包含 DENY（无论有无否定）→ Deny；否定+ALLOW → Unsure
@@ -156,11 +151,7 @@ impl LlmAutoClassifier {
 
 #[async_trait]
 impl AutoClassifier for LlmAutoClassifier {
-    async fn classify(
-        &self,
-        tool_name: &str,
-        tool_input: &serde_json::Value,
-    ) -> Classification {
+    async fn classify(&self, tool_name: &str, tool_input: &serde_json::Value) -> Classification {
         let key = Self::cache_key(tool_name, tool_input);
 
         if let Some(cached) = self.lookup_cache(&key) {
@@ -178,9 +169,9 @@ impl AutoClassifier for LlmAutoClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use rust_create_agent::llm::types::{LlmResponse, StopReason};
     use rust_create_agent::error::{AgentError, AgentResult};
+    use rust_create_agent::llm::types::{LlmResponse, StopReason};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct MockClassifyModel {
         response: std::sync::Mutex<String>,
@@ -219,8 +210,12 @@ mod tests {
                 usage: None,
             })
         }
-        fn provider_name(&self) -> &str { "mock" }
-        fn model_id(&self) -> &str { "mock-classifier" }
+        fn provider_name(&self) -> &str {
+            "mock"
+        }
+        fn model_id(&self) -> &str {
+            "mock-classifier"
+        }
     }
 
     #[test]
@@ -251,33 +246,49 @@ mod tests {
 
     #[tokio::test]
     async fn test_classify_allow() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .await;
         assert_eq!(result, Classification::Allow);
     }
 
     #[tokio::test]
     async fn test_classify_deny() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("DENY")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("DENY")) as Box<dyn BaseModel>
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "rm -rf /"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .await;
         assert_eq!(result, Classification::Deny);
     }
 
     #[tokio::test]
     async fn test_classify_unsure() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("UNSURE")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("UNSURE")) as Box<dyn BaseModel>
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .await;
         assert_eq!(result, Classification::Unsure);
     }
 
     #[tokio::test]
     async fn test_classify_garbage_response() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("xyz123")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("xyz123")) as Box<dyn BaseModel>
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .await;
         assert_eq!(result, Classification::Unsure);
     }
 
@@ -287,13 +298,17 @@ mod tests {
         mock.set_should_fail(true);
         let model = Arc::new(AsyncMutex::new(Box::new(mock) as Box<dyn BaseModel>));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .await;
         assert_eq!(result, Classification::Unsure);
     }
 
     #[tokio::test]
     async fn test_cache_hit() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>
+        ));
         let classifier = LlmAutoClassifier::new(model);
         let input = serde_json::json!({"cmd": "ls"});
         classifier.classify("bash", &input).await;
@@ -304,7 +319,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_expiry() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>
+        ));
         let classifier = LlmAutoClassifier::with_cache_ttl(model, Duration::from_millis(50));
         let input = serde_json::json!({"cmd": "ls"});
         classifier.classify("bash", &input).await;
@@ -318,43 +335,67 @@ mod tests {
 
     #[tokio::test]
     async fn test_not_allow_should_not_match() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("NOT ALLOW")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("NOT ALLOW")) as Box<dyn BaseModel>,
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "rm -rf /"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .await;
         assert_ne!(result, Classification::Allow, "NOT ALLOW 不应被判为 Allow");
         assert_eq!(result, Classification::Unsure);
     }
 
     #[tokio::test]
     async fn test_disallow_should_not_match() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("DISALLOW")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("DISALLOW")) as Box<dyn BaseModel>,
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "rm -rf /"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .await;
         assert_ne!(result, Classification::Allow, "DISALLOW 不应被判为 Allow");
-        assert_eq!(result, Classification::Unsure, "DISALLOW 应判为 Unsure（无独立 DENY/ALLOW）");
+        assert_eq!(
+            result,
+            Classification::Unsure,
+            "DISALLOW 应判为 Unsure（无独立 DENY/ALLOW）"
+        );
     }
 
     #[tokio::test]
     async fn test_allow_as_standalone_word() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("ALLOW")) as Box<dyn BaseModel>
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .await;
         assert_eq!(result, Classification::Allow, "独立 ALLOW 应判为 Allow");
     }
 
     #[tokio::test]
     async fn test_i_allow_this() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("I ALLOW THIS")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("I ALLOW THIS")) as Box<dyn BaseModel>,
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "ls"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .await;
         assert_eq!(result, Classification::Allow, "I ALLOW THIS 应判为 Allow");
     }
 
     #[tokio::test]
     async fn test_i_deny_this() {
-        let model = Arc::new(AsyncMutex::new(Box::new(MockClassifyModel::new("I DENY THIS")) as Box<dyn BaseModel>));
+        let model = Arc::new(AsyncMutex::new(
+            Box::new(MockClassifyModel::new("I DENY THIS")) as Box<dyn BaseModel>,
+        ));
         let classifier = LlmAutoClassifier::new(model);
-        let result = classifier.classify("bash", &serde_json::json!({"cmd": "rm -rf /"})).await;
+        let result = classifier
+            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .await;
         assert_eq!(result, Classification::Deny, "I DENY THIS 应判为 Deny");
     }
 }

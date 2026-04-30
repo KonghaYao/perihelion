@@ -1,3 +1,4 @@
+use crate::scrollable::ScrollState;
 use ratatui::{
     layout::Rect,
     prelude::*,
@@ -5,7 +6,6 @@ use ratatui::{
     text::{Line, Text},
     widgets::{Paragraph, StatefulWidget, Widget},
 };
-use crate::scrollable::ScrollState;
 
 /// 泛型列表状态——管理 items + cursor + scroll offset
 ///
@@ -19,16 +19,26 @@ pub struct ListState<T> {
 
 impl<T> ListState<T> {
     pub fn new(items: Vec<T>) -> Self {
-        Self { items, cursor: 0, scroll: ScrollState::new() }
+        Self {
+            items,
+            cursor: 0,
+            scroll: ScrollState::new(),
+        }
     }
 
-    pub fn items(&self) -> &[T] { &self.items }
+    pub fn items(&self) -> &[T] {
+        &self.items
+    }
 
-    pub fn cursor(&self) -> usize { self.cursor }
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
 
     /// 移动光标（clamp 模式，不循环）
     pub fn move_cursor(&mut self, delta: i32) {
-        if self.items.is_empty() { return; }
+        if self.items.is_empty() {
+            return;
+        }
         let max = self.items.len() - 1;
         let new = self.cursor as i32 + delta;
         self.cursor = new.clamp(0, max as i32) as usize;
@@ -44,10 +54,14 @@ impl<T> ListState<T> {
     }
 
     /// 获取当前 cursor 指向的 item 引用
-    pub fn selected(&self) -> Option<&T> { self.items.get(self.cursor) }
+    pub fn selected(&self) -> Option<&T> {
+        self.items.get(self.cursor)
+    }
 
     /// 获取当前 cursor 指向的 item 可变引用
-    pub fn selected_mut(&mut self) -> Option<&mut T> { self.items.get_mut(self.cursor) }
+    pub fn selected_mut(&mut self) -> Option<&mut T> {
+        self.items.get_mut(self.cursor)
+    }
 
     /// 确保 cursor 行在可见视口内（联动 ScrollState）
     pub fn ensure_visible(&mut self, visible: u16) {
@@ -180,20 +194,24 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = ListState::new(vec!["a", "b", "c"]);
         state.move_cursor(1); // cursor on "b"
-        terminal.draw(|f| {
-            let area = Rect::new(0, 0, 20, 5);
-            let list = SelectableList::new(|item: &&str, is_cursor: bool| {
-                Line::from(*item)
-            });
-            f.render_stateful_widget(list, area, &mut state);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 20, 5);
+                let list = SelectableList::new(|item: &&str, is_cursor: bool| Line::from(*item));
+                f.render_stateful_widget(list, area, &mut state);
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
         let area = buf.area;
         // Row 1 (cursor) should contain the marker prefix
         let row1: String = (area.x..area.x + area.width)
             .map(|x| buf.cell((x, area.y + 1)).unwrap().symbol().to_string())
             .collect();
-        assert!(row1.contains("▶"), "Expected cursor marker on row 1, got: {:?}", row1);
+        assert!(
+            row1.contains("▶"),
+            "Expected cursor marker on row 1, got: {:?}",
+            row1
+        );
         // Row 0 should contain spaces (non-cursor marker)
         let row0: String = (area.x..area.x + area.width)
             .map(|x| buf.cell((x, area.y)).unwrap().symbol().to_string())
@@ -206,18 +224,24 @@ mod tests {
         let backend = TestBackend::new(20, 5);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = ListState::new(vec!["a", "b"]);
-        terminal.draw(|f| {
-            let area = Rect::new(0, 0, 20, 5);
-            let list = SelectableList::new(|item: &&str, _is_cursor: bool| {
-                Line::from(format!("[{}]", item))
-            });
-            f.render_stateful_widget(list, area, &mut state);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 20, 5);
+                let list = SelectableList::new(|item: &&str, _is_cursor: bool| {
+                    Line::from(format!("[{}]", item))
+                });
+                f.render_stateful_widget(list, area, &mut state);
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
         let area = buf.area;
         let row0: String = (area.x..area.x + area.width)
             .map(|x| buf.cell((x, area.y)).unwrap().symbol().to_string())
             .collect();
-        assert!(row0.contains("[a]"), "Expected [a] on row 0, got: {:?}", row0);
+        assert!(
+            row0.contains("[a]"),
+            "Expected [a] on row 0, got: {:?}",
+            row0
+        );
     }
 }

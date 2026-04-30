@@ -34,9 +34,12 @@ impl crate::app::App {
                 let id = panel.tasks[idx].id.clone();
                 self.cron.scheduler.lock().remove(&id);
                 panel.refresh(&self.cron.scheduler);
-                self.core.view_messages.push(crate::ui::message_view::MessageViewModel::system(
-                    format!("已删除定时任务: {}", prompt_preview),
-                ));
+                self.core
+                    .view_messages
+                    .push(crate::ui::message_view::MessageViewModel::system(format!(
+                        "已删除定时任务: {}",
+                        prompt_preview
+                    )));
                 // 列表为空时关闭面板
                 if panel.tasks.is_empty() {
                     self.cron.cron_panel = None;

@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 
+use super::BaseModel;
 use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
 use crate::error::AgentResult;
 use crate::llm::types::{LlmRequest, StopReason};
 use crate::messages::{BaseMessage, ContentBlock};
 use crate::tools::BaseTool;
-use super::BaseModel;
 
 /// BaseModelReactLLM - 将 BaseModel 适配为 ReactLLM
 pub struct BaseModelReactLLM {
@@ -15,7 +15,10 @@ pub struct BaseModelReactLLM {
 
 impl BaseModelReactLLM {
     pub fn new(model: Box<dyn BaseModel>) -> Self {
-        Self { model, system: None }
+        Self {
+            model,
+            system: None,
+        }
     }
 
     pub fn with_system(mut self, system: impl Into<String>) -> Self {
@@ -106,7 +109,11 @@ impl ReactLLM for BaseModelReactLLM {
                 .collect();
             if calls.is_empty() {
                 tracing::warn!("LLM 返回 ToolUse stop_reason 但无 tool_calls，降级为最终回答");
-                let text = if thought.is_empty() { "(empty response)".to_string() } else { thought };
+                let text = if thought.is_empty() {
+                    "(empty response)".to_string()
+                } else {
+                    thought
+                };
                 let mut r = Reasoning::with_answer("", text);
                 r.source_message = Some(response.message);
                 r.usage = usage;
@@ -147,24 +154,44 @@ impl ReactLLM for BaseModelReactLLM {
 mod tests {
     use super::*;
 
-    struct MockBaseModel { id: &'static str, window: u32 }
+    struct MockBaseModel {
+        id: &'static str,
+        window: u32,
+    }
     #[async_trait::async_trait]
     impl super::super::BaseModel for MockBaseModel {
-        async fn invoke(&self, _: super::super::types::LlmRequest) -> crate::error::AgentResult<super::super::types::LlmResponse> { unimplemented!() }
-        fn provider_name(&self) -> &str { "mock" }
-        fn model_id(&self) -> &str { self.id }
-        fn context_window(&self) -> u32 { self.window }
+        async fn invoke(
+            &self,
+            _: super::super::types::LlmRequest,
+        ) -> crate::error::AgentResult<super::super::types::LlmResponse> {
+            unimplemented!()
+        }
+        fn provider_name(&self) -> &str {
+            "mock"
+        }
+        fn model_id(&self) -> &str {
+            self.id
+        }
+        fn context_window(&self) -> u32 {
+            self.window
+        }
     }
 
     #[test]
     fn test_context_window_delegates_to_model() {
-        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "any-model", window: 128_000 }));
+        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel {
+            id: "any-model",
+            window: 128_000,
+        }));
         assert_eq!(llm.context_window(), 128_000);
     }
 
     #[test]
     fn test_context_window_default_from_trait() {
-        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "unknown", window: 200_000 }));
+        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel {
+            id: "unknown",
+            window: 200_000,
+        }));
         assert_eq!(llm.context_window(), 200_000);
     }
 }

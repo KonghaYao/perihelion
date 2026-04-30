@@ -83,10 +83,7 @@ impl<'a> Widget for ToolCallWidget<'a> {
                 format!("{} ", indicator),
                 Style::default().fg(self.state.color),
             ),
-            Span::styled(
-                format!("{} ", arrow),
-                Style::default().fg(self.state.color),
-            ),
+            Span::styled(format!("{} ", arrow), Style::default().fg(self.state.color)),
             Span::styled(
                 self.state.tool_name.clone(),
                 Style::default()
@@ -113,12 +110,10 @@ impl<'a> Widget for ToolCallWidget<'a> {
                 ]));
             }
             if let Some(omitted) = self.state.omitted_lines {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("  … ({} more lines)", omitted),
-                        Style::default().fg(ratatui::style::Color::DarkGray),
-                    ),
-                ]));
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  … ({} more lines)", omitted),
+                    Style::default().fg(ratatui::style::Color::DarkGray),
+                )]));
             }
         }
 

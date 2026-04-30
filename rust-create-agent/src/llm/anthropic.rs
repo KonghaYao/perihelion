@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::BaseModel;
 use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
 use crate::error::{AgentError, AgentResult};
-use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 use crate::llm::types::{LlmRequest, LlmResponse, StopReason};
+use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 use crate::tools::BaseTool;
-use super::BaseModel;
 
 /// ChatAnthropic - Anthropic Messages API 实现
 pub struct ChatAnthropic {
@@ -75,22 +75,20 @@ impl ChatAnthropic {
     fn block_to_anthropic(block: &ContentBlock) -> Option<Value> {
         match block {
             ContentBlock::Text { text } => Some(json!({ "type": "text", "text": text })),
-            ContentBlock::Image { source } => {
-                match source {
-                    ImageSource::Base64 { media_type, data } => Some(json!({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": data
-                        }
-                    })),
-                    ImageSource::Url { url } => Some(json!({
-                        "type": "image",
-                        "source": { "type": "url", "url": url }
-                    })),
-                }
-            }
+            ContentBlock::Image { source } => match source {
+                ImageSource::Base64 { media_type, data } => Some(json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data
+                    }
+                })),
+                ImageSource::Url { url } => Some(json!({
+                    "type": "image",
+                    "source": { "type": "url", "url": url }
+                })),
+            },
             ContentBlock::Document { source, title } => {
                 let src = serde_json::to_value(source).unwrap_or_default();
                 let mut obj = json!({ "type": "document", "source": src });
@@ -105,7 +103,11 @@ impl ChatAnthropic {
                 "name": name,
                 "input": input
             })),
-            ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
                 let content_val: Vec<Value> = content
                     .iter()
                     .filter_map(Self::block_to_anthropic)
@@ -133,10 +135,8 @@ impl ChatAnthropic {
         match content {
             MessageContent::Text(s) => json!(s),
             MessageContent::Blocks(blocks) => {
-                let parts: Vec<Value> = blocks
-                    .iter()
-                    .filter_map(Self::block_to_anthropic)
-                    .collect();
+                let parts: Vec<Value> =
+                    blocks.iter().filter_map(Self::block_to_anthropic).collect();
                 Value::Array(parts)
             }
             MessageContent::Raw(values) => Value::Array(values.clone()),
@@ -165,7 +165,11 @@ impl ChatAnthropic {
                         "content": Self::content_to_anthropic(content)
                     }));
                 }
-                BaseMessage::Ai { content, tool_calls, .. } => {
+                BaseMessage::Ai {
+                    content,
+                    tool_calls,
+                    ..
+                } => {
                     if tool_calls.is_empty() {
                         result.push(json!({
                             "role": "assistant",
@@ -197,7 +201,12 @@ impl ChatAnthropic {
                         result.push(json!({ "role": "assistant", "content": content_val }));
                     }
                 }
-                BaseMessage::Tool { tool_call_id, content, is_error, .. } => {
+                BaseMessage::Tool {
+                    tool_call_id,
+                    content,
+                    is_error,
+                    ..
+                } => {
                     let tool_result_block = json!({
                         "type": "tool_result",
                         "tool_use_id": tool_call_id,
@@ -257,7 +266,10 @@ impl ChatAnthropic {
                         if let Some(last_block) = blocks.last_mut() {
                             // 跳过空 text block
                             let is_empty_text = last_block["type"].as_str() == Some("text")
-                                && last_block["text"].as_str().map(|t| t.trim().is_empty()).unwrap_or(false);
+                                && last_block["text"]
+                                    .as_str()
+                                    .map(|t| t.trim().is_empty())
+                                    .unwrap_or(false);
                             if !is_empty_text {
                                 last_block["cache_control"] = json!({ "type": "ephemeral" });
                             }
@@ -301,9 +313,7 @@ impl ChatAnthropic {
                     }
                 }
                 Some("tool_use") => {
-                    if let (Some(id), Some(name)) =
-                        (b["id"].as_str(), b["name"].as_str())
-                    {
+                    if let (Some(id), Some(name)) = (b["id"].as_str(), b["name"].as_str()) {
                         let input = b["input"].clone();
                         blocks.push(ContentBlock::tool_use(id, name, input.clone()));
                         tool_calls.push(ToolCallRequest::new(id, name, input));
@@ -346,11 +356,13 @@ impl BaseModel for ChatAnthropic {
         let tools_json: Vec<Value> = request
             .tools
             .iter()
-            .map(|t| json!({
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.parameters
-            }))
+            .map(|t| {
+                json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.parameters
+                })
+            })
             .collect();
 
         let (mut messages, system_from_msgs) = Self::messages_to_anthropic(&request.messages);
@@ -420,48 +432,42 @@ impl BaseModel for ChatAnthropic {
             req = req.header("anthropic-beta", "prompt-caching-2024-07-31");
         }
 
-        let resp = req
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    provider = "anthropic",
-                    model = %self.model,
-                    elapsed_ms = start.elapsed().as_millis() as u64,
-                    error = %e,
-                    "LLM 网络请求失败"
-                );
-                AgentError::LlmError(e.to_string())
-            })?;
+        let resp = req.json(&body).send().await.map_err(|e| {
+            tracing::error!(
+                provider = "anthropic",
+                model = %self.model,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "LLM 网络请求失败"
+            );
+            AgentError::LlmError(e.to_string())
+        })?;
 
         let status = resp.status();
-        let resp_text = resp
-            .text()
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    provider = "anthropic",
-                    model = %self.model,
-                    status = %status,
-                    elapsed_ms = start.elapsed().as_millis() as u64,
-                    error = %e,
-                    "LLM 读取响应体失败"
-                );
-                AgentError::LlmError(format!("读取响应体失败: {e}"))
-            })?;
-        let resp_json: Value = serde_json::from_str(&resp_text)
-            .map_err(|e| {
-                tracing::error!(
-                    provider = "anthropic",
-                    model = %self.model,
-                    status = %status,
-                    elapsed_ms = start.elapsed().as_millis() as u64,
-                    error = %e,
-                    "LLM 响应解析失败"
-                );
-                AgentError::LlmError(format!("解析响应失败: {e}\n原始响应({status}): {resp_text}"))
-            })?;
+        let resp_text = resp.text().await.map_err(|e| {
+            tracing::error!(
+                provider = "anthropic",
+                model = %self.model,
+                status = %status,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "LLM 读取响应体失败"
+            );
+            AgentError::LlmError(format!("读取响应体失败: {e}"))
+        })?;
+        let resp_json: Value = serde_json::from_str(&resp_text).map_err(|e| {
+            tracing::error!(
+                provider = "anthropic",
+                model = %self.model,
+                status = %status,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "LLM 响应解析失败"
+            );
+            AgentError::LlmError(format!(
+                "解析响应失败: {e}\n原始响应({status}): {resp_text}"
+            ))
+        })?;
 
         if !status.is_success() {
             let msg = resp_json["error"]["message"]
@@ -497,9 +503,8 @@ impl BaseModel for ChatAnthropic {
             "LLM invoke completed"
         );
 
-        let stop_reason = StopReason::from_anthropic(
-            resp_json["stop_reason"].as_str().unwrap_or("end_turn"),
-        );
+        let stop_reason =
+            StopReason::from_anthropic(resp_json["stop_reason"].as_str().unwrap_or("end_turn"));
 
         let raw_blocks = resp_json["content"]
             .as_array()
@@ -535,10 +540,18 @@ impl BaseModel for ChatAnthropic {
         };
 
         let usage = {
-            let input = resp_json["usage"]["input_tokens"].as_u64().map(|v| v as u32);
-            let output = resp_json["usage"]["output_tokens"].as_u64().map(|v| v as u32);
-            let cache_creation = resp_json["usage"]["cache_creation_input_tokens"].as_u64().map(|v| v as u32);
-            let cache_read = resp_json["usage"]["cache_read_input_tokens"].as_u64().map(|v| v as u32);
+            let input = resp_json["usage"]["input_tokens"]
+                .as_u64()
+                .map(|v| v as u32);
+            let output = resp_json["usage"]["output_tokens"]
+                .as_u64()
+                .map(|v| v as u32);
+            let cache_creation = resp_json["usage"]["cache_creation_input_tokens"]
+                .as_u64()
+                .map(|v| v as u32);
+            let cache_read = resp_json["usage"]["cache_read_input_tokens"]
+                .as_u64()
+                .map(|v| v as u32);
             match (input, output) {
                 (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
                     input_tokens: i,
@@ -549,7 +562,11 @@ impl BaseModel for ChatAnthropic {
                 _ => None,
             }
         };
-        Ok(LlmResponse { message, stop_reason, usage })
+        Ok(LlmResponse {
+            message,
+            stop_reason,
+            usage,
+        })
     }
 
     fn provider_name(&self) -> &str {
@@ -647,8 +664,10 @@ mod tests {
         // 第一条 user 消息（index 0）应被转换为 blocks 并包含 cache_control
         let content = messages[0]["content"].as_array().unwrap();
         let first_block = &content[0];
-        assert_eq!(first_block["cache_control"]["type"], "ephemeral",
-            "第一条 user 消息应有 cache_control");
+        assert_eq!(
+            first_block["cache_control"]["type"], "ephemeral",
+            "第一条 user 消息应有 cache_control"
+        );
         assert_eq!(first_block["text"], "first question");
 
         // 第二条 user 消息（index 2）不应有 cache_control
@@ -688,8 +707,10 @@ mod tests {
         // 第一个 block 无 cache_control
         assert!(!blocks[0].as_object().unwrap().contains_key("cache_control"));
         // 最后一个 block 有 cache_control
-        assert_eq!(blocks[1]["cache_control"]["type"], "ephemeral",
-            "最后一个 block 应有 cache_control");
+        assert_eq!(
+            blocks[1]["cache_control"]["type"], "ephemeral",
+            "最后一个 block 应有 cache_control"
+        );
     }
 
     /// 验证空 text block 被跳过
@@ -714,9 +735,7 @@ mod tests {
     /// 验证无 user 消息时不变更
     #[test]
     fn test_cache_control_no_user_messages() {
-        let mut messages = vec![
-            json!({"role": "assistant", "content": "only assistant"}),
-        ];
+        let mut messages = vec![json!({"role": "assistant", "content": "only assistant"})];
         let before = messages.clone();
         ChatAnthropic::apply_cache_to_messages(&mut messages);
         assert_eq!(messages, before, "无 user 消息时应不变");

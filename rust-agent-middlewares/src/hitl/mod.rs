@@ -9,12 +9,12 @@ use rust_create_agent::interaction::{
 };
 use rust_create_agent::middleware::r#trait::Middleware;
 
-pub mod shared_mode;
 pub mod auto_classifier;
+pub mod shared_mode;
 
+pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
 pub use rust_create_agent::hitl::{BatchItem, HitlDecision};
 pub use shared_mode::{PermissionMode, SharedPermissionMode};
-pub use auto_classifier::{AutoClassifier, Classification, LlmAutoClassifier};
 
 // ─── YOLO 模式检测 ─────────────────────────────────────────────────────────────
 
@@ -76,7 +76,10 @@ pub struct HumanInTheLoopMiddleware {
 
 impl HumanInTheLoopMiddleware {
     /// 创建启用的 HITL 中间件，使用注入的 broker
-    pub fn new(broker: Arc<dyn UserInteractionBroker>, requires_approval: fn(&str) -> bool) -> Self {
+    pub fn new(
+        broker: Arc<dyn UserInteractionBroker>,
+        requires_approval: fn(&str) -> bool,
+    ) -> Self {
         Self {
             broker: Some(broker),
             requires_approval,
@@ -96,7 +99,10 @@ impl HumanInTheLoopMiddleware {
     }
 
     /// 从环境变量决定是否启用（默认 YOLO；`YOLO_MODE=false` 则启用审批）
-    pub fn from_env(broker: Arc<dyn UserInteractionBroker>, requires_approval: fn(&str) -> bool) -> Self {
+    pub fn from_env(
+        broker: Arc<dyn UserInteractionBroker>,
+        requires_approval: fn(&str) -> bool,
+    ) -> Self {
         if is_yolo_mode() {
             Self::disabled()
         } else {
@@ -168,7 +174,9 @@ impl HumanInTheLoopMiddleware {
             };
 
             // 无 mode 但有 broker → 收集后批量弹窗
-            return self.batch_broker_approve(broker, calls, i, &mut results).await;
+            return self
+                .batch_broker_approve(broker, calls, i, &mut results)
+                .await;
         }
 
         results
@@ -189,10 +197,12 @@ impl HumanInTheLoopMiddleware {
         };
         let response = broker.request(ctx).await;
         let decision = match response {
-            InteractionResponse::Decisions(mut d) => d
-                .pop()
-                .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() }),
-            _ => ApprovalDecision::Reject { reason: "用户拒绝".to_string() },
+            InteractionResponse::Decisions(mut d) => d.pop().unwrap_or(ApprovalDecision::Reject {
+                reason: "用户拒绝".to_string(),
+            }),
+            _ => ApprovalDecision::Reject {
+                reason: "用户拒绝".to_string(),
+            },
         };
         apply_decision(tool_call, decision)
     }
@@ -219,47 +229,39 @@ impl HumanInTheLoopMiddleware {
                     }
                 }
             }
-            PermissionMode::AutoMode => {
-                match &self.auto_classifier {
-                    Some(classifier) => {
-                        let result = classifier.classify(&tool_call.name, &tool_call.input).await;
-                        match result {
-                            Classification::Allow => Ok(tool_call.clone()),
-                            Classification::Deny => Err(AgentError::ToolRejected {
-                                tool: tool_call.name.clone(),
-                                reason: "Auto 模式：分类器拒绝".to_string(),
-                            }),
-                            Classification::Unsure => {
-                                match &self.broker {
-                                    Some(broker) => self.broker_approve(broker, tool_call).await,
-                                    None => Err(AgentError::ToolRejected {
-                                        tool: tool_call.name.clone(),
-                                        reason: "Auto 模式：分类器不确定且无 broker".to_string(),
-                                    }),
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        match &self.broker {
+            PermissionMode::AutoMode => match &self.auto_classifier {
+                Some(classifier) => {
+                    let result = classifier.classify(&tool_call.name, &tool_call.input).await;
+                    match result {
+                        Classification::Allow => Ok(tool_call.clone()),
+                        Classification::Deny => Err(AgentError::ToolRejected {
+                            tool: tool_call.name.clone(),
+                            reason: "Auto 模式：分类器拒绝".to_string(),
+                        }),
+                        Classification::Unsure => match &self.broker {
                             Some(broker) => self.broker_approve(broker, tool_call).await,
                             None => Err(AgentError::ToolRejected {
                                 tool: tool_call.name.clone(),
-                                reason: "Auto 模式：无分类器且无 broker".to_string(),
+                                reason: "Auto 模式：分类器不确定且无 broker".to_string(),
                             }),
-                        }
+                        },
                     }
                 }
-            }
-            PermissionMode::Default => {
-                match &self.broker {
+                None => match &self.broker {
                     Some(broker) => self.broker_approve(broker, tool_call).await,
-                    None => {
-                        tracing::warn!("HITL Default 模式但无 broker，拒绝工具调用");
-                        Err(anyhow::anyhow!("HITL 审批不可用：未配置 broker").into())
-                    }
+                    None => Err(AgentError::ToolRejected {
+                        tool: tool_call.name.clone(),
+                        reason: "Auto 模式：无分类器且无 broker".to_string(),
+                    }),
+                },
+            },
+            PermissionMode::Default => match &self.broker {
+                Some(broker) => self.broker_approve(broker, tool_call).await,
+                None => {
+                    tracing::warn!("HITL Default 模式但无 broker，拒绝工具调用");
+                    Err(anyhow::anyhow!("HITL 审批不可用：未配置 broker").into())
                 }
-            }
+            },
         }
     }
 
@@ -299,7 +301,12 @@ impl HumanInTheLoopMiddleware {
 
         let decisions = match response {
             InteractionResponse::Decisions(d) => d,
-            _ => vec![ApprovalDecision::Reject { reason: "unexpected response".to_string() }; needs_approval.len()],
+            _ => vec![
+                ApprovalDecision::Reject {
+                    reason: "unexpected response".to_string()
+                };
+                needs_approval.len()
+            ],
         };
 
         let mut decision_iter = decisions.into_iter();
@@ -307,9 +314,9 @@ impl HumanInTheLoopMiddleware {
         for idx in start_idx..calls.len() {
             let call = &calls[idx];
             if (self.requires_approval)(&call.name) {
-                let decision = decision_iter
-                    .next()
-                    .unwrap_or(ApprovalDecision::Reject { reason: "用户拒绝".to_string() });
+                let decision = decision_iter.next().unwrap_or(ApprovalDecision::Reject {
+                    reason: "用户拒绝".to_string(),
+                });
                 results.push(apply_decision(call, decision));
             } else {
                 results.push(Ok(call.clone()));
@@ -369,11 +376,9 @@ mod tests {
     impl UserInteractionBroker for AutoApproveBroker {
         async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
             match ctx {
-                InteractionContext::Approval { items } => {
-                    InteractionResponse::Decisions(
-                        items.iter().map(|_| ApprovalDecision::Approve).collect(),
-                    )
-                }
+                InteractionContext::Approval { items } => InteractionResponse::Decisions(
+                    items.iter().map(|_| ApprovalDecision::Approve).collect(),
+                ),
                 _ => InteractionResponse::Decisions(vec![]),
             }
         }
@@ -386,11 +391,14 @@ mod tests {
     impl UserInteractionBroker for AutoRejectBroker {
         async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
             match ctx {
-                InteractionContext::Approval { items } => {
-                    InteractionResponse::Decisions(
-                        items.iter().map(|_| ApprovalDecision::Reject { reason: "用户拒绝".to_string() }).collect(),
-                    )
-                }
+                InteractionContext::Approval { items } => InteractionResponse::Decisions(
+                    items
+                        .iter()
+                        .map(|_| ApprovalDecision::Reject {
+                            reason: "用户拒绝".to_string(),
+                        })
+                        .collect(),
+                ),
                 _ => InteractionResponse::Decisions(vec![]),
             }
         }
@@ -415,7 +423,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_approve_passes_through() {
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoApproveBroker), default_requires_approval);
+        let mw =
+            HumanInTheLoopMiddleware::new(Arc::new(AutoApproveBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -424,7 +433,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_reject_returns_error() {
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
+        let mw =
+            HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await;
@@ -433,7 +443,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_file_not_intercepted() {
-        let mw = HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
+        let mw =
+            HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("read_file");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -466,9 +477,12 @@ mod tests {
             async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
                 match ctx {
                     InteractionContext::Approval { items } => InteractionResponse::Decisions(
-                        items.iter().map(|_| ApprovalDecision::Edit {
-                            new_input: serde_json::json!({"command": "echo safe"}),
-                        }).collect(),
+                        items
+                            .iter()
+                            .map(|_| ApprovalDecision::Edit {
+                                new_input: serde_json::json!({"command": "echo safe"}),
+                            })
+                            .collect(),
                     ),
                     _ => InteractionResponse::Decisions(vec![]),
                 }
@@ -492,9 +506,12 @@ mod tests {
             async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
                 match ctx {
                     InteractionContext::Approval { items } => InteractionResponse::Decisions(
-                        items.iter().map(|_| ApprovalDecision::Respond {
-                            message: "请改用 echo 命令".to_string(),
-                        }).collect(),
+                        items
+                            .iter()
+                            .map(|_| ApprovalDecision::Respond {
+                                message: "请改用 echo 命令".to_string(),
+                            })
+                            .collect(),
                     ),
                     _ => InteractionResponse::Decisions(vec![]),
                 }
@@ -538,15 +555,27 @@ mod tests {
     }
     #[async_trait]
     impl AutoClassifier for MockClassifier {
-        async fn classify(&self, _tool_name: &str, _tool_input: &serde_json::Value) -> Classification {
+        async fn classify(
+            &self,
+            _tool_name: &str,
+            _tool_input: &serde_json::Value,
+        ) -> Classification {
             self.result
         }
     }
 
-    fn make_mw_with_mode(mode: PermissionMode, classifier: Option<Arc<dyn AutoClassifier>>) -> HumanInTheLoopMiddleware {
+    fn make_mw_with_mode(
+        mode: PermissionMode,
+        classifier: Option<Arc<dyn AutoClassifier>>,
+    ) -> HumanInTheLoopMiddleware {
         let broker = Arc::new(AutoApproveBroker);
         let shared = SharedPermissionMode::new(mode);
-        HumanInTheLoopMiddleware::with_shared_mode(broker, default_requires_approval, shared, classifier)
+        HumanInTheLoopMiddleware::with_shared_mode(
+            broker,
+            default_requires_approval,
+            shared,
+            classifier,
+        )
     }
 
     #[tokio::test]
@@ -596,7 +625,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_allow() {
-        let mw = make_mw_with_mode(PermissionMode::AutoMode, Some(Arc::new(MockClassifier::new(Classification::Allow))));
+        let mw = make_mw_with_mode(
+            PermissionMode::AutoMode,
+            Some(Arc::new(MockClassifier::new(Classification::Allow))),
+        );
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -605,7 +637,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_deny() {
-        let mw = make_mw_with_mode(PermissionMode::AutoMode, Some(Arc::new(MockClassifier::new(Classification::Deny))));
+        let mw = make_mw_with_mode(
+            PermissionMode::AutoMode,
+            Some(Arc::new(MockClassifier::new(Classification::Deny))),
+        );
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await;
@@ -614,7 +649,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_unsure_falls_back_to_broker() {
-        let mw = make_mw_with_mode(PermissionMode::AutoMode, Some(Arc::new(MockClassifier::new(Classification::Unsure))));
+        let mw = make_mw_with_mode(
+            PermissionMode::AutoMode,
+            Some(Arc::new(MockClassifier::new(Classification::Unsure))),
+        );
         let mut state = AgentState::new("/tmp");
         let tc = make_tool_call("bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
@@ -633,7 +671,11 @@ mod tests {
     #[tokio::test]
     async fn test_process_batch_bypass_permissions() {
         let mw = make_mw_with_mode(PermissionMode::Bypass, None);
-        let calls = vec![make_tool_call("bash"), make_tool_call("write_file"), make_tool_call("read_file")];
+        let calls = vec![
+            make_tool_call("bash"),
+            make_tool_call("write_file"),
+            make_tool_call("read_file"),
+        ];
         let results = mw.process_batch(&calls).await;
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|r| r.is_ok()));
@@ -652,11 +694,18 @@ mod tests {
     #[tokio::test]
     async fn test_process_batch_accept_edits_mixed() {
         let mw = make_mw_with_mode(PermissionMode::AcceptEdit, None);
-        let calls = vec![make_tool_call("write_file"), make_tool_call("bash"), make_tool_call("read_file")];
+        let calls = vec![
+            make_tool_call("write_file"),
+            make_tool_call("bash"),
+            make_tool_call("read_file"),
+        ];
         let results = mw.process_batch(&calls).await;
         assert_eq!(results.len(), 3);
         assert!(results[0].is_ok(), "write_file 应放行");
-        assert!(results[1].is_ok(), "bash 走 broker 审批（AutoApproveBroker）");
+        assert!(
+            results[1].is_ok(),
+            "bash 走 broker 审批（AutoApproveBroker）"
+        );
         assert!(results[2].is_ok(), "read_file 应放行");
     }
 }

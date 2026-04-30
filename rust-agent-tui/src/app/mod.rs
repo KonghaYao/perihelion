@@ -1,4 +1,3 @@
-pub mod text_selection;
 pub mod agent;
 pub mod agent_panel;
 pub mod events;
@@ -7,21 +6,22 @@ pub mod login_panel;
 pub mod model_panel;
 mod provider;
 pub mod setup_wizard;
+pub mod text_selection;
 pub mod tool_display;
 
-mod core;
-mod cron_state;
-mod cron_ops;
 mod agent_comm;
 mod agent_ops;
-mod langfuse_state;
-pub mod message_pipeline;
 mod ask_user_ops;
 mod ask_user_prompt;
+mod core;
+mod cron_ops;
+mod cron_state;
 mod hint_ops;
+mod history_ops;
 mod hitl_ops;
 mod hitl_prompt;
-mod history_ops;
+mod langfuse_state;
+pub mod message_pipeline;
 mod panel_ops;
 mod thread_ops;
 
@@ -39,12 +39,12 @@ pub enum InteractionPrompt {
 use crate::ui::theme;
 use ratatui::style::Style;
 use ratatui::text::Span;
-use tui_textarea::TextArea;
 use rust_agent_middlewares::prelude::{HitlDecision, TodoItem};
 use rust_create_agent::agent::react::AgentInput;
 use rust_create_agent::agent::AgentCancellationToken;
 use rust_create_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use tokio::sync::mpsc;
+use tui_textarea::TextArea;
 
 use crate::config::ZenConfig;
 use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
@@ -149,7 +149,14 @@ impl App {
         CronState::spawn_tick_task(scheduler_arc);
 
         Self {
-            core: AppCore::new(cwd.clone(), render_tx, render_cache, render_notify, command_registry, skills),
+            core: AppCore::new(
+                cwd.clone(),
+                render_tx,
+                render_cache,
+                render_notify,
+                command_registry,
+                skills,
+            ),
             agent: AgentComm::default(),
             langfuse: LangfuseState::default(),
             cwd,
@@ -165,7 +172,9 @@ impl App {
                 rust_agent_middlewares::prelude::PermissionMode::Bypass,
             ),
             mode_highlight_until: None,
-            spinner_state: perihelion_widgets::SpinnerState::new(perihelion_widgets::SpinnerMode::Idle),
+            spinner_state: perihelion_widgets::SpinnerState::new(
+                perihelion_widgets::SpinnerMode::Idle,
+            ),
         }
     }
 
@@ -188,9 +197,7 @@ impl App {
             if let Some(start) = self.agent.task_start_time {
                 self.agent.last_task_duration = Some(start.elapsed());
             }
-            let vm = MessageViewModel::system(
-                "⚠ 已强制中断（后台任务可能仍在运行）".to_string(),
-            );
+            let vm = MessageViewModel::system("⚠ 已强制中断（后台任务可能仍在运行）".to_string());
             self.core.view_messages.push(vm.clone());
             let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
         }
@@ -200,9 +207,11 @@ impl App {
         self.core.loading = loading;
         if loading {
             self.core.textarea = build_textarea(true);
-            self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Responding);
+            self.spinner_state
+                .set_mode(perihelion_widgets::SpinnerMode::Responding);
         } else {
-            self.spinner_state.set_mode(perihelion_widgets::SpinnerMode::Idle);
+            self.spinner_state
+                .set_mode(perihelion_widgets::SpinnerMode::Idle);
             self.agent.cancel_token = None;
         }
     }
@@ -260,7 +269,6 @@ impl App {
         config.apply_env_overrides();
         config
     }
-
 }
 
 /// 确保光标在滚动视口内可见，返回调整后的 scroll_offset
@@ -294,7 +302,10 @@ fn build_textarea_with_hint(_disabled: bool, hint: &str) -> TextArea<'static> {
         .border_style(Style::default().fg(border_color))
         .padding(ratatui::widgets::Padding::new(2, 0, 0, 0));
     if !hint.is_empty() {
-        block = block.title(Span::styled(hint.to_owned(), Style::default().fg(theme::MUTED)));
+        block = block.title(Span::styled(
+            hint.to_owned(),
+            Style::default().fg(theme::MUTED),
+        ));
     }
     ta.set_block(block);
     ta

@@ -1,13 +1,7 @@
 pub mod blocks;
 pub mod highlight;
 
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    text::Line,
-    widgets::Paragraph,
-    widgets::Widget,
-};
+use ratatui::{buffer::Buffer, layout::Rect, text::Line, widgets::Paragraph, widgets::Widget};
 
 pub use blocks::BlockRenderStrategy;
 

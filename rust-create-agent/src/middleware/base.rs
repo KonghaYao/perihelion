@@ -48,9 +48,7 @@ impl<S: State> Middleware<S> for LoggingMiddleware {
         if self.verbose {
             println!(
                 "[{}] Step {step} | Calling tool: {} | input: {}",
-                self.name,
-                tool_call.name,
-                tool_call.input
+                self.name, tool_call.name, tool_call.input
             );
         } else {
             println!(
@@ -84,10 +82,7 @@ impl<S: State> Middleware<S> for LoggingMiddleware {
     }
 
     async fn after_agent(&self, _state: &mut S, output: &AgentOutput) -> AgentResult<AgentOutput> {
-        println!(
-            "[{}] Agent completed in {} steps",
-            self.name, output.steps
-        );
+        println!("[{}] Agent completed in {} steps", self.name, output.steps);
         Ok(output.clone())
     }
 

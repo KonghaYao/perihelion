@@ -130,23 +130,38 @@ mod tests {
 
     #[test]
     fn test_thinking_effort_low() {
-        let c = ThinkingConfig { enabled: true, budget_tokens: 0 };
+        let c = ThinkingConfig {
+            enabled: true,
+            budget_tokens: 0,
+        };
         assert_eq!(c.openai_effort(), "low");
     }
 
     #[test]
     fn test_thinking_effort_medium_boundary() {
-        let c1 = ThinkingConfig { enabled: true, budget_tokens: 1 };
-        let c2 = ThinkingConfig { enabled: true, budget_tokens: 7999 };
+        let c1 = ThinkingConfig {
+            enabled: true,
+            budget_tokens: 1,
+        };
+        let c2 = ThinkingConfig {
+            enabled: true,
+            budget_tokens: 7999,
+        };
         assert_eq!(c1.openai_effort(), "medium");
         assert_eq!(c2.openai_effort(), "medium");
     }
 
     #[test]
     fn test_thinking_effort_high() {
-        let c = ThinkingConfig { enabled: true, budget_tokens: 8000 };
+        let c = ThinkingConfig {
+            enabled: true,
+            budget_tokens: 8000,
+        };
         assert_eq!(c.openai_effort(), "high");
-        let c2 = ThinkingConfig { enabled: true, budget_tokens: 100_000 };
+        let c2 = ThinkingConfig {
+            enabled: true,
+            budget_tokens: 100_000,
+        };
         assert_eq!(c2.openai_effort(), "high");
     }
 
@@ -154,7 +169,10 @@ mod tests {
 
     #[test]
     fn test_thinking_config_serde_roundtrip() {
-        let cfg = ThinkingConfig { enabled: true, budget_tokens: 5000 };
+        let cfg = ThinkingConfig {
+            enabled: true,
+            budget_tokens: 5000,
+        };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ThinkingConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back.enabled, true);
@@ -201,7 +219,10 @@ mod tests {
         let cfg = AppConfig::default(); // thinking = None
         let out = serde_json::to_string(&cfg).unwrap();
         // skip_serializing_if = "Option::is_none"，所以 thinking 字段不应出现
-        assert!(!out.contains("thinking"), "thinking should be absent when None");
+        assert!(
+            !out.contains("thinking"),
+            "thinking should be absent when None"
+        );
     }
 
     // ── ModelPanel thinking 缓冲逻辑（已迁移至 model_panel.rs）─────────────────
@@ -210,7 +231,11 @@ mod tests {
 
     #[test]
     fn test_provider_models_get_model_known_aliases() {
-        let models = ProviderModels { opus: "o".to_string(), sonnet: "s".to_string(), haiku: "h".to_string() };
+        let models = ProviderModels {
+            opus: "o".to_string(),
+            sonnet: "s".to_string(),
+            haiku: "h".to_string(),
+        };
         assert_eq!(models.get_model("opus"), Some("o"));
         assert_eq!(models.get_model("sonnet"), Some("s"));
         assert_eq!(models.get_model("haiku"), Some("h"));
@@ -218,7 +243,11 @@ mod tests {
 
     #[test]
     fn test_provider_models_get_model_case_insensitive() {
-        let models = ProviderModels { opus: "o".to_string(), sonnet: "s".to_string(), haiku: "h".to_string() };
+        let models = ProviderModels {
+            opus: "o".to_string(),
+            sonnet: "s".to_string(),
+            haiku: "h".to_string(),
+        };
         assert_eq!(models.get_model("Opus"), Some("o"));
         assert_eq!(models.get_model("SONNET"), Some("s"));
         assert_eq!(models.get_model("Haiku"), Some("h"));
@@ -226,7 +255,11 @@ mod tests {
 
     #[test]
     fn test_provider_models_get_model_unknown_returns_none() {
-        let models = ProviderModels { opus: "o".to_string(), sonnet: "s".to_string(), haiku: "h".to_string() };
+        let models = ProviderModels {
+            opus: "o".to_string(),
+            sonnet: "s".to_string(),
+            haiku: "h".to_string(),
+        };
         assert_eq!(models.get_model("turbo"), None);
     }
 
@@ -262,7 +295,8 @@ mod tests {
 
     #[test]
     fn test_app_config_active_provider_id_serde() {
-        let json = r#"{"active_alias": "opus", "active_provider_id": "anthropic", "providers": []}"#;
+        let json =
+            r#"{"active_alias": "opus", "active_provider_id": "anthropic", "providers": []}"#;
         let cfg: AppConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.active_provider_id, "anthropic");
     }
@@ -293,7 +327,10 @@ mod tests {
 
         assert!(back.env.is_some());
         let env_back = back.env.unwrap();
-        assert_eq!(env_back.get("ANTHROPIC_API_KEY"), Some(&"sk-ant-123".to_string()));
+        assert_eq!(
+            env_back.get("ANTHROPIC_API_KEY"),
+            Some(&"sk-ant-123".to_string())
+        );
         assert_eq!(env_back.get("RUST_LOG"), Some(&"debug".to_string()));
     }
 
@@ -344,6 +381,9 @@ mod tests {
     fn test_app_config_compact_skip_when_none() {
         let cfg = AppConfig::default();
         let out = serde_json::to_string(&cfg).unwrap();
-        assert!(!out.contains("compact"), "compact should be absent when None");
+        assert!(
+            !out.contains("compact"),
+            "compact should be absent when None"
+        );
     }
 }

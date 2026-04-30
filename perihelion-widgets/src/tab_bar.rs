@@ -24,7 +24,9 @@ impl TabState {
         }
     }
 
-    pub fn active(&self) -> usize { self.active }
+    pub fn active(&self) -> usize {
+        self.active
+    }
 
     pub fn set_active(&mut self, index: usize) {
         if !self.labels.is_empty() {
@@ -32,9 +34,13 @@ impl TabState {
         }
     }
 
-    pub fn len(&self) -> usize { self.labels.len() }
+    pub fn len(&self) -> usize {
+        self.labels.len()
+    }
 
-    pub fn is_empty(&self) -> bool { self.labels.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.labels.is_empty()
+    }
 
     pub fn next(&mut self) {
         if !self.labels.is_empty() {
@@ -78,10 +84,8 @@ impl Default for TabStyle {
             active: Style::default()
                 .fg(ratatui::style::Color::White)
                 .add_modifier(Modifier::BOLD),
-            completed: Style::default()
-                .fg(ratatui::style::Color::Green),
-            incomplete: Style::default()
-                .fg(ratatui::style::Color::DarkGray),
+            completed: Style::default().fg(ratatui::style::Color::Green),
+            incomplete: Style::default().fg(ratatui::style::Color::DarkGray),
             separator: " │ ",
         }
     }
@@ -94,7 +98,9 @@ pub struct TabBar {
 
 impl TabBar {
     pub fn new() -> Self {
-        Self { style: TabStyle::default() }
+        Self {
+            style: TabStyle::default(),
+        }
     }
 
     pub fn style(mut self, style: TabStyle) -> Self {
@@ -104,7 +110,9 @@ impl TabBar {
 }
 
 impl Default for TabBar {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StatefulWidget for TabBar {
@@ -117,7 +125,9 @@ impl StatefulWidget for TabBar {
         let mut spans: Vec<Span<'static>> = Vec::new();
         for (i, label) in state.labels.iter().enumerate() {
             let indicator = state.indicators.get(i).copied().flatten();
-            let indicator_str = indicator.map(|c| c.to_string()).unwrap_or_else(|| " ".to_string());
+            let indicator_str = indicator
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| " ".to_string());
             let style = if i == state.active {
                 self.style.active
             } else if indicator.is_some() {
@@ -125,9 +135,15 @@ impl StatefulWidget for TabBar {
             } else {
                 self.style.incomplete
             };
-            spans.push(Span::styled(format!(" {} {} ", indicator_str, label), style));
+            spans.push(Span::styled(
+                format!(" {} {} ", indicator_str, label),
+                style,
+            ));
             if i < state.labels.len() - 1 {
-                spans.push(Span::styled(self.style.separator.to_string(), self.style.incomplete));
+                spans.push(Span::styled(
+                    self.style.separator.to_string(),
+                    self.style.incomplete,
+                ));
             }
         }
         let line = Line::from(spans);
@@ -165,15 +181,25 @@ mod tests {
         let backend = TestBackend::new(30, 3);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TabState::new(vec!["Tab1".into(), "Tab2".into()]);
-        terminal.draw(|f| {
-            let area = Rect::new(0, 0, 30, 3);
-            f.render_stateful_widget(TabBar::new(), area, &mut state);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 30, 3);
+                f.render_stateful_widget(TabBar::new(), area, &mut state);
+            })
+            .unwrap();
         let buf = terminal.backend().buffer().clone();
         let row: String = (0..30)
             .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
             .collect();
-        assert!(row.contains("Tab1"), "Expected Tab1 in output, got: {:?}", row);
-        assert!(row.contains("Tab2"), "Expected Tab2 in output, got: {:?}", row);
+        assert!(
+            row.contains("Tab1"),
+            "Expected Tab1 in output, got: {:?}",
+            row
+        );
+        assert!(
+            row.contains("Tab2"),
+            "Expected Tab2 in output, got: {:?}",
+            row
+        );
     }
 }

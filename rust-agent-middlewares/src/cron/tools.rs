@@ -1,8 +1,8 @@
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use rust_create_agent::tools::BaseTool;
 use serde_json::Value;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 use super::CronScheduler;
 
@@ -43,7 +43,10 @@ impl BaseTool for CronRegisterTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let expression = input["expression"]
             .as_str()
             .ok_or_else(|| "missing expression field".to_string())?;
@@ -94,7 +97,10 @@ impl BaseTool for CronListTool {
         })
     }
 
-    async fn invoke(&self, _input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        _input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let scheduler = self.scheduler.lock();
 
         let tasks = scheduler.list_tasks();
@@ -105,7 +111,8 @@ impl BaseTool for CronListTool {
         let mut lines = Vec::new();
         for task in tasks {
             let status = if task.enabled { "启用" } else { "禁用" };
-            let next = task.next_fire
+            let next = task
+                .next_fire
                 .map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string())
                 .unwrap_or_else(|| "N/A".to_string());
             lines.push(format!(
@@ -154,7 +161,10 @@ impl BaseTool for CronRemoveTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let id = input["id"]
             .as_str()
             .ok_or_else(|| "missing id field".to_string())?;
@@ -187,7 +197,9 @@ mod tests {
     #[tokio::test]
     async fn test_register_rejects_empty_prompt() {
         let (reg, _, _) = new_tools();
-        let result = reg.invoke(serde_json::json!({"expression": "* * * * *", "prompt": ""})).await;
+        let result = reg
+            .invoke(serde_json::json!({"expression": "* * * * *", "prompt": ""}))
+            .await;
         assert!(result.is_err(), "空 prompt 应被拒绝");
     }
 

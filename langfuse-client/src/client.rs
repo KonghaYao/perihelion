@@ -46,7 +46,12 @@ impl LangfuseClient {
 
     /// 从 ClientConfig 构造（便捷方法）
     pub fn from_config(config: &crate::config::ClientConfig, max_retries: usize) -> Self {
-        Self::new(&config.public_key, &config.secret_key, &config.base_url, max_retries)
+        Self::new(
+            &config.public_key,
+            &config.secret_key,
+            &config.base_url,
+            max_retries,
+        )
     }
 
     /// 发送一批事件到 Langfuse OTLP 端点
@@ -61,10 +66,7 @@ impl LangfuseClient {
     /// 响应: 200 OK（空对象）表示成功
     /// 错误重试: 网络错误和 5xx 自动重试 max_retries 次，指数退避（1s, 2s, 4s...）
     /// 4xx 错误不重试，直接返回 LangfuseError::IngestionApi
-    pub async fn ingest(
-        &self,
-        events: Vec<IngestionEvent>,
-    ) -> Result<(), LangfuseError> {
+    pub async fn ingest(&self, events: Vec<IngestionEvent>) -> Result<(), LangfuseError> {
         if events.is_empty() {
             return Ok(());
         }
@@ -171,7 +173,8 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_success_200() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+        let mock = server
+            .mock("POST", "/api/public/otel/v1/traces")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body("{}")
@@ -197,7 +200,8 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_4xx_no_retry() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+        let mock = server
+            .mock("POST", "/api/public/otel/v1/traces")
             .with_status(400)
             .with_body(r#"{"error":"bad request"}"#)
             .expect(1)
@@ -220,13 +224,15 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_5xx_retries_then_success() {
         let mut server = mockito::Server::new_async().await;
-        let mock_fail = server.mock("POST", "/api/public/otel/v1/traces")
+        let mock_fail = server
+            .mock("POST", "/api/public/otel/v1/traces")
             .with_status(500)
             .with_body("internal error")
             .expect(1)
             .create_async()
             .await;
-        let mock_success = server.mock("POST", "/api/public/otel/v1/traces")
+        let mock_success = server
+            .mock("POST", "/api/public/otel/v1/traces")
             .with_status(200)
             .with_body("{}")
             .expect(1)
@@ -243,7 +249,8 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_5xx_retries_exhausted() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+        let mock = server
+            .mock("POST", "/api/public/otel/v1/traces")
             .with_status(500)
             .with_body("internal error")
             .expect(3) // 1 initial + 2 retries
@@ -273,10 +280,13 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_payload_has_otel_format() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/public/otel/v1/traces")
+        let mock = server
+            .mock("POST", "/api/public/otel/v1/traces")
             .with_status(200)
             .with_body("{}")
-            .match_body(mockito::Matcher::Regex("\"resourceSpans\".*\"scopeSpans\".*\"spans\"".to_string()))
+            .match_body(mockito::Matcher::Regex(
+                "\"resourceSpans\".*\"scopeSpans\".*\"spans\"".to_string(),
+            ))
             .create_async()
             .await;
 

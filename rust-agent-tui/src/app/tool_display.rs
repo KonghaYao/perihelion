@@ -17,18 +17,18 @@ fn strip_cwd(path: &str, cwd: Option<&str>) -> String {
 /// 返回简短 display name，控制在 3-6 字符以保持 UI 对齐
 pub fn format_tool_name(tool: &str) -> String {
     match tool {
-        "bash"               => "Shell",
-        "read_file"          => "Read",
-        "write_file"         => "Write",
-        "edit_file"          => "Edit",
-        "glob_files"         => "Glob",
-        "search_files_rg"    => "Search",
-        "folder_operations"  => "Folder",
-        "todo_write"         => "Todo",
-        "ask_user"           => "Ask",
-        "ask_user_question"  => "Ask",
-        "launch_agent"       => "Agent",
-        other                => return to_pascal(other),
+        "bash" => "Shell",
+        "read_file" => "Read",
+        "write_file" => "Write",
+        "edit_file" => "Edit",
+        "glob_files" => "Glob",
+        "search_files_rg" => "Search",
+        "folder_operations" => "Folder",
+        "todo_write" => "Todo",
+        "ask_user" => "Ask",
+        "ask_user_question" => "Ask",
+        "launch_agent" => "Agent",
+        other => return to_pascal(other),
     }
     .to_string()
 }
@@ -48,7 +48,8 @@ pub fn format_tool_args(
             .as_str()
             .map(|p| truncate(&strip_cwd(p, cwd), 60)),
         "search_files_rg" => input["args"].as_array().map(|a| {
-            let s: String = a.iter()
+            let s: String = a
+                .iter()
                 .filter_map(|x| x.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");

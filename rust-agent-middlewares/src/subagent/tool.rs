@@ -107,7 +107,11 @@ impl SubAgentTool {
             tone: tone.clone(),
             proactiveness: proactiveness.clone(),
         };
-        if overrides.is_empty() { None } else { Some(overrides) }
+        if overrides.is_empty() {
+            None
+        } else {
+            Some(overrides)
+        }
     }
 
     /// 根据 agent 定义的 tools/disallowedTools 字段，从父工具集中过滤出子 agent 可用的工具
@@ -248,7 +252,11 @@ impl BaseTool for SubAgentTool {
             .filter(|m| !m.is_empty() && *m != "inherit");
         let llm = (self.llm_factory)(model_alias);
         let raw_turns = agent_def.frontmatter.max_turns.unwrap_or(200);
-        let max_iterations = if raw_turns == 0 { 200 } else { raw_turns as usize };
+        let max_iterations = if raw_turns == 0 {
+            200
+        } else {
+            raw_turns as usize
+        };
 
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
 
@@ -740,10 +748,14 @@ mod tests {
         let t = make_subagent_tool(vec![]);
         let desc = t.description();
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
-        assert!(desc.contains("sub-agent") || desc.contains("sub agent"),
-            "description 应提及 sub-agent");
-        assert!(desc.contains("isolated") || desc.contains("isolation"),
-            "description 应提及上下文隔离");
+        assert!(
+            desc.contains("sub-agent") || desc.contains("sub agent"),
+            "description 应提及 sub-agent"
+        );
+        assert!(
+            desc.contains("isolated") || desc.contains("isolation"),
+            "description 应提及上下文隔离"
+        );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 
@@ -769,11 +781,7 @@ mod tests {
 
     #[test]
     fn test_overrides_from_agent_def_persona_only() {
-        let ov = SubAgentTool::overrides_from_agent_def(
-            "I am a helper.",
-            &None,
-            &None,
-        );
+        let ov = SubAgentTool::overrides_from_agent_def("I am a helper.", &None, &None);
         let ov = ov.unwrap();
         assert_eq!(ov.persona.as_deref().unwrap(), "I am a helper.");
         assert!(ov.tone.is_none());
@@ -789,7 +797,8 @@ mod tests {
         std::fs::write(
             agents_dir.join("forever.md"),
             "---\nname: forever\ndescription: Runs forever\n---\n\nYou run forever.\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // LLM 永远调用一个从未注册的工具，导致 ToolNotFound 但不会无限循环
         struct ToolNotFoundLLM;
@@ -800,13 +809,18 @@ mod tests {
                 messages: &[BaseMessage],
                 _tools: &[&dyn BaseTool],
             ) -> rust_create_agent::error::AgentResult<Reasoning> {
-                if messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. })) {
+                if messages
+                    .iter()
+                    .any(|m| matches!(m, BaseMessage::Tool { .. }))
+                {
                     Ok(Reasoning::with_answer("", "done"))
                 } else {
                     Ok(Reasoning::with_tools(
                         "call missing",
                         vec![rust_create_agent::agent::react::ToolCall::new(
-                            "id1", "nonexistent", serde_json::json!({}),
+                            "id1",
+                            "nonexistent",
+                            serde_json::json!({}),
                         )],
                     ))
                 }
@@ -820,7 +834,9 @@ mod tests {
         let t = SubAgentTool::new(
             Arc::new(vec![]),
             None,
-            Arc::new(|_: Option<&str>| Box::new(ToolNotFoundLLM) as Box<dyn ReactLLM + Send + Sync>),
+            Arc::new(|_: Option<&str>| {
+                Box::new(ToolNotFoundLLM) as Box<dyn ReactLLM + Send + Sync>
+            }),
             dir.path().to_str().unwrap().to_string(),
         )
         .with_cancel(cancel);

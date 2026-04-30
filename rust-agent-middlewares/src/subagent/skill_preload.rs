@@ -69,8 +69,7 @@ impl<S: State> Middleware<S> for SkillPreloadMiddleware {
         }
 
         let dirs = self.resolve_dirs();
-        let names_lower: Vec<String> =
-            self.skill_names.iter().map(|s| s.to_lowercase()).collect();
+        let names_lower: Vec<String> = self.skill_names.iter().map(|s| s.to_lowercase()).collect();
 
         // 在 blocking 线程中扫描目录 + 读取文件内容
         let skill_contents = tokio::task::spawn_blocking(move || {
@@ -179,7 +178,11 @@ mod tests {
         write_skill(&skills_dir, "skill-c", "技能 C");
 
         let mw = SkillPreloadMiddleware::new(
-            vec!["skill-a".to_string(), "skill-b".to_string(), "skill-c".to_string()],
+            vec![
+                "skill-a".to_string(),
+                "skill-b".to_string(),
+                "skill-c".to_string(),
+            ],
             dir.path().to_str().unwrap(),
         );
         let mut state = AgentState::new(dir.path().to_str().unwrap());
@@ -293,17 +296,18 @@ mod tests {
         std::fs::create_dir_all(&skills_dir).unwrap();
         write_skill(&skills_dir, "my-skill", "My skill");
 
-        let mw = SkillPreloadMiddleware::new(
-            vec!["my-skill".to_string()],
-            dir.path().to_str().unwrap(),
-        );
+        let mw =
+            SkillPreloadMiddleware::new(vec!["my-skill".to_string()], dir.path().to_str().unwrap());
         let mut state = AgentState::new(dir.path().to_str().unwrap());
         mw.before_agent(&mut state).await.unwrap();
 
         let msgs = state.messages();
         let ai_id = &msgs[1].tool_calls()[0].id;
         if let BaseMessage::Tool { tool_call_id, .. } = &msgs[2] {
-            assert_eq!(tool_call_id, ai_id, "Tool 消息的 tool_call_id 应与 Ai 消息的 id 一致");
+            assert_eq!(
+                tool_call_id, ai_id,
+                "Tool 消息的 tool_call_id 应与 Ai 消息的 id 一致"
+            );
         } else {
             unreachable!("messages[2] 应为 Tool");
         }

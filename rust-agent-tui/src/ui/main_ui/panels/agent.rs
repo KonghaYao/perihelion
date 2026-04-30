@@ -8,12 +8,14 @@ use ratatui::{
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
 use crate::app::App;
-use crate::ui::theme;
 use crate::ui::main_ui::highlight_line_spans;
+use crate::ui::theme;
 
 /// /agents 面板渲染（底部展开区）
 pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(panel) = &app.core.agent_panel else { return };
+    let Some(panel) = &app.core.agent_panel else {
+        return;
+    };
 
     let agent_count = panel.agents.len();
     let popup_area = area;
@@ -24,11 +26,14 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
         " 🤖 Agent 选择 "
     };
 
-    let inner = BorderedPanel::new(
-        Span::styled(title, Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD))
-    )
-        .border_style(Style::default().fg(theme::MUTED))
-        .render(f, popup_area);
+    let inner = BorderedPanel::new(Span::styled(
+        title,
+        Style::default()
+            .fg(theme::MUTED)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::MUTED))
+    .render(f, popup_area);
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -43,9 +48,14 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
         Span::styled(
             "○ 无 Agent（默认）",
             if is_none_cursor {
-                Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .bg(theme::ACCENT)
+                    .add_modifier(Modifier::BOLD)
             } else if is_none_selected {
-                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme::MUTED)
             },
@@ -63,9 +73,14 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
         let cursor_char = if is_cursor { "▶" } else { " " };
 
         let name_style = if is_cursor {
-            Style::default().fg(Color::White).bg(theme::ACCENT).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::White)
+                .bg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD)
         } else if is_selected {
-            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme::TEXT)
         };
@@ -84,7 +99,11 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
             };
             // 截断过长的描述
             let desc: String = agent.description.chars().take(50).collect();
-            let desc = if agent.description.len() > 50 { format!("{}…", desc) } else { desc };
+            let desc = if agent.description.len() > 50 {
+                format!("{}…", desc)
+            } else {
+                desc
+            };
             lines.push(Line::from(vec![
                 Span::raw("     "),
                 Span::styled(desc, desc_style),
@@ -105,26 +124,46 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
 
     // 底部提示
     lines.push(Line::from(vec![
-        Span::styled(" ↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " ↑↓",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":导航  ", Style::default().fg(theme::MUTED)),
-        Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Enter",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":选择  ", Style::default().fg(theme::MUTED)),
-        Span::styled("Esc", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Esc",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));
 
     // 存储面板元数据供鼠标选区使用
     app.core.panel_area = Some(inner);
     app.core.panel_scroll_offset = panel.scroll_offset;
-    app.core.panel_plain_lines = lines.iter().map(|l| {
-        l.spans.iter().map(|s| s.content.as_ref()).collect()
-    }).collect();
+    app.core.panel_plain_lines = lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
 
     // 应用面板选区高亮
     if app.core.panel_selection.is_active() {
         let sel = &app.core.panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
-            let ((sr, sc), (er, ec)) = if start <= end { (start, end) } else { (end, start) };
+            let ((sr, sc), (er, ec)) = if start <= end {
+                (start, end)
+            } else {
+                (end, start)
+            };
             let scroll = app.core.panel_scroll_offset as usize;
             let visible_start = scroll;
             let visible_end = scroll + inner.height as usize;
@@ -166,7 +205,10 @@ mod tests {
     fn render_headless_agent_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30);
         app.core.agent_panel = Some(AgentPanel::new(vec![], None));
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
         (app, handle)
     }
 
@@ -175,7 +217,11 @@ mod tests {
         let (_, handle) = render_headless_agent_empty();
         let snap = handle.snapshot().join("\n");
         // 空列表应显示引导提示（用 ASCII 子串避免 CJK 宽字符问题）
-        assert!(snap.contains("agents/"), "空列表应显示 Agent 定义文件引导，实际:\n{}", snap);
+        assert!(
+            snap.contains("agents/"),
+            "空列表应显示 Agent 定义文件引导，实际:\n{}",
+            snap
+        );
     }
 
     #[tokio::test]
@@ -187,4 +233,3 @@ mod tests {
         assert!(has_nav, "Agent 面板应包含操作提示，实际:\n{}", snap);
     }
 }
-

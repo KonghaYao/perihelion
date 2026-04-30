@@ -26,10 +26,17 @@ impl TuiInteractionBroker {
 impl UserInteractionBroker for TuiInteractionBroker {
     async fn request(&self, ctx: InteractionContext) -> InteractionResponse {
         let (response_tx, response_rx) = oneshot::channel();
-        if self.tx.send(AgentEvent::InteractionRequest { ctx, response_tx }).await.is_err() {
+        if self
+            .tx
+            .send(AgentEvent::InteractionRequest { ctx, response_tx })
+            .await
+            .is_err()
+        {
             // channel 关闭（TUI 已退出），安全降级：拒绝所有审批，返回空答案
             return InteractionResponse::Decisions(vec![]);
         }
-        response_rx.await.unwrap_or(InteractionResponse::Decisions(vec![]))
+        response_rx
+            .await
+            .unwrap_or(InteractionResponse::Decisions(vec![]))
     }
 }

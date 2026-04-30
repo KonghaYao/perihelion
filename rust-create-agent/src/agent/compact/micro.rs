@@ -1,5 +1,7 @@
 use crate::agent::compact::config::CompactConfig;
-use crate::agent::compact::invariant::{adjust_index_to_preserve_invariants, group_messages_by_round};
+use crate::agent::compact::invariant::{
+    adjust_index_to_preserve_invariants, group_messages_by_round,
+};
 use crate::messages::{BaseMessage, ContentBlock, MessageContent};
 
 fn find_tool_name_for_tool_result(messages: &[BaseMessage], tool_call_id: &str) -> Option<String> {
@@ -19,7 +21,10 @@ fn compact_tool_result_content(content: &mut MessageContent, config: &CompactCon
     let blocks = content.content_blocks();
 
     let has_image_or_doc = blocks.iter().any(|b| {
-        matches!(b, ContentBlock::Image { .. } | ContentBlock::Document { .. })
+        matches!(
+            b,
+            ContentBlock::Image { .. } | ContentBlock::Document { .. }
+        )
     });
 
     if !has_image_or_doc {
@@ -119,9 +124,7 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
                 continue;
             }
             if let BaseMessage::Tool {
-                content,
-                is_error,
-                ..
+                content, is_error, ..
             } = &mut messages[i]
             {
                 if *is_error {
@@ -146,7 +149,11 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
             continue;
         }
         let (tc_id, is_err) = match &messages[i] {
-            BaseMessage::Tool { tool_call_id, is_error, .. } => (tool_call_id.clone(), *is_error),
+            BaseMessage::Tool {
+                tool_call_id,
+                is_error,
+                ..
+            } => (tool_call_id.clone(), *is_error),
             _ => continue,
         };
         if is_err {
@@ -174,7 +181,10 @@ pub fn micro_compact_enhanced(config: &CompactConfig, messages: &mut [BaseMessag
                 if original_text.is_empty() {
                     continue;
                 }
-                *content = MessageContent::text(format!("[compacted: {} chars]", original_text.chars().count()));
+                *content = MessageContent::text(format!(
+                    "[compacted: {} chars]",
+                    original_text.chars().count()
+                ));
             }
             cleared += 1;
         }
@@ -457,7 +467,11 @@ mod tests {
         config.micro_compact_stale_steps = 0;
         let cleared = micro_compact_enhanced(&config, &mut msgs);
         assert_eq!(cleared, 0, "已压缩的消息应被跳过");
-        assert_eq!(msgs[1].content(), "[compacted: 600 chars]", "已压缩消息内容不变");
+        assert_eq!(
+            msgs[1].content(),
+            "[compacted: 600 chars]",
+            "已压缩消息内容不变"
+        );
     }
 
     #[test]

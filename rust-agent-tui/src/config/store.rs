@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use anyhow::Result;
 use super::types::ZenConfig;
+use anyhow::Result;
+use std::path::PathBuf;
 
 /// 配置文件路径：~/.zen-code/settings.json
 pub fn config_path() -> PathBuf {

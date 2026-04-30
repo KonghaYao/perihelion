@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ─── OTLP (OpenTelemetry Protocol) Types ───────────────────────────
 // These types represent the OTLP HTTP/JSON payload for trace ingestion.
@@ -221,10 +221,16 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                     attrs.push(OtelAttribute::string("langfuse.trace.tags", tags.join(",")));
                 }
                 if let Some(ref input) = body.input {
-                    attrs.push(OtelAttribute::string("langfuse.trace.input", input.to_string()));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.trace.input",
+                        input.to_string(),
+                    ));
                 }
                 if let Some(ref output) = body.output {
-                    attrs.push(OtelAttribute::string("langfuse.trace.output", output.to_string()));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.trace.output",
+                        output.to_string(),
+                    ));
                 }
                 if let Some(ref name) = body.name {
                     attrs.push(OtelAttribute::string("langfuse.trace.name", name));
@@ -244,20 +250,31 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 });
             }
             IngestionEvent::SpanCreate { body, .. } => {
-                let mut attrs = vec![
-                    OtelAttribute::string("langfuse.observation.type", "span"),
-                ];
-                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                let mut attrs = vec![OtelAttribute::string("langfuse.observation.type", "span")];
+                append_common_obs_attrs(
+                    &mut attrs,
+                    body.input.as_ref(),
+                    body.output.as_ref(),
+                    body.metadata.as_ref(),
+                    body.version.as_ref(),
+                    body.environment.as_ref(),
+                );
                 if let Some(ref session_id) = body.session_id {
                     attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
                 }
                 if let Some(ref msg) = body.status_message {
-                    attrs.push(OtelAttribute::string("langfuse.observation.status_message", msg));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.observation.status_message",
+                        msg,
+                    ));
                 }
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
-                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+                let parent_span_id = body
+                    .parent_observation_id
+                    .as_deref()
+                    .map(|s| s.replace('-', ""));
 
                 spans.push(OtelSpan {
                     trace_id: Some(trace_id),
@@ -273,17 +290,25 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
             }
             IngestionEvent::SpanUpdate { body, .. } => {
                 // For updates, we still create a span — Langfuse OTel deduplicates by spanId
-                let mut attrs = vec![
-                    OtelAttribute::string("langfuse.observation.type", "span"),
-                ];
+                let mut attrs = vec![OtelAttribute::string("langfuse.observation.type", "span")];
                 if let Some(ref session_id) = body.session_id {
                     attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
                 }
-                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                append_common_obs_attrs(
+                    &mut attrs,
+                    body.input.as_ref(),
+                    body.output.as_ref(),
+                    body.metadata.as_ref(),
+                    body.version.as_ref(),
+                    body.environment.as_ref(),
+                );
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
-                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+                let parent_span_id = body
+                    .parent_observation_id
+                    .as_deref()
+                    .map(|s| s.replace('-', ""));
 
                 spans.push(OtelSpan {
                     trace_id: Some(trace_id),
@@ -298,38 +323,67 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 });
             }
             IngestionEvent::GenerationCreate { body, .. } => {
-                let mut attrs = vec![
-                    OtelAttribute::string("langfuse.observation.type", "generation"),
-                ];
-                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                let mut attrs = vec![OtelAttribute::string(
+                    "langfuse.observation.type",
+                    "generation",
+                )];
+                append_common_obs_attrs(
+                    &mut attrs,
+                    body.input.as_ref(),
+                    body.output.as_ref(),
+                    body.metadata.as_ref(),
+                    body.version.as_ref(),
+                    body.environment.as_ref(),
+                );
                 if let Some(ref model) = body.model {
-                    attrs.push(OtelAttribute::string("langfuse.observation.model.name", model));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.observation.model.name",
+                        model,
+                    ));
                 }
                 if let Some(ref params) = body.model_parameters {
                     if let Ok(json) = serde_json::to_string(params) {
-                        attrs.push(OtelAttribute::string("langfuse.observation.model.parameters", json));
+                        attrs.push(OtelAttribute::string(
+                            "langfuse.observation.model.parameters",
+                            json,
+                        ));
                     }
                 }
                 if let Some(ref usage) = body.usage {
                     if let Ok(json) = serde_json::to_string(usage) {
-                        attrs.push(OtelAttribute::string("langfuse.observation.usage_details", json));
+                        attrs.push(OtelAttribute::string(
+                            "langfuse.observation.usage_details",
+                            json,
+                        ));
                     }
                 }
                 if let Some(ref usage_details) = body.usage_details {
                     for (k, v) in usage_details {
-                        attrs.push(OtelAttribute::new(format!("gen_ai.usage.{}", k), OtelAttributeValue::int(*v as i64)));
+                        attrs.push(OtelAttribute::new(
+                            format!("gen_ai.usage.{}", k),
+                            OtelAttributeValue::int(*v as i64),
+                        ));
                     }
                 }
                 if let Some(ref cost_details) = body.cost_details {
                     if let Ok(json) = serde_json::to_string(cost_details) {
-                        attrs.push(OtelAttribute::string("langfuse.observation.cost_details", json));
+                        attrs.push(OtelAttribute::string(
+                            "langfuse.observation.cost_details",
+                            json,
+                        ));
                     }
                 }
                 if let Some(ref prompt_name) = body.prompt_name {
-                    attrs.push(OtelAttribute::string("langfuse.observation.prompt.name", prompt_name));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.observation.prompt.name",
+                        prompt_name,
+                    ));
                 }
                 if let Some(ref completion_start) = body.completion_start_time {
-                    attrs.push(OtelAttribute::string("langfuse.observation.completion_start_time", completion_start));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.observation.completion_start_time",
+                        completion_start,
+                    ));
                 }
                 if let Some(ref session_id) = body.session_id {
                     attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
@@ -337,7 +391,10 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
-                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+                let parent_span_id = body
+                    .parent_observation_id
+                    .as_deref()
+                    .map(|s| s.replace('-', ""));
 
                 spans.push(OtelSpan {
                     trace_id: Some(trace_id),
@@ -352,16 +409,30 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 });
             }
             IngestionEvent::GenerationUpdate { body, .. } => {
-                let mut attrs = vec![
-                    OtelAttribute::string("langfuse.observation.type", "generation"),
-                ];
-                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                let mut attrs = vec![OtelAttribute::string(
+                    "langfuse.observation.type",
+                    "generation",
+                )];
+                append_common_obs_attrs(
+                    &mut attrs,
+                    body.input.as_ref(),
+                    body.output.as_ref(),
+                    body.metadata.as_ref(),
+                    body.version.as_ref(),
+                    body.environment.as_ref(),
+                );
                 if let Some(ref model) = body.model {
-                    attrs.push(OtelAttribute::string("langfuse.observation.model.name", model));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.observation.model.name",
+                        model,
+                    ));
                 }
                 if let Some(ref usage_details) = body.usage_details {
                     for (k, v) in usage_details {
-                        attrs.push(OtelAttribute::new(format!("gen_ai.usage.{}", k), OtelAttributeValue::int(*v as i64)));
+                        attrs.push(OtelAttribute::new(
+                            format!("gen_ai.usage.{}", k),
+                            OtelAttributeValue::int(*v as i64),
+                        ));
                     }
                 }
                 if let Some(ref session_id) = body.session_id {
@@ -370,7 +441,10 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
-                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+                let parent_span_id = body
+                    .parent_observation_id
+                    .as_deref()
+                    .map(|s| s.replace('-', ""));
 
                 spans.push(OtelSpan {
                     trace_id: Some(trace_id),
@@ -385,14 +459,22 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 });
             }
             IngestionEvent::EventCreate { body, .. } => {
-                let mut attrs = vec![
-                    OtelAttribute::string("langfuse.observation.type", "event"),
-                ];
-                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                let mut attrs = vec![OtelAttribute::string("langfuse.observation.type", "event")];
+                append_common_obs_attrs(
+                    &mut attrs,
+                    body.input.as_ref(),
+                    body.output.as_ref(),
+                    body.metadata.as_ref(),
+                    body.version.as_ref(),
+                    body.environment.as_ref(),
+                );
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
-                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+                let parent_span_id = body
+                    .parent_observation_id
+                    .as_deref()
+                    .map(|s| s.replace('-', ""));
 
                 spans.push(OtelSpan {
                     trace_id: Some(trace_id),
@@ -411,15 +493,29 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                     .ok()
                     .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
                     .unwrap_or_else(|| "span".to_string());
-                let mut attrs = vec![
-                    OtelAttribute::string("langfuse.observation.type", &obs_type_str),
-                ];
-                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                let mut attrs = vec![OtelAttribute::string(
+                    "langfuse.observation.type",
+                    &obs_type_str,
+                )];
+                append_common_obs_attrs(
+                    &mut attrs,
+                    body.input.as_ref(),
+                    body.output.as_ref(),
+                    body.metadata.as_ref(),
+                    body.version.as_ref(),
+                    body.environment.as_ref(),
+                );
                 if let Some(ref model) = body.model {
-                    attrs.push(OtelAttribute::string("langfuse.observation.model.name", model));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.observation.model.name",
+                        model,
+                    ));
                 }
                 if let Some(ref msg) = body.status_message {
-                    attrs.push(OtelAttribute::string("langfuse.observation.status_message", msg));
+                    attrs.push(OtelAttribute::string(
+                        "langfuse.observation.status_message",
+                        msg,
+                    ));
                 }
                 if let Some(ref session_id) = body.session_id {
                     attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
@@ -427,7 +523,10 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
-                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+                let parent_span_id = body
+                    .parent_observation_id
+                    .as_deref()
+                    .map(|s| s.replace('-', ""));
 
                 spans.push(OtelSpan {
                     trace_id: Some(trace_id),
@@ -446,17 +545,28 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                     .ok()
                     .and_then(|v| v.as_str().map(|s| s.to_lowercase()))
                     .unwrap_or_else(|| "span".to_string());
-                let mut attrs = vec![
-                    OtelAttribute::string("langfuse.observation.type", &obs_type_str),
-                ];
-                append_common_obs_attrs(&mut attrs, body.input.as_ref(), body.output.as_ref(), body.metadata.as_ref(), body.version.as_ref(), body.environment.as_ref());
+                let mut attrs = vec![OtelAttribute::string(
+                    "langfuse.observation.type",
+                    &obs_type_str,
+                )];
+                append_common_obs_attrs(
+                    &mut attrs,
+                    body.input.as_ref(),
+                    body.output.as_ref(),
+                    body.metadata.as_ref(),
+                    body.version.as_ref(),
+                    body.environment.as_ref(),
+                );
                 if let Some(ref session_id) = body.session_id {
                     attrs.push(OtelAttribute::string("langfuse.session.id", session_id));
                 }
 
                 let trace_id = body.trace_id.as_deref().unwrap_or("").replace('-', "");
                 let span_id = body.id.as_deref().unwrap_or("").replace('-', "");
-                let parent_span_id = body.parent_observation_id.as_deref().map(|s| s.replace('-', ""));
+                let parent_span_id = body
+                    .parent_observation_id
+                    .as_deref()
+                    .map(|s| s.replace('-', ""));
 
                 spans.push(OtelSpan {
                     trace_id: Some(trace_id),
@@ -474,19 +584,27 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
                 // Scores are attached via attributes on the trace
                 let mut attrs = vec![];
                 attrs.push(OtelAttribute::string("langfuse.score.name", &body.name));
-                attrs.push(OtelAttribute::new("langfuse.score.value", match &body.value {
-                    serde_json::Value::Number(n) => {
-                        if let Some(f) = n.as_f64() {
-                            OtelAttributeValue { string_value: None, int_value: None, double_value: Some(f), bool_value: None }
-                        } else if let Some(i) = n.as_i64() {
-                            OtelAttributeValue::int(i)
-                        } else {
-                            OtelAttributeValue::string(body.value.to_string())
+                attrs.push(OtelAttribute::new(
+                    "langfuse.score.value",
+                    match &body.value {
+                        serde_json::Value::Number(n) => {
+                            if let Some(f) = n.as_f64() {
+                                OtelAttributeValue {
+                                    string_value: None,
+                                    int_value: None,
+                                    double_value: Some(f),
+                                    bool_value: None,
+                                }
+                            } else if let Some(i) = n.as_i64() {
+                                OtelAttributeValue::int(i)
+                            } else {
+                                OtelAttributeValue::string(body.value.to_string())
+                            }
                         }
-                    }
-                    serde_json::Value::Bool(b) => OtelAttributeValue::bool(*b),
-                    _ => OtelAttributeValue::string(body.value.to_string()),
-                }));
+                        serde_json::Value::Bool(b) => OtelAttributeValue::bool(*b),
+                        _ => OtelAttributeValue::string(body.value.to_string()),
+                    },
+                ));
                 if let Some(ref trace_id) = body.trace_id {
                     attrs.push(OtelAttribute::string("langfuse.trace.id", trace_id));
                 }
@@ -511,9 +629,10 @@ pub fn ingestion_events_to_otel(events: &[IngestionEvent]) -> OtelTraceExportReq
             }
             IngestionEvent::SdkLog { body, .. } => {
                 // SDK logs are metadata; we skip them in OTLP as there's no natural mapping
-                let attrs = vec![
-                    OtelAttribute::string("langfuse.sdk.log", body.log.to_string()),
-                ];
+                let attrs = vec![OtelAttribute::string(
+                    "langfuse.sdk.log",
+                    body.log.to_string(),
+                )];
                 spans.push(OtelSpan {
                     trace_id: None,
                     span_id: None,
@@ -559,10 +678,16 @@ fn append_common_obs_attrs(
     environment: Option<&String>,
 ) {
     if let Some(ref input) = input {
-        attrs.push(OtelAttribute::string("langfuse.observation.input", input.to_string()));
+        attrs.push(OtelAttribute::string(
+            "langfuse.observation.input",
+            input.to_string(),
+        ));
     }
     if let Some(ref output) = output {
-        attrs.push(OtelAttribute::string("langfuse.observation.output", output.to_string()));
+        attrs.push(OtelAttribute::string(
+            "langfuse.observation.output",
+            output.to_string(),
+        ));
     }
     if let Some(ref metadata) = metadata {
         if let Ok(json) = serde_json::to_string(metadata) {
@@ -578,7 +703,10 @@ fn append_common_obs_attrs(
 }
 
 /// Helper: build OTel status from Langfuse observation level + status message
-fn build_status(level: Option<&ObservationLevel>, status_message: Option<&str>) -> Option<OtelStatus> {
+fn build_status(
+    level: Option<&ObservationLevel>,
+    status_message: Option<&str>,
+) -> Option<OtelStatus> {
     match level {
         Some(ObservationLevel::Error) => Some(OtelStatus {
             code: Some(2), // ERROR
@@ -989,7 +1117,12 @@ mod tests {
     // Usage tests
     #[test]
     fn test_usage_serde() {
-        let usage = Usage { input: 100, output: 50, total: 150, ..Default::default() };
+        let usage = Usage {
+            input: 100,
+            output: 50,
+            total: 150,
+            ..Default::default()
+        };
         let json = serde_json::to_string(&usage).unwrap();
         assert!(json.contains("\"input\":100"));
         assert!(json.contains("\"output\":50"));

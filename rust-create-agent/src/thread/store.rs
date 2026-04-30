@@ -1,8 +1,8 @@
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 
-use crate::messages::BaseMessage;
 use super::types::{ThreadId, ThreadMeta};
+use crate::messages::BaseMessage;
 
 #[async_trait]
 pub trait ThreadStore: Send + Sync {

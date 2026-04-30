@@ -198,7 +198,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 }
             };
             {
-                let llm_output = reasoning.final_answer.as_deref()
+                let llm_output = reasoning
+                    .final_answer
+                    .as_deref()
                     .unwrap_or(&reasoning.thought)
                     .to_string();
                 self.emit(AgentEvent::LlmCallEnd {
@@ -225,7 +227,9 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                                 );
                             }
                             if budget.should_warn(tracker) || budget.should_auto_compact(tracker) {
-                                if let Some(percentage) = tracker.context_usage_percent(budget.context_window) {
+                                if let Some(percentage) =
+                                    tracker.context_usage_percent(budget.context_window)
+                                {
                                     self.emit(AgentEvent::ContextWarning {
                                         used_tokens: pct_used,
                                         total_tokens: budget.context_window as u64,
@@ -272,9 +276,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     .collect();
                 // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
                 // source_message 的 tool_calls 字段在 LLM 解析阶段已填好
-                let ai_msg = reasoning.source_message.clone()
-                    .unwrap_or_else(|| BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs));
-                let ai_msg_id = ai_msg.id();  // 捕获 message_id（Copy，供后续 ToolStart/ToolEnd 使用）
+                let ai_msg = reasoning.source_message.clone().unwrap_or_else(|| {
+                    BaseMessage::ai_with_tool_calls(reasoning.thought.clone(), tc_reqs)
+                });
+                let ai_msg_id = ai_msg.id(); // 捕获 message_id（Copy，供后续 ToolStart/ToolEnd 使用）
                 let ai_msg_clone = ai_msg.clone();
                 state.add_message(ai_msg);
                 self.emit(AgentEvent::MessageAdded(ai_msg_clone));
@@ -283,11 +288,16 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
                 // 阶段一：批量 before_tool（利用中间件的 batch 方法，如 HITL 批量审批）
                 let original_calls: Vec<ToolCall> = reasoning.tool_calls.clone();
-                let before_results = self.chain.run_before_tools_batch(state, original_calls.clone()).await;
+                let before_results = self
+                    .chain
+                    .run_before_tools_batch(state, original_calls.clone())
+                    .await;
                 let mut modified_calls: Vec<ToolCall> = Vec::with_capacity(original_calls.len());
 
-                for (_idx, (tool_call, before_result)) in
-                    original_calls.iter().zip(before_results.into_iter()).enumerate()
+                for (_idx, (tool_call, before_result)) in original_calls
+                    .iter()
+                    .zip(before_results.into_iter())
+                    .enumerate()
                 {
                     // before_tool 阶段也检查取消
                     if cancel.is_cancelled() {
@@ -297,11 +307,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         Ok(c) => c,
                         Err(AgentError::ToolRejected { ref reason, .. }) => {
                             // 拒绝不终止 Agent，将拒绝原因作为工具错误反馈给 LLM
-                            let rejection_result = ToolResult::error(
-                                &tool_call.id,
-                                &tool_call.name,
-                                reason.clone(),
-                            );
+                            let rejection_result =
+                                ToolResult::error(&tool_call.id, &tool_call.name, reason.clone());
                             self.emit(AgentEvent::ToolStart {
                                 message_id: ai_msg_id,
                                 tool_call_id: tool_call.id.clone(),
@@ -404,11 +411,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         }
                         Err(ref e) => {
                             self.chain.run_on_error(state, e).await?;
-                            ToolResult::error(
-                                &modified_call.id,
-                                &modified_call.name,
-                                e.to_string(),
-                            )
+                            ToolResult::error(&modified_call.id, &modified_call.name, e.to_string())
                         }
                     };
 
@@ -464,13 +467,20 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 self.emit(AgentEvent::StepDone { step });
 
                 // 发送状态快照（从用户消息开始的所有消息），便于增量持久化
-                let msgs_since_human = state.messages()[last_message_count..]
-                    .to_vec();
+                let msgs_since_human = state.messages()[last_message_count..].to_vec();
                 tracing::debug!(count = msgs_since_human.len(), "sending state snapshot");
                 for msg in &msgs_since_human {
                     match msg {
-                        BaseMessage::Ai { content: _, tool_calls, .. } => {
-                            tracing::debug!(has_tc = !tool_calls.is_empty(), tc_len = tool_calls.len(), "ai message in snapshot");
+                        BaseMessage::Ai {
+                            content: _,
+                            tool_calls,
+                            ..
+                        } => {
+                            tracing::debug!(
+                                has_tc = !tool_calls.is_empty(),
+                                tc_len = tool_calls.len(),
+                                "ai message in snapshot"
+                            );
                         }
                         BaseMessage::Tool { tool_call_id, .. } => {
                             tracing::debug!(tc_id = %tool_call_id, "tool message in snapshot");
@@ -495,19 +505,22 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 }
 
                 // 优先使用带 Reasoning block 的原始消息，保留 thinking 内容
-                let ai_msg = reasoning.source_message
+                let ai_msg = reasoning
+                    .source_message
                     .unwrap_or_else(|| BaseMessage::ai(answer.as_str()));
-                let ai_msg_id = ai_msg.id();  // 捕获 message_id（Copy，供 TextChunk 使用）
+                let ai_msg_id = ai_msg.id(); // 捕获 message_id（Copy，供 TextChunk 使用）
                 let ai_msg_clone = ai_msg.clone();
                 state.add_message(ai_msg);
                 self.emit(AgentEvent::MessageAdded(ai_msg_clone));
 
-                self.emit(AgentEvent::TextChunk { message_id: ai_msg_id, chunk: answer.clone() });
+                self.emit(AgentEvent::TextChunk {
+                    message_id: ai_msg_id,
+                    chunk: answer.clone(),
+                });
 
                 // 发送包含最终回答的 StateSnapshot，确保 TUI 侧的 agent_state_messages
                 // 包含完整对话历史（包括本次最终回答），否则下一轮对话上下文会丢失
-                let msgs_since_last = state.messages()[last_message_count..]
-                    .to_vec();
+                let msgs_since_last = state.messages()[last_message_count..].to_vec();
                 if !msgs_since_last.is_empty() {
                     self.emit(AgentEvent::StateSnapshot(msgs_since_last));
                 }
@@ -566,7 +579,9 @@ mod tests {
             messages: &[BaseMessage],
             _tools: &[&dyn BaseTool],
         ) -> crate::error::AgentResult<Reasoning> {
-            let has_tool_result = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+            let has_tool_result = messages
+                .iter()
+                .any(|m| matches!(m, BaseMessage::Tool { .. }));
             if !has_tool_result {
                 Ok(Reasoning::with_tools(
                     "need both tools",
@@ -612,13 +627,19 @@ mod tests {
     async fn test_parallel_tool_execution() {
         let agent = ReActAgent::new(TwoToolCallLLM)
             .max_iterations(5)
-            .register_tool(Box::new(SlowTool { tool_name: "slow_tool_a" }))
-            .register_tool(Box::new(SlowTool { tool_name: "slow_tool_b" }));
+            .register_tool(Box::new(SlowTool {
+                tool_name: "slow_tool_a",
+            }))
+            .register_tool(Box::new(SlowTool {
+                tool_name: "slow_tool_b",
+            }));
 
         let mut state = AgentState::new("/tmp");
         let start = Instant::now();
-        let output =
-            agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
         let elapsed = start.elapsed();
 
         assert_eq!(output.text, "parallel ok");
@@ -636,9 +657,15 @@ mod tests {
         struct HangingTool;
         #[async_trait::async_trait]
         impl BaseTool for HangingTool {
-            fn name(&self) -> &str { "hanging_tool" }
-            fn description(&self) -> &str { "hangs forever" }
-            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
+            fn name(&self) -> &str {
+                "hanging_tool"
+            }
+            fn description(&self) -> &str {
+                "hangs forever"
+            }
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
             async fn invoke(
                 &self,
                 _input: serde_json::Value,
@@ -656,7 +683,9 @@ mod tests {
                 messages: &[BaseMessage],
                 _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
-                let has_tool = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+                let has_tool = messages
+                    .iter()
+                    .any(|m| matches!(m, BaseMessage::Tool { .. }));
                 if !has_tool {
                     Ok(Reasoning::with_tools(
                         "call tool",
@@ -681,7 +710,9 @@ mod tests {
         });
 
         let mut state = AgentState::new("/tmp");
-        let result = agent.execute(AgentInput::text("go"), &mut state, Some(cancel)).await;
+        let result = agent
+            .execute(AgentInput::text("go"), &mut state, Some(cancel))
+            .await;
 
         assert!(matches!(result, Err(AgentError::Interrupted)));
         // 工具 error 结果已写入 state（可用于断点续跑）
@@ -700,8 +731,14 @@ mod tests {
         struct RejectAllMiddleware;
         #[async_trait::async_trait]
         impl<S: State> Middleware<S> for RejectAllMiddleware {
-            fn name(&self) -> &str { "RejectAllMiddleware" }
-            async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+            fn name(&self) -> &str {
+                "RejectAllMiddleware"
+            }
+            async fn before_tool(
+                &self,
+                _state: &mut S,
+                tool_call: &ToolCall,
+            ) -> AgentResult<ToolCall> {
                 Err(AgentError::ToolRejected {
                     tool: tool_call.name.clone(),
                     reason: "用户拒绝".to_string(),
@@ -718,11 +755,18 @@ mod tests {
                 messages: &[BaseMessage],
                 _tools: &[&dyn BaseTool],
             ) -> AgentResult<Reasoning> {
-                let has_tool_result = messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. }));
+                let has_tool_result = messages
+                    .iter()
+                    .any(|m| matches!(m, BaseMessage::Tool { .. }));
                 if !has_tool_result {
-                    Ok(Reasoning::with_tools("try tool", vec![
-                        ToolCall::new("id1", "bash", serde_json::json!({"command": "ls"})),
-                    ]))
+                    Ok(Reasoning::with_tools(
+                        "try tool",
+                        vec![ToolCall::new(
+                            "id1",
+                            "bash",
+                            serde_json::json!({"command": "ls"}),
+                        )],
+                    ))
                 } else {
                     Ok(Reasoning::with_answer("adjusted", "done after rejection"))
                 }
@@ -734,11 +778,17 @@ mod tests {
             .add_middleware(Box::new(RejectAllMiddleware));
 
         let mut state = AgentState::new("/tmp");
-        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
 
         assert_eq!(output.text, "done after rejection");
         // 拒绝结果应写入 state（is_error=true）
-        let has_rejection = state.messages().iter().any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
+        let has_rejection = state
+            .messages()
+            .iter()
+            .any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
         assert!(has_rejection, "拒绝结果应写入 state");
         // Agent 总工具调用记录中应有 1 条（被拒绝的）
         assert_eq!(output.tool_calls.len(), 1);
@@ -772,14 +822,21 @@ mod tests {
             })));
 
         let mut state = AgentState::new("/tmp");
-        agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
 
         let evs = events.lock().unwrap();
 
         // 找到 MessageAdded(Ai) 的 id（最终答案那条）
         let ai_msg_id = evs.iter().find_map(|e| {
             if let AgentEvent::MessageAdded(BaseMessage::Ai { id, tool_calls, .. }) = e {
-                if tool_calls.is_empty() { Some(*id) } else { None }
+                if tool_calls.is_empty() {
+                    Some(*id)
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -817,7 +874,10 @@ mod tests {
                 messages: &[BaseMessage],
                 _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
-                if messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. })) {
+                if messages
+                    .iter()
+                    .any(|m| matches!(m, BaseMessage::Tool { .. }))
+                {
                     Ok(Reasoning::with_answer("done", "ok"))
                 } else {
                     Ok(Reasoning::with_tools(
@@ -831,9 +891,15 @@ mod tests {
         struct EchoTool;
         #[async_trait::async_trait]
         impl BaseTool for EchoTool {
-            fn name(&self) -> &str { "echo_tool" }
-            fn description(&self) -> &str { "echoes" }
-            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
+            fn name(&self) -> &str {
+                "echo_tool"
+            }
+            fn description(&self) -> &str {
+                "echoes"
+            }
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
             async fn invoke(
                 &self,
                 _: serde_json::Value,
@@ -853,34 +919,54 @@ mod tests {
             })));
 
         let mut state = AgentState::new("/tmp");
-        agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
 
         let evs = events.lock().unwrap();
 
         // 找到第一个带工具调用的 MessageAdded(Ai) 的 id
         let ai_msg_id = evs.iter().find_map(|e| {
             if let AgentEvent::MessageAdded(BaseMessage::Ai { id, tool_calls, .. }) = e {
-                if !tool_calls.is_empty() { Some(*id) } else { None }
+                if !tool_calls.is_empty() {
+                    Some(*id)
+                } else {
+                    None
+                }
             } else {
                 None
             }
         });
         let tool_start_msg_id = evs.iter().find_map(|e| {
-            if let AgentEvent::ToolStart { message_id, .. } = e { Some(*message_id) } else { None }
+            if let AgentEvent::ToolStart { message_id, .. } = e {
+                Some(*message_id)
+            } else {
+                None
+            }
         });
         let tool_end_msg_id = evs.iter().find_map(|e| {
-            if let AgentEvent::ToolEnd { message_id, .. } = e { Some(*message_id) } else { None }
+            if let AgentEvent::ToolEnd { message_id, .. } = e {
+                Some(*message_id)
+            } else {
+                None
+            }
         });
 
-        assert!(ai_msg_id.is_some(), "应有带工具调用的 MessageAdded(Ai) 事件");
+        assert!(
+            ai_msg_id.is_some(),
+            "应有带工具调用的 MessageAdded(Ai) 事件"
+        );
         assert!(tool_start_msg_id.is_some(), "应有 ToolStart 事件");
         assert!(tool_end_msg_id.is_some(), "应有 ToolEnd 事件");
         assert_eq!(
-            ai_msg_id.unwrap(), tool_start_msg_id.unwrap(),
+            ai_msg_id.unwrap(),
+            tool_start_msg_id.unwrap(),
             "ToolStart.message_id 应与 MessageAdded(Ai).id 相同"
         );
         assert_eq!(
-            ai_msg_id.unwrap(), tool_end_msg_id.unwrap(),
+            ai_msg_id.unwrap(),
+            tool_end_msg_id.unwrap(),
             "ToolEnd.message_id 应与 MessageAdded(Ai).id 相同"
         );
     }
@@ -905,7 +991,10 @@ mod tests {
             .with_system_prompt("system content here");
 
         let mut state = AgentState::new("/tmp");
-        agent.execute(AgentInput::text("hi"), &mut state, None).await.unwrap();
+        agent
+            .execute(AgentInput::text("hi"), &mut state, None)
+            .await
+            .unwrap();
 
         let messages = state.messages();
         let first = messages.first().expect("应至少有一条消息");
@@ -929,7 +1018,9 @@ mod tests {
         struct PrefixMiddleware;
         #[async_trait::async_trait]
         impl<S: State> Middleware<S> for PrefixMiddleware {
-            fn name(&self) -> &str { "PrefixMiddleware" }
+            fn name(&self) -> &str {
+                "PrefixMiddleware"
+            }
             async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
                 state.prepend_message(BaseMessage::system("middleware injected"));
                 Ok(())
@@ -954,7 +1045,10 @@ mod tests {
             .with_system_prompt("top level system");
 
         let mut state = AgentState::new("/tmp");
-        agent.execute(AgentInput::text("hi"), &mut state, None).await.unwrap();
+        agent
+            .execute(AgentInput::text("hi"), &mut state, None)
+            .await
+            .unwrap();
 
         let messages = state.messages();
         let first = messages.first().expect("应至少有一条消息");
@@ -973,9 +1067,15 @@ mod tests {
 
         let mid = MessageId::new();
 
-        let ev = AgentEvent::TextChunk { message_id: mid, chunk: "hello".to_string() };
+        let ev = AgentEvent::TextChunk {
+            message_id: mid,
+            chunk: "hello".to_string(),
+        };
         let json = serde_json::to_value(&ev).unwrap();
-        assert!(json["message_id"].is_string(), "TextChunk JSON 应含 message_id 字段");
+        assert!(
+            json["message_id"].is_string(),
+            "TextChunk JSON 应含 message_id 字段"
+        );
         assert_eq!(json["chunk"].as_str().unwrap(), "hello");
 
         let ev = AgentEvent::ToolStart {
@@ -985,7 +1085,10 @@ mod tests {
             input: serde_json::json!({}),
         };
         let json = serde_json::to_value(&ev).unwrap();
-        assert!(json["message_id"].is_string(), "ToolStart JSON 应含 message_id 字段");
+        assert!(
+            json["message_id"].is_string(),
+            "ToolStart JSON 应含 message_id 字段"
+        );
 
         let ev = AgentEvent::ToolEnd {
             message_id: mid,
@@ -995,7 +1098,10 @@ mod tests {
             is_error: false,
         };
         let json = serde_json::to_value(&ev).unwrap();
-        assert!(json["message_id"].is_string(), "ToolEnd JSON 应含 message_id 字段");
+        assert!(
+            json["message_id"].is_string(),
+            "ToolEnd JSON 应含 message_id 字段"
+        );
     }
 
     /// 验证最终回答路径也会发出 StateSnapshot，确保多轮对话不丢失 AI 回复
@@ -1026,10 +1132,14 @@ mod tests {
             })));
 
         let mut state = AgentState::new("/tmp");
-        agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
 
         let evs = events.lock().unwrap();
-        let snapshots: Vec<_> = evs.iter()
+        let snapshots: Vec<_> = evs
+            .iter()
             .filter(|e| matches!(e, AgentEvent::StateSnapshot(_)))
             .collect();
 
@@ -1037,9 +1147,9 @@ mod tests {
 
         // 最后一个 snapshot 应包含 AI 最终回答
         if let AgentEvent::StateSnapshot(msgs) = snapshots.last().unwrap() {
-            let has_ai_text = msgs.iter().any(|m| {
-                matches!(m, BaseMessage::Ai { tool_calls, .. } if tool_calls.is_empty())
-            });
+            let has_ai_text = msgs
+                .iter()
+                .any(|m| matches!(m, BaseMessage::Ai { tool_calls, .. } if tool_calls.is_empty()));
             assert!(has_ai_text, "StateSnapshot 应包含不带工具调用的 AI 消息");
         }
     }
@@ -1065,9 +1175,15 @@ mod tests {
         struct EchoTool;
         #[async_trait::async_trait]
         impl BaseTool for EchoTool {
-            fn name(&self) -> &str { "echo_tool" }
-            fn description(&self) -> &str { "echoes" }
-            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
+            fn name(&self) -> &str {
+                "echo_tool"
+            }
+            fn description(&self) -> &str {
+                "echoes"
+            }
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
             async fn invoke(
                 &self,
                 _: serde_json::Value,
@@ -1081,7 +1197,9 @@ mod tests {
             .register_tool(Box::new(EchoTool));
 
         let mut state = AgentState::new("/tmp");
-        let result = agent.execute(AgentInput::text("go"), &mut state, None).await;
+        let result = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await;
 
         assert!(matches!(result, Err(AgentError::MaxIterationsExceeded(3))));
         // 1 human + 3*(ai + tool_result)
@@ -1102,7 +1220,10 @@ mod tests {
                 messages: &[BaseMessage],
                 _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
-                if messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. })) {
+                if messages
+                    .iter()
+                    .any(|m| matches!(m, BaseMessage::Tool { .. }))
+                {
                     Ok(Reasoning::with_answer("done", "ok"))
                 } else {
                     Ok(Reasoning::with_tools(
@@ -1116,13 +1237,24 @@ mod tests {
             }
         }
 
-        struct EchoTool { name_str: &'static str }
+        struct EchoTool {
+            name_str: &'static str,
+        }
         #[async_trait::async_trait]
         impl BaseTool for EchoTool {
-            fn name(&self) -> &str { self.name_str }
-            fn description(&self) -> &str { "echo" }
-            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
-            async fn invoke(&self, _: serde_json::Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            fn name(&self) -> &str {
+                self.name_str
+            }
+            fn description(&self) -> &str {
+                "echo"
+            }
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+            async fn invoke(
+                &self,
+                _: serde_json::Value,
+            ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
                 Ok(format!("{} done", self.name_str))
             }
         }
@@ -1139,13 +1271,17 @@ mod tests {
             })));
 
         let mut state = AgentState::new("/tmp");
-        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
 
         assert_eq!(output.text, "ok");
         assert_eq!(output.tool_calls.len(), 2);
 
         let evs = events.lock().unwrap();
-        let tool_starts: Vec<_> = evs.iter()
+        let tool_starts: Vec<_> = evs
+            .iter()
             .filter(|e| matches!(e, AgentEvent::ToolStart { .. }))
             .collect();
         assert_eq!(tool_starts.len(), 2, "应有 2 个 ToolStart 事件");
@@ -1154,16 +1290,23 @@ mod tests {
     /// 验证 with_context_budget 设置后 executor 使用 ContextBudget 阈值
     #[tokio::test]
     async fn test_context_budget_wiring() {
-        struct TokenLLM { input_tokens: u32, output_tokens: u32 }
+        struct TokenLLM {
+            input_tokens: u32,
+            output_tokens: u32,
+        }
         #[async_trait::async_trait]
         impl ReactLLM for TokenLLM {
             async fn generate_reasoning(
-                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
                 let mut r = Reasoning::with_answer("", "ok");
                 r.usage = Some(crate::llm::types::TokenUsage {
-                    input_tokens: self.input_tokens, output_tokens: self.output_tokens,
-                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                    input_tokens: self.input_tokens,
+                    output_tokens: self.output_tokens,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
                 });
                 Ok(r)
             }
@@ -1171,10 +1314,17 @@ mod tests {
 
         // context_window=1000, warning_threshold=0.5 → 600/1000=60% > 50%
         let budget = ContextBudget::new(1000).with_warning_threshold(0.5);
-        let agent = ReActAgent::new(TokenLLM { input_tokens: 400, output_tokens: 200 })
-            .max_iterations(3).with_context_budget(budget);
+        let agent = ReActAgent::new(TokenLLM {
+            input_tokens: 400,
+            output_tokens: 200,
+        })
+        .max_iterations(3)
+        .with_context_budget(budget);
         let mut state = AgentState::new("/tmp");
-        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
         assert_eq!(output.text, "ok");
         let t = state.token_tracker();
         assert_eq!(t.total_input_tokens, 400);
@@ -1189,19 +1339,26 @@ mod tests {
         #[async_trait::async_trait]
         impl ReactLLM for LowTokenLLM {
             async fn generate_reasoning(
-                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
                 let mut r = Reasoning::with_answer("", "ok");
                 r.usage = Some(crate::llm::types::TokenUsage {
-                    input_tokens: 10, output_tokens: 5,
-                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
                 });
                 Ok(r)
             }
         }
         let agent = ReActAgent::new(LowTokenLLM).max_iterations(3);
         let mut state = AgentState::new("/tmp");
-        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
         assert_eq!(output.text, "ok");
         assert_eq!(state.token_tracker().llm_call_count, 1);
     }
@@ -1212,16 +1369,23 @@ mod tests {
         use crate::agent::events::{AgentEvent, FnEventHandler};
         use std::sync::{Arc, Mutex};
 
-        struct TokenLLM { input_tokens: u32, output_tokens: u32 }
+        struct TokenLLM {
+            input_tokens: u32,
+            output_tokens: u32,
+        }
         #[async_trait::async_trait]
         impl ReactLLM for TokenLLM {
             async fn generate_reasoning(
-                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
                 let mut r = Reasoning::with_answer("", "ok");
                 r.usage = Some(crate::llm::types::TokenUsage {
-                    input_tokens: self.input_tokens, output_tokens: self.output_tokens,
-                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                    input_tokens: self.input_tokens,
+                    output_tokens: self.output_tokens,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
                 });
                 Ok(r)
             }
@@ -1232,23 +1396,35 @@ mod tests {
 
         // context_window=1000, warning_threshold=0.5 → 400+200=600/1000=60% > 50%
         let budget = ContextBudget::new(1000).with_warning_threshold(0.5);
-        let agent = ReActAgent::new(TokenLLM { input_tokens: 400, output_tokens: 200 })
-            .max_iterations(3)
-            .with_context_budget(budget)
-            .with_event_handler(Arc::new(FnEventHandler(move |ev| {
-                events_clone.lock().unwrap().push(ev);
-            })));
+        let agent = ReActAgent::new(TokenLLM {
+            input_tokens: 400,
+            output_tokens: 200,
+        })
+        .max_iterations(3)
+        .with_context_budget(budget)
+        .with_event_handler(Arc::new(FnEventHandler(move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })));
 
         let mut state = AgentState::new("/tmp");
-        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
         assert_eq!(output.text, "ok");
 
         let evs = events.lock().unwrap();
-        let warnings: Vec<_> = evs.iter()
+        let warnings: Vec<_> = evs
+            .iter()
             .filter(|e| matches!(e, AgentEvent::ContextWarning { .. }))
             .collect();
         assert_eq!(warnings.len(), 1, "ContextWarning 应在超过警告阈值时发出");
-        if let AgentEvent::ContextWarning { used_tokens, total_tokens, percentage } = warnings[0] {
+        if let AgentEvent::ContextWarning {
+            used_tokens,
+            total_tokens,
+            percentage,
+        } = warnings[0]
+        {
             assert_eq!(*used_tokens, 600, "used_tokens = input+output = 400+200");
             assert_eq!(*total_tokens, 1000, "total_tokens = budget.context_window");
             assert!((*percentage - 60.0).abs() < 1.0, "percentage ≈ 60%");
@@ -1265,13 +1441,17 @@ mod tests {
         #[async_trait::async_trait]
         impl ReactLLM for HighTokenLLM {
             async fn generate_reasoning(
-                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
                 let mut r = Reasoning::with_answer("", "ok");
                 // context_window 默认 200K，90K+80K=170K = 85% > 80% 硬编码阈值
                 r.usage = Some(crate::llm::types::TokenUsage {
-                    input_tokens: 90000, output_tokens: 80000,
-                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                    input_tokens: 90000,
+                    output_tokens: 80000,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
                 });
                 Ok(r)
             }
@@ -1287,15 +1467,28 @@ mod tests {
             })));
 
         let mut state = AgentState::new("/tmp");
-        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
         assert_eq!(output.text, "ok");
 
         let evs = events.lock().unwrap();
-        let warnings: Vec<_> = evs.iter()
+        let warnings: Vec<_> = evs
+            .iter()
             .filter(|e| matches!(e, AgentEvent::ContextWarning { .. }))
             .collect();
-        assert_eq!(warnings.len(), 1, "无 budget 时回退路径也应发出 ContextWarning");
-        if let AgentEvent::ContextWarning { used_tokens, total_tokens, percentage } = warnings[0] {
+        assert_eq!(
+            warnings.len(),
+            1,
+            "无 budget 时回退路径也应发出 ContextWarning"
+        );
+        if let AgentEvent::ContextWarning {
+            used_tokens,
+            total_tokens,
+            percentage,
+        } = warnings[0]
+        {
             assert_eq!(*used_tokens, 170000, "used_tokens = input+output");
             assert!((*percentage - 85.0).abs() < 1.0, "percentage ≈ 85%");
         }
@@ -1311,12 +1504,16 @@ mod tests {
         #[async_trait::async_trait]
         impl ReactLLM for LowTokenLLM {
             async fn generate_reasoning(
-                &self, _messages: &[BaseMessage], _tools: &[&dyn BaseTool],
+                &self,
+                _messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
             ) -> crate::error::AgentResult<Reasoning> {
                 let mut r = Reasoning::with_answer("", "ok");
                 r.usage = Some(crate::llm::types::TokenUsage {
-                    input_tokens: 100, output_tokens: 50,
-                    cache_creation_input_tokens: None, cache_read_input_tokens: None,
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
                 });
                 Ok(r)
             }
@@ -1332,13 +1529,17 @@ mod tests {
             })));
 
         let mut state = AgentState::new("/tmp");
-        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+        let output = agent
+            .execute(AgentInput::text("go"), &mut state, None)
+            .await
+            .unwrap();
         assert_eq!(output.text, "ok");
 
         let evs = events.lock().unwrap();
         // LLM 必然有 LlmCallEnd，但 low usage 不触发 ContextWarning
-        let has_warning = evs.iter().any(|e| matches!(e, AgentEvent::ContextWarning { .. }));
+        let has_warning = evs
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ContextWarning { .. }));
         assert!(!has_warning, "低 token 用量不应发出 ContextWarning");
     }
-
 }

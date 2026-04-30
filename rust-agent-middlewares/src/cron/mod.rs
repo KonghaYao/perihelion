@@ -19,10 +19,10 @@ pub const MAX_CRON_TASKS: usize = 20;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CronTask {
     pub id: String,
-    pub expression: String, // 标准 5 段 cron 表达式
-    pub prompt: String,     // 触发时提交的用户输入
+    pub expression: String,               // 标准 5 段 cron 表达式
+    pub prompt: String,                   // 触发时提交的用户输入
     pub next_fire: Option<DateTime<Utc>>, // 下次触发时间（UTC）
-    pub enabled: bool,      // 是否启用
+    pub enabled: bool,                    // 是否启用
 }
 
 /// 触发事件（由 CronScheduler 发送到 App）
@@ -49,9 +49,8 @@ impl CronScheduler {
     /// 注册新任务
     pub fn register(&mut self, expression: &str, prompt: &str) -> Result<String, String> {
         // 解析 cron 表达式（验证）
-        let _cron = croner::Cron::from_str(expression).map_err(|e| {
-            format!("cron 表达式无效: {}", e)
-        })?;
+        let _cron =
+            croner::Cron::from_str(expression).map_err(|e| format!("cron 表达式无效: {}", e))?;
 
         // 检查上限
         if self.tasks.len() >= MAX_CRON_TASKS {
@@ -114,13 +113,11 @@ impl CronScheduler {
     /// 获取所有任务（按下次触发时间排序，无触发时间的排最后）
     pub fn list_tasks(&self) -> Vec<&CronTask> {
         let mut tasks: Vec<&CronTask> = self.tasks.values().collect();
-        tasks.sort_by(|a, b| {
-            match (&a.next_fire, &b.next_fire) {
-                (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            }
+        tasks.sort_by(|a, b| match (&a.next_fire, &b.next_fire) {
+            (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
         });
         tasks
     }

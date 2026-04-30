@@ -18,7 +18,12 @@ pub fn parse_markdown_default(input: &str) -> Text<'static> {
 
 /// 确保 block 已渲染（dirty 为 true 时重新解析）
 pub fn ensure_rendered(block: &mut ContentBlockView, max_width: usize) {
-    if let ContentBlockView::Text { raw, rendered, dirty } = block {
+    if let ContentBlockView::Text {
+        raw,
+        rendered,
+        dirty,
+    } = block
+    {
         if *dirty {
             *rendered = parse_markdown(raw, max_width);
             *dirty = false;

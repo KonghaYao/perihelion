@@ -69,37 +69,55 @@ mod tests {
 
     #[test]
     fn test_retryable_http_429() {
-        let err = AgentError::LlmHttpError { status: 429, message: "rate limited".into() };
+        let err = AgentError::LlmHttpError {
+            status: 429,
+            message: "rate limited".into(),
+        };
         assert!(err.is_retryable());
     }
 
     #[test]
     fn test_retryable_http_503() {
-        let err = AgentError::LlmHttpError { status: 503, message: "unavailable".into() };
+        let err = AgentError::LlmHttpError {
+            status: 503,
+            message: "unavailable".into(),
+        };
         assert!(err.is_retryable());
     }
 
     #[test]
     fn test_retryable_http_408() {
-        let err = AgentError::LlmHttpError { status: 408, message: "timeout".into() };
+        let err = AgentError::LlmHttpError {
+            status: 408,
+            message: "timeout".into(),
+        };
         assert!(err.is_retryable());
     }
 
     #[test]
     fn test_not_retryable_http_400() {
-        let err = AgentError::LlmHttpError { status: 400, message: "bad request".into() };
+        let err = AgentError::LlmHttpError {
+            status: 400,
+            message: "bad request".into(),
+        };
         assert!(!err.is_retryable());
     }
 
     #[test]
     fn test_not_retryable_http_401() {
-        let err = AgentError::LlmHttpError { status: 401, message: "unauthorized".into() };
+        let err = AgentError::LlmHttpError {
+            status: 401,
+            message: "unauthorized".into(),
+        };
         assert!(!err.is_retryable());
     }
 
     #[test]
     fn test_not_retryable_http_404() {
-        let err = AgentError::LlmHttpError { status: 404, message: "not found".into() };
+        let err = AgentError::LlmHttpError {
+            status: 404,
+            message: "not found".into(),
+        };
         assert!(!err.is_retryable());
     }
 
@@ -139,4 +157,3 @@ mod tests {
         assert!(!err.is_retryable());
     }
 }
-

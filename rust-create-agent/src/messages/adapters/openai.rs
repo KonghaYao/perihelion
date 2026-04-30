@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
-use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 use super::MessageAdapter;
+use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 
 /// OpenAI 兼容格式的消息适配器
 pub struct OpenAiAdapter;
@@ -78,7 +78,11 @@ impl MessageAdapter for OpenAiAdapter {
                         "content": Self::content_to_openai(content)
                     }));
                 }
-                BaseMessage::Ai { content, tool_calls, .. } => {
+                BaseMessage::Ai {
+                    content,
+                    tool_calls,
+                    ..
+                } => {
                     if tool_calls.is_empty() {
                         result.push(json!({
                             "role": "assistant",
@@ -87,14 +91,16 @@ impl MessageAdapter for OpenAiAdapter {
                     } else {
                         let tcs: Vec<Value> = tool_calls
                             .iter()
-                            .map(|tc| json!({
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.name,
-                                    "arguments": tc.arguments.to_string()
-                                }
-                            }))
+                            .map(|tc| {
+                                json!({
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.name,
+                                        "arguments": tc.arguments.to_string()
+                                    }
+                                })
+                            })
                             .collect();
                         result.push(json!({
                             "role": "assistant",
@@ -103,7 +109,11 @@ impl MessageAdapter for OpenAiAdapter {
                         }));
                     }
                 }
-                BaseMessage::Tool { tool_call_id, content, .. } => {
+                BaseMessage::Tool {
+                    tool_call_id,
+                    content,
+                    ..
+                } => {
                     result.push(json!({
                         "role": "tool",
                         "tool_call_id": tool_call_id,
@@ -114,7 +124,10 @@ impl MessageAdapter for OpenAiAdapter {
         }
 
         if !system_parts.is_empty() {
-            result.insert(0, json!({ "role": "system", "content": system_parts.join("\n\n") }));
+            result.insert(
+                0,
+                json!({ "role": "system", "content": system_parts.join("\n\n") }),
+            );
         }
 
         Value::Array(result)
@@ -122,7 +135,9 @@ impl MessageAdapter for OpenAiAdapter {
 
     /// OpenAI 原生 message JSON → BaseMessage
     fn to_base_message(value: &Value) -> Result<BaseMessage> {
-        let role = value["role"].as_str().ok_or_else(|| anyhow!("缺少 role 字段"))?;
+        let role = value["role"]
+            .as_str()
+            .ok_or_else(|| anyhow!("缺少 role 字段"))?;
         match role {
             "user" => {
                 let content = parse_openai_content(&value["content"]);
@@ -192,18 +207,16 @@ fn parse_openai_content(content: &Value) -> MessageContent {
         Value::Array(parts) => {
             let blocks: Vec<ContentBlock> = parts
                 .iter()
-                .filter_map(|part| {
-                    match part["type"].as_str() {
-                        Some("text") => {
-                            let text = part["text"].as_str().unwrap_or("").to_string();
-                            Some(ContentBlock::text(text))
-                        }
-                        Some("image_url") => {
-                            let url = part["image_url"]["url"].as_str().unwrap_or("").to_string();
-                            Some(ContentBlock::image_url(url))
-                        }
-                        _ => None,
+                .filter_map(|part| match part["type"].as_str() {
+                    Some("text") => {
+                        let text = part["text"].as_str().unwrap_or("").to_string();
+                        Some(ContentBlock::text(text))
                     }
+                    Some("image_url") => {
+                        let url = part["image_url"]["url"].as_str().unwrap_or("").to_string();
+                        Some(ContentBlock::image_url(url))
+                    }
+                    _ => None,
                 })
                 .collect();
             if blocks.is_empty() {
@@ -225,10 +238,7 @@ mod tests {
 
     #[test]
     fn test_from_base_messages_human_ai() {
-        let msgs = vec![
-            BaseMessage::human("Hello"),
-            BaseMessage::ai("Hi"),
-        ];
+        let msgs = vec![BaseMessage::human("Hello"), BaseMessage::ai("Hi")];
         let val = OpenAiAdapter::from_base_messages(&msgs);
         let arr = val.as_array().unwrap();
         assert_eq!(arr.len(), 2);
@@ -253,7 +263,11 @@ mod tests {
         let msgs = vec![
             BaseMessage::ai_with_tool_calls(
                 "",
-                vec![ToolCallRequest::new("tc1", "bash", json!({"command": "ls"}))],
+                vec![ToolCallRequest::new(
+                    "tc1",
+                    "bash",
+                    json!({"command": "ls"}),
+                )],
             ),
             BaseMessage::tool_result("tc1", "file.txt"),
         ];
@@ -334,7 +348,10 @@ mod tests {
             .as_array()
             .map(|arr| arr.iter().any(|b| b["type"] == "tool_use"))
             .unwrap_or(false);
-        assert!(!content_has_tool_use, "OpenAI content 中不应出现 ToolUse block");
+        assert!(
+            !content_has_tool_use,
+            "OpenAI content 中不应出现 ToolUse block"
+        );
     }
 
     /// Reasoning block 应序列化为 thinking 类型（deepseek-v4-pro 要求回传）
@@ -370,8 +387,10 @@ mod tests {
         let content = assistant["content"].as_array().expect("content 应为 array");
         assert!(content.iter().any(|b| b["type"] == "thinking"));
         assert!(content.iter().any(|b| b["type"] == "text"));
-        assert!(!content.iter().any(|b| b["type"] == "tool_use"),
-            "tool_use 不应出现在 content 中");
+        assert!(
+            !content.iter().any(|b| b["type"] == "tool_use"),
+            "tool_use 不应出现在 content 中"
+        );
         // tool_calls 在顶层
         assert!(assistant["tool_calls"].is_array());
         assert_eq!(assistant["tool_calls"][0]["id"], "tc1");
@@ -380,9 +399,7 @@ mod tests {
     /// 仅 reasoning block（无 text）序列化
     #[test]
     fn test_reasoning_only_serialization() {
-        let msg = BaseMessage::ai_from_blocks(vec![
-            ContentBlock::reasoning("thinking only"),
-        ]);
+        let msg = BaseMessage::ai_from_blocks(vec![ContentBlock::reasoning("thinking only")]);
         let val = OpenAiAdapter::from_base_messages(&[msg]);
         let arr = val.as_array().unwrap();
         let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();

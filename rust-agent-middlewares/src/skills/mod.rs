@@ -245,7 +245,11 @@ mod tests {
         mw.before_agent(&mut state).await.unwrap();
 
         let content = state.messages()[0].content();
-        assert!(content.contains("'/skill-name'"), "提示词应包含 '/skill-name' 格式，实际: {}", content);
+        assert!(
+            content.contains("'/skill-name'"),
+            "提示词应包含 '/skill-name' 格式，实际: {}",
+            content
+        );
     }
 
     #[tokio::test]
@@ -260,6 +264,10 @@ mod tests {
         mw.before_agent(&mut state).await.unwrap();
 
         let content = state.messages()[0].content();
-        assert!(!content.contains("#skill_name"), "提示词不应包含旧 #skill_name 格式，实际: {}", content);
+        assert!(
+            !content.contains("#skill_name"),
+            "提示词不应包含旧 #skill_name 格式，实际: {}",
+            content
+        );
     }
 }

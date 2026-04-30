@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::messages::BaseMessage;
-use crate::thread::ThreadStore;
 use crate::thread::ThreadId;
+use crate::thread::ThreadStore;
 
 /// State trait - 所有 Agent 状态必须实现此 trait
 /// 与 TypeScript BaseAgentStateType 对齐
@@ -81,7 +81,11 @@ impl AgentState {
     }
 
     /// 绑定持久化后端，之后每次 add_message 自动写入（fire-and-forget）
-    pub fn with_persistence(mut self, store: Arc<dyn ThreadStore>, thread_id: impl Into<String>) -> Self {
+    pub fn with_persistence(
+        mut self,
+        store: Arc<dyn ThreadStore>,
+        thread_id: impl Into<String>,
+    ) -> Self {
         self.store = Some(store);
         self.thread_id = Some(thread_id.into());
         self

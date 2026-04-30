@@ -26,7 +26,9 @@ pub struct PrependSystemMiddleware {
 #[allow(deprecated)]
 impl PrependSystemMiddleware {
     pub fn new(content: impl Into<String>) -> Self {
-        Self { content: content.into() }
+        Self {
+            content: content.into(),
+        }
     }
 }
 

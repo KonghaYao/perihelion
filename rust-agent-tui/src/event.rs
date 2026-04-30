@@ -1,13 +1,15 @@
 use anyhow::Result;
 use base64::Engine as _;
-use ratatui::crossterm::event::{self, Event, KeyEventKind, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
-use tui_textarea::{Input, Key};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use std::time::Duration;
+use tui_textarea::{Input, Key};
 
 use crate::app::model_panel::{AliasTab, ROW_HAIKU, ROW_LOGIN, ROW_OPUS, ROW_SONNET, ROW_THINKING};
 use crate::app::{App, MessageViewModel, PendingAttachment};
-use rust_create_agent::messages::BaseMessage;
 use crate::ui::render_thread::RenderEvent;
+use rust_create_agent::messages::BaseMessage;
 
 /// 将 RGBA 像素数据编码为 PNG，再返回 base64 字符串和 PNG 字节数
 fn rgba_to_png_base64(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<(String, usize)> {
@@ -38,9 +40,8 @@ fn copy_selection_to_clipboard(app: &mut App) -> bool {
             let _ = clipboard.set_text(&text);
         }
         app.core.copy_char_count = char_count;
-        app.core.copy_message_until = Some(
-            std::time::Instant::now() + std::time::Duration::from_millis(2000)
-        );
+        app.core.copy_message_until =
+            Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
         app.core.text_selection.clear();
         return true;
     }
@@ -55,9 +56,8 @@ fn copy_panel_selection_to_clipboard(app: &mut App) -> bool {
             let _ = clipboard.set_text(&text);
         }
         app.core.copy_char_count = char_count;
-        app.core.copy_message_until = Some(
-            std::time::Instant::now() + std::time::Duration::from_millis(2000)
-        );
+        app.core.copy_message_until =
+            Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
         app.core.panel_selection.clear();
         return true;
     }
@@ -87,7 +87,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             // 因此在这里提前拦截，直接处理权限模式切换。
             if matches!(key_event.code, ratatui::crossterm::event::KeyCode::BackTab) {
                 let _new_mode = app.permission_mode.cycle();
-                app.mode_highlight_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                app.mode_highlight_until =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 return Ok(Some(Action::Redraw));
             }
 
@@ -123,7 +124,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         let char_count = text.chars().count();
                         app.core.copy_char_count = char_count;
                         app.core.copy_message_until = Some(
-                            std::time::Instant::now() + std::time::Duration::from_millis(2000)
+                            std::time::Instant::now() + std::time::Duration::from_millis(2000),
                         );
                         app.core.textarea.cancel_selection();
                         return Ok(Some(Action::Redraw));
@@ -137,7 +138,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             if app.setup_wizard.is_some() {
                 let input_clone = input.clone();
                 if let Some(ref mut wizard) = app.setup_wizard {
-                    if let Some(action) = crate::app::setup_wizard::handle_setup_wizard_key(wizard, input_clone) {
+                    if let Some(action) =
+                        crate::app::setup_wizard::handle_setup_wizard_key(wizard, input_clone)
+                    {
                         match action {
                             crate::app::setup_wizard::SetupWizardAction::SaveAndClose => {
                                 let wizard = app.setup_wizard.take().unwrap();
@@ -145,10 +148,14 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                     Ok(cfg) => app.refresh_after_setup(cfg),
                                     Err(e) => {
                                         let msg = MessageViewModel::from_base_message(
-                                            &BaseMessage::system(format!("Setup save failed: {}", e)),
+                                            &BaseMessage::system(format!(
+                                                "Setup save failed: {}",
+                                                e
+                                            )),
                                             &[],
                                         );
-                                        let _ = app.core.render_tx.send(RenderEvent::AddMessage(msg));
+                                        let _ =
+                                            app.core.render_tx.send(RenderEvent::AddMessage(msg));
                                     }
                                 }
                             }
@@ -193,7 +200,10 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // AskUser 批量弹窗
-            if matches!(&app.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Questions(_))) {
+            if matches!(
+                &app.agent.interaction_prompt,
+                Some(crate::app::InteractionPrompt::Questions(_))
+            ) {
                 match input {
                     Input {
                         key: Key::Char('c'),
@@ -242,7 +252,10 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // HITL 批量弹窗激活时，优先处理弹窗按键
-            if matches!(&app.agent.interaction_prompt, Some(crate::app::InteractionPrompt::Approval(_))) {
+            if matches!(
+                &app.agent.interaction_prompt,
+                Some(crate::app::InteractionPrompt::Approval(_))
+            ) {
                 match input {
                     Input {
                         key: Key::Char('c'),
@@ -301,7 +314,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         if row == 0 {
                             app.history_up();
                         } else {
-                            app.core.textarea.input(Input { key: Key::Up, ctrl: false, alt: false, shift: false });
+                            app.core.textarea.input(Input {
+                                key: Key::Up,
+                                ctrl: false,
+                                alt: false,
+                                shift: false,
+                            });
                         }
                     }
                 }
@@ -324,14 +342,22 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         if row >= last_row {
                             app.history_down();
                         } else {
-                            app.core.textarea.input(Input { key: Key::Down, ctrl: false, alt: false, shift: false });
+                            app.core.textarea.input(Input {
+                                key: Key::Down,
+                                ctrl: false,
+                                alt: false,
+                                shift: false,
+                            });
                         }
                     }
                 }
 
-
                 // Ctrl+V：优先尝试粘贴剪贴板图片，失败则回退到粘贴文字
-                Input { key: Key::Char('v'), ctrl: true, .. } if !app.core.loading => {
+                Input {
+                    key: Key::Char('v'),
+                    ctrl: true,
+                    ..
+                } if !app.core.loading => {
                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
                         if let Ok(img) = clipboard.get_image() {
                             let (w, h) = (img.width as u32, img.height as u32);
@@ -417,11 +443,14 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                 // 命令命中，结束
                             } else {
                                 // 命令未命中，尝试 Skill 匹配
-                                let skill_name: String = text.trim_start_matches('/')
+                                let skill_name: String = text
+                                    .trim_start_matches('/')
                                     .chars()
                                     .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
                                     .collect();
-                                if let Some(_skill) = app.core.skills.iter().find(|s| s.name == skill_name) {
+                                if let Some(_skill) =
+                                    app.core.skills.iter().find(|s| s.name == skill_name)
+                                {
                                     // Skill 命中：将整条消息提交给 agent
                                     return Ok(Some(Action::Submit(text)));
                                 } else {
@@ -430,17 +459,26 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                     let prefix = text.trim_start_matches('/');
                                     let cmd_matches = registry.match_prefix(prefix);
                                     if cmd_matches.len() > 1 {
-                                        let names: Vec<&str> = cmd_matches.iter().map(|(n, _)| *n).collect();
-                                        app.core.view_messages.push(MessageViewModel::system(format!(
-                                            "命令 '{}' 匹配多个: {}  （请输入完整命令名）",
-                                            text,
-                                            names.iter().map(|n| format!("/{}", n)).collect::<Vec<_>>().join(", ")
-                                        )));
+                                        let names: Vec<&str> =
+                                            cmd_matches.iter().map(|(n, _)| *n).collect();
+                                        app.core.view_messages.push(MessageViewModel::system(
+                                            format!(
+                                                "命令 '{}' 匹配多个: {}  （请输入完整命令名）",
+                                                text,
+                                                names
+                                                    .iter()
+                                                    .map(|n| format!("/{}", n))
+                                                    .collect::<Vec<_>>()
+                                                    .join(", ")
+                                            ),
+                                        ));
                                     } else {
-                                        app.core.view_messages.push(MessageViewModel::system(format!(
-                                            "未知命令或 Skill: {}  （输入 /help 查看可用命令）",
-                                            text
-                                        )));
+                                        app.core.view_messages.push(MessageViewModel::system(
+                                            format!(
+                                                "未知命令或 Skill: {}  （输入 /help 查看可用命令）",
+                                                text
+                                            ),
+                                        ));
                                     }
                                 }
                             }
@@ -467,7 +505,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 }
 
                 // Del：删除最后一个待发送附件（有附件时优先消费 Del）
-                Input { key: Key::Delete, .. } if !app.core.loading && !app.core.pending_attachments.is_empty() => {
+                Input {
+                    key: Key::Delete, ..
+                } if !app.core.loading && !app.core.pending_attachments.is_empty() => {
                     app.pop_pending_attachment();
                 }
 
@@ -557,7 +597,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     {
                         let row = (mouse.row - area.y).saturating_sub(1) as usize; // 跳过顶部边框
                         let col = mouse.column.saturating_sub(area.x) as usize;
-                        app.core.textarea.move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
+                        app.core
+                            .textarea
+                            .move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
                         app.core.textarea.start_selection();
                     }
                 }
@@ -566,7 +608,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 // 面板选区拖拽
                 if app.core.panel_selection.dragging {
                     if let Some(area) = app.core.panel_area {
-                        let content_row = mouse.row.saturating_sub(area.y)
+                        let content_row = mouse
+                            .row
+                            .saturating_sub(area.y)
                             .saturating_add(app.core.panel_scroll_offset);
                         let col = mouse.column.saturating_sub(area.x);
                         app.core.panel_selection.update_drag(content_row, col);
@@ -574,7 +618,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 }
                 if app.core.text_selection.dragging {
                     if let Some(area) = app.core.messages_area {
-                        let visual_row = mouse.row.saturating_sub(area.y)
+                        let visual_row = mouse
+                            .row
+                            .saturating_sub(area.y)
                             .saturating_add(app.core.scroll_offset);
                         let visual_col = mouse.column.saturating_sub(area.x);
                         app.core.text_selection.update_drag(visual_row, visual_col);
@@ -586,7 +632,11 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         if mouse.row >= area.y && mouse.row < area.y + area.height {
                             let row = (mouse.row - area.y).saturating_sub(1) as usize;
                             let col = mouse.column.saturating_sub(area.x) as usize;
-                            app.core.textarea.move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
+                            app.core
+                                .textarea
+                                .move_cursor(tui_textarea::CursorMove::Jump(
+                                    row as u16, col as u16,
+                                ));
                         }
                     }
                 }
@@ -598,7 +648,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     let sel = &app.core.panel_selection;
                     if let (Some(start), Some(end)) = (sel.start, sel.end) {
                         let text = crate::app::text_selection::extract_panel_text(
-                            start, end, &app.core.panel_plain_lines,
+                            start,
+                            end,
+                            &app.core.panel_plain_lines,
                         );
                         app.core.panel_selection.set_selected_text(text);
                     }
@@ -607,12 +659,17 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     app.core.text_selection.end_drag();
                     let ts = &app.core.text_selection;
                     if let (Some(start), Some(end)) = (ts.start, ts.end) {
-                        let usable_width = app.core.messages_area
+                        let usable_width = app
+                            .core
+                            .messages_area
                             .map(|a| a.width.saturating_sub(1))
                             .unwrap_or(0);
                         let cache = app.core.render_cache.read();
                         let text = crate::app::text_selection::extract_selected_text(
-                            start, end, &cache.wrap_map, usable_width,
+                            start,
+                            end,
+                            &cache.wrap_map,
+                            usable_width,
                         );
                         drop(cache);
                         app.core.text_selection.set_selected_text(text);
@@ -646,13 +703,15 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         Input { key: Key::Up, .. } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
                 b.move_cursor(-1);
-                b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
+                b.scroll_offset =
+                    crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
             }
         }
         Input { key: Key::Down, .. } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
                 b.move_cursor(1);
-                b.scroll_offset = crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
+                b.scroll_offset =
+                    crate::app::ensure_cursor_visible(b.cursor as u16, b.scroll_offset, 10);
             }
         }
         Input {
@@ -673,9 +732,9 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         } => {
             if let Some(b) = app.core.thread_browser.as_mut() {
                 if let Some(title) = b.delete_selected() {
-                    app.core.view_messages.push(MessageViewModel::system(
-                        format!("已删除对话: {}", title),
-                    ));
+                    app.core
+                        .view_messages
+                        .push(MessageViewModel::system(format!("已删除对话: {}", title)));
                 }
             }
         }
@@ -734,16 +793,30 @@ fn handle_login_panel(app: &mut App, input: Input) {
             Input { key: Key::Down, .. } => {
                 app.core.login_panel.as_mut().unwrap().move_cursor(1);
             }
-            Input { key: Key::Enter, .. } => {
+            Input {
+                key: Key::Enter, ..
+            } => {
                 app.login_panel_select_provider();
             }
-            Input { key: Key::Tab, shift: false, .. } => {
+            Input {
+                key: Key::Tab,
+                shift: false,
+                ..
+            } => {
                 app.core.login_panel.as_mut().unwrap().enter_edit();
             }
-            Input { key: Key::Char('n'), ctrl: true, .. } => {
+            Input {
+                key: Key::Char('n'),
+                ctrl: true,
+                ..
+            } => {
                 app.core.login_panel.as_mut().unwrap().enter_new();
             }
-            Input { key: Key::Char('d'), ctrl: true, .. } => {
+            Input {
+                key: Key::Char('d'),
+                ctrl: true,
+                ..
+            } => {
                 app.core.login_panel.as_mut().unwrap().request_delete();
             }
             _ => {}
@@ -752,7 +825,11 @@ fn handle_login_panel(app: &mut App, input: Input) {
             Input { key: Key::Esc, .. } => {
                 app.core.login_panel.as_mut().unwrap().mode = LoginPanelMode::Browse;
             }
-            Input { key: Key::Char('v'), ctrl: true, .. } => {
+            Input {
+                key: Key::Char('v'),
+                ctrl: true,
+                ..
+            } => {
                 if let Ok(mut clipboard) = arboard::Clipboard::new() {
                     if let Ok(text) = clipboard.get_text() {
                         app.core.login_panel.as_mut().unwrap().paste_text(&text);
@@ -765,19 +842,33 @@ fn handle_login_panel(app: &mut App, input: Input) {
             Input { key: Key::Down, .. } => {
                 app.core.login_panel.as_mut().unwrap().field_next();
             }
-            Input { key: Key::Tab, shift: false, .. } => {
+            Input {
+                key: Key::Tab,
+                shift: false,
+                ..
+            } => {
                 app.core.login_panel.as_mut().unwrap().field_next();
             }
-            Input { key: Key::Tab, shift: true, .. } => {
+            Input {
+                key: Key::Tab,
+                shift: true,
+                ..
+            } => {
                 app.core.login_panel.as_mut().unwrap().field_prev();
             }
-            Input { key: Key::Left, .. } | Input { key: Key::Right, .. } => {
+            Input { key: Key::Left, .. }
+            | Input {
+                key: Key::Right, ..
+            } => {
                 let field = app.core.login_panel.as_ref().unwrap().edit_field.clone();
                 if field == crate::app::login_panel::LoginEditField::Type {
                     app.core.login_panel.as_mut().unwrap().cycle_type();
                 }
             }
-            Input { key: Key::Char(' '), .. } => {
+            Input {
+                key: Key::Char(' '),
+                ..
+            } => {
                 let field = app.core.login_panel.as_ref().unwrap().edit_field.clone();
                 if field == crate::app::login_panel::LoginEditField::Type {
                     app.core.login_panel.as_mut().unwrap().cycle_type();
@@ -785,19 +876,31 @@ fn handle_login_panel(app: &mut App, input: Input) {
                     app.core.login_panel.as_mut().unwrap().push_char(' ');
                 }
             }
-            Input { key: Key::Enter, .. } => {
+            Input {
+                key: Key::Enter, ..
+            } => {
                 app.login_panel_apply_edit();
             }
-            Input { key: Key::Backspace, .. } => {
+            Input {
+                key: Key::Backspace,
+                ..
+            } => {
                 app.core.login_panel.as_mut().unwrap().pop_char();
             }
-            Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
+            Input {
+                key: Key::Char(c),
+                ctrl: false,
+                alt: false,
+                ..
+            } => {
                 app.core.login_panel.as_mut().unwrap().push_char(c);
             }
             _ => {}
         },
         LoginPanelMode::ConfirmDelete => match input {
-            Input { key: Key::Enter, .. } => {
+            Input {
+                key: Key::Enter, ..
+            } => {
                 app.login_panel_confirm_delete();
             }
             Input { key: Key::Esc, .. } => {
@@ -821,10 +924,15 @@ fn handle_model_panel(app: &mut App, input: Input) {
         Input { key: Key::Down, .. } => {
             app.core.model_panel.as_mut().unwrap().move_cursor(1);
         }
-        Input { key: Key::Char(' '), .. } => {
+        Input {
+            key: Key::Char(' '),
+            ..
+        } => {
             app.core.model_panel.as_mut().unwrap().toggle_thinking();
         }
-        Input { key: Key::Enter, .. } => {
+        Input {
+            key: Key::Enter, ..
+        } => {
             let cursor = app.core.model_panel.as_ref().unwrap().cursor;
             match cursor {
                 ROW_LOGIN => {
@@ -849,17 +957,29 @@ fn handle_model_panel(app: &mut App, input: Input) {
                 _ => {}
             }
         }
-        Input { key: Key::Char('v'), ctrl: true, .. } => {
+        Input {
+            key: Key::Char('v'),
+            ctrl: true,
+            ..
+        } => {
             if let Ok(mut clipboard) = arboard::Clipboard::new() {
                 if let Ok(text) = clipboard.get_text() {
                     app.core.model_panel.as_mut().unwrap().paste_text(&text);
                 }
             }
         }
-        Input { key: Key::Backspace, .. } => {
+        Input {
+            key: Key::Backspace,
+            ..
+        } => {
             app.core.model_panel.as_mut().unwrap().pop_char();
         }
-        Input { key: Key::Char(c), ctrl: false, alt: false, .. } => {
+        Input {
+            key: Key::Char(c),
+            ctrl: false,
+            alt: false,
+            ..
+        } => {
             app.core.model_panel.as_mut().unwrap().push_char(c);
         }
         _ => {}
@@ -875,14 +995,10 @@ fn handle_cron_panel(app: &mut App, input: Input) {
         } => {
             // Ctrl+C 在面板中不退出，忽略
         }
-        Input {
-            key: Key::Up, ..
-        } => {
+        Input { key: Key::Up, .. } => {
             app.cron_panel_move_up();
         }
-        Input {
-            key: Key::Down, ..
-        } => {
+        Input { key: Key::Down, .. } => {
             app.cron_panel_move_down();
         }
         Input {
@@ -890,9 +1006,7 @@ fn handle_cron_panel(app: &mut App, input: Input) {
         } => {
             app.cron_panel_toggle();
         }
-        Input {
-            key: Key::Esc, ..
-        } => {
+        Input { key: Key::Esc, .. } => {
             app.cron_panel_close();
             app.core.panel_selection.clear();
             app.core.panel_area = None;

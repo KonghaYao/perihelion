@@ -102,7 +102,10 @@ impl<'a> ScrollableArea<'a> {
         } else {
             area.width
         };
-        let text_area = Rect { width: text_width, ..area };
+        let text_area = Rect {
+            width: text_width,
+            ..area
+        };
 
         let paragraph = Paragraph::new(self.content)
             .scroll((state.offset, 0))
@@ -110,10 +113,10 @@ impl<'a> ScrollableArea<'a> {
         f.render_widget(paragraph, text_area);
 
         if needs_scrollbar {
-            let mut scrollbar_state = ScrollbarState::new(max_scroll as usize)
-                .position(state.offset as usize);
-            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .style(self.scrollbar_style);
+            let mut scrollbar_state =
+                ScrollbarState::new(max_scroll as usize).position(state.offset as usize);
+            let scrollbar =
+                Scrollbar::new(ScrollbarOrientation::VerticalRight).style(self.scrollbar_style);
             f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
         }
     }
@@ -122,11 +125,7 @@ impl<'a> ScrollableArea<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{
-        backend::TestBackend,
-        text::Line,
-        Terminal,
-    };
+    use ratatui::{backend::TestBackend, text::Line, Terminal};
 
     #[test]
     fn scroll_state_ensure_visible_above() {
@@ -165,11 +164,12 @@ mod tests {
         let lines: Vec<Line<'_>> = (0..20).map(|i| Line::from(format!("Line {}", i))).collect();
         let content = Text::from(lines);
         let mut scroll_state = ScrollState::new();
-        terminal.draw(|f| {
-            let area = Rect::new(0, 0, 20, 5);
-            ScrollableArea::new(content)
-                .render(f, area, &mut scroll_state);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 20, 5);
+                ScrollableArea::new(content).render(f, area, &mut scroll_state);
+            })
+            .unwrap();
     }
 
     #[test]
@@ -179,11 +179,12 @@ mod tests {
         let lines: Vec<Line<'_>> = (0..20).map(|i| Line::from(format!("Line {}", i))).collect();
         let content = Text::from(lines);
         let mut scroll_state = ScrollState { offset: 100 };
-        terminal.draw(|f| {
-            let area = Rect::new(0, 0, 20, 5);
-            ScrollableArea::new(content)
-                .render(f, area, &mut scroll_state);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let area = Rect::new(0, 0, 20, 5);
+                ScrollableArea::new(content).render(f, area, &mut scroll_state);
+            })
+            .unwrap();
         // 20 lines, 5 visible -> max_scroll = 15
         assert_eq!(scroll_state.offset(), 15);
     }

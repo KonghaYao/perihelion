@@ -47,19 +47,30 @@ struct AskUserInput {
     questions: Vec<InputQuestion>,
 }
 
-fn parse_questions(input: Value) -> Result<Vec<QuestionItem>, Box<dyn std::error::Error + Send + Sync>> {
+fn parse_questions(
+    input: Value,
+) -> Result<Vec<QuestionItem>, Box<dyn std::error::Error + Send + Sync>> {
     let parsed: AskUserInput = serde_json::from_value(input)
         .map_err(|e| format!("ask_user_question: 参数解析失败: {e}"))?;
-    Ok(parsed.questions.into_iter().enumerate().map(|(i, q)| QuestionItem {
-        id: format!("ask_user_question_{i}"),
-        question: q.question,
-        header: q.header,
-        options: q.options.into_iter().map(|o| QuestionOption {
-            label: o.label,
-            description: o.description,
-        }).collect(),
-        multi_select: q.multi_select,
-    }).collect())
+    Ok(parsed
+        .questions
+        .into_iter()
+        .enumerate()
+        .map(|(i, q)| QuestionItem {
+            id: format!("ask_user_question_{i}"),
+            question: q.question,
+            header: q.header,
+            options: q
+                .options
+                .into_iter()
+                .map(|o| QuestionOption {
+                    label: o.label,
+                    description: o.description,
+                })
+                .collect(),
+            multi_select: q.multi_select,
+        })
+        .collect())
 }
 
 #[async_trait]
@@ -76,21 +87,28 @@ impl BaseTool for AskUserTool {
         ask_user_tool_definition().parameters
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let questions = parse_questions(input)?;
         let headers: Vec<String> = questions.iter().map(|q| q.header.clone()).collect();
         let single = questions.len() == 1;
 
-        let ctx = InteractionContext::Questions { requests: questions };
+        let ctx = InteractionContext::Questions {
+            requests: questions,
+        };
         let response = self.broker.request(ctx).await;
 
         match response {
             InteractionResponse::Answers(answers) => {
                 if single {
-                    let answer = answers.into_iter().next().unwrap_or_else(|| rust_create_agent::interaction::QuestionAnswer {
-                        id: String::new(),
-                        selected: vec![],
-                        text: None,
+                    let answer = answers.into_iter().next().unwrap_or_else(|| {
+                        rust_create_agent::interaction::QuestionAnswer {
+                            id: String::new(),
+                            selected: vec![],
+                            text: None,
+                        }
                     });
                     if let Some(text) = answer.text.filter(|t| !t.is_empty()) {
                         Ok(text)
@@ -100,14 +118,20 @@ impl BaseTool for AskUserTool {
                         Ok("(用户未提供回答)".to_string())
                     }
                 } else {
-                    let parts: Vec<String> = headers.iter().zip(answers.iter()).map(|(header, answer)| {
-                        let val = if let Some(ref text) = answer.text.as_ref().filter(|t| !t.is_empty()) {
-                            text.to_string()
-                        } else {
-                            answer.selected.join(", ")
-                        };
-                        format!("[问: {header}]\n回答: {val}")
-                    }).collect();
+                    let parts: Vec<String> = headers
+                        .iter()
+                        .zip(answers.iter())
+                        .map(|(header, answer)| {
+                            let val = if let Some(ref text) =
+                                answer.text.as_ref().filter(|t| !t.is_empty())
+                            {
+                                text.to_string()
+                            } else {
+                                answer.selected.join(", ")
+                            };
+                            format!("[问: {header}]\n回答: {val}")
+                        })
+                        .collect();
                     Ok(parts.join("\n\n"))
                 }
             }
@@ -201,14 +225,20 @@ mod tests {
     async fn test_single_question_text_priority_over_selected() {
         let tool = make_tool(make_answer(&["选项A"], Some("自定义")));
         let result = tool.invoke(single_question_input()).await.unwrap();
-        assert_eq!(result, "自定义", "non-empty text should take priority over selected");
+        assert_eq!(
+            result, "自定义",
+            "non-empty text should take priority over selected"
+        );
     }
 
     #[tokio::test]
     async fn test_single_question_empty_selected() {
         let tool = make_tool(make_answer(&[], None));
         let result = tool.invoke(single_question_input()).await.unwrap();
-        assert_eq!(result, "(用户未提供回答)", "empty selected and no text should return meaningful message");
+        assert_eq!(
+            result, "(用户未提供回答)",
+            "empty selected and no text should return meaningful message"
+        );
     }
 
     // ── 多问题返回格式 ──
@@ -216,8 +246,16 @@ mod tests {
     #[tokio::test]
     async fn test_multi_question_format() {
         let response = InteractionResponse::Answers(vec![
-            QuestionAnswer { id: "ask_user_question_0".into(), selected: vec!["v1".into()], text: None },
-            QuestionAnswer { id: "ask_user_question_1".into(), selected: vec!["v2".into()], text: None },
+            QuestionAnswer {
+                id: "ask_user_question_0".into(),
+                selected: vec!["v1".into()],
+                text: None,
+            },
+            QuestionAnswer {
+                id: "ask_user_question_1".into(),
+                selected: vec!["v2".into()],
+                text: None,
+            },
         ]);
         let tool = make_tool(response);
         let result = tool

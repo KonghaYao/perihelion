@@ -121,9 +121,9 @@ impl SetupWizardPanel {
             base_url: pt.default_base_url().to_string(),
             step1_focus: Step1Field::ProviderType,
             api_key: String::new(),
-            aliases: pt
-                .default_model_ids()
-                .map(|s| AliasConfig { model_id: s.to_string() }),
+            aliases: pt.default_model_ids().map(|s| AliasConfig {
+                model_id: s.to_string(),
+            }),
             step3_focus: 0,
             confirm_skip: false,
         }
@@ -152,10 +152,9 @@ impl SetupWizardPanel {
     pub fn refresh_provider_defaults(&mut self) {
         self.provider_id = self.provider_type.default_provider_id().to_string();
         self.base_url = self.provider_type.default_base_url().to_string();
-        self.aliases = self
-            .provider_type
-            .default_model_ids()
-            .map(|s| AliasConfig { model_id: s.to_string() });
+        self.aliases = self.provider_type.default_model_ids().map(|s| AliasConfig {
+            model_id: s.to_string(),
+        });
     }
 }
 
@@ -197,7 +196,6 @@ pub fn handle_setup_wizard_key(
     wizard: &mut SetupWizardPanel,
     input: tui_textarea::Input,
 ) -> Option<SetupWizardAction> {
-
     // 跳过确认弹窗优先处理
     if wizard.confirm_skip {
         return handle_confirm_skip(wizard, input);
@@ -219,9 +217,7 @@ fn handle_confirm_skip(
         tui_textarea::Input {
             key: Key::Enter, ..
         } => Some(SetupWizardAction::Skip),
-        tui_textarea::Input {
-            key: Key::Esc, ..
-        } => {
+        tui_textarea::Input { key: Key::Esc, .. } => {
             wizard.confirm_skip = false;
             Some(SetupWizardAction::Redraw)
         }
@@ -253,18 +249,14 @@ fn handle_step_provider(
             Some(SetupWizardAction::Redraw)
         }
         // ↑↓: 当 focus == ProviderType 时循环切换 Provider 类型
-        tui_textarea::Input {
-            key: Key::Up, ..
-        } => {
+        tui_textarea::Input { key: Key::Up, .. } => {
             if wizard.step1_focus == Step1Field::ProviderType {
                 wizard.provider_type.cycle();
                 wizard.refresh_provider_defaults();
             }
             Some(SetupWizardAction::Redraw)
         }
-        tui_textarea::Input {
-            key: Key::Down, ..
-        } => {
+        tui_textarea::Input { key: Key::Down, .. } => {
             if wizard.step1_focus == Step1Field::ProviderType {
                 wizard.provider_type.cycle();
                 wizard.refresh_provider_defaults();
@@ -275,17 +267,13 @@ fn handle_step_provider(
         tui_textarea::Input {
             key: Key::Enter, ..
         } => {
-            if !wizard.provider_id.trim().is_empty()
-                && !wizard.api_key.trim().is_empty()
-            {
+            if !wizard.provider_id.trim().is_empty() && !wizard.api_key.trim().is_empty() {
                 wizard.step = SetupStep::ModelAlias;
             }
             Some(SetupWizardAction::Redraw)
         }
         // Esc: 触发跳过确认
-        tui_textarea::Input {
-            key: Key::Esc, ..
-        } => {
+        tui_textarea::Input { key: Key::Esc, .. } => {
             wizard.confirm_skip = true;
             Some(SetupWizardAction::Redraw)
         }
@@ -359,9 +347,7 @@ fn handle_step_model_alias(
             }
             Some(SetupWizardAction::Redraw)
         }
-        tui_textarea::Input {
-            key: Key::Esc, ..
-        } => {
+        tui_textarea::Input { key: Key::Esc, .. } => {
             wizard.step = SetupStep::Provider;
             Some(SetupWizardAction::Redraw)
         }
@@ -394,9 +380,7 @@ fn handle_step_done(
         tui_textarea::Input {
             key: Key::Enter, ..
         } => Some(SetupWizardAction::SaveAndClose),
-        tui_textarea::Input {
-            key: Key::Esc, ..
-        } => {
+        tui_textarea::Input { key: Key::Esc, .. } => {
             wizard.step = SetupStep::ModelAlias;
             Some(SetupWizardAction::Redraw)
         }
@@ -448,7 +432,12 @@ pub fn save_setup(wizard: &SetupWizardPanel) -> anyhow::Result<crate::config::Ze
         let mut merged = existing;
         // 确保新的 provider 不重复添加
         let new_provider = &cfg.config.providers[0];
-        if !merged.config.providers.iter().any(|p| p.id == new_provider.id) {
+        if !merged
+            .config
+            .providers
+            .iter()
+            .any(|p| p.id == new_provider.id)
+        {
             merged.config.providers.push(new_provider.clone());
         }
         merged.config.active_alias = cfg.config.active_alias;
@@ -583,10 +572,20 @@ mod tests {
     use tui_textarea::{Input, Key};
 
     fn make_char(c: char) -> Input {
-        Input { key: Key::Char(c), ctrl: false, alt: false, shift: false }
+        Input {
+            key: Key::Char(c),
+            ctrl: false,
+            alt: false,
+            shift: false,
+        }
     }
     fn make_key(key: Key) -> Input {
-        Input { key, ctrl: false, alt: false, shift: false }
+        Input {
+            key,
+            ctrl: false,
+            alt: false,
+            shift: false,
+        }
     }
     fn type_text(wizard: &mut SetupWizardPanel, text: &str) {
         for c in text.chars() {
@@ -720,7 +719,8 @@ mod tests {
         let mut wizard = SetupWizardPanel::new();
         wizard.api_key = "sk-test-key".to_string();
 
-        let temp_dir = std::env::temp_dir().join(format!("zen-setup-unit-{}", uuid::Uuid::now_v7()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("zen-setup-unit-{}", uuid::Uuid::now_v7()));
         let config_path = temp_dir.join("settings.json");
         let cfg = save_setup_to(&wizard, &config_path).expect("save_setup_to should succeed");
 

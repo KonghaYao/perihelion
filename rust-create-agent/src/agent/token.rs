@@ -35,9 +35,9 @@ impl TokenTracker {
         // input_tokens 已包含 cache_creation 和 cache_read 部分，
         // 直接相加会导致重复计算，使 auto-compact 过早触发。
         // 实际上下文 ≈ input_tokens + output_tokens
-        self.last_usage.as_ref().map(|u| {
-            u.input_tokens as u64 + u.output_tokens as u64
-        })
+        self.last_usage
+            .as_ref()
+            .map(|u| u.input_tokens as u64 + u.output_tokens as u64)
     }
 
     pub fn context_usage_percent(&self, context_window: u32) -> Option<f64> {

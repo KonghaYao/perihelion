@@ -28,7 +28,9 @@ impl SqliteThreadStore {
         let conn = Connection::open(&db_path)
             .with_context(|| format!("打开 SQLite 失败: {}", db_path.display()))?;
         // 性能优化
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
+        )?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
@@ -208,15 +210,14 @@ impl ThreadStore for SqliteThreadStore {
         let conn = self.conn.clone();
         let msgs = tokio::task::spawn_blocking(move || -> Result<Vec<BaseMessage>> {
             let conn = conn.lock();
-            let mut stmt = conn.prepare(
-                "SELECT content FROM messages WHERE thread_id = ?1 ORDER BY rowid",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT content FROM messages WHERE thread_id = ?1 ORDER BY rowid")?;
             let msgs: Result<Vec<BaseMessage>> = stmt
                 .query_map(params![id], |row| row.get::<_, String>(0))?
                 .map(|r| {
                     let content = r?;
-                    let msg: BaseMessage =
-                        serde_json::from_str(&content).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                    let msg: BaseMessage = serde_json::from_str(&content)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     Ok(msg)
                 })
                 .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()
@@ -341,10 +342,7 @@ mod tests {
         let meta = ThreadMeta::new("/tmp");
         let id = store.create_thread(meta).await.unwrap();
 
-        let msgs = vec![
-            BaseMessage::human("Hello"),
-            BaseMessage::ai("Hi there"),
-        ];
+        let msgs = vec![BaseMessage::human("Hello"), BaseMessage::ai("Hi there")];
         store.append_messages(&id, &msgs).await.unwrap();
 
         let loaded = store.load_messages(&id).await.unwrap();

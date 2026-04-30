@@ -19,7 +19,11 @@ impl ClientConfig {
             .map_err(|_| crate::LangfuseError::Config("LANGFUSE_SECRET_KEY not set".into()))?;
         let base_url = std::env::var("LANGFUSE_BASE_URL")
             .unwrap_or_else(|_| "https://cloud.langfuse.com".to_string());
-        Ok(Self { public_key, secret_key, base_url })
+        Ok(Self {
+            public_key,
+            secret_key,
+            base_url,
+        })
     }
 }
 
@@ -96,16 +100,13 @@ mod tests {
 
     #[test]
     fn test_client_config_from_env_missing_key() {
-        temp_env::with_vars_unset(
-            ["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"],
-            || {
-                let result = ClientConfig::from_env();
-                assert!(result.is_err());
-                let err = result.unwrap_err();
-                let msg = format!("{}", err);
-                assert!(msg.contains("LANGFUSE_PUBLIC_KEY not set"), "got: {}", msg);
-            },
-        );
+        temp_env::with_vars_unset(["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"], || {
+            let result = ClientConfig::from_env();
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            let msg = format!("{}", err);
+            assert!(msg.contains("LANGFUSE_PUBLIC_KEY not set"), "got: {}", msg);
+        });
     }
 
     #[test]

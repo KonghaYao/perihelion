@@ -144,7 +144,10 @@ impl BaseTool for FolderOperationsTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let operation = input["operation"]
             .as_str()
             .ok_or("Missing operation parameter")?;
@@ -170,7 +173,11 @@ impl BaseTool for FolderOperationsTool {
 
             "exists" => {
                 if resolved.exists() {
-                    let kind = if resolved.is_dir() { "Directory" } else { "File" };
+                    let kind = if resolved.is_dir() {
+                        "Directory"
+                    } else {
+                        "File"
+                    };
                     Ok(format!(
                         "\u{2713} Folder exists at: {}\n  Type: {kind}",
                         resolved.display()
@@ -185,10 +192,7 @@ impl BaseTool for FolderOperationsTool {
 
             "list" => {
                 if !resolved.exists() {
-                    return Ok(format!(
-                        "\u{2717} Folder not found: {}",
-                        resolved.display()
-                    ));
+                    return Ok(format!("\u{2717} Folder not found: {}", resolved.display()));
                 }
                 if !resolved.is_dir() {
                     return Ok(format!(
@@ -219,7 +223,10 @@ mod tests {
             .invoke(serde_json::json!({"operation": "create", "folder_path": "newdir"}))
             .await
             .unwrap();
-        assert!(result.contains("created successfully"), "unexpected: {result}");
+        assert!(
+            result.contains("created successfully"),
+            "unexpected: {result}"
+        );
         assert!(dir.path().join("newdir").is_dir());
     }
 
@@ -242,7 +249,10 @@ mod tests {
             .invoke(serde_json::json!({"operation": "exists", "folder_path": "existing"}))
             .await
             .unwrap();
-        assert!(result.contains("Folder exists"), "should report exists: {result}");
+        assert!(
+            result.contains("Folder exists"),
+            "should report exists: {result}"
+        );
     }
 
     #[tokio::test]
@@ -253,7 +263,10 @@ mod tests {
             .invoke(serde_json::json!({"operation": "exists", "folder_path": "ghost"}))
             .await
             .unwrap();
-        assert!(result.contains("does not exist"), "should report missing: {result}");
+        assert!(
+            result.contains("does not exist"),
+            "should report missing: {result}"
+        );
     }
 
     #[tokio::test]
@@ -267,7 +280,10 @@ mod tests {
             .invoke(serde_json::json!({"operation": "list", "folder_path": "listed"}))
             .await
             .unwrap();
-        assert!(result.contains("file.txt"), "should list file.txt: {result}");
+        assert!(
+            result.contains("file.txt"),
+            "should list file.txt: {result}"
+        );
     }
 
     #[tokio::test]
@@ -300,8 +316,10 @@ mod tests {
     fn test_description_extended() {
         let tool = FolderOperationsTool::new("/tmp");
         let desc = tool.description();
-        assert!(desc.contains("create") && desc.contains("list") && desc.contains("exists"),
-            "description 应提及三种操作");
+        assert!(
+            desc.contains("create") && desc.contains("list") && desc.contains("exists"),
+            "description 应提及三种操作"
+        );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

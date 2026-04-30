@@ -42,11 +42,14 @@ mod tests {
         assert!(result.is_some(), "rust 代码应被识别");
         let lines = result.unwrap();
         assert_eq!(lines.len(), 1);
-        let has_content = lines[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains("fn main");
+        let has_content = lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
+            .contains("fn main");
         assert!(has_content, "应有代码内容");
-        let has_syntax_color = lines[0].spans.iter().any(|s| {
-            s.style.fg.is_some()
-        });
+        let has_syntax_color = lines[0].spans.iter().any(|s| s.style.fg.is_some());
         assert!(has_syntax_color, "应有非前缀颜色的语法着色 span");
     }
 

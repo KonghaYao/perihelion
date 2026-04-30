@@ -4,18 +4,25 @@ impl App {
     /// 获取当前提示浮层的候选数量（命令 + Skills 统一计数）
     pub fn hint_candidates_count(&self) -> usize {
         let first_line = self
-            .core.textarea
+            .core
+            .textarea
             .lines()
             .first()
             .map(|s| s.as_str())
             .unwrap_or("");
         if first_line.starts_with('/') {
             let prefix = first_line.trim_start_matches('/');
-            let cmd_count = self.core.command_registry.match_prefix(prefix)
+            let cmd_count = self
+                .core
+                .command_registry
+                .match_prefix(prefix)
                 .into_iter()
                 .take(6)
                 .count();
-            let skill_count = self.core.skills.iter()
+            let skill_count = self
+                .core
+                .skills
+                .iter()
                 .filter(|s| prefix.is_empty() || s.name.contains(prefix))
                 .take(4)
                 .count();
@@ -28,7 +35,8 @@ impl App {
     /// Tab 补全：选中当前光标处的候选项，替换输入框内容
     pub fn hint_complete(&mut self) {
         let first_line = self
-            .core.textarea
+            .core
+            .textarea
             .lines()
             .first()
             .map(|s| s.as_str())
@@ -38,14 +46,19 @@ impl App {
 
         if first_line.starts_with('/') {
             let prefix = first_line.trim_start_matches('/');
-            let cmd_candidates: Vec<_> = self.core.command_registry
+            let cmd_candidates: Vec<_> = self
+                .core
+                .command_registry
                 .match_prefix(prefix)
                 .into_iter()
                 .take(6)
                 .collect();
             let cmd_count = cmd_candidates.len();
 
-            let skill_candidates: Vec<_> = self.core.skills.iter()
+            let skill_candidates: Vec<_> = self
+                .core
+                .skills
+                .iter()
                 .filter(|s| prefix.is_empty() || s.name.contains(prefix))
                 .take(4)
                 .collect();
@@ -92,7 +105,13 @@ mod tests {
         app.core.skills.push(make_skill("review"));
 
         let count = app.hint_candidates_count();
-        let cmd_count = app.core.command_registry.match_prefix("").into_iter().take(6).count();
+        let cmd_count = app
+            .core
+            .command_registry
+            .match_prefix("")
+            .into_iter()
+            .take(6)
+            .count();
         assert_eq!(count, cmd_count + 2, "/ 前缀应返回命令数 + Skills 数");
     }
 
@@ -138,9 +157,22 @@ mod tests {
         app.core.hint_cursor = Some(0);
 
         app.hint_complete();
-        let text: String = app.core.textarea.lines().iter().map(|s| s.as_str()).collect();
-        assert!(text.starts_with("/model "), "cursor 0 应补全为第一个匹配命令 model，实际: {}", text);
-        assert!(app.core.hint_cursor.is_none(), "补全后 hint_cursor 应为 None");
+        let text: String = app
+            .core
+            .textarea
+            .lines()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        assert!(
+            text.starts_with("/model "),
+            "cursor 0 应补全为第一个匹配命令 model，实际: {}",
+            text
+        );
+        assert!(
+            app.core.hint_cursor.is_none(),
+            "补全后 hint_cursor 应为 None"
+        );
     }
 
     #[tokio::test]
@@ -151,12 +183,28 @@ mod tests {
         app.core.skills.push(make_skill("commit"));
 
         // 设置 cursor 跳过所有命令（capped at 6）
-        let cmd_count = app.core.command_registry.match_prefix("").into_iter().take(6).count();
+        let cmd_count = app
+            .core
+            .command_registry
+            .match_prefix("")
+            .into_iter()
+            .take(6)
+            .count();
         app.core.hint_cursor = Some(cmd_count); // 指向第一个 Skill
 
         app.hint_complete();
-        let text: String = app.core.textarea.lines().iter().map(|s| s.as_str()).collect();
-        assert!(text.starts_with("/commit "), "cursor 跳过命令组后应补全 Skill commit，实际: {}", text);
+        let text: String = app
+            .core
+            .textarea
+            .lines()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        assert!(
+            text.starts_with("/commit "),
+            "cursor 跳过命令组后应补全 Skill commit，实际: {}",
+            text
+        );
     }
 
     #[tokio::test]

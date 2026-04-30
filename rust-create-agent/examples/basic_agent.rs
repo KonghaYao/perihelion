@@ -13,7 +13,9 @@ async fn main() -> anyhow::Result<()> {
         .add_middleware(Box::new(LoggingMiddleware::new().verbose()));
 
     let mut state = AgentState::new("/workspace");
-    let output = agent.execute(AgentInput::text("请帮我完成这个任务"), &mut state, None).await?;
+    let output = agent
+        .execute(AgentInput::text("请帮我完成这个任务"), &mut state, None)
+        .await?;
 
     println!("\n=== Agent Output ===");
     println!("Answer: {}", output.text);

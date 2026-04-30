@@ -121,7 +121,10 @@ impl BaseTool for GlobFilesTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let pattern = input["pattern"]
             .as_str()
             .ok_or("Missing pattern parameter")?;
@@ -219,7 +222,10 @@ mod tests {
             .invoke(serde_json::json!({"pattern": "*.rs", "path": "nonexistent_dir"}))
             .await
             .unwrap();
-        assert!(result.contains("Directory not found"), "should report missing dir: {result}");
+        assert!(
+            result.contains("Directory not found"),
+            "should report missing dir: {result}"
+        );
     }
 
     #[test]
@@ -227,7 +233,10 @@ mod tests {
         let tool = GlobFilesTool::new("/tmp");
         let desc = tool.description();
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
-        assert!(desc.contains("modification time"), "description 应提及排序规则");
+        assert!(
+            desc.contains("modification time"),
+            "description 应提及排序规则"
+        );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

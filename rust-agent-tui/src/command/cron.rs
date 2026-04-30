@@ -1,7 +1,7 @@
+use super::Command;
 use crate::app::{App, CronPanel};
 use crate::ui::message_view::MessageViewModel;
 use crate::ui::render_thread::RenderEvent;
-use super::Command;
 
 pub struct CronCommand;
 
@@ -15,7 +15,14 @@ impl Command for CronCommand {
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
-        let tasks: Vec<_> = app.cron.scheduler.lock().list_tasks().into_iter().cloned().collect();
+        let tasks: Vec<_> = app
+            .cron
+            .scheduler
+            .lock()
+            .list_tasks()
+            .into_iter()
+            .cloned()
+            .collect();
 
         if tasks.is_empty() {
             let vm = MessageViewModel::system("无定时任务".to_string());

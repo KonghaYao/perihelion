@@ -124,7 +124,11 @@ pub fn extract_panel_text(
     end: (u16, u16),
     plain_lines: &[String],
 ) -> Option<String> {
-    let ((sr, sc), (er, ec)) = if start <= end { (start, end) } else { (end, start) };
+    let ((sr, sc), (er, ec)) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     let sr = sr as usize;
     let er = er as usize;
     if sr >= plain_lines.len() {
@@ -276,7 +280,8 @@ pub fn extract_selected_text(
             // 同一逻辑行：截取 [start_char, end_char)
             let row_in_start = (start_row - info.visual_row_start) as usize;
             let row_in_end = (end_row - info.visual_row_start) as usize;
-            let c_start = char_col_to_offset(&info.char_widths, start_col, row_in_start, usable_width);
+            let c_start =
+                char_col_to_offset(&info.char_widths, start_col, row_in_start, usable_width);
             let c_end = char_col_to_offset(&info.char_widths, end_col, row_in_end, usable_width);
             let b_start = char_to_byte_idx(text, c_start);
             let b_end = char_to_byte_idx(text, c_end);
@@ -287,7 +292,8 @@ pub fn extract_selected_text(
         } else if i == start_idx {
             // 首行：从 start_col 对应的字符位置到行尾
             let row_in_line = (start_row - info.visual_row_start) as usize;
-            let c_start = char_col_to_offset(&info.char_widths, start_col, row_in_line, usable_width);
+            let c_start =
+                char_col_to_offset(&info.char_widths, start_col, row_in_line, usable_width);
             let b_start = char_to_byte_idx(text, c_start);
             parts.push(text[b_start..].to_string());
         } else if i == end_idx {
@@ -370,8 +376,14 @@ mod tests {
 
     // --- Task 3: 坐标映射和文本提取测试 ---
 
-    fn make_wrap_map_entry(line_idx: usize, start: u16, end: u16, text: &str) -> crate::ui::render_thread::WrappedLineInfo {
-        let char_widths: Vec<u8> = text.chars()
+    fn make_wrap_map_entry(
+        line_idx: usize,
+        start: u16,
+        end: u16,
+        text: &str,
+    ) -> crate::ui::render_thread::WrappedLineInfo {
+        let char_widths: Vec<u8> = text
+            .chars()
             .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u8)
             .collect();
         crate::ui::render_thread::WrappedLineInfo {
@@ -395,17 +407,13 @@ mod tests {
 
     #[test]
     fn test_visual_to_logical_out_of_range() {
-        let wrap_map = vec![
-            make_wrap_map_entry(0, 0, 1, "Hello"),
-        ];
+        let wrap_map = vec![make_wrap_map_entry(0, 0, 1, "Hello")];
         assert_eq!(visual_to_logical(99, 0, &wrap_map, 80), None);
     }
 
     #[test]
     fn test_extract_selected_text_single_line() {
-        let wrap_map = vec![
-            make_wrap_map_entry(0, 0, 1, "Hello World"),
-        ];
+        let wrap_map = vec![make_wrap_map_entry(0, 0, 1, "Hello World")];
         let result = extract_selected_text((0, 2), (0, 8), &wrap_map, 80);
         // char 2..8 of "Hello World" = "llo Wo"
         assert_eq!(result, Some("llo Wo".to_string()));
@@ -488,14 +496,22 @@ mod tests {
 
     #[test]
     fn test_extract_panel_text_multi_line() {
-        let lines = vec!["Line0".to_string(), "Line1".to_string(), "Line2".to_string()];
+        let lines = vec![
+            "Line0".to_string(),
+            "Line1".to_string(),
+            "Line2".to_string(),
+        ];
         let result = extract_panel_text((0, 0), (2, 5), &lines);
         assert_eq!(result, Some("Line0\nLine1\nLine2".to_string()));
     }
 
     #[test]
     fn test_extract_panel_text_swapped() {
-        let lines = vec!["Line0".to_string(), "Line1".to_string(), "Line2".to_string()];
+        let lines = vec![
+            "Line0".to_string(),
+            "Line1".to_string(),
+            "Line2".to_string(),
+        ];
         let result = extract_panel_text((2, 5), (0, 0), &lines);
         assert_eq!(result, Some("Line0\nLine1\nLine2".to_string()));
     }

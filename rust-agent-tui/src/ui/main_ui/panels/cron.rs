@@ -8,25 +8,34 @@ use ratatui::{
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
 use crate::app::App;
-use crate::ui::theme;
 use crate::ui::main_ui::highlight_line_spans;
+use crate::ui::theme;
 
 /// CronPanel 渲染
 pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(panel) = &app.cron.cron_panel else { return };
+    let Some(panel) = &app.cron.cron_panel else {
+        return;
+    };
 
     let title = " 定时任务 ";
-    let inner = BorderedPanel::new(
-        Span::styled(title, Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD)),
-    )
-        .border_style(Style::default().fg(theme::MUTED))
-        .render(f, area);
+    let inner = BorderedPanel::new(Span::styled(
+        title,
+        Style::default()
+            .fg(theme::MUTED)
+            .add_modifier(Modifier::BOLD),
+    ))
+    .border_style(Style::default().fg(theme::MUTED))
+    .render(f, area);
     let mut lines: Vec<Line> = Vec::new();
 
     for (i, task) in panel.tasks.iter().enumerate() {
         let is_cursor = i == panel.cursor;
         let cursor_char = if is_cursor { "▶ " } else { "  " };
-        let status_icon = if task.enabled { "✓启用" } else { "✗禁用" };
+        let status_icon = if task.enabled {
+            "✓启用"
+        } else {
+            "✗禁用"
+        };
         let next = task
             .next_fire
             .map(|t| {
@@ -81,17 +90,23 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
     lines.push(Line::from(vec![
         Span::styled(
             " Enter",
-            Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(":切换  ", Style::default().fg(theme::MUTED)),
         Span::styled(
             "Ctrl+D",
-            Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(":删除  ", Style::default().fg(theme::MUTED)),
         Span::styled(
             "Esc",
-            Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));
@@ -99,15 +114,20 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
     // 存储面板元数据供鼠标选区使用
     app.core.panel_area = Some(inner);
     app.core.panel_scroll_offset = panel.scroll_offset;
-    app.core.panel_plain_lines = lines.iter().map(|l| {
-        l.spans.iter().map(|s| s.content.as_ref()).collect()
-    }).collect();
+    app.core.panel_plain_lines = lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
 
     // 应用面板选区高亮
     if app.core.panel_selection.is_active() {
         let sel = &app.core.panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
-            let ((sr, sc), (er, ec)) = if start <= end { (start, end) } else { (end, start) };
+            let ((sr, sc), (er, ec)) = if start <= end {
+                (start, end)
+            } else {
+                (end, start)
+            };
             let scroll = app.core.panel_scroll_offset as usize;
             let visible_start = scroll;
             let visible_end = scroll + inner.height as usize;
@@ -143,13 +163,16 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::CronPanel;
     use crate::app::App;
+    use crate::app::CronPanel;
 
     fn render_headless_cron_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30);
         app.cron.cron_panel = Some(CronPanel::new(vec![]));
-        handle.terminal.draw(|f| crate::ui::main_ui::render(f, &mut app)).unwrap();
+        handle
+            .terminal
+            .draw(|f| crate::ui::main_ui::render(f, &mut app))
+            .unwrap();
         (app, handle)
     }
 
@@ -157,6 +180,10 @@ mod tests {
     async fn test_cron_empty_shows_guide() {
         let (_, handle) = render_headless_cron_empty();
         let snap = handle.snapshot().join("\n");
-        assert!(snap.contains("loop"), "空 Cron 面板应显示 /loop 创建引导，实际:\n{}", snap);
+        assert!(
+            snap.contains("loop"),
+            "空 Cron 面板应显示 /loop 创建引导，实际:\n{}",
+            snap
+        );
     }
 }

@@ -1,7 +1,7 @@
+use super::Command;
 use crate::app::App;
 use crate::ui::message_view::MessageViewModel;
 use crate::ui::render_thread::RenderEvent;
-use super::Command;
 
 pub struct LoopCommand;
 
@@ -18,7 +18,8 @@ impl Command for LoopCommand {
         let args = args.trim();
         if args.is_empty() {
             let vm = MessageViewModel::system(
-                "用法: /loop <自然语言时间描述> <提示词>\n例如: /loop 每隔5分钟提醒我喝水".to_string()
+                "用法: /loop <自然语言时间描述> <提示词>\n例如: /loop 每隔5分钟提醒我喝水"
+                    .to_string(),
             );
             app.core.view_messages.push(vm.clone());
             let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
@@ -54,7 +55,11 @@ mod tests {
         cmd.execute(&mut app, "");
         assert_eq!(app.core.view_messages.len(), 1);
         let text = format!("{:?}", app.core.view_messages[0]);
-        assert!(text.contains("用法"), "空参数应显示用法提示，实际: {}", text);
+        assert!(
+            text.contains("用法"),
+            "空参数应显示用法提示，实际: {}",
+            text
+        );
     }
 
     #[tokio::test]

@@ -34,7 +34,10 @@ impl BaseTool for CalculatorTool {
         })
     }
 
-    async fn invoke(&self, input: serde_json::Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let op = input["operation"].as_str().unwrap_or("add");
         let a = input["a"].as_f64().unwrap_or(0.0);
         let b = input["b"].as_f64().unwrap_or(0.0);
@@ -76,7 +79,11 @@ async fn main() -> anyhow::Result<()> {
 
     println!("\n=== Final Answer ===");
     println!("{}", output.text);
-    println!("Steps: {}, Tool calls: {}", output.steps, output.tool_calls.len());
+    println!(
+        "Steps: {}, Tool calls: {}",
+        output.steps,
+        output.tool_calls.len()
+    );
 
     Ok(())
 }

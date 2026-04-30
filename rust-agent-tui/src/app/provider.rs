@@ -1,5 +1,5 @@
-use rust_create_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
 use crate::config::{ThinkingConfig, ZenConfig};
+use rust_create_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
 
 #[derive(Clone)]
 pub enum LlmProvider {
@@ -27,7 +27,12 @@ impl LlmProvider {
                 let model = std::env::var("ANTHROPIC_MODEL")
                     .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
                 let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-                Some(Self::Anthropic { api_key, model, base_url, thinking: None })
+                Some(Self::Anthropic {
+                    api_key,
+                    model,
+                    base_url,
+                    thinking: None,
+                })
             }
             "openai" | "" => {
                 if provider_hint.is_empty() {
@@ -35,25 +40,38 @@ impl LlmProvider {
                         let model = std::env::var("ANTHROPIC_MODEL")
                             .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
                         let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-                        return Some(Self::Anthropic { api_key, model, base_url, thinking: None });
+                        return Some(Self::Anthropic {
+                            api_key,
+                            model,
+                            base_url,
+                            thinking: None,
+                        });
                     }
                 }
                 let api_key = std::env::var("OPENAI_API_KEY").ok()?;
                 let base_url = std::env::var("OPENAI_API_BASE")
                     .or_else(|_| std::env::var("OPENAI_BASE_URL"))
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-                let model = std::env::var("OPENAI_MODEL")
-                    .unwrap_or_else(|_| "gpt-4o".to_string());
-                Some(Self::OpenAi { api_key, base_url, model, thinking: None })
+                let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+                Some(Self::OpenAi {
+                    api_key,
+                    base_url,
+                    model,
+                    thinking: None,
+                })
             }
             _ => {
                 let api_key = std::env::var("OPENAI_API_KEY").ok()?;
                 let base_url = std::env::var("OPENAI_API_BASE")
                     .or_else(|_| std::env::var("OPENAI_BASE_URL"))
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-                let model = std::env::var("OPENAI_MODEL")
-                    .unwrap_or_else(|_| "gpt-4o".to_string());
-                Some(Self::OpenAi { api_key, base_url, model, thinking: None })
+                let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+                Some(Self::OpenAi {
+                    api_key,
+                    base_url,
+                    model,
+                    thinking: None,
+                })
             }
         }
     }
@@ -61,21 +79,24 @@ impl LlmProvider {
     /// 从 ZenConfig 构造 LlmProvider（按 active_provider_id 查找 Provider，再按 active_alias 取模型名）
     pub fn from_config(cfg: &ZenConfig) -> Option<Self> {
         let app = &cfg.config;
-        let provider = app.providers.iter().find(|p| p.id == app.active_provider_id)?;
+        let provider = app
+            .providers
+            .iter()
+            .find(|p| p.id == app.active_provider_id)?;
 
         if provider.api_key.is_empty() {
             return None;
         }
 
         let alias = app.active_alias.as_str();
-        let model = provider.models.get_model(alias)
+        let model = provider
+            .models
+            .get_model(alias)
             .filter(|m| !m.is_empty())
             .map(|m| m.to_string())
-            .unwrap_or_else(|| {
-                match provider.provider_type.as_str() {
-                    "anthropic" => "claude-sonnet-4-6".to_string(),
-                    _ => "gpt-4o".to_string(),
-                }
+            .unwrap_or_else(|| match provider.provider_type.as_str() {
+                "anthropic" => "claude-sonnet-4-6".to_string(),
+                _ => "gpt-4o".to_string(),
             });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);
@@ -84,7 +105,11 @@ impl LlmProvider {
             "anthropic" => Some(Self::Anthropic {
                 api_key: provider.api_key.clone(),
                 model,
-                base_url: if provider.base_url.is_empty() { None } else { Some(provider.base_url.clone()) },
+                base_url: if provider.base_url.is_empty() {
+                    None
+                } else {
+                    Some(provider.base_url.clone())
+                },
                 thinking,
             }),
             _ => Some(Self::OpenAi {
@@ -104,20 +129,23 @@ impl LlmProvider {
     /// 大小写不敏感；未知 alias fallback 到默认模型
     pub fn from_config_for_alias(cfg: &ZenConfig, alias: &str) -> Option<Self> {
         let app = &cfg.config;
-        let provider = app.providers.iter().find(|p| p.id == app.active_provider_id)?;
+        let provider = app
+            .providers
+            .iter()
+            .find(|p| p.id == app.active_provider_id)?;
 
         if provider.api_key.is_empty() {
             return None;
         }
 
-        let model = provider.models.get_model(alias)
+        let model = provider
+            .models
+            .get_model(alias)
             .filter(|m| !m.is_empty())
             .map(|m| m.to_string())
-            .unwrap_or_else(|| {
-                match provider.provider_type.as_str() {
-                    "anthropic" => "claude-sonnet-4-6".to_string(),
-                    _ => "gpt-4o".to_string(),
-                }
+            .unwrap_or_else(|| match provider.provider_type.as_str() {
+                "anthropic" => "claude-sonnet-4-6".to_string(),
+                _ => "gpt-4o".to_string(),
             });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);
@@ -126,7 +154,11 @@ impl LlmProvider {
             "anthropic" => Some(Self::Anthropic {
                 api_key: provider.api_key.clone(),
                 model,
-                base_url: if provider.base_url.is_empty() { None } else { Some(provider.base_url.clone()) },
+                base_url: if provider.base_url.is_empty() {
+                    None
+                } else {
+                    Some(provider.base_url.clone())
+                },
                 thinking,
             }),
             _ => Some(Self::OpenAi {
@@ -158,14 +190,24 @@ impl LlmProvider {
 
     pub fn into_model(self) -> Box<dyn BaseModel> {
         match self {
-            Self::OpenAi { api_key, base_url, model, thinking } => {
+            Self::OpenAi {
+                api_key,
+                base_url,
+                model,
+                thinking,
+            } => {
                 let mut m = ChatOpenAI::new(api_key, model).with_base_url(base_url);
                 if let Some(t) = thinking {
                     m = m.with_reasoning_effort(t.openai_effort());
                 }
                 Box::new(m)
             }
-            Self::Anthropic { api_key, model, base_url, thinking } => {
+            Self::Anthropic {
+                api_key,
+                model,
+                base_url,
+                thinking,
+            } => {
                 let mut m = ChatAnthropic::new(api_key, model);
                 if let Some(url) = base_url {
                     m = m.with_base_url(url);
@@ -184,7 +226,12 @@ mod tests {
     use super::*;
     use crate::config::{ProviderConfig, ProviderModels, ZenConfig};
 
-    fn make_config(alias: &str, provider_id: &str, model_id: &str, provider_type: &str) -> ZenConfig {
+    fn make_config(
+        alias: &str,
+        provider_id: &str,
+        model_id: &str,
+        provider_type: &str,
+    ) -> ZenConfig {
         let mut cfg = ZenConfig::default();
         cfg.config.active_alias = alias.to_string();
         cfg.config.active_provider_id = provider_id.to_string();
@@ -193,9 +240,21 @@ mod tests {
             provider_type: provider_type.to_string(),
             api_key: "test-key".to_string(),
             models: ProviderModels {
-                opus: if alias == "opus" { model_id.to_string() } else { String::new() },
-                sonnet: if alias == "sonnet" { model_id.to_string() } else { String::new() },
-                haiku: if alias == "haiku" { model_id.to_string() } else { String::new() },
+                opus: if alias == "opus" {
+                    model_id.to_string()
+                } else {
+                    String::new()
+                },
+                sonnet: if alias == "sonnet" {
+                    model_id.to_string()
+                } else {
+                    String::new()
+                },
+                haiku: if alias == "haiku" {
+                    model_id.to_string()
+                } else {
+                    String::new()
+                },
             },
             ..Default::default()
         });

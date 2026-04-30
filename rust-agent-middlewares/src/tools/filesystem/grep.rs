@@ -82,13 +82,18 @@ impl BaseTool for SearchFilesRgTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let args_val = input["args"]
             .as_array()
             .ok_or("Missing args parameter (array of strings)")?;
 
         if args_val.is_empty() {
-            return Ok("Error: No arguments provided. Please provide ripgrep arguments.".to_string());
+            return Ok(
+                "Error: No arguments provided. Please provide ripgrep arguments.".to_string(),
+            );
         }
 
         let mut args: Vec<String> = args_val
@@ -154,7 +159,11 @@ mod tests {
     #[tokio::test]
     async fn test_search_files_rg_hit() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("test.txt"), "needle in a haystack\nother line").unwrap();
+        std::fs::write(
+            dir.path().join("test.txt"),
+            "needle in a haystack\nother line",
+        )
+        .unwrap();
         let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({"args": ["-n", "needle", "./"]}))
@@ -178,18 +187,21 @@ mod tests {
         if result.starts_with("Error executing ripgrep") {
             return;
         }
-        assert!(result.contains("No matches found"), "should report no match: {result}");
+        assert!(
+            result.contains("No matches found"),
+            "should report no match: {result}"
+        );
     }
 
     #[tokio::test]
     async fn test_search_files_rg_empty_args() {
         let dir = tempfile::tempdir().unwrap();
         let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
-        let result = tool
-            .invoke(serde_json::json!({"args": []}))
-            .await
-            .unwrap();
-        assert!(result.contains("No arguments"), "should report missing args: {result}");
+        let result = tool.invoke(serde_json::json!({"args": []})).await.unwrap();
+        assert!(
+            result.contains("No arguments"),
+            "should report missing args: {result}"
+        );
     }
 
     #[tokio::test]
@@ -212,7 +224,10 @@ mod tests {
         let tool = SearchFilesRgTool::new("/tmp");
         let desc = tool.description();
         assert!(desc.contains("regex"), "description 应提及正则支持");
-        assert!(desc.contains("Output modes:"), "description 应包含 Output modes 段落");
+        assert!(
+            desc.contains("Output modes:"),
+            "description 应包含 Output modes 段落"
+        );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

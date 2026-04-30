@@ -94,12 +94,10 @@ impl SharedPermissionMode {
             let current_mode = PermissionMode::try_from(current).unwrap_or(PermissionMode::Default);
             let next_mode = current_mode.next();
             let next = next_mode as u8;
-            match self.inner.compare_exchange(
-                current,
-                next,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
+            match self
+                .inner
+                .compare_exchange(current, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
                 Ok(_) => return next_mode,
                 Err(_) => continue,
             }
@@ -137,17 +135,35 @@ mod tests {
 
     #[test]
     fn test_try_from_u8_valid() {
-        assert_eq!(PermissionMode::try_from(0).unwrap(), PermissionMode::Default);
-        assert_eq!(PermissionMode::try_from(1).unwrap(), PermissionMode::DontAsk);
-        assert_eq!(PermissionMode::try_from(2).unwrap(), PermissionMode::AcceptEdit);
-        assert_eq!(PermissionMode::try_from(3).unwrap(), PermissionMode::AutoMode);
+        assert_eq!(
+            PermissionMode::try_from(0).unwrap(),
+            PermissionMode::Default
+        );
+        assert_eq!(
+            PermissionMode::try_from(1).unwrap(),
+            PermissionMode::DontAsk
+        );
+        assert_eq!(
+            PermissionMode::try_from(2).unwrap(),
+            PermissionMode::AcceptEdit
+        );
+        assert_eq!(
+            PermissionMode::try_from(3).unwrap(),
+            PermissionMode::AutoMode
+        );
         assert_eq!(PermissionMode::try_from(4).unwrap(), PermissionMode::Bypass);
     }
 
     #[test]
     fn test_try_from_u8_invalid() {
-        assert_eq!(PermissionMode::try_from(5).unwrap(), PermissionMode::Default);
-        assert_eq!(PermissionMode::try_from(255).unwrap(), PermissionMode::Default);
+        assert_eq!(
+            PermissionMode::try_from(5).unwrap(),
+            PermissionMode::Default
+        );
+        assert_eq!(
+            PermissionMode::try_from(255).unwrap(),
+            PermissionMode::Default
+        );
     }
 
     #[test]

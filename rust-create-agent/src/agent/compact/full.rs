@@ -7,8 +7,7 @@ use crate::messages::{BaseMessage, ContentBlock, MessageContent};
 use tracing::warn;
 
 /// 结构化摘要 system prompt
-const SYSTEM_PROMPT: &str =
-    "你是一个对话上下文压缩工具，擅长将长对话压缩为结构化摘要。";
+const SYSTEM_PROMPT: &str = "你是一个对话上下文压缩工具，擅长将长对话压缩为结构化摘要。";
 
 /// 结构化摘要 user prompt 模板
 const USER_PROMPT_TEMPLATE: &str = r#"请分析以下对话历史，按以下 9 个方面进行详细分析：
@@ -256,8 +255,7 @@ pub async fn full_compact(
             Err(e) if is_ptl_error(&e) && attempt < max_retries => {
                 warn!(
                     attempt = attempt + 1,
-                    max_retries,
-                    "Full Compact PTL 降级：prompt 过长，删除最旧消息组后重试"
+                    max_retries, "Full Compact PTL 降级：prompt 过长，删除最旧消息组后重试"
                 );
 
                 let rounds = group_messages_by_round(&current_messages);
@@ -487,7 +485,10 @@ mod tests {
     fn test_ptl_truncate_drops_multiple() {
         let msgs: Vec<BaseMessage> = (0..5)
             .flat_map(|i| {
-                vec![BaseMessage::human(format!("q{}", i)), BaseMessage::ai(format!("a{}", i))]
+                vec![
+                    BaseMessage::human(format!("q{}", i)),
+                    BaseMessage::ai(format!("a{}", i)),
+                ]
             })
             .collect();
         let rounds = group_messages_by_round(&msgs);
@@ -500,7 +501,10 @@ mod tests {
     fn test_ptl_truncate_preserves_at_least_one() {
         let msgs: Vec<BaseMessage> = (0..3)
             .flat_map(|i| {
-                vec![BaseMessage::human(format!("q{}", i)), BaseMessage::ai(format!("a{}", i))]
+                vec![
+                    BaseMessage::human(format!("q{}", i)),
+                    BaseMessage::ai(format!("a{}", i)),
+                ]
             })
             .collect();
         let rounds = group_messages_by_round(&msgs);
@@ -548,7 +552,11 @@ mod tests {
             BaseMessage::human("帮我写个函数"),
             BaseMessage::ai_with_tool_calls(
                 MessageContent::text("using bash"),
-                vec![ToolCallRequest::new("tc1", "bash", json!({"command": "echo"}))],
+                vec![ToolCallRequest::new(
+                    "tc1",
+                    "bash",
+                    json!({"command": "echo"}),
+                )],
             ),
             BaseMessage::tool_result("tc1", "编译成功"),
         ];
@@ -593,7 +601,10 @@ mod tests {
     async fn test_full_compact_ptl_retry_succeeds() {
         let msgs: Vec<BaseMessage> = (0..5)
             .flat_map(|i| {
-                vec![BaseMessage::human(format!("q{}", i)), BaseMessage::ai(format!("a{}", i))]
+                vec![
+                    BaseMessage::human(format!("q{}", i)),
+                    BaseMessage::ai(format!("a{}", i)),
+                ]
             })
             .collect();
         let model = MockBaseModel::new_with_ptl_fail("摘要", 2);
@@ -613,7 +624,11 @@ mod tests {
         let result = full_compact(&msgs, &model, &config, "").await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("PTL"), "错误消息应提及 PTL，实际: {}", err_msg);
+        assert!(
+            err_msg.contains("PTL"),
+            "错误消息应提及 PTL，实际: {}",
+            err_msg
+        );
     }
 
     #[tokio::test]
@@ -625,13 +640,20 @@ mod tests {
             async fn invoke(&self, _request: LlmRequest) -> AgentResult<LlmResponse> {
                 Err(AgentError::LlmError("connection refused".to_string()))
             }
-            fn provider_name(&self) -> &str { "fail" }
-            fn model_id(&self) -> &str { "fail-model" }
+            fn provider_name(&self) -> &str {
+                "fail"
+            }
+            fn model_id(&self) -> &str {
+                "fail-model"
+            }
         }
         let config = CompactConfig::default();
         let result = full_compact(&msgs, &FailModel, &config, "").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("connection refused"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("connection refused"));
     }
 
     #[tokio::test]

@@ -60,7 +60,10 @@ impl ToolCallRequest {
 #[serde(tag = "role")]
 pub enum BaseMessage {
     #[serde(rename = "user")]
-    Human { id: MessageId, content: MessageContent },
+    Human {
+        id: MessageId,
+        content: MessageContent,
+    },
 
     #[serde(rename = "assistant")]
     Ai {
@@ -71,7 +74,10 @@ pub enum BaseMessage {
     },
 
     #[serde(rename = "system")]
-    System { id: MessageId, content: MessageContent },
+    System {
+        id: MessageId,
+        content: MessageContent,
+    },
 
     #[serde(rename = "tool")]
     Tool {
@@ -87,7 +93,10 @@ impl BaseMessage {
     // ── 构造器 ────────────────────────────────────────────────────────────────
 
     pub fn human(content: impl Into<MessageContent>) -> Self {
-        Self::Human { id: MessageId::new(), content: content.into() }
+        Self::Human {
+            id: MessageId::new(),
+            content: content.into(),
+        }
     }
 
     pub fn ai(content: impl Into<MessageContent>) -> Self {
@@ -117,7 +126,11 @@ impl BaseMessage {
             .iter()
             .filter_map(|b| {
                 if let ContentBlock::ToolUse { id, name, input } = b {
-                    Some(ToolCallRequest::new(id.clone(), name.clone(), input.clone()))
+                    Some(ToolCallRequest::new(
+                        id.clone(),
+                        name.clone(),
+                        input.clone(),
+                    ))
                 } else {
                     None
                 }
@@ -131,7 +144,10 @@ impl BaseMessage {
     }
 
     pub fn system(content: impl Into<MessageContent>) -> Self {
-        Self::System { id: MessageId::new(), content: content.into() }
+        Self::System {
+            id: MessageId::new(),
+            content: content.into(),
+        }
     }
 
     pub fn tool_result(id: impl Into<String>, content: impl Into<MessageContent>) -> Self {
@@ -270,7 +286,11 @@ mod tests {
         use crate::messages::ContentBlock;
         let blocks = vec![
             ContentBlock::text("I'll read a file"),
-            ContentBlock::tool_use("toolu_123", "read_file", serde_json::json!({"path": "test.txt"})),
+            ContentBlock::tool_use(
+                "toolu_123",
+                "read_file",
+                serde_json::json!({"path": "test.txt"}),
+            ),
         ];
         let ai_msg = BaseMessage::ai_from_blocks(blocks);
 

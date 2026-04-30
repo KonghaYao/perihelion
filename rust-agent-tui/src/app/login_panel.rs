@@ -4,8 +4,13 @@ use crate::config::{ProviderConfig, ProviderModels, ZenConfig};
 
 /// (provider_type, opus, sonnet, haiku)
 const DEFAULT_MODELS: &[(&str, &str, &str, &str)] = &[
-    ("anthropic", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"),
-    ("openai",     "gpt-4o",          "gpt-4o-mini",       "gpt-3.5-turbo"),
+    (
+        "anthropic",
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+    ),
+    ("openai", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"),
 ];
 
 /// provider_type 循环切换列表
@@ -35,11 +40,11 @@ pub enum LoginEditField {
 impl LoginEditField {
     pub fn next(&self) -> Self {
         match self {
-            Self::Name       => Self::Type,
-            Self::Type       => Self::BaseUrl,
-            Self::BaseUrl    => Self::ApiKey,
-            Self::ApiKey     => Self::OpusModel,
-            Self::OpusModel  => Self::SonnetModel,
+            Self::Name => Self::Type,
+            Self::Type => Self::BaseUrl,
+            Self::BaseUrl => Self::ApiKey,
+            Self::ApiKey => Self::OpusModel,
+            Self::OpusModel => Self::SonnetModel,
             Self::SonnetModel => Self::HaikuModel,
             Self::HaikuModel => Self::Name,
         }
@@ -47,11 +52,11 @@ impl LoginEditField {
 
     pub fn prev(&self) -> Self {
         match self {
-            Self::Name       => Self::HaikuModel,
-            Self::Type       => Self::Name,
-            Self::BaseUrl    => Self::Type,
-            Self::ApiKey     => Self::BaseUrl,
-            Self::OpusModel  => Self::ApiKey,
+            Self::Name => Self::HaikuModel,
+            Self::Type => Self::Name,
+            Self::BaseUrl => Self::Type,
+            Self::ApiKey => Self::BaseUrl,
+            Self::OpusModel => Self::ApiKey,
             Self::SonnetModel => Self::OpusModel,
             Self::HaikuModel => Self::SonnetModel,
         }
@@ -59,13 +64,13 @@ impl LoginEditField {
 
     pub fn label(&self) -> &str {
         match self {
-            Self::Name        => "Name        ",
-            Self::Type        => "Type        ",
-            Self::BaseUrl     => "Base URL    ",
-            Self::ApiKey      => "API Key     ",
-            Self::OpusModel   => "Opus Model  ",
+            Self::Name => "Name        ",
+            Self::Type => "Type        ",
+            Self::BaseUrl => "Base URL    ",
+            Self::ApiKey => "API Key     ",
+            Self::OpusModel => "Opus Model  ",
             Self::SonnetModel => "Sonnet Model",
-            Self::HaikuModel  => "Haiku Model ",
+            Self::HaikuModel => "Haiku Model ",
         }
     }
 }
@@ -121,7 +126,9 @@ impl LoginPanel {
 
     /// 列表上下移动光标（循环）
     pub fn move_cursor(&mut self, delta: isize) {
-        if self.providers.is_empty() { return; }
+        if self.providers.is_empty() {
+            return;
+        }
         let len = self.providers.len();
         self.cursor = ((self.cursor as isize + delta).rem_euclid(len as isize)) as usize;
     }
@@ -191,7 +198,10 @@ impl LoginPanel {
     /// 切换后自动调用 auto_fill_models_for_type 更新模型名默认值
     pub fn cycle_type(&mut self) {
         if self.edit_field == LoginEditField::Type {
-            let cur = PROVIDER_TYPES.iter().position(|&t| t == self.buf_type).unwrap_or(0);
+            let cur = PROVIDER_TYPES
+                .iter()
+                .position(|&t| t == self.buf_type)
+                .unwrap_or(0);
             self.buf_type = PROVIDER_TYPES[(cur + 1) % PROVIDER_TYPES.len()].to_string();
             self.auto_fill_models_for_type();
         }
@@ -200,26 +210,38 @@ impl LoginPanel {
     /// 输入字符到当前活动字段（Type 字段不可直接输入，只能 cycle）
     pub fn push_char(&mut self, c: char) {
         match self.edit_field {
-            LoginEditField::Name        => self.buf_name.push(c),
-            LoginEditField::Type        => {} // 只能 cycle
-            LoginEditField::BaseUrl     => self.buf_base_url.push(c),
-            LoginEditField::ApiKey      => self.buf_api_key.push(c),
-            LoginEditField::OpusModel   => self.buf_opus_model.push(c),
+            LoginEditField::Name => self.buf_name.push(c),
+            LoginEditField::Type => {} // 只能 cycle
+            LoginEditField::BaseUrl => self.buf_base_url.push(c),
+            LoginEditField::ApiKey => self.buf_api_key.push(c),
+            LoginEditField::OpusModel => self.buf_opus_model.push(c),
             LoginEditField::SonnetModel => self.buf_sonnet_model.push(c),
-            LoginEditField::HaikuModel  => self.buf_haiku_model.push(c),
+            LoginEditField::HaikuModel => self.buf_haiku_model.push(c),
         }
     }
 
     /// 删除当前活动字段末字符（Backspace）
     pub fn pop_char(&mut self) {
         match self.edit_field {
-            LoginEditField::Name        => { self.buf_name.pop(); }
-            LoginEditField::Type        => {}
-            LoginEditField::BaseUrl     => { self.buf_base_url.pop(); }
-            LoginEditField::ApiKey      => { self.buf_api_key.pop(); }
-            LoginEditField::OpusModel   => { self.buf_opus_model.pop(); }
-            LoginEditField::SonnetModel => { self.buf_sonnet_model.pop(); }
-            LoginEditField::HaikuModel  => { self.buf_haiku_model.pop(); }
+            LoginEditField::Name => {
+                self.buf_name.pop();
+            }
+            LoginEditField::Type => {}
+            LoginEditField::BaseUrl => {
+                self.buf_base_url.pop();
+            }
+            LoginEditField::ApiKey => {
+                self.buf_api_key.pop();
+            }
+            LoginEditField::OpusModel => {
+                self.buf_opus_model.pop();
+            }
+            LoginEditField::SonnetModel => {
+                self.buf_sonnet_model.pop();
+            }
+            LoginEditField::HaikuModel => {
+                self.buf_haiku_model.pop();
+            }
         }
     }
 
@@ -227,13 +249,13 @@ impl LoginPanel {
     pub fn paste_text(&mut self, text: &str) {
         let text: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
         match self.edit_field {
-            LoginEditField::Name        => self.buf_name.push_str(&text),
-            LoginEditField::Type        => {}
-            LoginEditField::BaseUrl     => self.buf_base_url.push_str(&text),
-            LoginEditField::ApiKey      => self.buf_api_key.push_str(&text),
-            LoginEditField::OpusModel   => self.buf_opus_model.push_str(&text),
+            LoginEditField::Name => self.buf_name.push_str(&text),
+            LoginEditField::Type => {}
+            LoginEditField::BaseUrl => self.buf_base_url.push_str(&text),
+            LoginEditField::ApiKey => self.buf_api_key.push_str(&text),
+            LoginEditField::OpusModel => self.buf_opus_model.push_str(&text),
             LoginEditField::SonnetModel => self.buf_sonnet_model.push_str(&text),
-            LoginEditField::HaikuModel  => self.buf_haiku_model.push_str(&text),
+            LoginEditField::HaikuModel => self.buf_haiku_model.push_str(&text),
         }
     }
 
@@ -242,7 +264,9 @@ impl LoginPanel {
     /// Type 切换时自动填充模型名默认值
     /// 规则：检测三个模型名字段是否为空或等于旧 provider_type 的默认值；若是则填入新 type 的默认值
     pub fn auto_fill_models_for_type(&mut self) {
-        let new_defaults = DEFAULT_MODELS.iter().find(|(t, _, _, _)| *t == self.buf_type);
+        let new_defaults = DEFAULT_MODELS
+            .iter()
+            .find(|(t, _, _, _)| *t == self.buf_type);
         let (opus_default, sonnet_default, haiku_default) = match new_defaults {
             Some((_, o, s, h)) => (o.to_string(), s.to_string(), h.to_string()),
             None => return, // 未知 provider_type，不自动填充
@@ -255,8 +279,12 @@ impl LoginPanel {
             .collect();
 
         let is_default_or_empty = |val: &str| -> bool {
-            if val.is_empty() { return true; }
-            all_defaults.iter().any(|(o, s, h)| val == o || val == s || val == h)
+            if val.is_empty() {
+                return true;
+            }
+            all_defaults
+                .iter()
+                .any(|(o, s, h)| val == o || val == s || val == h)
         };
 
         if is_default_or_empty(&self.buf_opus_model) {
@@ -283,17 +311,26 @@ impl LoginPanel {
             }
             self.buf_name.trim().to_lowercase().replace(' ', "_")
         } else {
-            self.providers.get(self.cursor).map(|p| p.id.clone()).unwrap_or_default()
+            self.providers
+                .get(self.cursor)
+                .map(|p| p.id.clone())
+                .unwrap_or_default()
         };
 
-        if id.is_empty() { return false; }
+        if id.is_empty() {
+            return false;
+        }
 
         let mut p = ProviderConfig {
             id: id.clone(),
             provider_type: self.buf_type.clone(),
             api_key: self.buf_api_key.clone(),
             base_url: self.buf_base_url.clone(),
-            name: if self.buf_name.trim().is_empty() { None } else { Some(self.buf_name.trim().to_string()) },
+            name: if self.buf_name.trim().is_empty() {
+                None
+            } else {
+                Some(self.buf_name.trim().to_string())
+            },
             models: ProviderModels {
                 opus: self.buf_opus_model.clone(),
                 sonnet: self.buf_sonnet_model.clone(),

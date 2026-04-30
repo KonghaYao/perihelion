@@ -144,8 +144,8 @@ impl ThreadStore for FilesystemThreadStore {
             if line.is_empty() {
                 continue;
             }
-            let msg: BaseMessage = serde_json::from_str(line)
-                .with_context(|| format!("反序列化消息失败: {line}"))?;
+            let msg: BaseMessage =
+                serde_json::from_str(line).with_context(|| format!("反序列化消息失败: {line}"))?;
             msgs.push(msg);
         }
         Ok(msgs)

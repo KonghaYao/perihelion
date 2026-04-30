@@ -34,9 +34,9 @@ impl App {
     /// 展开/折叠所有工具调用消息
     pub fn toggle_collapsed_messages(&mut self) {
         self.core.show_tool_messages = !self.core.show_tool_messages;
-        let _ = self
-            .core.render_tx
-            .send(RenderEvent::ToggleToolMessages(self.core.show_tool_messages));
+        let _ = self.core.render_tx.send(RenderEvent::ToggleToolMessages(
+            self.core.show_tool_messages,
+        ));
     }
 
     /// 添加一个图片附件到待发送列表
@@ -95,7 +95,8 @@ impl App {
 
         // 通知渲染线程加载历史消息
         let _ = self
-            .core.render_tx
+            .core
+            .render_tx
             .send(RenderEvent::LoadHistory(self.core.view_messages.clone()));
     }
 
@@ -123,7 +124,8 @@ impl App {
             let vm = MessageViewModel::system("无可压缩的上下文（历史消息为空）".to_string());
             self.core.view_messages.push(vm.clone());
             let _ = self
-                .core.render_tx
+                .core
+                .render_tx
                 .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
             return;
         }
@@ -141,7 +143,8 @@ impl App {
                 );
                 self.core.view_messages.push(vm.clone());
                 let _ = self
-                    .core.render_tx
+                    .core
+                    .render_tx
                     .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
                 return;
             }

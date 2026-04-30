@@ -21,4 +21,3 @@ pub struct BatchItem {
     pub tool_name: String,
     pub input: serde_json::Value,
 }
-

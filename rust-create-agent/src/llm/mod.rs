@@ -6,9 +6,9 @@ pub mod types;
 mod adapter;
 mod react_adapter;
 
-use async_trait::async_trait;
 use crate::error::AgentResult;
 use crate::llm::types::{LlmRequest, LlmResponse};
+use async_trait::async_trait;
 
 /// BaseModel trait - 统一 LLM 接口，对齐 LangChain Python BaseModel
 #[async_trait]

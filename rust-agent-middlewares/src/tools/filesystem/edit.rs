@@ -66,7 +66,10 @@ impl BaseTool for EditFileTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let file_path = input["file_path"]
             .as_str()
             .ok_or("Missing file_path parameter")?;
@@ -159,10 +162,15 @@ mod tests {
         std::fs::write(dir.path().join("f.txt"), "hello foo world").unwrap();
         let tool = EditFileTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}))
+            .invoke(
+                serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}),
+            )
             .await
             .unwrap();
-        assert!(result.contains("edited successfully"), "unexpected: {result}");
+        assert!(
+            result.contains("edited successfully"),
+            "unexpected: {result}"
+        );
         let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "hello bar world");
     }
@@ -176,7 +184,10 @@ mod tests {
             .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "missing", "new_string": "x"}))
             .await
             .unwrap();
-        assert!(result.contains("not found"), "should report not found: {result}");
+        assert!(
+            result.contains("not found"),
+            "should report not found: {result}"
+        );
     }
 
     #[tokio::test]
@@ -202,10 +213,15 @@ mod tests {
         std::fs::write(dir.path().join("f.txt"), "foo and foo").unwrap();
         let tool = EditFileTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}))
+            .invoke(
+                serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}),
+            )
             .await
             .unwrap();
-        assert!(result.contains("not unique"), "should report ambiguity: {result}");
+        assert!(
+            result.contains("not unique"),
+            "should report ambiguity: {result}"
+        );
     }
 
     #[tokio::test]
@@ -213,10 +229,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tool = EditFileTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"file_path": "ghost.txt", "old_string": "x", "new_string": "y"}))
+            .invoke(
+                serde_json::json!({"file_path": "ghost.txt", "old_string": "x", "new_string": "y"}),
+            )
             .await
             .unwrap();
-        assert!(result.contains("File not found"), "should report file not found: {result}");
+        assert!(
+            result.contains("File not found"),
+            "should report file not found: {result}"
+        );
     }
 
     #[tokio::test]
@@ -228,7 +249,10 @@ mod tests {
             .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "", "new_string": "x", "replace_all": true}))
             .await
             .unwrap();
-        assert!(result.contains("cannot be empty"), "empty old_string should be rejected: {result}");
+        assert!(
+            result.contains("cannot be empty"),
+            "empty old_string should be rejected: {result}"
+        );
         // 文件内容不应被修改
         let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "hello world", "file should not be modified");
@@ -240,7 +264,10 @@ mod tests {
         let desc = tool.description();
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
         assert!(desc.contains("old_string"), "description 应提及 old_string");
-        assert!(desc.contains("replace_all"), "description 应提及 replace_all");
+        assert!(
+            desc.contains("replace_all"),
+            "description 应提及 replace_all"
+        );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

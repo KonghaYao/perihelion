@@ -24,9 +24,7 @@ pub mod prelude {
         token::{ContextBudget, TokenTracker},
         AgentCancellationToken, ReActAgent,
     };
-    pub use crate::ask_user::{
-        AskUserBatchRequest, AskUserOption, AskUserQuestionData,
-    };
+    pub use crate::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
     pub use crate::error::{AgentError, AgentResult};
     pub use crate::hitl::{BatchItem, HitlDecision};
     pub use crate::llm::{BaseModel, BaseModelReactLLM, ChatAnthropic, ChatOpenAI, MockLLM};

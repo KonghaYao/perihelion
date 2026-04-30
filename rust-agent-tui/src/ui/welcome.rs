@@ -95,15 +95,27 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     ]));
 
     // ── 首次使用引导（未配置 Provider 时显示）───────────────────────────
-    let has_provider = app.zen_config.as_ref()
+    let has_provider = app
+        .zen_config
+        .as_ref()
         .map(|c| !c.config.providers.is_empty())
         .unwrap_or(false);
     if !has_provider {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled(" ▶ ", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " ▶ ",
+                Style::default()
+                    .fg(theme::WARNING)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("请输入 ", Style::default().fg(theme::TEXT)),
-            Span::styled("/login", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "/login",
+                Style::default()
+                    .fg(theme::WARNING)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" 配置 API Key 开始使用", Style::default().fg(theme::TEXT)),
         ]));
     }
@@ -141,9 +153,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     let centered_lines: Vec<Line<'static>> = lines.into_iter().map(|l| l.centered()).collect();
 
     // 垂直居中：顶部填充空行
-    let mut padded_lines: Vec<Line<'static>> = (0..padding_top)
-        .map(|_| Line::from(""))
-        .collect();
+    let mut padded_lines: Vec<Line<'static>> = (0..padding_top).map(|_| Line::from("")).collect();
     padded_lines.extend(centered_lines);
 
     let paragraph = Paragraph::new(Text::from(padded_lines));

@@ -26,7 +26,9 @@ impl App {
         };
         panel.apply_to_config(cfg);
         if let Err(e) = crate::config::save(cfg) {
-            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+            self.core
+                .view_messages
+                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
         }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
@@ -52,11 +54,17 @@ impl App {
 
     /// 选中（激活）光标处的 Provider
     pub fn login_panel_select_provider(&mut self) {
-        let Some(panel) = self.core.login_panel.as_mut() else { return };
-        let Some(cfg) = self.zen_config.as_mut() else { return };
+        let Some(panel) = self.core.login_panel.as_mut() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
         panel.select_provider(cfg);
         if let Err(e) = crate::config::save(cfg) {
-            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+            self.core
+                .view_messages
+                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
         }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
@@ -80,7 +88,9 @@ impl App {
             return;
         }
         if let Err(e) = crate::config::save(cfg) {
-            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+            self.core
+                .view_messages
+                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
         }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
@@ -96,17 +106,24 @@ impl App {
         let Some(cfg) = self.zen_config.as_mut() else {
             return;
         };
-        let deleted_name = panel.providers.get(panel.cursor)
+        let deleted_name = panel
+            .providers
+            .get(panel.cursor)
             .map(|p| p.display_name().to_string())
             .unwrap_or_default();
         panel.confirm_delete(cfg);
         if !deleted_name.is_empty() {
-            self.core.view_messages.push(MessageViewModel::system(
-                format!("已删除 Provider: {}", deleted_name),
-            ));
+            self.core
+                .view_messages
+                .push(MessageViewModel::system(format!(
+                    "已删除 Provider: {}",
+                    deleted_name
+                )));
         }
         if let Err(e) = crate::config::save(cfg) {
-            self.core.view_messages.push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+            self.core
+                .view_messages
+                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
         }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.provider_name = p.display_name().to_string();
@@ -171,10 +188,12 @@ impl App {
         } else if let Some(id) = agent_id {
             self.set_agent_id(Some(id.clone()));
             let name = agent_name.unwrap_or_else(|| id.clone());
-            self.core.view_messages.push(MessageViewModel::system(format!(
-                "Agent 已切换为: {} ({})",
-                name, id
-            )));
+            self.core
+                .view_messages
+                .push(MessageViewModel::system(format!(
+                    "Agent 已切换为: {} ({})",
+                    name, id
+                )));
         }
         self.core.agent_panel = None;
     }
@@ -184,7 +203,6 @@ impl App {
     pub fn agent_panel_clear(&mut self) {
         self.core.agent_panel = None;
     }
-
 }
 
 // ─── 测试辅助方法（仅在 cfg(any(test, feature = "headless")) 下编译）──────────
@@ -252,7 +270,9 @@ impl App {
                 rust_agent_middlewares::prelude::PermissionMode::Bypass,
             ),
             mode_highlight_until: None,
-            spinner_state: perihelion_widgets::SpinnerState::new(perihelion_widgets::SpinnerMode::Idle),
+            spinner_state: perihelion_widgets::SpinnerState::new(
+                perihelion_widgets::SpinnerMode::Idle,
+            ),
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

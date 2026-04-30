@@ -1,6 +1,6 @@
 //! Tracing subscriber 初始化（基础日志输出）
 
-use tracing_subscriber::{fmt, EnvFilter, Registry, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter, Registry};
 
 pub struct TracingGuard;
 
@@ -18,8 +18,7 @@ pub fn init_tracing(service_name: &str) -> TracingGuard {
     // 检查是否配置了日志文件
     let log_file = std::env::var("RUST_LOG_FILE").ok();
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     match log_file {
         Some(path) => {

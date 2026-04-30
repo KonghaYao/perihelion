@@ -108,11 +108,12 @@ impl BaseTool for TodoWriteTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let items: Vec<TodoItem> = serde_json::from_value(
-            input["todos"].clone(),
-        )
-        .map_err(|e| format!("todo_write: invalid input: {e}"))?;
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let items: Vec<TodoItem> = serde_json::from_value(input["todos"].clone())
+            .map_err(|e| format!("todo_write: invalid input: {e}"))?;
 
         // 全量覆盖
         {
@@ -141,10 +142,14 @@ mod tests {
         let (tx, _rx) = mpsc::channel(8);
         let tool = TodoWriteTool::new(tx);
         let desc = tool.description();
-        assert!(desc.contains("full replacement") || desc.contains("fully replaces"),
-            "description 应提及全量替换语义");
-        assert!(desc.contains("pending") && desc.contains("in_progress") && desc.contains("completed"),
-            "description 应提及三种状态值");
+        assert!(
+            desc.contains("full replacement") || desc.contains("fully replaces"),
+            "description 应提及全量替换语义"
+        );
+        assert!(
+            desc.contains("pending") && desc.contains("in_progress") && desc.contains("completed"),
+            "description 应提及三种状态值"
+        );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

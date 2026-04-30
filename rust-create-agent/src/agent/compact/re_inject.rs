@@ -172,7 +172,10 @@ pub async fn re_inject(
 
         let mut skill_futures = Vec::new();
         for path in &resolved_skill_paths {
-            skill_futures.push(read_file_with_budget(path, config.re_inject_max_tokens_per_file));
+            skill_futures.push(read_file_with_budget(
+                path,
+                config.re_inject_max_tokens_per_file,
+            ));
         }
         let skill_contents: Vec<Option<String>> = futures::future::join_all(skill_futures).await;
 
@@ -217,7 +220,11 @@ mod tests {
     fn ai_read_file(tc_id: &str, path: &str) -> BaseMessage {
         BaseMessage::ai_with_tool_calls(
             MessageContent::text("reading file"),
-            vec![ToolCallRequest::new(tc_id, "read_file", json!({"path": path}))],
+            vec![ToolCallRequest::new(
+                tc_id,
+                "read_file",
+                json!({"path": path}),
+            )],
         )
     }
 
@@ -253,7 +260,9 @@ mod tests {
     // is_skills_path tests
     #[test]
     fn test_is_skills_path_cclaude() {
-        assert!(is_skills_path("/home/user/.claude/skills/my-skill/SKILL.md"));
+        assert!(is_skills_path(
+            "/home/user/.claude/skills/my-skill/SKILL.md"
+        ));
     }
 
     #[test]
@@ -417,9 +426,7 @@ mod tests {
     #[test]
     fn test_truncate_to_budget_single_exceeds() {
         // 单个文件超过 budget
-        let mut contents: Vec<(String, String)> = vec![
-            ("/big".to_string(), "x".repeat(10000)),
-        ];
+        let mut contents: Vec<(String, String)> = vec![("/big".to_string(), "x".repeat(10000))];
         let count = truncate_to_budget(&mut contents, 100);
         assert_eq!(count, 0, "单个文件超过 budget 时不应保留");
     }
@@ -453,10 +460,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f1 = create_temp_file(dir.path(), "a.rs", "fn main() {}");
         let f2 = create_temp_file(dir.path(), "b.rs", "fn helper() {}");
-        let msgs = vec![
-            ai_read_file("tc1", &f1),
-            ai_read_file("tc2", &f2),
-        ];
+        let msgs = vec![ai_read_file("tc1", &f1), ai_read_file("tc2", &f2)];
         let config = CompactConfig::default();
         let result = re_inject(&msgs, &config, dir.path().to_str().unwrap()).await;
         assert_eq!(result.files_injected, 2);
@@ -483,10 +487,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f1 = create_temp_file(dir.path(), "a.rs", "code");
         let skill_path = create_temp_skill(dir.path(), "s1", "# Skill");
-        let msgs = vec![
-            ai_read_file("tc1", &f1),
-            ai_skill_preload(0, &skill_path),
-        ];
+        let msgs = vec![ai_read_file("tc1", &f1), ai_skill_preload(0, &skill_path)];
         let config = CompactConfig::default();
         let result = re_inject(&msgs, &config, dir.path().to_str().unwrap()).await;
         assert!(result.files_injected >= 1);
@@ -506,7 +507,11 @@ mod tests {
     async fn test_re_inject_no_matching_files() {
         let msgs = vec![BaseMessage::ai_with_tool_calls(
             MessageContent::text("running"),
-            vec![ToolCallRequest::new("tc1", "bash", json!({"command": "ls"}))],
+            vec![ToolCallRequest::new(
+                "tc1",
+                "bash",
+                json!({"command": "ls"}),
+            )],
         )];
         let config = CompactConfig::default();
         let result = re_inject(&msgs, &config, "/tmp").await;

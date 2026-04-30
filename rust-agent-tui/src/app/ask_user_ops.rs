@@ -63,12 +63,15 @@ impl App {
             self.agent.pending_ask_user = None;
             if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.take() {
                 // 在消息流中显示用户的回答
-                let answers: Vec<(String, String)> = p.questions.iter().map(|q| {
-                    (q.data.header.clone(), q.answer())
-                }).collect();
-                let answer_lines: Vec<String> = answers.iter().map(|(header, answer)| {
-                    format!("[{}] {}", header, answer)
-                }).collect();
+                let answers: Vec<(String, String)> = p
+                    .questions
+                    .iter()
+                    .map(|q| (q.data.header.clone(), q.answer()))
+                    .collect();
+                let answer_lines: Vec<String> = answers
+                    .iter()
+                    .map(|(header, answer)| format!("[{}] {}", header, answer))
+                    .collect();
                 let vm = MessageViewModel::user(answer_lines.join("\n"));
                 self.core.view_messages.push(vm.clone());
                 let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));

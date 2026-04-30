@@ -33,9 +33,7 @@ pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
 
     // 每行文字都有浅背景，无分隔线
     let bg_style = Style::default().bg(HEADER_BG);
-    let text_style = Style::default()
-        .fg(theme::TEXT)
-        .bg(HEADER_BG);
+    let text_style = Style::default().fg(theme::TEXT).bg(HEADER_BG);
     let label_style = Style::default()
         .fg(theme::ACCENT)
         .add_modifier(Modifier::BOLD)
@@ -52,8 +50,7 @@ pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let paragraph = Paragraph::new(Text::from(lines))
-        .style(bg_style);
+    let paragraph = Paragraph::new(Text::from(lines)).style(bg_style);
     f.render_widget(paragraph, area);
 }
 
@@ -99,9 +96,7 @@ fn wrap_message(msg: &str, width: usize, max_lines: usize) -> Vec<String> {
         result.push(line_text);
         pos += break_idx;
 
-        while pos < total_chars
-            && (chars[pos].is_ascii_whitespace() || chars[pos] == '　')
-        {
+        while pos < total_chars && (chars[pos].is_ascii_whitespace() || chars[pos] == '　') {
             pos += 1;
         }
     }

@@ -80,7 +80,12 @@ impl TableBuilder {
         let mut lines = Vec::new();
 
         lines.push(Line::from(make_border(
-            &col_widths, '┌', '┬', '┐', '─', theme,
+            &col_widths,
+            '┌',
+            '┬',
+            '┐',
+            '─',
+            theme,
         )));
 
         for (row_idx, row) in self.rows.iter().enumerate() {
@@ -88,20 +93,34 @@ impl TableBuilder {
 
             if row_idx == 0 {
                 lines.push(Line::from(make_border(
-                    &col_widths, '├', '┼', '┤', '─', theme,
+                    &col_widths,
+                    '├',
+                    '┼',
+                    '┤',
+                    '─',
+                    theme,
                 )));
             }
         }
 
         lines.push(Line::from(make_border(
-            &col_widths, '└', '┴', '┘', '─', theme,
+            &col_widths,
+            '└',
+            '┴',
+            '┘',
+            '─',
+            theme,
         )));
 
         lines
     }
 
     /// 包装单元格文本以适应最大宽度
-    fn wrap_cells(&self, max_width: usize, _theme: &dyn MarkdownTheme) -> Vec<Vec<Vec<Vec<Span<'static>>>>> {
+    fn wrap_cells(
+        &self,
+        max_width: usize,
+        _theme: &dyn MarkdownTheme,
+    ) -> Vec<Vec<Vec<Vec<Span<'static>>>>> {
         let num_cols = self.rows.get(0).map(|r| r.len()).unwrap_or(0);
         if num_cols == 0 {
             return vec![];
@@ -217,17 +236,29 @@ impl TableBuilder {
 
         // 顶部边框
         lines.push(Line::from(make_border(
-            &col_widths, '┌', '┬', '┐', '─', theme,
+            &col_widths,
+            '┌',
+            '┬',
+            '┐',
+            '─',
+            theme,
         )));
 
         // 渲染每一行
         for (row_idx, row) in wrapped_rows.iter().enumerate() {
             // 计算这一行需要的行数（基于最高的单元格）
-            let max_lines = row.iter().map(|cell_lines| cell_lines.len()).max().unwrap_or(1);
+            let max_lines = row
+                .iter()
+                .map(|cell_lines| cell_lines.len())
+                .max()
+                .unwrap_or(1);
 
             for line_idx in 0..max_lines {
                 let mut spans = Vec::new();
-                spans.push(Span::styled("│".to_string(), Style::default().fg(theme.muted())));
+                spans.push(Span::styled(
+                    "│".to_string(),
+                    Style::default().fg(theme.muted()),
+                ));
 
                 for (col_idx, cell_lines) in row.iter().enumerate() {
                     let col_w = col_widths.get(col_idx).copied().unwrap_or(0);
@@ -236,10 +267,15 @@ impl TableBuilder {
                     if line_idx < cell_lines.len() {
                         // 获取这一行的内容
                         let line_spans = &cell_lines[line_idx];
-                        let content_width: usize = line_spans.iter().map(|s| s.content.width()).sum();
+                        let content_width: usize =
+                            line_spans.iter().map(|s| s.content.width()).sum();
                         let padding = col_w.saturating_sub(content_width);
 
-                        let align = self.alignments.get(col_idx).copied().unwrap_or(Alignment::None);
+                        let align = self
+                            .alignments
+                            .get(col_idx)
+                            .copied()
+                            .unwrap_or(Alignment::None);
                         match align {
                             Alignment::Center => {
                                 let left_pad = padding / 2;
@@ -271,7 +307,10 @@ impl TableBuilder {
                     }
 
                     spans.push(Span::raw(" "));
-                    spans.push(Span::styled("│".to_string(), Style::default().fg(theme.muted())));
+                    spans.push(Span::styled(
+                        "│".to_string(),
+                        Style::default().fg(theme.muted()),
+                    ));
                 }
 
                 lines.push(Line::from(spans));
@@ -280,14 +319,24 @@ impl TableBuilder {
             // 在第一行后添加分隔线
             if row_idx == 0 {
                 lines.push(Line::from(make_border(
-                    &col_widths, '├', '┼', '┤', '─', theme,
+                    &col_widths,
+                    '├',
+                    '┼',
+                    '┤',
+                    '─',
+                    theme,
                 )));
             }
         }
 
         // 底部边框
         lines.push(Line::from(make_border(
-            &col_widths, '└', '┴', '┘', '─', theme,
+            &col_widths,
+            '└',
+            '┴',
+            '┘',
+            '─',
+            theme,
         )));
 
         lines
@@ -305,7 +354,8 @@ impl TableBuilder {
 
         if full_text.width() <= max_width {
             // 不需要换行，将所有 Span 转换为 'static
-            let static_spans: Vec<Span<'static>> = cell.iter()
+            let static_spans: Vec<Span<'static>> = cell
+                .iter()
                 .map(|s| Span::styled(s.content.as_ref().to_string(), s.style))
                 .collect();
             return vec![static_spans];
@@ -398,7 +448,10 @@ fn make_data_line(
 ) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
 
-    spans.push(Span::styled("│".to_string(), Style::default().fg(theme.muted())));
+    spans.push(Span::styled(
+        "│".to_string(),
+        Style::default().fg(theme.muted()),
+    ));
 
     for (i, col_w) in col_widths.iter().enumerate() {
         spans.push(Span::raw(" "));
@@ -436,7 +489,10 @@ fn make_data_line(
         }
 
         spans.push(Span::raw(" "));
-        spans.push(Span::styled("│".to_string(), Style::default().fg(theme.muted())));
+        spans.push(Span::styled(
+            "│".to_string(),
+            Style::default().fg(theme.muted()),
+        ));
     }
 
     Line::from(spans)
@@ -486,7 +542,10 @@ impl<'a> RenderState<'a> {
 
         if self.quote_depth > 0 && !spans.is_empty() {
             let prefix = "▍ ".repeat(self.quote_depth as usize);
-            spans.insert(0, Span::styled(prefix, Style::default().fg(self.theme.quote_prefix())));
+            spans.insert(
+                0,
+                Span::styled(prefix, Style::default().fg(self.theme.quote_prefix())),
+            );
         }
 
         if spans.is_empty() {
@@ -509,8 +568,7 @@ impl<'a> RenderState<'a> {
                     HeadingLevel::H1 | HeadingLevel::H2 | HeadingLevel::H3 => self.theme.heading(),
                     _ => self.theme.muted(),
                 };
-                self.inline_style =
-                    Style::default().fg(color).add_modifier(Modifier::BOLD);
+                self.inline_style = Style::default().fg(color).add_modifier(Modifier::BOLD);
                 // 标题前添加空行分隔
                 self.flush_line();
             }
@@ -560,7 +618,9 @@ impl<'a> RenderState<'a> {
                 } else if end > 1 {
                     // 多行代码块
                     #[cfg(feature = "markdown-highlight")]
-                    if let Some(highlighted) = highlight_code_block(&self.code_block_lang, &lines[..end]) {
+                    if let Some(highlighted) =
+                        highlight_code_block(&self.code_block_lang, &lines[..end])
+                    {
                         self.lines.extend(highlighted);
                     } else {
                         // syntect 未识别语言，回退到统一颜色
@@ -610,8 +670,10 @@ impl<'a> RenderState<'a> {
                 } else {
                     format!("{}• ", indent)
                 };
-                self.current_spans
-                    .push(Span::styled(bullet, Style::default().fg(self.theme.list_bullet())));
+                self.current_spans.push(Span::styled(
+                    bullet,
+                    Style::default().fg(self.theme.list_bullet()),
+                ));
             }
             Event::End(TagEnd::Item) => {
                 if !self.current_spans.is_empty() {
@@ -632,8 +694,10 @@ impl<'a> RenderState<'a> {
             // ── 水平线 ────────────────────────────────────────────────────────
             Event::Rule => {
                 let rule = "─".repeat(60);
-                self.current_spans
-                    .push(Span::styled(rule, Style::default().fg(self.theme.separator())));
+                self.current_spans.push(Span::styled(
+                    rule,
+                    Style::default().fg(self.theme.separator()),
+                ));
                 self.flush_line();
             }
 
@@ -647,7 +711,10 @@ impl<'a> RenderState<'a> {
                     }
                 } else if self.table.is_some() {
                     let style = self.inline_style;
-                    self.table.as_mut().unwrap().current_cell
+                    self.table
+                        .as_mut()
+                        .unwrap()
+                        .current_cell
                         .push(Span::styled(text_str, style));
                 } else {
                     self.push_span(text_str, Style::default());
@@ -679,17 +746,16 @@ impl<'a> RenderState<'a> {
                 self.inline_style = self.inline_style.remove_modifier(Modifier::ITALIC);
             }
             Event::Start(Tag::Strikethrough) => {
-                self.inline_style =
-                    self.inline_style.add_modifier(Modifier::CROSSED_OUT);
+                self.inline_style = self.inline_style.add_modifier(Modifier::CROSSED_OUT);
             }
             Event::End(TagEnd::Strikethrough) => {
-                self.inline_style =
-                    self.inline_style.remove_modifier(Modifier::CROSSED_OUT);
+                self.inline_style = self.inline_style.remove_modifier(Modifier::CROSSED_OUT);
             }
 
             // ── 链接 ─────────────────────────────────────────────────────────
             Event::Start(Tag::Link { .. }) => {
-                self.inline_style = self.inline_style
+                self.inline_style = self
+                    .inline_style
                     .fg(self.theme.link())
                     .add_modifier(Modifier::UNDERLINED);
             }

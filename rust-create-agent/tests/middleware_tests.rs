@@ -66,15 +66,19 @@ async fn test_middleware_order() {
 #[tokio::test]
 async fn test_noop_middleware() {
     let noop = NoopMiddleware::new("test_noop");
-    assert_eq!(<NoopMiddleware as Middleware<AgentState>>::name(&noop), "test_noop");
+    assert_eq!(
+        <NoopMiddleware as Middleware<AgentState>>::name(&noop),
+        "test_noop"
+    );
 
     let mut state = AgentState::new("/test");
     let tool_call = ToolCall::new("id1", "my_tool", serde_json::json!({"key": "val"}));
 
     // before_tool 应透传 tool_call
-    let result = <NoopMiddleware as Middleware<AgentState>>::before_tool(&noop, &mut state, &tool_call)
-        .await
-        .unwrap();
+    let result =
+        <NoopMiddleware as Middleware<AgentState>>::before_tool(&noop, &mut state, &tool_call)
+            .await
+            .unwrap();
     assert_eq!(result.name, "my_tool");
 }
 

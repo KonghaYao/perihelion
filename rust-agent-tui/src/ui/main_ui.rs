@@ -56,7 +56,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(sticky_header_height), // [0] sticky header
-            Constraint::Min(1),                      // [1] 聊天区（可滚动）
+            Constraint::Min(1),                       // [1] 聊天区（可滚动）
             Constraint::Length(attachment_height),    // [2] 附件栏（动态）
             Constraint::Length(panel_height),         // [3] 底部展开区（动态）
             Constraint::Length(input_height),         // [4] 输入框（动态）
@@ -109,7 +109,9 @@ pub fn render(f: &mut Frame, app: &mut App) {
         width: 2,
         height: 1,
     };
-    let prompt_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
+    let prompt_style = Style::default()
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD);
     f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
     status_bar::render_status_bar(f, app, chunks[5]);
 
@@ -137,10 +139,17 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
     } else if let Some(panel) = &app.core.agent_panel {
         (panel.agents.len() as u16 * 2 + 6).max(6)
     } else if app.cron.cron_panel.is_some() {
-        (app.cron.cron_panel.as_ref().map(|p| p.tasks.len()).unwrap_or(0) as u16 + 4).max(6)
+        (app.cron
+            .cron_panel
+            .as_ref()
+            .map(|p| p.tasks.len())
+            .unwrap_or(0) as u16
+            + 4)
+        .max(6)
     } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.agent.interaction_prompt {
         (p.items.len() as u16 * 2 + 5).max(5)
-    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt {
+    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt
+    {
         let cur = &p.questions[p.active_tab];
         let opt_rows = cur.data.options.len() as u16;
         let desc_rows = cur
@@ -172,7 +181,8 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     let spinner_line: Option<Line<'static>> = if app.core.loading {
         let frame = perihelion_widgets::spinner::animation::tick_to_frame(app.spinner_state.tick());
         let verb = app.spinner_state.verb();
-        let elapsed = perihelion_widgets::spinner::animation::format_elapsed(app.spinner_state.elapsed_ms());
+        let elapsed =
+            perihelion_widgets::spinner::animation::format_elapsed(app.spinner_state.elapsed_ms());
         let tokens = app.spinner_state.displayed_tokens();
 
         let orange = Style::default().fg(Color::Rgb(255, 140, 0));
@@ -246,16 +256,12 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
                 let (icon, style) = match item.status {
                     TodoStatus::InProgress => (
                         "  ✻  ",
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     ),
-                    TodoStatus::Completed => (
-                        "  ✓  ",
-                        Style::default().fg(Color::Green),
-                    ),
-                    TodoStatus::Pending => (
-                        "  ○  ",
-                        Style::default().fg(theme::MUTED),
-                    ),
+                    TodoStatus::Completed => ("  ✓  ", Style::default().fg(Color::Green)),
+                    TodoStatus::Pending => ("  ○  ", Style::default().fg(theme::MUTED)),
                 };
                 all_lines.push(Line::from(vec![
                     Span::styled(icon, style),
@@ -272,16 +278,26 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         if let (Some(start), Some(end)) = (ts.start, ts.end) {
             let cache = app.core.render_cache.read();
             let wrap_map = &cache.wrap_map;
-            let usable_width = app.core.messages_area
+            let usable_width = app
+                .core
+                .messages_area
                 .map(|a| a.width.saturating_sub(1))
                 .unwrap_or(0);
 
             // 映射为逻辑坐标
-            let ((sr, sc), (er, ec)) = if start <= end { (start, end) } else { (end, start) };
-            let logical_start = crate::app::text_selection::visual_to_logical(sr, sc, wrap_map, usable_width);
-            let logical_end = crate::app::text_selection::visual_to_logical(er, ec, wrap_map, usable_width);
+            let ((sr, sc), (er, ec)) = if start <= end {
+                (start, end)
+            } else {
+                (end, start)
+            };
+            let logical_start =
+                crate::app::text_selection::visual_to_logical(sr, sc, wrap_map, usable_width);
+            let logical_end =
+                crate::app::text_selection::visual_to_logical(er, ec, wrap_map, usable_width);
 
-            if let (Some((start_line, start_char)), Some((end_line, end_char))) = (logical_start, logical_end) {
+            if let (Some((start_line, start_char)), Some((end_line, end_char))) =
+                (logical_start, logical_end)
+            {
                 for line_idx in start_line..=end_line {
                     if line_idx >= all_lines.len() {
                         continue;
@@ -349,7 +365,8 @@ fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
 
     // 第 1 行：所有附件标签
     let tags: String = app
-        .core.pending_attachments
+        .core
+        .pending_attachments
         .iter()
         .map(|att| {
             let size_kb = (att.size_bytes / 1024).max(1);
@@ -396,8 +413,12 @@ pub fn highlight_line_spans<'a>(
             // 左段（选区外）
             if span_start < char_start {
                 let skip = char_start - span_start;
-                let byte_cut = span.content.char_indices()
-                    .nth(skip).map(|(i,_)| i).unwrap_or(span.content.len());
+                let byte_cut = span
+                    .content
+                    .char_indices()
+                    .nth(skip)
+                    .map(|(i, _)| i)
+                    .unwrap_or(span.content.len());
                 result.push(Span::styled(
                     span.content[..byte_cut].to_string(),
                     span.style,
@@ -406,10 +427,18 @@ pub fn highlight_line_spans<'a>(
             // 中段（选区内，反色）
             let hl_char_start = span_start.max(char_start) - span_start;
             let hl_char_end = span_end.min(char_end) - span_start;
-            let byte_start = span.content.char_indices()
-                .nth(hl_char_start).map(|(i,_)| i).unwrap_or(0);
-            let byte_end = span.content.char_indices()
-                .nth(hl_char_end).map(|(i,_)| i).unwrap_or(span.content.len());
+            let byte_start = span
+                .content
+                .char_indices()
+                .nth(hl_char_start)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let byte_end = span
+                .content
+                .char_indices()
+                .nth(hl_char_end)
+                .map(|(i, _)| i)
+                .unwrap_or(span.content.len());
             result.push(Span::styled(
                 span.content[byte_start..byte_end].to_string(),
                 span.style.add_modifier(Modifier::REVERSED),
@@ -417,8 +446,12 @@ pub fn highlight_line_spans<'a>(
             // 右段（选区外）
             if span_end > char_end {
                 let skip = char_end - span_start;
-                let byte_cut = span.content.char_indices()
-                    .nth(skip).map(|(i,_)| i).unwrap_or(span.content.len());
+                let byte_cut = span
+                    .content
+                    .char_indices()
+                    .nth(skip)
+                    .map(|(i, _)| i)
+                    .unwrap_or(span.content.len());
                 result.push(Span::styled(
                     span.content[byte_cut..].to_string(),
                     span.style,

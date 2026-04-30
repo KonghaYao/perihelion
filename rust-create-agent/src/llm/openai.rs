@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::BaseModel;
 use crate::agent::react::{ReactLLM, Reasoning, ToolCall};
 use crate::error::{AgentError, AgentResult};
-use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 use crate::llm::types::{LlmRequest, LlmResponse, StopReason};
+use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 use crate::tools::BaseTool;
-use super::BaseModel;
 
 /// ChatOpenAI - OpenAI 兼容 API 的 LLM 实现
 pub struct ChatOpenAI {
@@ -57,10 +57,18 @@ impl ChatOpenAI {
     /// 模型的上下文窗口大小（token 数），作为固有方法提供给 BaseModel 和 ReactLLM trait
     fn context_window_inner(&self) -> u32 {
         let model = self.model.to_lowercase();
-        if model.contains("gpt-4") { return 128_000; }
-        if model.starts_with("o1") || model.starts_with("o3") { return 200_000; }
-        if model.contains("gpt-3.5") { return 16_385; }
-        if model.starts_with("deepseek") { return 128_000; }
+        if model.contains("gpt-4") {
+            return 128_000;
+        }
+        if model.starts_with("o1") || model.starts_with("o3") {
+            return 200_000;
+        }
+        if model.contains("gpt-3.5") {
+            return 16_385;
+        }
+        if model.starts_with("deepseek") {
+            return 128_000;
+        }
         200_000
     }
 
@@ -134,22 +142,30 @@ impl ChatOpenAI {
                     }
                 }
                 BaseMessage::Human { content, .. } => {
-                    result.push(json!({ "role": "user", "content": Self::content_to_openai(content) }));
+                    result.push(
+                        json!({ "role": "user", "content": Self::content_to_openai(content) }),
+                    );
                 }
-                BaseMessage::Ai { content, tool_calls, .. } => {
+                BaseMessage::Ai {
+                    content,
+                    tool_calls,
+                    ..
+                } => {
                     if tool_calls.is_empty() {
                         result.push(json!({ "role": "assistant", "content": Self::content_to_openai(content) }));
                     } else {
                         let tcs: Vec<Value> = tool_calls
                             .iter()
-                            .map(|tc| json!({
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.name,
-                                    "arguments": tc.arguments.to_string()
-                                }
-                            }))
+                            .map(|tc| {
+                                json!({
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.name,
+                                        "arguments": tc.arguments.to_string()
+                                    }
+                                })
+                            })
                             .collect();
                         result.push(json!({
                             "role": "assistant",
@@ -158,7 +174,11 @@ impl ChatOpenAI {
                         }));
                     }
                 }
-                BaseMessage::Tool { tool_call_id, content, .. } => {
+                BaseMessage::Tool {
+                    tool_call_id,
+                    content,
+                    ..
+                } => {
                     result.push(json!({
                         "role": "tool",
                         "tool_call_id": tool_call_id,
@@ -169,7 +189,10 @@ impl ChatOpenAI {
         }
 
         if !system_parts.is_empty() {
-            result.insert(0, json!({ "role": "system", "content": system_parts.join("\n\n") }));
+            result.insert(
+                0,
+                json!({ "role": "system", "content": system_parts.join("\n\n") }),
+            );
         }
 
         result
@@ -182,10 +205,7 @@ impl ChatOpenAI {
     /// 支持 `o1/o3/deepseek-r1` 格式：
     /// - `message.reasoning_content` → `ContentBlock::Reasoning`
     /// - `message.content` → `ContentBlock::Text`
-    fn parse_assistant_message(
-        assistant_msg: &Value,
-        stop_reason: &StopReason,
-    ) -> BaseMessage {
+    fn parse_assistant_message(assistant_msg: &Value, stop_reason: &StopReason) -> BaseMessage {
         let content_str = assistant_msg["content"].as_str().unwrap_or("").to_string();
 
         // 收集 content blocks
@@ -269,14 +289,16 @@ impl BaseModel for ChatOpenAI {
         let tools_json: Vec<Value> = request
             .tools
             .iter()
-            .map(|t| json!({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters
-                }
-            }))
+            .map(|t| {
+                json!({
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters
+                    }
+                })
+            })
             .collect();
 
         let mut messages = Self::messages_to_json(&request.messages);
@@ -336,32 +358,30 @@ impl BaseModel for ChatOpenAI {
             })?;
 
         let status = resp.status();
-        let resp_text = resp
-            .text()
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    provider = "openai",
-                    model = %self.model,
-                    status = %status,
-                    elapsed_ms = start.elapsed().as_millis() as u64,
-                    error = %e,
-                    "LLM 读取响应体失败"
-                );
-                AgentError::LlmError(format!("读取响应体失败: {e}"))
-            })?;
-        let resp_json: Value = serde_json::from_str(&resp_text)
-            .map_err(|e| {
-                tracing::error!(
-                    provider = "openai",
-                    model = %self.model,
-                    status = %status,
-                    elapsed_ms = start.elapsed().as_millis() as u64,
-                    error = %e,
-                    "LLM 响应解析失败"
-                );
-                AgentError::LlmError(format!("解析响应失败: {e}\n原始响应({status}): {resp_text}"))
-            })?;
+        let resp_text = resp.text().await.map_err(|e| {
+            tracing::error!(
+                provider = "openai",
+                model = %self.model,
+                status = %status,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "LLM 读取响应体失败"
+            );
+            AgentError::LlmError(format!("读取响应体失败: {e}"))
+        })?;
+        let resp_json: Value = serde_json::from_str(&resp_text).map_err(|e| {
+            tracing::error!(
+                provider = "openai",
+                model = %self.model,
+                status = %status,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "LLM 响应解析失败"
+            );
+            AgentError::LlmError(format!(
+                "解析响应失败: {e}\n原始响应({status}): {resp_text}"
+            ))
+        })?;
 
         if !status.is_success() {
             let msg = resp_json["error"]["message"]
@@ -406,9 +426,15 @@ impl BaseModel for ChatOpenAI {
         let message = Self::parse_assistant_message(assistant_msg, &stop_reason);
 
         let usage = {
-            let input = resp_json["usage"]["prompt_tokens"].as_u64().map(|v| v as u32);
-            let output = resp_json["usage"]["completion_tokens"].as_u64().map(|v| v as u32);
-            let cache_read = resp_json["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64().map(|v| v as u32);
+            let input = resp_json["usage"]["prompt_tokens"]
+                .as_u64()
+                .map(|v| v as u32);
+            let output = resp_json["usage"]["completion_tokens"]
+                .as_u64()
+                .map(|v| v as u32);
+            let cache_read = resp_json["usage"]["prompt_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .map(|v| v as u32);
             match (input, output) {
                 (Some(i), Some(o)) => Some(crate::llm::types::TokenUsage {
                     input_tokens: i,
@@ -419,7 +445,11 @@ impl BaseModel for ChatOpenAI {
                 _ => None,
             }
         };
-        Ok(LlmResponse { message, stop_reason, usage })
+        Ok(LlmResponse {
+            message,
+            stop_reason,
+            usage,
+        })
     }
 
     fn provider_name(&self) -> &str {
@@ -525,9 +555,7 @@ mod tests {
     /// 仅 reasoning block 无 text 的序列化
     #[test]
     fn test_reasoning_only_block() {
-        let content = MessageContent::Blocks(vec![
-            ContentBlock::reasoning("deep thinking"),
-        ]);
+        let content = MessageContent::Blocks(vec![ContentBlock::reasoning("deep thinking")]);
         let val = ChatOpenAI::content_to_openai(&content);
         let arr = val.as_array().expect("content 应为 array");
         assert_eq!(arr.len(), 1);
@@ -538,12 +566,10 @@ mod tests {
     /// messages_to_json 中，含 reasoning 的 assistant 消息应正确序列化
     #[test]
     fn test_messages_to_json_with_reasoning() {
-        let msgs = vec![
-            BaseMessage::ai_from_blocks(vec![
-                ContentBlock::reasoning("r1"),
-                ContentBlock::text("t1"),
-            ]),
-        ];
+        let msgs = vec![BaseMessage::ai_from_blocks(vec![
+            ContentBlock::reasoning("r1"),
+            ContentBlock::text("t1"),
+        ])];
         let vals = ChatOpenAI::messages_to_json(&msgs);
         assert_eq!(vals.len(), 1);
         let assistant = &vals[0];

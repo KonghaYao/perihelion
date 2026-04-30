@@ -111,7 +111,11 @@ impl Serialize for ContentBlock {
                 m.serialize_entry("input", input)?;
                 m.end()
             }
-            Self::ToolResult { tool_use_id, content, is_error } => {
+            Self::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
                 let mut m = s.serialize_map(None)?;
                 m.serialize_entry("type", "tool_result")?;
                 m.serialize_entry("tool_use_id", tool_use_id)?;
@@ -140,47 +144,79 @@ impl<'de> Deserialize<'de> for ContentBlock {
 
         match type_str {
             "text" => {
-                let text = value.get("text").and_then(|t| t.as_str())
+                let text = value
+                    .get("text")
+                    .and_then(|t| t.as_str())
                     .ok_or_else(|| serde::de::Error::missing_field("text"))?;
-                Ok(Self::Text { text: text.to_string() })
+                Ok(Self::Text {
+                    text: text.to_string(),
+                })
             }
             "image" => {
-                let source = serde_json::from_value(
-                    value.get("source").cloned().unwrap_or_default()
-                ).map_err(|e| serde::de::Error::custom(format!("invalid source: {}", e)))?;
+                let source =
+                    serde_json::from_value(value.get("source").cloned().unwrap_or_default())
+                        .map_err(|e| serde::de::Error::custom(format!("invalid source: {}", e)))?;
                 Ok(Self::Image { source })
             }
             "document" => {
-                let source = serde_json::from_value(
-                    value.get("source").cloned().unwrap_or_default()
-                ).map_err(|e| serde::de::Error::custom(format!("invalid source: {}", e)))?;
-                let title = value.get("title").and_then(|t| t.as_str()).map(String::from);
+                let source =
+                    serde_json::from_value(value.get("source").cloned().unwrap_or_default())
+                        .map_err(|e| serde::de::Error::custom(format!("invalid source: {}", e)))?;
+                let title = value
+                    .get("title")
+                    .and_then(|t| t.as_str())
+                    .map(String::from);
                 Ok(Self::Document { source, title })
             }
             "tool_use" => {
-                let id = value.get("id").and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::missing_field("id"))?.to_string();
-                let name = value.get("name").and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::missing_field("name"))?.to_string();
-                let input = value.get("input").cloned()
+                let id = value
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("id"))?
+                    .to_string();
+                let name = value
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("name"))?
+                    .to_string();
+                let input = value
+                    .get("input")
+                    .cloned()
                     .unwrap_or(serde_json::Value::Object(Default::default()));
                 Ok(Self::ToolUse { id, name, input })
             }
             "tool_result" => {
-                let tool_use_id = value.get("tool_use_id").and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::missing_field("tool_use_id"))?.to_string();
-                let content: Vec<ContentBlock> = value.get("content")
+                let tool_use_id = value
+                    .get("tool_use_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("tool_use_id"))?
+                    .to_string();
+                let content: Vec<ContentBlock> = value
+                    .get("content")
                     .map(|v| serde_json::from_value(v.clone()))
                     .transpose()
                     .map_err(|e| serde::de::Error::custom(format!("invalid content: {}", e)))?
                     .unwrap_or_default();
-                let is_error = value.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-                Ok(Self::ToolResult { tool_use_id, content, is_error })
+                let is_error = value
+                    .get("is_error")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                Ok(Self::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                })
             }
             "reasoning" => {
-                let text = value.get("text").and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::missing_field("text"))?.to_string();
-                let signature = value.get("signature").and_then(|v| v.as_str()).map(String::from);
+                let text = value
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| serde::de::Error::missing_field("text"))?
+                    .to_string();
+                let signature = value
+                    .get("signature")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 Ok(Self::Reasoning { text, signature })
             }
             _ => Ok(Self::Unknown(value)),
@@ -233,13 +269,13 @@ impl ContentBlock {
     }
 
     pub fn reasoning(text: impl Into<String>) -> Self {
-        Self::Reasoning { text: text.into(), signature: None }
+        Self::Reasoning {
+            text: text.into(),
+            signature: None,
+        }
     }
 
-    pub fn reasoning_with_signature(
-        text: impl Into<String>,
-        signature: impl Into<String>,
-    ) -> Self {
+    pub fn reasoning_with_signature(text: impl Into<String>, signature: impl Into<String>) -> Self {
         Self::Reasoning {
             text: text.into(),
             signature: Some(signature.into()),
@@ -473,8 +509,15 @@ mod tests {
             serde_json::json!({"type": "text", "text": "calling"}),
             serde_json::json!({"type": "tool_use", "id": "tc1", "name": "read_file", "input": {"path": "a.rs"}}),
         ]);
-        assert!(mc.has_tool_use(), "Raw 含 tool_use 时 has_tool_use 应为 true");
-        assert_eq!(mc.tool_use_blocks().len(), 1, "tool_use_blocks 应与 has_tool_use 一致");
+        assert!(
+            mc.has_tool_use(),
+            "Raw 含 tool_use 时 has_tool_use 应为 true"
+        );
+        assert_eq!(
+            mc.tool_use_blocks().len(),
+            1,
+            "tool_use_blocks 应与 has_tool_use 一致"
+        );
     }
 
     #[test]
@@ -484,7 +527,9 @@ mod tests {
         assert!(MessageContent::Blocks(vec![]).is_empty());
         assert!(!MessageContent::Blocks(vec![ContentBlock::text("x")]).is_empty());
         assert!(MessageContent::Raw(vec![]).is_empty());
-        assert!(!MessageContent::Raw(vec![serde_json::json!({"type": "text", "text": "x"})]).is_empty());
+        assert!(
+            !MessageContent::Raw(vec![serde_json::json!({"type": "text", "text": "x"})]).is_empty()
+        );
     }
 
     #[test]
@@ -497,7 +542,10 @@ mod tests {
         let json = serde_json::to_string(&block).unwrap();
         let block2: ContentBlock = serde_json::from_str(&json).unwrap();
         assert_eq!(block, block2, "Unknown block 应完整保留原始 JSON");
-        assert!(json.contains("redacted_thinking"), "序列化应保留原始 type 字段");
+        assert!(
+            json.contains("redacted_thinking"),
+            "序列化应保留原始 type 字段"
+        );
     }
 
     #[test]
@@ -505,10 +553,14 @@ mod tests {
         let blocks = vec![
             ContentBlock::text("hello"),
             ContentBlock::Image {
-                source: ImageSource::Url { url: "https://example.com/img.png".into() },
+                source: ImageSource::Url {
+                    url: "https://example.com/img.png".into(),
+                },
             },
             ContentBlock::Document {
-                source: DocumentSource::Text { text: "doc content".into() },
+                source: DocumentSource::Text {
+                    text: "doc content".into(),
+                },
                 title: Some("My Doc".into()),
             },
             ContentBlock::tool_use("id1", "bash", serde_json::json!({"cmd": "ls"})),

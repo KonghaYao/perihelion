@@ -13,7 +13,12 @@ pub struct ThreadBrowser {
 
 impl ThreadBrowser {
     pub fn new(threads: Vec<ThreadMeta>, store: Arc<dyn ThreadStore>) -> Self {
-        Self { threads, cursor: 0, store, scroll_offset: 0 }
+        Self {
+            threads,
+            cursor: 0,
+            store,
+            scroll_offset: 0,
+        }
     }
 
     /// 条目总数 = 1（新建）+ 历史数量
@@ -23,7 +28,9 @@ impl ThreadBrowser {
 
     pub fn move_cursor(&mut self, delta: isize) {
         let total = self.total();
-        if total == 0 { return; }
+        if total == 0 {
+            return;
+        }
         self.cursor = ((self.cursor as isize + delta).rem_euclid(total as isize)) as usize;
     }
 
@@ -52,7 +59,9 @@ impl ThreadBrowser {
             return None;
         }
         let idx = self.cursor - 1;
-        let Some(meta) = self.threads.get(idx) else { return None };
+        let Some(meta) = self.threads.get(idx) else {
+            return None;
+        };
         let id = meta.id.clone();
         let title = meta.title.clone().unwrap_or_else(|| "(无标题)".to_string());
         let store = self.store.clone();

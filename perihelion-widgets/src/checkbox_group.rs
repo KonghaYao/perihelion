@@ -27,15 +27,21 @@ impl CheckboxState {
     }
 
     pub fn select_all(&mut self) {
-        for c in &mut self.checked { *c = true; }
+        for c in &mut self.checked {
+            *c = true;
+        }
     }
 
     pub fn select_none(&mut self) {
-        for c in &mut self.checked { *c = false; }
+        for c in &mut self.checked {
+            *c = false;
+        }
     }
 
     pub fn move_cursor(&mut self, delta: i32) {
-        if self.checked.is_empty() { return; }
+        if self.checked.is_empty() {
+            return;
+        }
         let max = self.checked.len() - 1;
         let new = self.cursor as i32 + delta;
         self.cursor = new.clamp(0, max as i32) as usize;
@@ -46,15 +52,21 @@ impl CheckboxState {
     }
 
     pub fn checked_indices(&self) -> Vec<usize> {
-        self.checked.iter().enumerate()
+        self.checked
+            .iter()
+            .enumerate()
             .filter(|(_, &v)| v)
             .map(|(i, _)| i)
             .collect()
     }
 
-    pub fn cursor(&self) -> usize { self.cursor }
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
 
-    pub fn len(&self) -> usize { self.checked.len() }
+    pub fn len(&self) -> usize {
+        self.checked.len()
+    }
 }
 
 /// 多选按钮组 widget
@@ -95,13 +107,23 @@ impl StatefulWidget for CheckboxGroup<'_> {
     type State = CheckboxState;
 
     fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer, state: &mut Self::State) {
-        if self.labels.is_empty() { return; }
+        if self.labels.is_empty() {
+            return;
+        }
         let mut lines: Vec<Line<'static>> = Vec::new();
         for (i, label) in self.labels.iter().enumerate() {
             let is_cursor = i == state.cursor;
             let checked = state.is_checked(i);
-            let icon = if checked { self.checked_char } else { self.unchecked_char };
-            let style = if is_cursor { self.cursor_style } else { self.normal_style };
+            let icon = if checked {
+                self.checked_char
+            } else {
+                self.unchecked_char
+            };
+            let style = if is_cursor {
+                self.cursor_style
+            } else {
+                self.normal_style
+            };
             lines.push(Line::from(vec![
                 Span::styled(format!("{} ", icon), style),
                 Span::styled(label.to_string(), style),

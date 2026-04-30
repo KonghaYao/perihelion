@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tui_textarea::TextArea;
 use rust_agent_middlewares::prelude::SkillMetadata;
 use tokio::sync::{mpsc, Notify};
+use tui_textarea::TextArea;
 
 use crate::command::CommandRegistry;
 use crate::ui::message_view::MessageViewModel;
@@ -68,12 +68,14 @@ pub struct AppCore {
 
 impl AppCore {
     /// 创建带渲染线程的 AppCore（生产用）
-    pub fn new(cwd: String,
-               render_tx: mpsc::UnboundedSender<RenderEvent>,
-               render_cache: Arc<RwLock<RenderCache>>,
-               render_notify: Arc<Notify>,
-               command_registry: CommandRegistry,
-               skills: Vec<SkillMetadata>) -> Self {
+    pub fn new(
+        cwd: String,
+        render_tx: mpsc::UnboundedSender<RenderEvent>,
+        render_cache: Arc<RwLock<RenderCache>>,
+        render_notify: Arc<Notify>,
+        command_registry: CommandRegistry,
+        skills: Vec<SkillMetadata>,
+    ) -> Self {
         let command_help_list: Vec<(String, String)> = command_registry
             .list()
             .into_iter()

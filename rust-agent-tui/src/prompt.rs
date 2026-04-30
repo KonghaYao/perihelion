@@ -13,9 +13,9 @@ impl PromptFeatures {
     pub fn detect() -> Self {
         Self {
             hitl_enabled: std::env::var("YOLO_MODE").as_deref() == Ok("false"),
-            subagent_enabled: true,  // TODO: 从中间件注册状态推断
-            cron_enabled: true,      // TODO: 从中间件注册状态推断
-            skills_enabled: true,    // TODO: 从中间件注册状态推断
+            subagent_enabled: true, // TODO: 从中间件注册状态推断
+            cron_enabled: true,     // TODO: 从中间件注册状态推断
+            skills_enabled: true,   // TODO: 从中间件注册状态推断
         }
     }
 
@@ -62,7 +62,11 @@ impl PromptEnv {
 ///
 /// `overrides` 存在时，将 agent.md 中定义的角色/风格/主动性拼成一个覆盖块，
 /// 注入到提示词最前面；为 `None` 时覆盖块为空（默认行为已由静态段落覆盖）。
-pub fn build_system_prompt(overrides: Option<&AgentOverrides>, cwd: &str, features: PromptFeatures) -> String {
+pub fn build_system_prompt(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    features: PromptFeatures,
+) -> String {
     let env = PromptEnv::detect(cwd);
 
     // 静态段落（编译时嵌入，按编号顺序）
@@ -114,7 +118,10 @@ pub fn build_system_prompt(overrides: Option<&AgentOverrides>, cwd: &str, featur
 
     result
         .replace("{{cwd}}", &env.cwd)
-        .replace("{{is_git_repo}}", if env.is_git_repo { "Yes" } else { "No" })
+        .replace(
+            "{{is_git_repo}}",
+            if env.is_git_repo { "Yes" } else { "No" },
+        )
         .replace("{{platform}}", &env.platform)
         .replace("{{os_version}}", &env.os_version)
         .replace("{{date}}", &env.date)
@@ -181,27 +188,42 @@ mod tests {
     #[test]
     fn test_no_overrides_contains_all_sections() {
         let result = build_system_prompt(None, "/tmp", PromptFeatures::none());
-        assert!(result.contains("Following conventions"), "应包含 02_system 段落");
+        assert!(
+            result.contains("Following conventions"),
+            "应包含 02_system 段落"
+        );
         assert!(result.contains("Doing tasks"), "应包含 03_doing_tasks 段落");
         assert!(result.contains("<env>"), "应包含 08_env 段落");
-        assert!(result.contains("Working directory"), "应包含 08_env 替换后结果");
+        assert!(
+            result.contains("Working directory"),
+            "应包含 08_env 替换后结果"
+        );
     }
 
     #[test]
     fn test_no_overrides_no_duplicate_tone_proactiveness() {
         let result = build_system_prompt(None, "/tmp", PromptFeatures::none());
         // "# Tone and style" 仅出现 1 次（来自 06_tone_style.md 静态段落，不来自覆盖块）
-        assert_eq!(result.matches("# Tone and style").count(), 1,
-            "无 overrides 时 # Tone and style 应仅出现 1 次（来自静态段落）");
+        assert_eq!(
+            result.matches("# Tone and style").count(),
+            1,
+            "无 overrides 时 # Tone and style 应仅出现 1 次（来自静态段落）"
+        );
         // "# Proactiveness" 仅出现 1 次（来自 02_system.md 静态段落）
-        assert_eq!(result.matches("# Proactiveness").count(), 1,
-            "无 overrides 时 # Proactiveness 应仅出现 1 次（来自静态段落）");
+        assert_eq!(
+            result.matches("# Proactiveness").count(),
+            1,
+            "无 overrides 时 # Proactiveness 应仅出现 1 次（来自静态段落）"
+        );
     }
 
     #[test]
     fn test_no_overrides_no_leading_newlines() {
         let result = build_system_prompt(None, "/tmp", PromptFeatures::none());
-        assert!(!result.starts_with("\n\n"), "无 overrides 时提示词不应以空行开头");
+        assert!(
+            !result.starts_with("\n\n"),
+            "无 overrides 时提示词不应以空行开头"
+        );
     }
 
     #[test]
@@ -212,7 +234,10 @@ mod tests {
             proactiveness: None,
         };
         let result = build_system_prompt(Some(&overrides), "/tmp", PromptFeatures::none());
-        assert!(result.starts_with("test persona"), "有 overrides 时应以 persona 内容开头");
+        assert!(
+            result.starts_with("test persona"),
+            "有 overrides 时应以 persona 内容开头"
+        );
     }
 
     #[test]
@@ -231,47 +256,91 @@ mod tests {
     #[test]
     fn test_features_none_excludes_all_gated_sections() {
         let result = build_system_prompt(None, "/tmp", PromptFeatures::none());
-        assert!(!result.contains("Human-in-the-Loop"), "全关闭时不应包含 HITL 段落");
-        assert!(!result.contains("SubAgent Delegation"), "全关闭时不应包含 SubAgent 段落");
-        assert!(!result.contains("Scheduled Tasks"), "全关闭时不应包含 Cron 段落");
+        assert!(
+            !result.contains("Human-in-the-Loop"),
+            "全关闭时不应包含 HITL 段落"
+        );
+        assert!(
+            !result.contains("SubAgent Delegation"),
+            "全关闭时不应包含 SubAgent 段落"
+        );
+        assert!(
+            !result.contains("Scheduled Tasks"),
+            "全关闭时不应包含 Cron 段落"
+        );
         // 13_skills.md 以 "# Skills\n" 开头，检查标题
-        assert!(!result.contains("\n# Skills\n") && !result.starts_with("# Skills\n"), "全关闭时不应包含 Skills 标题段落");
+        assert!(
+            !result.contains("\n# Skills\n") && !result.starts_with("# Skills\n"),
+            "全关闭时不应包含 Skills 标题段落"
+        );
     }
 
     #[test]
     fn test_hitl_enabled_includes_hitl_section() {
-        let features = PromptFeatures { hitl_enabled: true, ..PromptFeatures::none() };
+        let features = PromptFeatures {
+            hitl_enabled: true,
+            ..PromptFeatures::none()
+        };
         let result = build_system_prompt(None, "/tmp", features);
-        assert!(result.contains("Human-in-the-Loop"), "hitl_enabled 时应包含 HITL 段落");
+        assert!(
+            result.contains("Human-in-the-Loop"),
+            "hitl_enabled 时应包含 HITL 段落"
+        );
     }
 
     #[test]
     fn test_subagent_enabled_includes_subagent_section() {
-        let features = PromptFeatures { subagent_enabled: true, ..PromptFeatures::none() };
+        let features = PromptFeatures {
+            subagent_enabled: true,
+            ..PromptFeatures::none()
+        };
         let result = build_system_prompt(None, "/tmp", features);
-        assert!(result.contains("SubAgent Delegation"), "subagent_enabled 时应包含 SubAgent 段落");
+        assert!(
+            result.contains("SubAgent Delegation"),
+            "subagent_enabled 时应包含 SubAgent 段落"
+        );
     }
 
     #[test]
     fn test_cron_enabled_includes_cron_section() {
-        let features = PromptFeatures { cron_enabled: true, ..PromptFeatures::none() };
+        let features = PromptFeatures {
+            cron_enabled: true,
+            ..PromptFeatures::none()
+        };
         let result = build_system_prompt(None, "/tmp", features);
-        assert!(result.contains("Scheduled Tasks"), "cron_enabled 时应包含 Cron 段落");
+        assert!(
+            result.contains("Scheduled Tasks"),
+            "cron_enabled 时应包含 Cron 段落"
+        );
     }
 
     #[test]
     fn test_skills_enabled_includes_skills_section() {
-        let features = PromptFeatures { skills_enabled: true, ..PromptFeatures::none() };
+        let features = PromptFeatures {
+            skills_enabled: true,
+            ..PromptFeatures::none()
+        };
         let result = build_system_prompt(None, "/tmp", features);
-        assert!(result.contains("# Skills"), "skills_enabled 时应包含 Skills 段落标题");
+        assert!(
+            result.contains("# Skills"),
+            "skills_enabled 时应包含 Skills 段落标题"
+        );
     }
 
     #[test]
     fn test_all_features_enabled_includes_all() {
-        let features = PromptFeatures { hitl_enabled: true, subagent_enabled: true, cron_enabled: true, skills_enabled: true };
+        let features = PromptFeatures {
+            hitl_enabled: true,
+            subagent_enabled: true,
+            cron_enabled: true,
+            skills_enabled: true,
+        };
         let result = build_system_prompt(None, "/tmp", features);
         assert!(result.contains("Human-in-the-Loop"), "应包含 HITL 段落");
-        assert!(result.contains("SubAgent Delegation"), "应包含 SubAgent 段落");
+        assert!(
+            result.contains("SubAgent Delegation"),
+            "应包含 SubAgent 段落"
+        );
         assert!(result.contains("Scheduled Tasks"), "应包含 Cron 段落");
         assert!(result.contains("# Skills"), "应包含 Skills 段落标题");
     }

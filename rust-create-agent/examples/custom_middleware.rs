@@ -12,7 +12,10 @@ struct ContextInjectorMiddleware {
 
 impl ContextInjectorMiddleware {
     fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { key: key.into(), value: value.into() }
+        Self {
+            key: key.into(),
+            value: value.into(),
+        }
     }
 }
 
@@ -49,10 +52,14 @@ impl Middleware<AgentState> for ContextInjectorMiddleware {
 async fn main() -> anyhow::Result<()> {
     let agent = ReActAgent::new(MockLLM::always_answer("这是回答内容"))
         .add_middleware(Box::new(LoggingMiddleware::new()))
-        .add_middleware(Box::new(ContextInjectorMiddleware::new("user_id", "user_42")));
+        .add_middleware(Box::new(ContextInjectorMiddleware::new(
+            "user_id", "user_42",
+        )));
 
     let mut state = AgentState::new("/workspace");
-    let output = agent.execute(AgentInput::text("你好"), &mut state, None).await?;
+    let output = agent
+        .execute(AgentInput::text("你好"), &mut state, None)
+        .await?;
 
     println!("\n=== Output with Context ===");
     println!("{}", output.text);

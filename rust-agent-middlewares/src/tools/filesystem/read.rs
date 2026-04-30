@@ -41,12 +41,40 @@ Error handling:
 fn is_binary_extension(ext: &str) -> bool {
     matches!(
         ext,
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp" | "tiff"
-            | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx"
-            | "zip" | "rar" | "7z" | "tar" | "gz"
-            | "mp3" | "wav" | "ogg" | "flac"
-            | "mp4" | "avi" | "mkv" | "mov"
-            | "exe" | "dll" | "so" | "dylib" | "bin" | "class"
+        "png"
+            | "jpg"
+            | "jpeg"
+            | "gif"
+            | "bmp"
+            | "ico"
+            | "webp"
+            | "tiff"
+            | "pdf"
+            | "doc"
+            | "docx"
+            | "xls"
+            | "xlsx"
+            | "ppt"
+            | "pptx"
+            | "zip"
+            | "rar"
+            | "7z"
+            | "tar"
+            | "gz"
+            | "mp3"
+            | "wav"
+            | "ogg"
+            | "flac"
+            | "mp4"
+            | "avi"
+            | "mkv"
+            | "mov"
+            | "exe"
+            | "dll"
+            | "so"
+            | "dylib"
+            | "bin"
+            | "class"
     )
 }
 
@@ -81,7 +109,10 @@ impl BaseTool for ReadFileTool {
         })
     }
 
-    async fn invoke(&self, input: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn invoke(
+        &self,
+        input: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let file_path = input["file_path"]
             .as_str()
             .ok_or("Missing file_path parameter")?;
@@ -153,17 +184,32 @@ mod tests {
         let path = dir.path().join("file.txt");
         std::fs::write(&path, "hello\nworld").unwrap();
         let tool = ReadFileTool::new(dir.path().to_str().unwrap());
-        let result = tool.invoke(serde_json::json!({"file_path": "file.txt"})).await.unwrap();
-        assert!(result.contains("1\thello"), "should contain line 1: {result}");
-        assert!(result.contains("2\tworld"), "should contain line 2: {result}");
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "file.txt"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("1\thello"),
+            "should contain line 1: {result}"
+        );
+        assert!(
+            result.contains("2\tworld"),
+            "should contain line 2: {result}"
+        );
     }
 
     #[tokio::test]
     async fn test_read_file_not_found() {
         let dir = tempfile::tempdir().unwrap();
         let tool = ReadFileTool::new(dir.path().to_str().unwrap());
-        let result = tool.invoke(serde_json::json!({"file_path": "nonexistent.txt"})).await.unwrap();
-        assert!(result.contains("File not found"), "should report not found: {result}");
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "nonexistent.txt"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("File not found"),
+            "should report not found: {result}"
+        );
     }
 
     #[tokio::test]
@@ -188,8 +234,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Binary extension check happens before file read, no need to create the file
         let tool = ReadFileTool::new(dir.path().to_str().unwrap());
-        let result = tool.invoke(serde_json::json!({"file_path": "image.png"})).await.unwrap();
-        assert!(result.contains("BINARY FILE DETECTED"), "should detect binary: {result}");
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "image.png"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("BINARY FILE DETECTED"),
+            "should detect binary: {result}"
+        );
     }
 
     #[tokio::test]
@@ -202,7 +254,10 @@ mod tests {
             .invoke(serde_json::json!({"file_path": path.to_str().unwrap()}))
             .await
             .unwrap();
-        assert!(result.contains("absolute"), "should read via absolute path: {result}");
+        assert!(
+            result.contains("absolute"),
+            "should read via absolute path: {result}"
+        );
     }
 
     #[tokio::test]
@@ -244,8 +299,14 @@ mod tests {
         let tool = ReadFileTool::new("/tmp");
         let desc = tool.description();
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
-        assert!(desc.contains("Error handling:"), "description 应包含 Error handling 段落");
+        assert!(
+            desc.contains("Error handling:"),
+            "description 应包含 Error handling 段落"
+        );
         assert!(desc.contains("line numbers"), "description 应提及行号格式");
-        assert!(desc.len() > 200, "description 应为扩展后的多段落文本，长度 > 200 字符");
+        assert!(
+            desc.len() > 200,
+            "description 应为扩展后的多段落文本，长度 > 200 字符"
+        );
     }
 }

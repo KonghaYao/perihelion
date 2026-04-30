@@ -50,7 +50,9 @@ impl ReactLLM for MockLLM {
         _tools: &[&dyn BaseTool],
     ) -> AgentResult<Reasoning> {
         let idx = self.index.fetch_add(1, Ordering::Relaxed);
-        let reasoning = self.script.get(idx)
+        let reasoning = self
+            .script
+            .get(idx)
             .or_else(|| self.script.last())
             .cloned()
             .unwrap_or_else(|| Reasoning::with_answer("(no more script)", "Done"));
@@ -88,8 +90,16 @@ mod tests {
 
         assert_eq!(r0.final_answer.as_deref(), Some("first"));
         assert_eq!(r1.final_answer.as_deref(), Some("second"));
-        assert_eq!(r2.final_answer.as_deref(), Some("second"), "脚本耗尽后应粘在最后项");
-        assert_eq!(r3.final_answer.as_deref(), Some("second"), "多次耗尽仍应粘在最后项");
+        assert_eq!(
+            r2.final_answer.as_deref(),
+            Some("second"),
+            "脚本耗尽后应粘在最后项"
+        );
+        assert_eq!(
+            r3.final_answer.as_deref(),
+            Some("second"),
+            "多次耗尽仍应粘在最后项"
+        );
     }
 
     /// index 跨多次调用持续累加，不会重置
@@ -119,18 +129,18 @@ mod tests {
         let r1 = mock.generate_reasoning(&[], &[]).await.unwrap(); // 超出，粘在唯一项
 
         assert_eq!(r0.final_answer.as_deref(), Some("fixed answer"));
-        assert_eq!(r1.final_answer.as_deref(), Some("fixed answer"), "单项脚本应粘性重复");
+        assert_eq!(
+            r1.final_answer.as_deref(),
+            Some("fixed answer"),
+            "单项脚本应粘性重复"
+        );
         assert!(r0.tool_calls.is_empty());
     }
 
     /// tool_then_answer 工厂：第一步有工具调用，第二步为最终答案
     #[tokio::test]
     async fn test_mockllm_tool_then_answer_factory() {
-        let mock = MockLLM::tool_then_answer(
-            "my_tool",
-            serde_json::json!({"key": "val"}),
-            "final",
-        );
+        let mock = MockLLM::tool_then_answer("my_tool", serde_json::json!({"key": "val"}), "final");
 
         let r0 = mock.generate_reasoning(&[], &[]).await.unwrap();
         let r1 = mock.generate_reasoning(&[], &[]).await.unwrap();
