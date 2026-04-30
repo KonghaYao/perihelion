@@ -40,6 +40,25 @@ pub trait Middleware<S: State>: Send + Sync {
         Ok(tool_call.clone())
     }
 
+    /// 批量工具调用前处理（可选优化路径）
+    ///
+    /// 当中间件可对多个工具调用进行合并处理时（如 HITL 批量审批），
+    /// 应覆盖此方法。默认实现回退到逐个调用 `before_tool`。
+    ///
+    /// 返回值：`Vec<AgentResult<ToolCall>>`，与输入 `calls` 按顺序一一对应。
+    /// 返回的错误可以是 `ToolRejected`（不中断流程）或其它错误（中断流程）。
+    async fn before_tools_batch(
+        &self,
+        state: &mut S,
+        calls: &[ToolCall],
+    ) -> Vec<AgentResult<ToolCall>> {
+        let mut results = Vec::with_capacity(calls.len());
+        for call in calls {
+            results.push(self.before_tool(state, call).await);
+        }
+        results
+    }
+
     /// 工具调用后调用
     /// 可用于日志记录、结果转换等
     async fn after_tool(

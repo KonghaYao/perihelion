@@ -57,6 +57,46 @@ impl<S: State> MiddlewareChain<S> {
         Ok(current)
     }
 
+    /// 批量执行 before_tool 钩子（优化路径）
+    ///
+    /// 对每个中间件依次调用其 `before_tools_batch` 方法。
+    /// 中间件的 batch 实现可将多个 tool call 合并处理（如 HITL 批量审批）。
+    /// 当所有中间件都使用默认逐条实现时，效果等同于逐个调用 `run_before_tool`。
+    ///
+    /// 返回结果按输入顺序一一对应。若某个中间件返回非 `ToolRejected` 错误，
+    /// 链式处理中断，后续中间件不再执行，其余位置填充相同错误。
+    pub async fn run_before_tools_batch(
+        &self,
+        state: &mut S,
+        calls: Vec<ToolCall>,
+    ) -> Vec<AgentResult<ToolCall>> {
+        let mut results: Vec<AgentResult<ToolCall>> = calls.into_iter().map(Ok).collect();
+
+        for middleware in &self.middlewares {
+            let current_calls: Vec<ToolCall> = results
+                .iter()
+                .filter_map(|r| r.as_ref().ok().cloned())
+                .collect();
+            if current_calls.is_empty() {
+                break;
+            }
+
+            let batch_results = middleware.before_tools_batch(state, &current_calls).await;
+
+            // 将 batch 结果按位置回写（消费结果，避免 AgentError::Clone 要求）
+            let mut batch_iter = batch_results.into_iter();
+            for result in results.iter_mut() {
+                if result.is_ok() {
+                    if let Some(batch_result) = batch_iter.next() {
+                        *result = batch_result;
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
     /// 顺序执行 after_tool 钩子
     pub async fn run_after_tool(
         &self,
@@ -276,5 +316,95 @@ mod tests {
 
         let calls = log.lock().unwrap().clone();
         assert_eq!(calls, vec!["A.after_tool", "B.after_tool"]);
+    }
+
+    /// 批量工具调用：一个中间件批准、下一个中间件拒绝（混合结果）
+    #[tokio::test]
+    async fn test_before_tools_batch_mixed_approval() {
+        // 第一个中间件：所有工具加 _a 后缀
+        struct SuffixA;
+        #[async_trait]
+        impl Middleware<AgentState> for SuffixA {
+            fn name(&self) -> &str { "SuffixA" }
+            async fn before_tool(&self, _state: &mut AgentState, tc: &ToolCall) -> AgentResult<ToolCall> {
+                let mut m = tc.clone();
+                m.name = format!("{}{}", tc.name, "_a");
+                Ok(m)
+            }
+        }
+
+        // 第二个中间件：第二个工具调用返回 ToolRejected，第一个和第三个放行
+        struct RejectSecond;
+        #[async_trait]
+        impl Middleware<AgentState> for RejectSecond {
+            fn name(&self) -> &str { "RejectSecond" }
+            async fn before_tools_batch(
+                &self,
+                _state: &mut AgentState,
+                calls: &[ToolCall],
+            ) -> Vec<AgentResult<ToolCall>> {
+                calls.iter().enumerate().map(|(i, c)| {
+                    if i == 1 {
+                        Err(AgentError::ToolRejected {
+                            tool: c.name.clone(),
+                            reason: "拒绝第二个".to_string(),
+                        })
+                    } else {
+                        Ok(c.clone())
+                    }
+                }).collect()
+            }
+        }
+
+        let mut chain = MiddlewareChain::<AgentState>::new();
+        chain.add(Box::new(SuffixA));
+        chain.add(Box::new(RejectSecond));
+        let mut state = AgentState::new("/tmp");
+
+        let calls = vec![
+            ToolCall::new("id1", "tool1", serde_json::json!({})),
+            ToolCall::new("id2", "tool2", serde_json::json!({})),
+            ToolCall::new("id3", "tool3", serde_json::json!({})),
+        ];
+        let results = chain.run_before_tools_batch(&mut state, calls).await;
+
+        assert_eq!(results.len(), 3);
+        // 第一个：通过，名称被 SuffixA 修改为 tool1_a
+        assert!(results[0].is_ok());
+        assert_eq!(results[0].as_ref().unwrap().name, "tool1_a");
+        // 第二个：被 RejectSecond 拒绝
+        assert!(matches!(&results[1], Err(AgentError::ToolRejected { tool, .. }) if tool == "tool2_a"));
+        // 第三个：通过
+        assert!(results[2].is_ok());
+        assert_eq!(results[2].as_ref().unwrap().name, "tool3_a");
+    }
+
+    /// 批量工具调用：所有中间件使用默认逐条实现，结果应与逐个调用一致
+    #[tokio::test]
+    async fn test_before_tools_batch_equivalent_to_individual() {
+        struct SuffixX;
+        #[async_trait]
+        impl Middleware<AgentState> for SuffixX {
+            fn name(&self) -> &str { "SuffixX" }
+            async fn before_tool(&self, _state: &mut AgentState, tc: &ToolCall) -> AgentResult<ToolCall> {
+                let mut m = tc.clone();
+                m.name = format!("{}{}", tc.name, "_x");
+                Ok(m)
+            }
+        }
+
+        let mut chain = MiddlewareChain::<AgentState>::new();
+        chain.add(Box::new(SuffixX));
+        let mut state = AgentState::new("/tmp");
+
+        let calls = vec![
+            ToolCall::new("id1", "t1", serde_json::json!({})),
+            ToolCall::new("id2", "t2", serde_json::json!({})),
+        ];
+
+        let batch_results = chain.run_before_tools_batch(&mut state, calls.clone()).await;
+        assert_eq!(batch_results.len(), 2);
+        assert_eq!(batch_results[0].as_ref().unwrap().name, "t1_x");
+        assert_eq!(batch_results[1].as_ref().unwrap().name, "t2_x");
     }
 }

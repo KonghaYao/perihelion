@@ -234,51 +234,55 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                 // emit AI 推理内容
                 self.emit(AgentEvent::AiReasoning(reasoning.thought.clone()));
 
-                // 阶段一：串行执行 before_tool（需要 &mut S，且 HITL 可能修改 call）
-                let mut modified_calls: Vec<ToolCall> = Vec::new();
-                for tool_call in reasoning.tool_calls {
+                // 阶段一：批量 before_tool（利用中间件的 batch 方法，如 HITL 批量审批）
+                let original_calls: Vec<ToolCall> = reasoning.tool_calls.clone();
+                let before_results = self.chain.run_before_tools_batch(state, original_calls.clone()).await;
+                let mut modified_calls: Vec<ToolCall> = Vec::with_capacity(original_calls.len());
+
+                for (_idx, (tool_call, before_result)) in
+                    original_calls.iter().zip(before_results.into_iter()).enumerate()
+                {
                     // before_tool 阶段也检查取消
                     if cancel.is_cancelled() {
                         return Err(AgentError::Interrupted);
                     }
-                    let modified_call =
-                        match self.chain.run_before_tool(state, tool_call.clone()).await {
-                            Ok(c) => c,
-                            Err(AgentError::ToolRejected { ref reason, .. }) => {
-                                // 拒绝不终止 Agent，将拒绝原因作为工具错误反馈给 LLM
-                                let rejection_result = ToolResult::error(
-                                    &tool_call.id,
-                                    &tool_call.name,
-                                    reason.clone(),
-                                );
-                                self.emit(AgentEvent::ToolStart {
-                                    message_id: ai_msg_id,
-                                    tool_call_id: tool_call.id.clone(),
-                                    name: tool_call.name.clone(),
-                                    input: tool_call.input.clone(),
-                                });
-                                self.emit(AgentEvent::ToolEnd {
-                                    message_id: ai_msg_id,
-                                    tool_call_id: tool_call.id.clone(),
-                                    name: tool_call.name.clone(),
-                                    output: rejection_result.output.clone(),
-                                    is_error: true,
-                                });
-                                let tool_msg = BaseMessage::tool_error(
-                                    &rejection_result.tool_call_id,
-                                    rejection_result.output.as_str(),
-                                );
-                                let tool_msg_clone = tool_msg.clone();
-                                state.add_message(tool_msg);
-                                self.emit(AgentEvent::MessageAdded(tool_msg_clone));
-                                all_tool_calls.push((tool_call, rejection_result));
-                                continue;
-                            }
-                            Err(e) => {
-                                self.chain.run_on_error(state, &e).await?;
-                                return Err(e);
-                            }
-                        };
+                    let modified_call = match before_result {
+                        Ok(c) => c,
+                        Err(AgentError::ToolRejected { ref reason, .. }) => {
+                            // 拒绝不终止 Agent，将拒绝原因作为工具错误反馈给 LLM
+                            let rejection_result = ToolResult::error(
+                                &tool_call.id,
+                                &tool_call.name,
+                                reason.clone(),
+                            );
+                            self.emit(AgentEvent::ToolStart {
+                                message_id: ai_msg_id,
+                                tool_call_id: tool_call.id.clone(),
+                                name: tool_call.name.clone(),
+                                input: tool_call.input.clone(),
+                            });
+                            self.emit(AgentEvent::ToolEnd {
+                                message_id: ai_msg_id,
+                                tool_call_id: tool_call.id.clone(),
+                                name: tool_call.name.clone(),
+                                output: rejection_result.output.clone(),
+                                is_error: true,
+                            });
+                            let tool_msg = BaseMessage::tool_error(
+                                &rejection_result.tool_call_id,
+                                rejection_result.output.as_str(),
+                            );
+                            let tool_msg_clone = tool_msg.clone();
+                            state.add_message(tool_msg);
+                            self.emit(AgentEvent::MessageAdded(tool_msg_clone));
+                            all_tool_calls.push((tool_call.clone(), rejection_result));
+                            continue;
+                        }
+                        Err(e) => {
+                            self.chain.run_on_error(state, &e).await?;
+                            return Err(e);
+                        }
+                    };
                     self.emit(AgentEvent::ToolStart {
                         message_id: ai_msg_id,
                         tool_call_id: modified_call.id.clone(),
@@ -1035,6 +1039,69 @@ mod tests {
         assert!(matches!(result, Err(AgentError::MaxIterationsExceeded(3))));
         // 1 human + 3*(ai + tool_result)
         assert_eq!(state.messages().len(), 7);
+    }
+
+    /// 验证两个工具调用通过批量 before_tools_batch 处理（HITL 批量审批路径）
+    #[tokio::test]
+    async fn test_batch_before_tools_execution() {
+        use crate::agent::events::{AgentEvent, FnEventHandler};
+        use std::sync::{Arc, Mutex};
+
+        struct TwoToolLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for TwoToolLLM {
+            async fn generate_reasoning(
+                &self,
+                messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> crate::error::AgentResult<Reasoning> {
+                if messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. })) {
+                    Ok(Reasoning::with_answer("done", "ok"))
+                } else {
+                    Ok(Reasoning::with_tools(
+                        "need both",
+                        vec![
+                            ToolCall::new("id1", "tool_a", serde_json::json!({})),
+                            ToolCall::new("id2", "tool_b", serde_json::json!({})),
+                        ],
+                    ))
+                }
+            }
+        }
+
+        struct EchoTool { name_str: &'static str }
+        #[async_trait::async_trait]
+        impl BaseTool for EchoTool {
+            fn name(&self) -> &str { self.name_str }
+            fn description(&self) -> &str { "echo" }
+            fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
+            async fn invoke(&self, _: serde_json::Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+                Ok(format!("{} done", self.name_str))
+            }
+        }
+
+        let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+
+        let agent = ReActAgent::new(TwoToolLLM)
+            .max_iterations(5)
+            .register_tool(Box::new(EchoTool { name_str: "tool_a" }))
+            .register_tool(Box::new(EchoTool { name_str: "tool_b" }))
+            .with_event_handler(Arc::new(FnEventHandler(move |event| {
+                events_clone.lock().unwrap().push(event);
+            })));
+
+        let mut state = AgentState::new("/tmp");
+        let output = agent.execute(AgentInput::text("go"), &mut state, None).await.unwrap();
+
+        assert_eq!(output.text, "ok");
+        assert_eq!(output.tool_calls.len(), 2);
+
+        let evs = events.lock().unwrap();
+        let tool_starts: Vec<_> = evs.iter()
+            .filter(|e| matches!(e, AgentEvent::ToolStart { .. }))
+            .collect();
+        assert_eq!(tool_starts.len(), 2, "应有 2 个 ToolStart 事件");
     }
 
 }

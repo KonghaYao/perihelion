@@ -326,6 +326,16 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
         "HumanInTheLoopMiddleware"
     }
 
+    /// 批量工具调用前处理：对一批工具调用一次性收集所有需审批的项，
+    /// 通过 broker 弹出一个 [多工具审批] 弹窗，避免逐个弹窗打断用户。
+    async fn before_tools_batch(
+        &self,
+        _state: &mut S,
+        calls: &[ToolCall],
+    ) -> Vec<AgentResult<ToolCall>> {
+        self.process_batch(calls).await
+    }
+
     async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
         // 1. 非敏感工具 → 所有模式都放行
         if !(self.requires_approval)(&tool_call.name) {
