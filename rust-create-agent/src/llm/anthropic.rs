@@ -241,11 +241,17 @@ impl ChatAnthropic {
     /// 对 messages 列表中最后一条消息的最后一个 content block 追加 cache_control
     ///
     /// Anthropic Prompt Caching 要求在需要缓存的边界位置加 `cache_control: { type: "ephemeral" }`。
+    ///
+    /// **缓存策略**：在第一条 user 消息上加 cache_control 标记。
+    /// 原因：system 消息已单独缓存（见 invoke 方法），第一条 user 消息及其之前的所有内容
+    /// 构成一个稳定的缓存段，后续轮次的 user 消息不会失效此缓存。
+    /// 若缓存在最后一条 user 消息上，则每次对话轮次变更时缓存都会失效。
     fn apply_cache_to_messages(messages: &mut [Value]) {
         // Anthropic 只允许在 user 消息上添加 cache_control，跳过 assistant 消息
-        let last_msg = messages.iter_mut().rev().find(|m| m["role"] == "user");
-        if let Some(last_msg) = last_msg {
-            if let Some(content) = last_msg.get_mut("content") {
+        // 使用第一条 user 消息作为缓存边界（稳定），而非最后一条（每轮变化）
+        let first_msg = messages.iter_mut().find(|m| m["role"] == "user");
+        if let Some(first_msg) = first_msg {
+            if let Some(content) = first_msg.get_mut("content") {
                 match content {
                     Value::Array(blocks) => {
                         if let Some(last_block) = blocks.last_mut() {
@@ -621,5 +627,98 @@ impl ReactLLM for ChatAnthropic {
 
     fn model_name(&self) -> String {
         self.model.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 验证 cache_control 放在第一条 user 消息上（稳定缓存边界）
+    #[test]
+    fn test_cache_control_on_first_user_message() {
+        let mut messages = vec![
+            json!({"role": "user", "content": "first question"}),
+            json!({"role": "assistant", "content": "first answer"}),
+            json!({"role": "user", "content": "second question"}),
+        ];
+        ChatAnthropic::apply_cache_to_messages(&mut messages);
+
+        // 第一条 user 消息（index 0）应被转换为 blocks 并包含 cache_control
+        let content = messages[0]["content"].as_array().unwrap();
+        let first_block = &content[0];
+        assert_eq!(first_block["cache_control"]["type"], "ephemeral",
+            "第一条 user 消息应有 cache_control");
+        assert_eq!(first_block["text"], "first question");
+
+        // 第二条 user 消息（index 2）不应有 cache_control
+        let content2 = messages[2]["content"].as_str();
+        assert!(content2.is_some(), "第二条 user 消息仍为纯文本（未转换）");
+    }
+
+    /// 验证 assistant 消息被跳过，从不设置 cache_control
+    #[test]
+    fn test_cache_control_skips_assistant() {
+        let mut messages = vec![
+            json!({"role": "assistant", "content": "assistant only"}),
+            json!({"role": "user", "content": "first user"}),
+        ];
+        ChatAnthropic::apply_cache_to_messages(&mut messages);
+
+        // assistant 消息应不变（index 0）
+        assert!(messages[0]["content"].is_string());
+        // 第一条 user 消息（index 1）应被转换
+        let content = messages[1]["content"].as_array().unwrap();
+        assert_eq!(content[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    /// 验证多 block 消息：cache_control 加在最后一个 block 上
+    #[test]
+    fn test_cache_control_on_last_block() {
+        let mut messages = vec![json!({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "block 1"},
+                {"type": "text", "text": "block 2"},
+            ]
+        })];
+        ChatAnthropic::apply_cache_to_messages(&mut messages);
+
+        let blocks = messages[0]["content"].as_array().unwrap();
+        // 第一个 block 无 cache_control
+        assert!(!blocks[0].as_object().unwrap().contains_key("cache_control"));
+        // 最后一个 block 有 cache_control
+        assert_eq!(blocks[1]["cache_control"]["type"], "ephemeral",
+            "最后一个 block 应有 cache_control");
+    }
+
+    /// 验证空 text block 被跳过
+    #[test]
+    fn test_cache_control_skips_empty_text_block() {
+        let mut messages = vec![json!({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": ""},
+                {"type": "text", "text": "real content"},
+            ]
+        })];
+        ChatAnthropic::apply_cache_to_messages(&mut messages);
+
+        let blocks = messages[0]["content"].as_array().unwrap();
+        // 空 block 无 cache_control
+        assert!(!blocks[0].as_object().unwrap().contains_key("cache_control"));
+        // 非空 block 有 cache_control
+        assert_eq!(blocks[1]["cache_control"]["type"], "ephemeral");
+    }
+
+    /// 验证无 user 消息时不变更
+    #[test]
+    fn test_cache_control_no_user_messages() {
+        let mut messages = vec![
+            json!({"role": "assistant", "content": "only assistant"}),
+        ];
+        let before = messages.clone();
+        ChatAnthropic::apply_cache_to_messages(&mut messages);
+        assert_eq!(messages, before, "无 user 消息时应不变");
     }
 }
