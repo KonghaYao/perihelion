@@ -62,6 +62,7 @@ impl App {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
         }
+        self.close_login_panel();
     }
 
     /// 保存 Login 面板的编辑/新建内容到 ZenConfig
