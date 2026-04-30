@@ -66,6 +66,60 @@ impl TodoWriteTool {
     }
 }
 
+/// 对比新旧 todo 列表，生成变更摘要（用于 TUI 显示）
+fn summarize_changes(old: &[TodoItem], new: &[TodoItem]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    let old_map: std::collections::HashMap<&str, &TodoItem> =
+        old.iter().map(|t| (t.id.as_str(), t)).collect();
+    let new_map: std::collections::HashMap<&str, &TodoItem> =
+        new.iter().map(|t| (t.id.as_str(), t)).collect();
+
+    // 新增项
+    let added: Vec<&str> = new
+        .iter()
+        .filter(|t| !old_map.contains_key(t.id.as_str()))
+        .map(|t| t.id.as_str())
+        .collect();
+    if !added.is_empty() {
+        parts.push(format!("+{}", added.join(",")));
+    }
+
+    // 删除项
+    let removed: Vec<&str> = old
+        .iter()
+        .filter(|t| !new_map.contains_key(t.id.as_str()))
+        .map(|t| t.id.as_str())
+        .collect();
+    if !removed.is_empty() {
+        parts.push(format!("-{}", removed.join(",")));
+    }
+
+    // 状态变更
+    let mut status_changes: Vec<String> = Vec::new();
+    for new_item in new {
+        if let Some(old_item) = old_map.get(new_item.id.as_str()) {
+            if old_item.status != new_item.status {
+                let status_str = match &new_item.status {
+                    TodoStatus::Pending => "pending",
+                    TodoStatus::InProgress => "in_progress",
+                    TodoStatus::Completed => "completed",
+                };
+                status_changes.push(format!("{}→{}", new_item.id, status_str));
+            }
+        }
+    }
+    if !status_changes.is_empty() {
+        parts.push(status_changes.join(","));
+    }
+
+    if parts.is_empty() {
+        "saved".to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
 #[async_trait]
 impl BaseTool for TodoWriteTool {
     fn name(&self) -> &str {
@@ -115,6 +169,12 @@ impl BaseTool for TodoWriteTool {
         let items: Vec<TodoItem> = serde_json::from_value(input["todos"].clone())
             .map_err(|e| format!("todo_write: invalid input: {e}"))?;
 
+        // 对比新旧列表，生成变更摘要
+        let summary = {
+            let old = self.todos.lock().await;
+            summarize_changes(&old, &items)
+        };
+
         // 全量覆盖
         {
             let mut guard = self.todos.lock().await;
@@ -128,7 +188,7 @@ impl BaseTool for TodoWriteTool {
             }
         }
 
-        Ok("todo saved successfully".to_string())
+        Ok(summary)
     }
 }
 

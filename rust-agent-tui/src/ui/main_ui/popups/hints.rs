@@ -47,9 +47,9 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
     let y = input_area.y.saturating_sub(hint_height);
     let hint_area = Rect {
-        x: input_area.x + 1,
+        x: input_area.x,
         y,
-        width: input_area.width.saturating_sub(2).min(60),
+        width: input_area.width,
         height: hint_height,
     };
 

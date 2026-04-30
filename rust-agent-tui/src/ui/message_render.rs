@@ -129,11 +129,22 @@ pub fn render_view_model(
                 state.set_result(content.clone());
             }
 
-            // 使用 ToolCallWidget 的渲染逻辑
-            let indicator = perihelion_widgets::tool_call::display::format_indicator(
-                state.status.clone(),
-                state.tick,
-            );
+            // 运行中状态：● 闪烁
+            let indicator = if matches!(state.status, perihelion_widgets::ToolCallStatus::Running) {
+                let tick = std::time::Instant::now()
+                    .elapsed()
+                    .as_millis() as u64
+                    / 200;
+                perihelion_widgets::tool_call::display::format_indicator(
+                    state.status.clone(),
+                    tick,
+                )
+            } else {
+                perihelion_widgets::tool_call::display::format_indicator(
+                    state.status.clone(),
+                    state.tick,
+                )
+            };
             let indicator_color = match state.status {
                 perihelion_widgets::ToolCallStatus::Completed => Color::Green,
                 _ => Color::White,
@@ -148,13 +159,6 @@ pub fn render_view_model(
                         .add_modifier(Modifier::BOLD),
                 ),
             ];
-            // Running 状态添加文字标签
-            if matches!(state.status, perihelion_widgets::ToolCallStatus::Running) {
-                header_spans.push(Span::styled(
-                    " 运行中…".to_string(),
-                    Style::default().fg(theme::WARNING),
-                ));
-            }
             if !state.args_summary.is_empty() {
                 let summary = perihelion_widgets::tool_call::display::format_args_summary(
                     &state.args_summary,

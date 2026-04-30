@@ -70,14 +70,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_assistant_chunk_renders() {
+        use rust_create_agent::messages::BaseMessage;
+
         let (mut app, mut handle) = App::new_headless(120, 30);
         // Pipeline: AssistantChunk → AppendChunk (1 个 RenderEvent)
+        // Pipeline: StateSnapshot → None (0 个 RenderEvent)
         // Pipeline: Done           → RebuildAll/LoadHistory (1 个 RenderEvent)
         // 合计 2 个通知：必须在发送事件前预注册所有 waiter
         let notify = Arc::clone(&handle.render_notify);
         let n1 = notify.notified();
         let n2 = notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("Hello world".into()));
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::human("q"),
+            BaseMessage::ai("Hello world"),
+        ]));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
         tokio::join!(n1, n2);
@@ -686,6 +693,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_then_nonempty_assistant_chunk() {
+        use rust_create_agent::messages::BaseMessage;
+
         // 空_chunk → 非空_chunk：非空 chunk 应正常创建气泡
         let (mut app, mut handle) = App::new_headless(120, 30);
 
@@ -698,6 +707,10 @@ mod tests {
         let n1 = notify.notified();
         let n2 = notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("Hello".into()));
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::human("q"),
+            BaseMessage::ai("Hello"),
+        ]));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
         tokio::join!(n1, n2);
@@ -707,11 +720,11 @@ mod tests {
             .draw(|f| main_ui::render(f, &mut app))
             .unwrap();
 
-        // 应该只有 1 个 AssistantBubble，内容为 "Hello"
-        assert_eq!(app.core.view_messages.len(), 1, "应只有 1 条消息");
+        // Done 触发 reconcile_tail 从 completed 重建，应包含 Human + AI 两条消息
+        assert_eq!(app.core.view_messages.len(), 2, "应有 2 条消息（Human+AI）");
         assert!(
-            app.core.view_messages[0].is_assistant(),
-            "应为 AssistantBubble"
+            app.core.view_messages[1].is_assistant(),
+            "第二条应为 AssistantBubble"
         );
         assert!(handle.contains("Hello"), "应显示 Hello 内容");
     }
@@ -775,11 +788,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_welcome_card_hidden_after_message() {
+        use rust_create_agent::messages::BaseMessage;
+
         let (mut app, mut handle) = App::new_headless(120, 30);
         let notify = Arc::clone(&handle.render_notify);
         let n1 = notify.notified();
         let n2 = notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("Hello from agent".into()));
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::human("q"),
+            BaseMessage::ai("Hello from agent"),
+        ]));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
         tokio::join!(n1, n2);
@@ -1829,6 +1848,8 @@ mod tests {
     /// 回归：用户消息在 AI 回复后仍应可见（不应被 AppendChunk 覆盖）
     #[tokio::test]
     async fn test_user_message_survives_assistant_chunk() {
+        use rust_create_agent::messages::BaseMessage;
+
         let (mut app, mut handle) = App::new_headless(120, 30);
 
         // 模拟用户发送消息
@@ -1839,6 +1860,10 @@ mod tests {
         let n1 = handle.render_notify.notified();
         let n2 = handle.render_notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("AI answer".into()));
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::human("my question"),
+            BaseMessage::ai("AI answer"),
+        ]));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
         tokio::join!(n1, n2);
@@ -1869,9 +1894,13 @@ mod tests {
     /// 回归：多轮对话消息累积，不应只看到最后一条
     #[tokio::test]
     async fn test_messages_accumulate_across_turns() {
+        use rust_create_agent::messages::BaseMessage;
+
         let (mut app, mut handle) = App::new_headless(120, 30);
 
         // 第一轮：用户 → AI
+        // 模拟 submit_message：先记录 round_start_vm_idx，再 push Human VM
+        app.core.round_start_vm_idx = app.core.view_messages.len();
         let user1 = MessageViewModel::user("turn1".into());
         app.core.view_messages.push(user1.clone());
         let _ = app.core.render_tx.send(RenderEvent::AddMessage(user1));
@@ -1879,11 +1908,17 @@ mod tests {
         let n1 = handle.render_notify.notified();
         let n2 = handle.render_notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("answer1".into()));
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::human("turn1"),
+            BaseMessage::ai("answer1"),
+        ]));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
         tokio::join!(n1, n2);
 
         // 第二轮：用户 → AI
+        // 模拟 submit_message：先记录 round_start_vm_idx，再 push Human VM
+        app.core.round_start_vm_idx = app.core.view_messages.len();
         let user2 = MessageViewModel::user("turn2".into());
         app.core.view_messages.push(user2.clone());
         let _ = app.core.render_tx.send(RenderEvent::AddMessage(user2));
@@ -1891,6 +1926,12 @@ mod tests {
         let n3 = handle.render_notify.notified();
         let n4 = handle.render_notify.notified();
         app.push_agent_event(AgentEvent::AssistantChunk("answer2".into()));
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::human("turn1"),
+            BaseMessage::ai("answer1"),
+            BaseMessage::human("turn2"),
+            BaseMessage::ai("answer2"),
+        ]));
         app.push_agent_event(AgentEvent::Done);
         app.process_pending_events();
         tokio::join!(n3, n4);

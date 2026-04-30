@@ -34,6 +34,7 @@ impl App {
         } else {
             format!("{} [🖼 {} 张图片]", input, attachments.len())
         };
+        self.core.round_start_vm_idx = self.core.view_messages.len();
         let user_vm = MessageViewModel::user(display.clone());
         self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
         self.core.last_human_message = Some(display);
@@ -236,17 +237,13 @@ impl App {
                     let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
                 }
             }
-            PipelineAction::StreamingDone => {
-                if let Some(MessageViewModel::AssistantBubble { is_streaming, .. }) =
-                    self.core.view_messages.last_mut()
-                {
-                    *is_streaming = false;
-                }
-                let _ = self.core.render_tx.send(RenderEvent::StreamingDone);
-            }
-            PipelineAction::RebuildAll(vms) => {
-                self.core.view_messages = vms.clone();
-                let _ = self.core.render_tx.send(RenderEvent::LoadHistory(vms));
+            PipelineAction::RebuildAll { prefix_len, tail_vms } => {
+                self.core.view_messages.truncate(prefix_len);
+                self.core.view_messages.extend(tail_vms.clone());
+                let _ = self
+                    .core
+                    .render_tx
+                    .send(RenderEvent::LoadHistory(self.core.view_messages.clone()));
             }
         }
     }
@@ -419,6 +416,13 @@ impl App {
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
+                // reconcile 尾部重建：确保流式最终状态与恢复路径一致
+                let (prefix_len, tail_vms) =
+                    self.core.pipeline.reconcile_tail(self.core.round_start_vm_idx);
+                self.apply_pipeline_action(PipelineAction::RebuildAll {
+                    prefix_len,
+                    tail_vms,
+                });
                 // 跨切面：Langfuse
                 if let Some(ref tracer) = self.langfuse.langfuse_tracer {
                     self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
@@ -467,6 +471,13 @@ impl App {
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
+                // reconcile 尾部重建：中断场景同样需要确保一致性
+                let (prefix_len, tail_vms) =
+                    self.core.pipeline.reconcile_tail(self.core.round_start_vm_idx);
+                self.apply_pipeline_action(PipelineAction::RebuildAll {
+                    prefix_len,
+                    tail_vms,
+                });
                 // 系统消息由 agent_ops 直接显示
                 let vm = MessageViewModel::system(
                     "⚠ 已中断（工具调用已以 error 结尾，消息已保存，可继续发送恢复）".to_string(),
@@ -740,7 +751,10 @@ impl App {
                     ));
                     view_msgs.push(inject_vm);
                 }
-                self.apply_pipeline_action(PipelineAction::RebuildAll(view_msgs));
+                self.apply_pipeline_action(PipelineAction::RebuildAll {
+                    prefix_len: 0,
+                    tail_vms: view_msgs,
+                });
 
                 self.set_loading(false);
                 self.agent.agent_rx = None;
@@ -939,5 +953,134 @@ mod tests {
     fn test_preload_skills_truncates_on_invalid_char() {
         let result = extract_skill_tokens("/skill-name!suffix");
         assert_eq!(result, vec!["skill-name"], "遇到 ! 截断");
+    }
+
+    // ─── reconcile 事件处理测试 ──────────────────────────────────────────────
+
+    /// 场景1: Done 事件触发 reconcile → view_messages 被截断并 extend
+    #[tokio::test]
+    async fn test_reconcile_event_handling_done() {
+        use rust_create_agent::messages::BaseMessage;
+
+        // 构造 pipeline 和模拟的 view_messages
+        let (render_tx, render_cache, render_notify) =
+            crate::ui::render_thread::spawn_render_thread(80);
+
+        let mut core = crate::app::AppCore::new(
+            "/tmp".to_string(),
+            render_tx,
+            render_cache,
+            Arc::clone(&render_notify),
+            crate::command::default_registry(),
+            Vec::new(),
+        );
+
+        // 模拟第一轮已完成的 view_messages
+        core.view_messages = vec![
+            crate::ui::message_view::MessageViewModel::user("q1".to_string()),
+            crate::ui::message_view::MessageViewModel::from_base_message(
+                &BaseMessage::ai("a1".to_string()),
+                &[],
+            ),
+        ];
+
+        // 记录 round_start_vm_idx = 2（第二轮开始前）
+        core.round_start_vm_idx = 2;
+
+        // 模拟第二轮 completed（通过 restore_completed 设置）
+        core.pipeline.restore_completed(vec![
+            BaseMessage::human("q1"),
+            BaseMessage::ai("a1"),
+            BaseMessage::human("q2"),
+            BaseMessage::ai("a2"),
+        ]);
+
+        let (prefix_len, tail_vms) = core.pipeline.reconcile_tail(core.round_start_vm_idx);
+        assert_eq!(prefix_len, 2);
+
+        // 模拟 RebuildAll 截断 + extend
+        core.view_messages.truncate(prefix_len);
+        core.view_messages.extend(tail_vms);
+
+        // 验证结果：应包含 q1, a1, q2, a2
+        assert_eq!(core.view_messages.len(), 4);
+    }
+
+    /// 场景2: Interrupted 事件触发 reconcile → 与 Done 相同
+    #[tokio::test]
+    async fn test_reconcile_event_handling_interrupted() {
+        use rust_create_agent::messages::BaseMessage;
+
+        let (render_tx, render_cache, render_notify) =
+            crate::ui::render_thread::spawn_render_thread(80);
+
+        let mut core = crate::app::AppCore::new(
+            "/tmp".to_string(),
+            render_tx,
+            render_cache,
+            Arc::clone(&render_notify),
+            crate::command::default_registry(),
+            Vec::new(),
+        );
+
+        core.view_messages = vec![
+            crate::ui::message_view::MessageViewModel::user("q1".to_string()),
+            crate::ui::message_view::MessageViewModel::from_base_message(
+                &BaseMessage::ai("a1".to_string()),
+                &[],
+            ),
+        ];
+        core.round_start_vm_idx = 2;
+
+        core.pipeline.restore_completed(vec![
+            BaseMessage::human("q1"),
+            BaseMessage::ai("a1"),
+            BaseMessage::human("q2"),
+        ]);
+
+        let (prefix_len, tail_vms) = core.pipeline.reconcile_tail(core.round_start_vm_idx);
+        assert_eq!(prefix_len, 2);
+
+        core.view_messages.truncate(prefix_len);
+        core.view_messages.extend(tail_vms);
+
+        // q1, a1, q2
+        assert_eq!(core.view_messages.len(), 3);
+    }
+
+    /// 场景3: submit_message 记录 round_start_vm_idx
+    #[tokio::test]
+    async fn test_submit_message_records_round_start_vm_idx() {
+        let (render_tx, render_cache, render_notify) =
+            crate::ui::render_thread::spawn_render_thread(80);
+
+        let mut core = crate::app::AppCore::new(
+            "/tmp".to_string(),
+            render_tx,
+            render_cache,
+            Arc::clone(&render_notify),
+            crate::command::default_registry(),
+            Vec::new(),
+        );
+
+        // 模拟已有 3 条 VM
+        core.view_messages = vec![
+            crate::ui::message_view::MessageViewModel::user("q1".to_string()),
+            crate::ui::message_view::MessageViewModel::from_base_message(
+                &rust_create_agent::messages::BaseMessage::ai("a1".to_string()),
+                &[],
+            ),
+            crate::ui::message_view::MessageViewModel::user("q2".to_string()),
+        ];
+
+        // 模拟 submit_message 的 round_start_vm_idx 记录逻辑
+        core.round_start_vm_idx = core.view_messages.len();
+        assert_eq!(core.round_start_vm_idx, 3);
+
+        // push Human VM 后
+        core.view_messages
+            .push(crate::ui::message_view::MessageViewModel::user("q3".to_string()));
+        assert_eq!(core.view_messages.len(), 4);
+        assert_eq!(core.round_start_vm_idx, 3, "round_start_vm_idx 应保持为 push 前的值");
     }
 }

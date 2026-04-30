@@ -38,7 +38,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     };
 
     // 底部展开区高度（替代居中弹窗）
-    let panel_height = active_panel_height(app, area.height);
+    let panel_height = active_panel_height(app, area.height, area.width);
 
     // Sticky header 高度：有消息时动态高度（1-3 行），无消息时 0
     let sticky_header_height: u16 = app
@@ -120,7 +120,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
-fn active_panel_height(app: &App, screen_height: u16) -> u16 {
+fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 {
     let max_h = screen_height * 3 / 5; // 最多占 60% 屏高
     let raw = if let Some(panel) = &app.core.thread_browser {
         (panel.total() as u16 + 4).max(6)
@@ -151,14 +151,36 @@ fn active_panel_height(app: &App, screen_height: u16) -> u16 {
     } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt
     {
         let cur = &p.questions[p.active_tab];
-        let opt_rows = cur.data.options.len() as u16;
-        let desc_rows = cur
-            .data
-            .options
-            .iter()
-            .filter(|o| o.description.is_some())
-            .count() as u16;
-        (cur.data.question.lines().count() as u16 + opt_rows + desc_rows + 7).max(8)
+        // 自适应高度：考虑文本自动换行
+        let panel_width = screen_width.saturating_sub(4) as usize; // 减去边框+内边距
+        let mut content_lines: u16 = 0;
+
+        // 问题文本（考虑自动换行）
+        for line in cur.data.question.lines() {
+            let w = unicode_width::UnicodeWidthStr::width(line);
+            content_lines += (w as u16).div_ceil(panel_width.max(1) as u16);
+        }
+
+        // [多选]/[单选] 提示
+        content_lines += 1;
+
+        // 选项（每个选项可能因标签长而换行）
+        for opt in &cur.data.options {
+            let label_w = unicode_width::UnicodeWidthStr::width(opt.label.as_str()) + 6; // " ▶ ○ " 前缀
+            content_lines += (label_w as u16).div_ceil(panel_width.max(1) as u16);
+            if let Some(ref desc) = opt.description {
+                if !desc.is_empty() {
+                    let desc_w = unicode_width::UnicodeWidthStr::width(desc.as_str()) + 6; // "      " 缩进
+                    content_lines += (desc_w as u16).div_ceil(panel_width.max(1) as u16);
+                }
+            }
+        }
+
+        // 自定义输入区 + 空行 + 快捷键提示（固定 3 行）
+        content_lines += 3;
+
+        // header tab + 分隔线 + 边框 = 4
+        (content_lines + 4).max(8)
     } else {
         0
     };
@@ -253,24 +275,34 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
             ]));
             all_lines.push(Line::from(""));
             for item in &app.todo_items {
-                let (icon, style) = match item.status {
+                let (icon, icon_style, text_style) = match item.status {
                     TodoStatus::InProgress => (
-                        "  ✻  ",
+                        "  ◼  ",
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(theme::ACCENT)
                             .add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme::TEXT),
                     ),
-                    TodoStatus::Completed => ("  ✓  ", Style::default().fg(Color::Green)),
-                    TodoStatus::Pending => ("  ○  ", Style::default().fg(theme::MUTED)),
+                    TodoStatus::Completed => (
+                        "  ✔  ",
+                        Style::default().fg(Color::Green),
+                        Style::default()
+                            .fg(Color::Gray)
+                            .add_modifier(Modifier::CROSSED_OUT),
+                    ),
+                    TodoStatus::Pending => (
+                        "  ◻  ",
+                        Style::default().fg(theme::MUTED),
+                        Style::default().fg(theme::MUTED),
+                    ),
                 };
                 let hint = match item.status {
                     TodoStatus::Pending => Some("可开始"),
-                    TodoStatus::InProgress => Some("可完成"),
-                    TodoStatus::Completed => None,
+                    _ => None,
                 };
                 let mut spans = vec![
-                    Span::styled(icon, style),
-                    Span::styled(&item.content, style),
+                    Span::styled(icon, icon_style),
+                    Span::styled(&item.content, text_style),
                 ];
                 if let Some(hint) = hint {
                     spans.push(Span::styled(

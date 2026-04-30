@@ -42,8 +42,6 @@ pub enum PipelineAction {
     AppendChunk(String),
     /// 更新最后一条消息（SubAgentGroup / ToolBlock 内容更新）
     UpdateLast(MessageViewModel),
-    /// 流式结束
-    StreamingDone,
     /// 移除最后一条消息
     RemoveLast,
     /// 移除末尾 N 条消息
@@ -53,8 +51,11 @@ pub enum PipelineAction {
         tool_call_id: String,
         vm: Box<MessageViewModel>,
     },
-    /// 全量重建（工具聚合变更等）
-    RebuildAll(Vec<MessageViewModel>),
+    /// 尾部重建（prefix_len 标记不变前缀长度，tail_vms 存储重建尾部）
+    RebuildAll {
+        prefix_len: usize,
+        tail_vms: Vec<MessageViewModel>,
+    },
 }
 
 // ─── 管线内部状态 ────────────────────────────────────────────────────────────
@@ -222,7 +223,7 @@ impl MessagePipeline {
             }
             AgentEvent::Done => {
                 self.done();
-                vec![PipelineAction::StreamingDone]
+                vec![PipelineAction::None]
             }
             AgentEvent::Interrupted => {
                 self.interrupt();
@@ -363,6 +364,24 @@ impl MessagePipeline {
                 is_error,
                 collapsed: true,
                 color: tool_color("ask_user_question"),
+            };
+            return PipelineAction::UpdateToolResult {
+                tool_call_id: tool_call_id.to_string(),
+                vm: Box::new(vm),
+            };
+        }
+
+        // todo_write ToolEnd → 变更摘要显示在标题括号内，展开区无内容
+        if name == "todo_write" {
+            let vm = MessageViewModel::ToolBlock {
+                tool_name: "todo_write".to_string(),
+                tool_call_id: tool_call_id.to_string(),
+                display_name: tool_display::format_tool_name("todo_write"),
+                args_display: Some(output.to_string()),
+                content: String::new(),
+                is_error,
+                collapsed: true,
+                color: tool_color("todo_write"),
             };
             return PipelineAction::UpdateToolResult {
                 tool_call_id: tool_call_id.to_string(),
@@ -576,6 +595,26 @@ impl MessagePipeline {
     /// 与 restore 路径 `messages_to_view_models()` 完全一致。
     pub fn reconcile(&self) -> Vec<MessageViewModel> {
         Self::messages_to_view_models(&self.completed, &self.cwd)
+    }
+
+    /// Reconcile 尾部：从最后一条 Human 消息开始重建 tail_vms，
+    /// 返回 `(round_start_vm_idx, tail_vms)`。
+    ///
+    /// `round_start_vm_idx` 标记当前轮对话开始时的 VM 索引，
+    /// 用于 `RebuildAll` 的 `prefix_len` 计算不变前缀长度。
+    pub fn reconcile_tail(&self, round_start_vm_idx: usize) -> (usize, Vec<MessageViewModel>) {
+        // 找到 completed 中最后一条 Human 消息的 index
+        let last_human_idx = self
+            .completed
+            .iter()
+            .rposition(|msg| matches!(msg, BaseMessage::Human { .. }))
+            .unwrap_or(0);
+
+        // 从最后一条 Human 消息开始重建
+        let tail_vms =
+            Self::messages_to_view_models(&self.completed[last_human_idx..], &self.cwd);
+
+        (round_start_vm_idx, tail_vms)
     }
 
     // ─── 内部方法 ─────────────────────────────────────────────────────────
@@ -835,10 +874,10 @@ mod tests {
             actions[0],
             PipelineAction::UpdateToolResult { .. }
         ));
-        // Done → StreamingDone（不再 RebuildAll，流式路径已通过增量操作维护 view_messages）
+        // Done → None（reconcile 逻辑由 agent_ops 调用，pipeline 只负责状态更新）
         let actions = pipeline.handle_event(AgentEvent::Done);
         assert_eq!(actions.len(), 1);
-        assert!(matches!(actions[0], PipelineAction::StreamingDone));
+        assert!(matches!(actions[0], PipelineAction::None));
     }
 
     /// 测试：handle_event StateSnapshot 更新 completed
@@ -922,5 +961,122 @@ mod tests {
         }
         assert!(found_a, "应找到 tc_a 的 ToolBlock");
         assert!(found_b, "应找到 tc_b 的 ToolBlock");
+    }
+
+    // ─── reconcile_tail 测试 ──────────────────────────────────────────────────
+
+    /// 场景1: round_start_vm_idx=0 返回完整列表
+    #[test]
+    fn test_reconcile_tail_from_start() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        pipeline.completed = vec![
+            BaseMessage::human("q1"),
+            BaseMessage::ai("a1"),
+            BaseMessage::human("q2"),
+            BaseMessage::ai("a2"),
+        ];
+        let (prefix_len, tail_vms) = pipeline.reconcile_tail(0);
+        assert_eq!(prefix_len, 0);
+        // tail_vms 应包含从最后一条 Human 开始重建的所有 VMs
+        let full_vms = MessagePipeline::messages_to_view_models(
+            &pipeline.completed[2..],
+            &pipeline.cwd,
+        );
+        assert_eq!(format!("{:?}", tail_vms), format!("{:?}", full_vms));
+    }
+
+    /// 场景2: round_start_vm_idx=2 返回从最后一条 Human 消息开始的尾部
+    #[test]
+    fn test_reconcile_tail_mid_round() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        pipeline.completed = vec![
+            BaseMessage::human("q1"),
+            BaseMessage::ai("a1"),
+            BaseMessage::human("q2"),
+            BaseMessage::ai("a2"),
+        ];
+        let (prefix_len, tail_vms) = pipeline.reconcile_tail(2);
+        assert_eq!(prefix_len, 2);
+        let full_vms = MessagePipeline::messages_to_view_models(
+            &pipeline.completed[2..],
+            &pipeline.cwd,
+        );
+        assert_eq!(format!("{:?}", tail_vms), format!("{:?}", full_vms));
+    }
+
+    /// 场景3: 空 completed 返回空尾部
+    #[test]
+    fn test_reconcile_tail_empty() {
+        let pipeline = MessagePipeline::new("/tmp".to_string());
+        let (prefix_len, tail_vms) = pipeline.reconcile_tail(0);
+        assert_eq!(prefix_len, 0);
+        assert!(tail_vms.is_empty());
+    }
+
+    // ─── reconcile_tail 集成测试 ────────────────────────────────────────────
+
+    /// 验证尾部重建与全量转换一致性
+    #[test]
+    fn test_reconcile_tail_consistency() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        pipeline.restore_completed(vec![
+            BaseMessage::human("q1"),
+            BaseMessage::ai("a1"),
+            BaseMessage::human("q2"),
+            BaseMessage::ai("a2"),
+        ]);
+
+        let (prefix_len, tail_vms) = pipeline.reconcile_tail(2);
+
+        // 全量转换
+        let full_vms =
+            MessagePipeline::messages_to_view_models(pipeline.completed_messages(), &pipeline.cwd);
+
+        // tail_vms 应等于从最后一条 Human 消息开始重建的 VMs
+        // 最后一条 Human 在 index 2，所以 full_vms 从 index 1 开始（去掉 q1 的 VM）
+        let last_human_idx = pipeline
+            .completed_messages()
+            .iter()
+            .rposition(|msg| matches!(msg, BaseMessage::Human { .. }))
+            .unwrap_or(0);
+        let expected_tail =
+            MessagePipeline::messages_to_view_models(&pipeline.completed_messages()[last_human_idx..], &pipeline.cwd);
+
+        assert_eq!(prefix_len, 2);
+        assert_eq!(format!("{:?}", tail_vms), format!("{:?}", expected_tail));
+    }
+
+    /// 验证工具调用场景的尾部重建
+    #[test]
+    fn test_reconcile_tail_with_tools() {
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        pipeline.restore_completed(vec![
+            BaseMessage::human("read file"),
+            BaseMessage::ai_from_blocks(vec![ContentBlock::ToolUse {
+                id: "tc1".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"file_path": "/tmp/test.rs"}),
+            }]),
+            BaseMessage::tool_result("tc1", "file content here"),
+        ]);
+
+        let (prefix_len, tail_vms) = pipeline.reconcile_tail(0);
+
+        // 全量转换对比
+        let full_vms =
+            MessagePipeline::messages_to_view_models(pipeline.completed_messages(), &pipeline.cwd);
+
+        // 只有一条 Human 消息（index 0），所以 tail_vms 应等于 full_vms
+        assert_eq!(prefix_len, 0);
+        assert_eq!(format!("{:?}", tail_vms), format!("{:?}", full_vms));
+    }
+
+    /// 验证空 completed 边界情况
+    #[test]
+    fn test_reconcile_tail_empty_completed() {
+        let pipeline = MessagePipeline::new("/tmp".to_string());
+        let (prefix_len, tail_vms) = pipeline.reconcile_tail(0);
+        assert_eq!(prefix_len, 0);
+        assert!(tail_vms.is_empty());
     }
 }

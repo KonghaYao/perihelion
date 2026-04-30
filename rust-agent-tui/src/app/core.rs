@@ -20,6 +20,7 @@ use super::message_pipeline::MessagePipeline;
 /// UI 核心状态：消息、输入、面板、渲染
 pub struct AppCore {
     pub view_messages: Vec<MessageViewModel>,
+    pub round_start_vm_idx: usize,
     pub pipeline: MessagePipeline,
     pub textarea: TextArea<'static>,
     pub loading: bool,
@@ -83,6 +84,7 @@ impl AppCore {
             .collect();
         Self {
             view_messages: Vec::new(),
+            round_start_vm_idx: 0,
             pipeline: MessagePipeline::new(cwd),
             textarea: super::build_textarea(false),
             loading: false,
