@@ -16,6 +16,14 @@ pub trait BaseModel: Send + Sync {
     async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse>;
     fn provider_name(&self) -> &str;
     fn model_id(&self) -> &str;
+
+    /// 模型的上下文窗口大小（token 数）
+    ///
+    /// 用于 token 用量追踪和上下文压缩决策。
+    /// 默认返回 200_000（适用于大多数 modern LLM）。
+    fn context_window(&self) -> u32 {
+        200_000
+    }
 }
 
 pub use adapter::MockLLM;

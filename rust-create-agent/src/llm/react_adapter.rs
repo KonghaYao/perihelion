@@ -138,17 +138,8 @@ impl ReactLLM for BaseModelReactLLM {
     }
 
     fn context_window(&self) -> u32 {
-        let model = self.model.model_id();
-        // Claude 系列: 200K
-        if model.contains("claude") { return 200_000; }
-        // DeepSeek 系列: 128K
-        if model.starts_with("deepseek") { return 128_000; }
-        // GPT-4o / o-series: 128K
-        if model.contains("gpt-4o") || model.starts_with("o1") || model.starts_with("o3") { return 128_000; }
-        // GPT-4-turbo: 128K
-        if model.contains("gpt-4-turbo") { return 128_000; }
-        // 默认: 200K
-        200_000
+        // 委托给 BaseModel 实现，每个模型提供自己的准确上下文窗口
+        self.model.context_window()
     }
 }
 
@@ -156,35 +147,24 @@ impl ReactLLM for BaseModelReactLLM {
 mod tests {
     use super::*;
 
-    struct MockBaseModel { id: &'static str }
+    struct MockBaseModel { id: &'static str, window: u32 }
     #[async_trait::async_trait]
     impl super::super::BaseModel for MockBaseModel {
         async fn invoke(&self, _: super::super::types::LlmRequest) -> crate::error::AgentResult<super::super::types::LlmResponse> { unimplemented!() }
         fn provider_name(&self) -> &str { "mock" }
         fn model_id(&self) -> &str { self.id }
+        fn context_window(&self) -> u32 { self.window }
     }
 
     #[test]
-    fn test_context_window_claude() {
-        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "claude-sonnet-4-20250514" }));
-        assert_eq!(llm.context_window(), 200_000);
-    }
-
-    #[test]
-    fn test_context_window_deepseek() {
-        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "deepseek-r1" }));
+    fn test_context_window_delegates_to_model() {
+        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "any-model", window: 128_000 }));
         assert_eq!(llm.context_window(), 128_000);
     }
 
     #[test]
-    fn test_context_window_gpt4o() {
-        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "gpt-4o" }));
-        assert_eq!(llm.context_window(), 128_000);
-    }
-
-    #[test]
-    fn test_context_window_default() {
-        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "unknown-model" }));
+    fn test_context_window_default_from_trait() {
+        let llm = BaseModelReactLLM::new(Box::new(MockBaseModel { id: "unknown", window: 200_000 }));
         assert_eq!(llm.context_window(), 200_000);
     }
 }

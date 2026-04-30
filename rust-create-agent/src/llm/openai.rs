@@ -54,6 +54,16 @@ impl ChatOpenAI {
         Some(Self::new(api_key, model).with_base_url(base_url))
     }
 
+    /// 模型的上下文窗口大小（token 数），作为固有方法提供给 BaseModel 和 ReactLLM trait
+    fn context_window_inner(&self) -> u32 {
+        let model = self.model.to_lowercase();
+        if model.contains("gpt-4") { return 128_000; }
+        if model.starts_with("o1") || model.starts_with("o3") { return 200_000; }
+        if model.contains("gpt-3.5") { return 16_385; }
+        if model.starts_with("deepseek") { return 128_000; }
+        200_000
+    }
+
     // ─── MessageContent → OpenAI content ──────────────────────────────────────
 
     /// 将 MessageContent 序列化为 OpenAI content 字段
@@ -419,6 +429,10 @@ impl BaseModel for ChatOpenAI {
     fn model_id(&self) -> &str {
         &self.model
     }
+
+    fn context_window(&self) -> u32 {
+        self.context_window_inner()
+    }
 }
 
 #[async_trait]
@@ -563,5 +577,40 @@ mod tests {
             arguments.get("_raw_arguments").is_some(),
             "格式错误的参数应保留在 _raw_arguments 中: {arguments}"
         );
+    }
+
+    /// context_window: gpt-4 系列应返回 128K
+    #[test]
+    fn test_context_window_gpt4() {
+        let llm = ChatOpenAI::new("sk-test", "gpt-4o");
+        assert_eq!(llm.context_window_inner(), 128_000);
+    }
+
+    /// context_window: gpt-3.5-turbo 应返回 16K
+    #[test]
+    fn test_context_window_gpt35() {
+        let llm = ChatOpenAI::new("sk-test", "gpt-3.5-turbo");
+        assert_eq!(llm.context_window_inner(), 16_385);
+    }
+
+    /// context_window: o1 系列应返回 200K
+    #[test]
+    fn test_context_window_o1() {
+        let llm = ChatOpenAI::new("sk-test", "o1-preview");
+        assert_eq!(llm.context_window_inner(), 200_000);
+    }
+
+    /// context_window: deepseek 系列应返回 128K
+    #[test]
+    fn test_context_window_deepseek() {
+        let llm = ChatOpenAI::new("sk-test", "deepseek-r1");
+        assert_eq!(llm.context_window_inner(), 128_000);
+    }
+
+    /// context_window: 未知模型回退默认 200K
+    #[test]
+    fn test_context_window_unknown() {
+        let llm = ChatOpenAI::new("sk-test", "custom-model");
+        assert_eq!(llm.context_window_inner(), 200_000);
     }
 }
