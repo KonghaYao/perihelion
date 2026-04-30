@@ -4,7 +4,7 @@ use rust_create_agent::middleware::r#trait::Middleware;
 use rust_create_agent::tools::BaseTool;
 
 use crate::tools::{
-    EditFileTool, FolderOperationsTool, GlobFilesTool, ReadFileTool, SearchFilesRgTool,
+    EditFileTool, FolderOperationsTool, GlobFilesTool, GrepTool, ReadFileTool,
     WriteFileTool,
 };
 
@@ -22,18 +22,18 @@ impl FilesystemMiddleware {
             Box::new(WriteFileTool::new(cwd)),
             Box::new(EditFileTool::new(cwd)),
             Box::new(GlobFilesTool::new(cwd)),
-            Box::new(SearchFilesRgTool::new(cwd)),
+            Box::new(GrepTool::new(cwd)),
             Box::new(FolderOperationsTool::new(cwd)),
         ]
     }
 
     pub fn tool_names() -> Vec<&'static str> {
         vec![
-            "read_file",
-            "write_file",
-            "edit_file",
-            "glob_files",
-            "search_files_rg",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
             "folder_operations",
         ]
     }

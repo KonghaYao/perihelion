@@ -8,7 +8,7 @@ use rust_create_agent::middleware::r#trait::Middleware;
 
 use crate::skills::{list_skills, load_global_skills_dir};
 
-/// SkillPreloadMiddleware - 将指定 skill 全文以 fake read_file 工具调用注入到子 agent state
+/// SkillPreloadMiddleware - 将指定 skill 全文以 fake Read 工具调用注入到子 agent state
 ///
 /// 在 `before_agent` 时，根据 `skill_names` 列表找到对应 SKILL.md 文件，
 /// 将其内容以 Human → Ai[ToolUse] → Tool[ToolResult] 消息序列注入到 state 前端，
@@ -18,7 +18,7 @@ use crate::skills::{list_skills, load_global_skills_dir};
 ///
 /// ```text
 /// [Human] "（系统：预加载 skill 文件）"
-/// [Ai]    [ToolUse{read_file, skill_preload_0}, ToolUse{read_file, skill_preload_1}, ...]
+/// [Ai]    [ToolUse{Read, skill_preload_0}, ToolUse{Read, skill_preload_1}, ...]
 /// [Tool]  ToolResult{skill_preload_0, skill_0_content}
 /// [Tool]  ToolResult{skill_preload_1, skill_1_content}
 /// ...
@@ -100,7 +100,7 @@ impl<S: State> Middleware<S> for SkillPreloadMiddleware {
             .map(|(i, (path, _))| {
                 ContentBlock::tool_use(
                     format!("skill_preload_{}", i),
-                    "read_file",
+                    "Read",
                     serde_json::json!({ "path": path }),
                 )
             })
@@ -284,7 +284,7 @@ mod tests {
         let ai_msg = &state.messages()[1];
         let tool_calls = ai_msg.tool_calls();
         assert_eq!(tool_calls.len(), 2, "Ai 消息应有 2 个工具调用");
-        assert_eq!(tool_calls[0].name, "read_file");
+        assert_eq!(tool_calls[0].name, "Read");
         assert_eq!(tool_calls[0].id, "skill_preload_0");
         assert_eq!(tool_calls[1].id, "skill_preload_1");
     }

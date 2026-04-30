@@ -208,9 +208,9 @@ impl MessagePipeline {
                 agent_id,
                 task_preview,
             } => {
-                let input = serde_json::json!({"agent_id": &agent_id, "task": &task_preview});
+                let input = serde_json::json!({"subagent_type": &agent_id, "prompt": &task_preview});
                 let tc_id = format!("subagent_{}", agent_id);
-                vec![self.tool_start(&tc_id, "launch_agent", input)]
+                vec![self.tool_start(&tc_id, "Agent", input)]
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
                 // 使用最后一个 subagent 的 tool_call_id（与 SubAgentStart 一致）
@@ -219,7 +219,7 @@ impl MessagePipeline {
                     .last()
                     .map(|s| format!("subagent_{}", s.agent_id))
                     .unwrap_or_else(|| "subagent_end".to_string());
-                vec![self.tool_end(&tc_id, "launch_agent", &result, is_error)]
+                vec![self.tool_end(&tc_id, "Agent", &result, is_error)]
             }
             AgentEvent::Done => {
                 self.done();
@@ -276,9 +276,9 @@ impl MessagePipeline {
             .push(ToolCallRequest::new(tool_call_id, name, input.clone()));
 
         // 构建 ToolBlock VM（从 BaseMessage 路径，保持一致）
-        if name == "launch_agent" {
-            let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
-            let task_preview: String = input["task"]
+        if name == "Agent" {
+            let agent_id = input["subagent_type"].as_str().unwrap_or("unknown").to_string();
+            let task_preview: String = input["prompt"]
                 .as_str()
                 .unwrap_or("")
                 .chars()
@@ -335,7 +335,7 @@ impl MessagePipeline {
             .unwrap_or(serde_json::Value::Null);
 
         // launch_agent ToolEnd → SubAgentEnd
-        if name == "launch_agent" {
+        if name == "Agent" {
             if let Some(sub) = self.subagent_stack.last_mut() {
                 sub.is_running = false;
                 let vm = MessageViewModel::SubAgentGroup {
@@ -346,6 +346,7 @@ impl MessagePipeline {
                     is_running: false,
                     collapsed: false,
                     final_result: Some(output.to_string()),
+                    is_error,
                 };
                 return PipelineAction::UpdateLast(vm);
             }
@@ -353,17 +354,17 @@ impl MessagePipeline {
         }
 
         // ask_user_question ToolEnd → 更新 ToolBlock 显示用户回答
-        if name == "ask_user_question" {
-            let args = tool_display::format_tool_args("ask_user_question", &input, None);
+        if name == "AskUserQuestion" {
+            let args = tool_display::format_tool_args("AskUserQuestion", &input, None);
             let vm = MessageViewModel::ToolBlock {
-                tool_name: "ask_user_question".to_string(),
+                tool_name: "AskUserQuestion".to_string(),
                 tool_call_id: tool_call_id.to_string(),
-                display_name: tool_display::format_tool_name("ask_user_question"),
+                display_name: tool_display::format_tool_name("AskUserQuestion"),
                 args_display: args,
                 content: output.to_string(),
                 is_error,
                 collapsed: true,
-                color: tool_color("ask_user_question"),
+                color: tool_color("AskUserQuestion"),
             };
             return PipelineAction::UpdateToolResult {
                 tool_call_id: tool_call_id.to_string(),
@@ -372,16 +373,16 @@ impl MessagePipeline {
         }
 
         // todo_write ToolEnd → 变更摘要显示在标题括号内，展开区无内容
-        if name == "todo_write" {
+        if name == "TodoWrite" {
             let vm = MessageViewModel::ToolBlock {
-                tool_name: "todo_write".to_string(),
+                tool_name: "TodoWrite".to_string(),
                 tool_call_id: tool_call_id.to_string(),
-                display_name: tool_display::format_tool_name("todo_write"),
+                display_name: tool_display::format_tool_name("TodoWrite"),
                 args_display: Some(output.to_string()),
                 content: String::new(),
                 is_error,
                 collapsed: true,
-                color: tool_color("todo_write"),
+                color: tool_color("TodoWrite"),
             };
             return PipelineAction::UpdateToolResult {
                 tool_call_id: tool_call_id.to_string(),
@@ -521,6 +522,7 @@ impl MessagePipeline {
                 is_running: sub.is_running,
                 collapsed: false,
                 final_result: None,
+                is_error: false,
             })
     }
 
@@ -707,7 +709,7 @@ mod tests {
                 MessageContent::text("I'll read the file"),
                 vec![ToolCallRequest::new(
                     "tc1",
-                    "read_file",
+                    "Read",
                     json!({"file_path": "/Users/test/project/src/main.rs"}),
                 )],
             ),
@@ -786,8 +788,8 @@ mod tests {
     fn test_pipeline_tool_end_no_duplicate() {
         let mut pipeline = MessagePipeline::new("/tmp".to_string());
         let _action =
-            pipeline.tool_start("tc1", "read_file", json!({"file_path": "/tmp/test.txt"}));
-        let _action = pipeline.tool_end("tc1", "read_file", "content here", false);
+            pipeline.tool_start("tc1", "Read", json!({"file_path": "/tmp/test.txt"}));
+        let _action = pipeline.tool_end("tc1", "Read", "content here", false);
 
         // tool_end 不 push 到 completed
         assert!(pipeline.completed_messages().is_empty());
@@ -798,7 +800,7 @@ mod tests {
                 MessageContent::text("reading"),
                 vec![ToolCallRequest::new(
                     "tc1",
-                    "read_file",
+                    "Read",
                     json!({"file_path": "/tmp/test.txt"}),
                 )],
             ),
@@ -854,7 +856,7 @@ mod tests {
         // ToolStart
         let actions = pipeline.handle_event(AgentEvent::ToolStart {
             tool_call_id: "tc1".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             display: "ReadFile".into(),
             args: "src/main.rs".into(),
             input: serde_json::json!({"file_path": "/tmp/src/main.rs"}),
@@ -864,7 +866,7 @@ mod tests {
         // ToolEnd
         let actions = pipeline.handle_event(AgentEvent::ToolEnd {
             tool_call_id: "tc1".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             output: "file content".into(),
             is_error: false,
         });
@@ -905,14 +907,14 @@ mod tests {
         // SubAgent 内部并行启动两个 read_file
         let _ = pipeline.handle_event(AgentEvent::ToolStart {
             tool_call_id: "tc_a".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             display: "ReadFile".into(),
             args: "a.rs".into(),
             input: serde_json::json!({"file_path": "/tmp/a.rs"}),
         });
         let _ = pipeline.handle_event(AgentEvent::ToolStart {
             tool_call_id: "tc_b".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             display: "ReadFile".into(),
             args: "b.rs".into(),
             input: serde_json::json!({"file_path": "/tmp/b.rs"}),
@@ -921,13 +923,13 @@ mod tests {
         // ToolEnd 按不同顺序到达（tc_b 先完成）
         let _ = pipeline.handle_event(AgentEvent::ToolEnd {
             tool_call_id: "tc_b".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             output: "content of b".into(),
             is_error: false,
         });
         let _ = pipeline.handle_event(AgentEvent::ToolEnd {
             tool_call_id: "tc_a".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             output: "content of a".into(),
             is_error: false,
         });
@@ -1054,7 +1056,7 @@ mod tests {
             BaseMessage::human("read file"),
             BaseMessage::ai_from_blocks(vec![ContentBlock::ToolUse {
                 id: "tc1".to_string(),
-                name: "read_file".to_string(),
+                name: "Read".to_string(),
                 input: serde_json::json!({"file_path": "/tmp/test.rs"}),
             }]),
             BaseMessage::tool_result("tc1", "file content here"),

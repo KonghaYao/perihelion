@@ -281,10 +281,10 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
     Some(match event {
         ExecutorEvent::AiReasoning(text) => AgentEvent::AiReasoning(text),
         ExecutorEvent::TextChunk { chunk: text, .. } => AgentEvent::AssistantChunk(text),
-        // launch_agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
-        ExecutorEvent::ToolStart { name, input, .. } if name == "launch_agent" => {
-            let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
-            let task_preview = input["task"]
+        // Agent ToolStart → SubAgentStart（在通用 ToolStart 分支之前）
+        ExecutorEvent::ToolStart { name, input, .. } if name == "Agent" => {
+            let agent_id = input["subagent_type"].as_str().unwrap_or("unknown").to_string();
+            let task_preview = input["prompt"]
                 .as_str()
                 .unwrap_or("")
                 .chars()
@@ -307,13 +307,13 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             args: format_tool_args(&name, &input, Some(cwd)).unwrap_or_default(),
             input: input.clone(),
         },
-        // launch_agent ToolEnd → SubAgentEnd（在通用 ToolEnd 分支之前）
+        // Agent ToolEnd → SubAgentEnd（在通用 ToolEnd 分支之前）
         ExecutorEvent::ToolEnd {
             name,
             output,
             is_error,
             ..
-        } if name == "launch_agent" => AgentEvent::SubAgentEnd {
+        } if name == "Agent" => AgentEvent::SubAgentEnd {
             result: output,
             is_error,
         },
@@ -324,7 +324,7 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             output,
             is_error: false,
             ..
-        } if name == "ask_user_question" => AgentEvent::ToolEnd {
+        } if name == "AskUserQuestion" => AgentEvent::ToolEnd {
             tool_call_id,
             name,
             output: format!("? → {}", truncate(&output, 60)),
@@ -348,7 +348,7 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
         | ExecutorEvent::StateSnapshot(_)
         | ExecutorEvent::MessageAdded(_)
         | ExecutorEvent::LlmCallStart { .. } => return None,
-        // 成功的 ToolEnd（非 launch_agent / ask_user_question / error）
+        // 成功的 ToolEnd（非 Agent / AskUserQuestion / error）
         ExecutorEvent::ToolEnd {
             tool_call_id,
             name,

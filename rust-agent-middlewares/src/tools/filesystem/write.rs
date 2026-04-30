@@ -7,7 +7,7 @@ const WRITE_FILE_DESCRIPTION: &str = r#"Writes a file to the local filesystem.
 
 Usage:
 - This tool will overwrite the existing file if there is one at the provided path
-- If this is an existing file, you MUST use the read_file tool first to read the file's contents. This tool will fail if you did not read the file first
+- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first
 - ALWAYS prefer editing existing files in the codebase. DO NOT create new files unless explicitly required
 - The file_path parameter must be an absolute path, not a relative path
 - Parent directories are created automatically if they do not exist
@@ -17,7 +17,7 @@ Notes:
 - NEVER create documentation files (*.md) or README files unless explicitly requested by the User
 - Only use emojis if the User explicitly requests it. Avoid writing emojis to files unless asked"#;
 
-/// write_file tool - 与 TypeScript write_tool 对齐
+/// Write tool - 与 TypeScript write_tool 对齐
 pub struct WriteFileTool {
     pub cwd: String,
 }
@@ -31,7 +31,7 @@ impl WriteFileTool {
 #[async_trait::async_trait]
 impl BaseTool for WriteFileTool {
     fn name(&self) -> &str {
-        "write_file"
+        "Write"
     }
 
     fn description(&self) -> &str {
@@ -197,5 +197,11 @@ mod tests {
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
         assert!(desc.contains("atomic write"), "description 应提及原子写入");
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
+    }
+
+    #[test]
+    fn test_tool_name_is_Write() {
+        let tool = WriteFileTool::new("/tmp");
+        assert_eq!(tool.name(), "Write");
     }
 }

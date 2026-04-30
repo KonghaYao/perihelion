@@ -115,31 +115,31 @@
 
 ### 场景 6：Agent 工具重构验证
 
-#### - [ ] 6.1 SubAgentTool 工具名为 Agent
+#### - [x] 6.1 SubAgentTool 工具名为 Agent
 - `cargo test -p rust-agent-middlewares --lib -- "subagent::tool::tests::test_tool_name" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-2 Task 7
 - **目的:** 确认工具名对齐
 
-#### - [ ] 6.2 Agent required 参数仅包含 prompt
+#### - [x] 6.2 Agent required 参数仅包含 prompt
 - `cargo test -p rust-agent-middlewares --lib -- "test_agent_parameters_required_is_prompt_only" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-2 Task 7 新增测试
 - **目的:** 确认参数 schema 重写
 
-#### - [ ] 6.3 filter_tools 防递归排除 Agent 而非 launch_agent
+#### - [x] 6.3 filter_tools 防递归排除 Agent 而非 launch_agent
 - `cargo test -p rust-agent-middlewares --lib -- "test_agent_excluded_even_when_explicitly_allowed" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-2 Task 7
 - **目的:** 确认防递归逻辑正确
 
-#### - [ ] 6.4 Agent 预留字段（isolation/run_in_background）可解析
+#### - [x] 6.4 Agent 预留字段（isolation/run_in_background）可解析
 - `cargo test -p rust-agent-middlewares --lib -- "test_agent_reserved_fields_parsed" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-2 Task 7 新增测试
 - **目的:** 确认预留字段不影响执行
 
-#### - [ ] 6.5 mod.rs 中 build_agents_summary 引用新工具名和参数
+#### - [x] 6.5 mod.rs 中 build_agents_summary 引用新工具名和参数
 - `grep -n 'Agent\|subagent_type\|prompt' rust-agent-middlewares/src/subagent/mod.rs | head -5`
 - → 期望包含: `Agent`, `subagent_type`, `prompt`
 - **来源:** plan-2 Task 7
@@ -149,13 +149,13 @@
 
 ### 场景 7：Read 工具 pages 参数验证
 
-#### - [ ] 7.1 PDF + pages 返回占位提示
+#### - [x] 7.1 PDF + pages 返回占位提示
 - `cargo test -p rust-agent-middlewares --lib -- "test_pdf_with_pages_returns_placeholder" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-1 Task 2
 - **目的:** 确认 PDF 占位逻辑生效
 
-#### - [ ] 7.2 PDF 无 pages 走二进制检测
+#### - [x] 7.2 PDF 无 pages 走二进制检测
 - `cargo test -p rust-agent-middlewares --lib -- "test_pdf_without_pages_returns_binary" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-1 Task 2
@@ -165,13 +165,13 @@
 
 ### 场景 8：AskUserQuestion 字段对齐验证
 
-#### - [ ] 8.1 multiSelect camelCase 输入可正确解析
+#### - [x] 8.1 multiSelect camelCase 输入可正确解析
 - `cargo test -p rust-agent-middlewares --lib -- "test_multi_select_camel_case_input" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-1 Task 3
 - **目的:** 确认 camelCase 字段名映射
 
-#### - [ ] 8.2 preview 字段可解析不影响执行
+#### - [x] 8.2 preview 字段可解析不影响执行
 - `cargo test -p rust-agent-middlewares --lib -- "test_preview_field_ignored" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-1 Task 3
@@ -181,19 +181,19 @@
 
 ### 场景 9：TodoWrite 结构变更验证
 
-#### - [ ] 9.1 TodoItem 无 id 字段
+#### - [x] 9.1 TodoItem 无 id 字段
 - `grep -n 'pub id:' rust-agent-middlewares/src/tools/todo.rs`
 - → 期望精确: （无输出）
 - **来源:** plan-1 Task 4
 - **目的:** 确认 id 字段已移除
 
-#### - [ ] 9.2 summarize_changes 使用索引对比
+#### - [x] 9.2 summarize_changes 使用索引对比
 - `grep -n 'HashMap\|\.id\b\|old_map\|new_map' rust-agent-middlewares/src/tools/todo.rs`
 - → 期望精确: （无输出）
 - **来源:** plan-1 Task 4
 - **目的:** 确认不再使用 id-based HashMap
 
-#### - [ ] 9.3 activeForm 字段存在
+#### - [x] 9.3 activeForm 字段存在
 - `grep -n 'active_form\|activeForm' rust-agent-middlewares/src/tools/todo.rs`
 - → 期望包含: `active_form`, `activeForm`
 - **来源:** plan-1 Task 4
@@ -203,14 +203,14 @@
 
 ### 场景 10：HITL 审批规则更新验证
 
-#### - [ ] 10.1 default_requires_approval 使用新工具名
+#### - [x] 10.1 default_requires_approval 使用新工具名
 - `grep -A15 'pub fn default_requires_approval' rust-agent-middlewares/src/hitl/mod.rs`
 - → 期望包含: `"Bash"`, `"Write"`, `"Edit"`, `"Agent"`
 - → 期望精确: （无 `"bash"`, `"write_file"`, `"edit_file"`, `"launch_agent"`）
 - **来源:** plan-2 Task 8
 - **目的:** 确认审批规则使用新名称
 
-#### - [ ] 10.2 is_edit_tool 使用精确匹配
+#### - [x] 10.2 is_edit_tool 使用精确匹配
 - `grep -A5 'pub fn is_edit_tool' rust-agent-middlewares/src/hitl/mod.rs`
 - → 期望包含: `== "Write"`, `== "Edit"`
 - → 期望精确: （无 `starts_with("write_")`, `starts_with("edit_")`）
@@ -221,14 +221,14 @@
 
 ### 场景 11：TUI 层工具显示和颜色验证
 
-#### - [ ] 11.1 format_tool_name 新名称映射正确
+#### - [x] 11.1 format_tool_name 新名称映射正确
 - `cargo test -p rust-agent-tui --lib -- "test_format_tool_name" 2>&1 | tail -5`
 - → 期望包含: `ok`（如果测试存在）
 - **来源:** plan-2 Task 8
 - **目的:** 确认工具显示名映射
 - ⚠ 注意: Task 8 计划新增 `tool_display::tests` 模块但实际未创建
 
-#### - [ ] 11.2 ToolCategory 新名称分类正确
+#### - [x] 11.2 ToolCategory 新名称分类正确
 - `cargo test -p rust-agent-tui --lib -- "test_tool_category" 2>&1 | tail -5`
 - → 期望包含: `ok`（如果测试存在）
 - **来源:** plan-2 Task 8
@@ -239,19 +239,19 @@
 
 ### 场景 12：边界与回归
 
-#### - [ ] 12.1 Write/Edit 工具描述文本中无旧工具名引用
+#### - [x] 12.1 Write/Edit 工具描述文本中无旧工具名引用
 - `grep -n 'read_file\|edit_file\|glob_files\|search_files_rg\|launch_agent' rust-agent-middlewares/src/tools/filesystem/write.rs rust-agent-middlewares/src/tools/filesystem/edit.rs rust-agent-middlewares/src/tools/filesystem/glob.rs`
 - → 期望精确: （无输出）
 - **来源:** plan-1 Task 1 检查步骤
 - **目的:** 确认描述文本一致性
 
-#### - [ ] 12.2 Grep 工具旧参数格式（args 数组）不再被接受
+#### - [x] 12.2 Grep 工具旧参数格式（args 数组）不再被接受
 - `cargo test -p rust-agent-middlewares --lib -- "test_grep_missing_pattern" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-2 Task 6
 - **目的:** 确认旧 args 接口已废弃
 
-#### - [ ] 12.3 Agent 缺少 prompt 时返回错误
+#### - [x] 12.3 Agent 缺少 prompt 时返回错误
 - `cargo test -p rust-agent-middlewares --lib -- "test_agent_prompt_missing_returns_error" 2>&1 | tail -3`
 - → 期望包含: `ok`
 - **来源:** plan-2 Task 7 新增测试

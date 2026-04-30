@@ -17,17 +17,16 @@ fn strip_cwd(path: &str, cwd: Option<&str>) -> String {
 /// 返回简短 display name，控制在 3-6 字符以保持 UI 对齐
 pub fn format_tool_name(tool: &str) -> String {
     match tool {
-        "bash" => "Shell",
-        "read_file" => "Read",
-        "write_file" => "Write",
-        "edit_file" => "Edit",
-        "glob_files" => "Glob",
-        "search_files_rg" => "Search",
+        "Bash" => "Shell",
+        "Read" => "Read",
+        "Write" => "Write",
+        "Edit" => "Edit",
+        "Glob" => "Glob",
+        "Grep" => "Grep",
         "folder_operations" => "Folder",
-        "todo_write" => "Todo",
-        "ask_user" => "Ask",
-        "ask_user_question" => "Ask",
-        "launch_agent" => "Agent",
+        "TodoWrite" => "Todo",
+        "AskUserQuestion" => "Ask",
+        "Agent" => "Agent",
         other => return to_pascal(other),
     }
     .to_string()
@@ -40,21 +39,14 @@ pub fn format_tool_args(
     cwd: Option<&str>,
 ) -> Option<String> {
     match tool {
-        "bash" => input["command"].as_str().map(|s| truncate(s, 60)),
-        "read_file" | "write_file" | "edit_file" => input["file_path"]
+        "Bash" => input["command"].as_str().map(|s| truncate(s, 60)),
+        "Read" | "Write" | "Edit" => input["file_path"]
             .as_str()
             .map(|p| truncate(&strip_cwd(p, cwd), 60)),
-        "glob_files" => input["pattern"]
+        "Glob" => input["pattern"]
             .as_str()
             .map(|p| truncate(&strip_cwd(p, cwd), 60)),
-        "search_files_rg" => input["args"].as_array().map(|a| {
-            let s: String = a
-                .iter()
-                .filter_map(|x| x.as_str())
-                .collect::<Vec<_>>()
-                .join(" ");
-            truncate(&s, 60)
-        }),
+        "Grep" => input["pattern"].as_str().map(|s| truncate(s, 60)),
         "folder_operations" => {
             let op = input["operation"].as_str().unwrap_or("?");
             let path = input["folder_path"].as_str().unwrap_or("?");
@@ -81,5 +73,49 @@ pub fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", s.chars().take(max).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_tool_name_new_names() {
+        assert_eq!(format_tool_name("Read"), "Read");
+        assert_eq!(format_tool_name("Write"), "Write");
+        assert_eq!(format_tool_name("Edit"), "Edit");
+        assert_eq!(format_tool_name("Glob"), "Glob");
+        assert_eq!(format_tool_name("Grep"), "Grep");
+        assert_eq!(format_tool_name("Bash"), "Shell");
+        assert_eq!(format_tool_name("TodoWrite"), "Todo");
+        assert_eq!(format_tool_name("AskUserQuestion"), "Ask");
+        assert_eq!(format_tool_name("Agent"), "Agent");
+    }
+
+    #[test]
+    fn test_format_tool_args_grep_uses_pattern() {
+        let input = serde_json::json!({"pattern": "needle", "output_mode": "content"});
+        let result = format_tool_args("Grep", &input, None);
+        assert!(result.is_some(), "Grep 工具应返回 pattern 摘要");
+        assert!(result.unwrap().contains("needle"), "应包含 pattern 内容");
+    }
+
+    #[test]
+    fn test_format_tool_args_bash_uses_command() {
+        let input = serde_json::json!({"command": "cargo test"});
+        let result = format_tool_args("Bash", &input, None);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("cargo test"));
+    }
+
+    #[test]
+    fn test_old_tool_names_not_matched() {
+        // 验证旧工具名不再被匹配（fallback 到 to_pascal）
+        assert_eq!(format_tool_name("bash"), "Bash"); // fallback
+        assert_eq!(format_tool_name("read_file"), "ReadFile"); // fallback to_pascal
+        assert_eq!(format_tool_name("write_file"), "WriteFile"); // fallback to_pascal
+        assert_eq!(format_tool_name("search_files_rg"), "SearchFilesRg"); // fallback to_pascal
+        assert_eq!(format_tool_name("launch_agent"), "LaunchAgent"); // fallback to_pascal
     }
 }

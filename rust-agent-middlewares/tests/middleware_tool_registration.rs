@@ -13,14 +13,14 @@ fn setup_temp_dir() -> TempDir {
 
 // ── FilesystemMiddleware 自动注册测试 ─────────────────────────────────────────
 
-/// 验证 FilesystemMiddleware 通过 add_middleware 自动提供 read_file 工具
+/// 验证 FilesystemMiddleware 通过 add_middleware 自动提供 Read 工具
 #[tokio::test]
-async fn test_filesystem_middleware_auto_registers_read_file() {
+async fn test_filesystem_middleware_auto_registers_Read() {
     let dir = setup_temp_dir();
     let cwd = dir.path().to_str().unwrap().to_string();
 
     let llm = MockLLM::tool_then_answer(
-        "read_file",
+        "Read",
         serde_json::json!({ "file_path": "hello.txt" }),
         "The file contains: Hello, world!",
     );
@@ -35,8 +35,8 @@ async fn test_filesystem_middleware_auto_registers_read_file() {
         .unwrap();
 
     assert_eq!(output.tool_calls.len(), 1);
-    assert_eq!(output.tool_calls[0].0.name, "read_file");
-    assert!(!output.tool_calls[0].1.is_error, "read_file 不应报错");
+    assert_eq!(output.tool_calls[0].0.name, "Read");
+    assert!(!output.tool_calls[0].1.is_error, "Read 不应报错");
     assert!(
         output.tool_calls[0].1.output.contains("Hello, world!"),
         "工具输出应包含文件内容，实际输出: {}",
@@ -68,7 +68,7 @@ async fn test_terminal_middleware_auto_registers_bash() {
     let cwd = dir.path().to_str().unwrap().to_string();
 
     let llm = MockLLM::tool_then_answer(
-        "bash",
+        "Bash",
         serde_json::json!({ "command": "echo hello" }),
         "Got output: hello",
     );
@@ -82,8 +82,8 @@ async fn test_terminal_middleware_auto_registers_bash() {
         .unwrap();
 
     assert_eq!(output.tool_calls.len(), 1);
-    assert_eq!(output.tool_calls[0].0.name, "bash");
-    assert!(!output.tool_calls[0].1.is_error, "bash 工具不应报错");
+    assert_eq!(output.tool_calls[0].0.name, "Bash");
+    assert!(!output.tool_calls[0].1.is_error, "Bash 工具不应报错");
     assert!(
         output.tool_calls[0].1.output.contains("hello"),
         "bash 输出应包含 'hello'，实际: {}",
@@ -101,10 +101,10 @@ async fn test_manual_tool_overrides_filesystem_middleware() {
     #[async_trait]
     impl BaseTool for MockReadFile {
         fn name(&self) -> &str {
-            "read_file"
+            "Read"
         }
         fn description(&self) -> &str {
-            "Mock read_file"
+            "Mock Read"
         }
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({ "type": "object", "properties": { "file_path": { "type": "string" } } })
@@ -121,12 +121,12 @@ async fn test_manual_tool_overrides_filesystem_middleware() {
     let cwd = dir.path().to_str().unwrap().to_string();
 
     let llm = MockLLM::tool_then_answer(
-        "read_file",
+        "Read",
         serde_json::json!({ "file_path": "hello.txt" }),
         "done",
     );
 
-    // FilesystemMiddleware 和 MockReadFile 均提供 read_file，手动注册的应优先
+    // FilesystemMiddleware 和 MockReadFile 均提供 Read，手动注册的应优先
     let agent = ReActAgent::new(llm)
         .add_middleware(Box::new(FilesystemMiddleware::new()))
         .register_tool(Box::new(MockReadFile));
@@ -140,6 +140,6 @@ async fn test_manual_tool_overrides_filesystem_middleware() {
     assert_eq!(output.tool_calls.len(), 1);
     assert_eq!(
         output.tool_calls[0].1.output, "mocked content",
-        "手动注册的 MockReadFile 应覆盖 FilesystemMiddleware 的 read_file"
+        "手动注册的 MockReadFile 应覆盖 FilesystemMiddleware 的 Read"
     );
 }

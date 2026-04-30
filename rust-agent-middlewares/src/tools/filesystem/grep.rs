@@ -10,35 +10,36 @@ use grep::regex::RegexMatcherBuilder;
 use grep::searcher::{SearcherBuilder, BinaryDetection, Sink, SinkMatch, SinkContext, SinkContextKind, Searcher};
 use ignore::WalkBuilder;
 
-/// search_files_rg tool - 与 TypeScript grep_tool 对齐
-pub struct SearchFilesRgTool {
+/// Grep tool - 与 Claude Code Grep 工具对齐
+pub struct GrepTool {
     pub cwd: String,
 }
 
-impl SearchFilesRgTool {
+impl GrepTool {
     pub fn new(cwd: impl Into<String>) -> Self {
         Self { cwd: cwd.into() }
     }
 }
 
-const SEARCH_FILES_RG_DESCRIPTION: &str = r#"A powerful search tool built on ripgrep (rg). Supports full regex syntax (e.g. "log.*Error", "function\s+\w+"). Filter files with glob parameter (e.g. "*.js", "*.{ts,tsx}") or type parameter (e.g. "js", "py", "rust", "go"). Use output_mode to control result format.
+const GREP_DESCRIPTION: &str = r#"A powerful search tool built on ripgrep. Supports full regex syntax (e.g. "log.*Error", "function\s+\w+"). Filter files with glob parameter (e.g. "*.js", "*.{ts,tsx}") or type parameter (e.g. "js", "py", "rust", "go"). Use output_mode to control result format.
 
 Usage:
-- Use the args parameter as a ripgrep arguments array. Format: [OPTIONS..., PATTERN, PATH]
-- If you need to identify a set of files, prefer glob_files over search_files_rg
+- Always provide pattern and output_mode parameters
+- Use glob parameter for file type filtering (e.g. "*.js", "*.{ts,tsx}")
+- Use type parameter for language-based filtering (e.g. "rust", "js", "py")
 - Supports full regex syntax — literal braces need escaping (use \{\} to find interface{} in Go code)
-- Output includes line numbers by default when -n flag is used
+- Output includes line numbers by default
 - Search times out after 15 seconds; use more specific patterns for large codebases
-- Maximum 500 lines of output; use head_limit parameter to adjust
+- Default head_limit is 250 lines; use sparingly for large result sets
 
 Output modes:
-- Default: shows matching lines with line numbers
-- Use -l flag (in args) to list only file paths that contain matches
-- Use -c flag (in args) to show match counts per file
+- "content": shows matching lines with line numbers (default)
+- "files_with_matches": lists only file paths that contain matches
+- "count": shows match counts per file
 
 When to use:
-- Prefer search_files_rg over bash commands like grep or rg for content search
-- Use glob_files for file name search, search_files_rg for content search
+- Prefer Grep over Bash commands like grep or rg for content search
+- Use Glob for file name search, Grep for content search
 - For open-ended searches, start with the most specific query and broaden if needed"#;
 
 /// 从 args 数组中解析搜索参数
@@ -59,6 +60,85 @@ enum OutputMode {
     Default,  // 显示匹配行
     FilesOnly, // -l
     CountOnly, // -c
+}
+
+/// Grep 工具的结构化输入参数，从 JSON 直接反序列化
+struct GrepInput {
+    pattern: String,
+    path: Option<String>,
+    glob: Option<String>,
+    type_filter: Option<String>,
+    output_mode: String,           // "content" | "files_with_matches" | "count"
+    case_insensitive: bool,        // 对应 -i，默认 false
+    context: Option<usize>,        // 对应 -C
+    line_number: bool,             // 对应 -n，默认 true
+    multiline: bool,               // 对应 -U --multiline-dotall，默认 false
+    head_limit: usize,             // 默认 250
+    offset: Option<usize>,         // 跳过前 N 行
+}
+
+/// 将 type 参数（如 "rust"、"js"）映射为 glob 模式列表
+fn type_to_glob(type_name: &str) -> Vec<&'static str> {
+    match type_name {
+        "rust" => vec!["*.rs"],
+        "js" => vec!["*.js", "*.mjs"],
+        "py" => vec!["*.py"],
+        "go" => vec!["*.go"],
+        "java" => vec!["*.java"],
+        "ts" => vec!["*.ts", "*.tsx"],
+        "c" => vec!["*.c", "*.h"],
+        "cpp" => vec!["*.cpp", "*.hpp", "*.cc", "*.cxx"],
+        "ruby" | "rb" => vec!["*.rb"],
+        "swift" => vec!["*.swift"],
+        "kotlin" | "kt" => vec!["*.kt", "*.kts"],
+        "scala" => vec!["*.scala"],
+        "html" => vec!["*.html", "*.htm"],
+        "css" => vec!["*.css", "*.scss", "*.sass", "*.less"],
+        "json" => vec!["*.json"],
+        "yaml" | "yml" => vec!["*.yaml", "*.yml"],
+        "markdown" | "md" => vec!["*.md", "*.mdx"],
+        "sql" => vec!["*.sql"],
+        "shell" | "sh" => vec!["*.sh", "*.bash", "*.zsh"],
+        _ => vec![],
+    }
+}
+
+impl GrepInput {
+    /// 将结构化参数转译为搜索引擎所需的 ParsedArgs
+    fn to_parsed_args(&self) -> Result<ParsedArgs, String> {
+        // output_mode 字符串 → OutputMode 枚举
+        let output_mode = match self.output_mode.as_str() {
+            "content" => OutputMode::Default,
+            "files_with_matches" => OutputMode::FilesOnly,
+            "count" => OutputMode::CountOnly,
+            other => return Err(format!("Invalid output_mode: '{}'. Must be 'content', 'files_with_matches', or 'count'", other)),
+        };
+
+        // 组装 glob 过滤器：用户提供的 glob + type 映射
+        let mut glob_filters = Vec::new();
+        if let Some(ref glob) = self.glob {
+            // 支持多 glob 模式，如 "*.{ts,tsx}" 或 "*.rs"
+            glob_filters.push(glob.clone());
+        }
+        if let Some(ref type_name) = self.type_filter {
+            let type_globs = type_to_glob(type_name);
+            for g in type_globs {
+                glob_filters.push(g.to_string());
+            }
+        }
+
+        Ok(ParsedArgs {
+            pattern: self.pattern.clone(),
+            path: self.path.clone(),
+            glob_filters,
+            _type_filters: vec![],
+            _type_excludes: vec![],
+            output_mode,
+            context_lines: self.context.unwrap_or(0),
+            case_insensitive: self.case_insensitive,
+            whole_word: false,
+        })
+    }
 }
 
 /// 解析 ripgrep 风格的命令行参数
@@ -413,30 +493,66 @@ fn execute_search(
 }
 
 #[async_trait::async_trait]
-impl BaseTool for SearchFilesRgTool {
+impl BaseTool for GrepTool {
     fn name(&self) -> &str {
-        "search_files_rg"
+        "Grep"
     }
 
     fn description(&self) -> &str {
-        SEARCH_FILES_RG_DESCRIPTION
+        GREP_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "args": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Ripgrep arguments as a string array. Format: [OPTIONS..., PATTERN, PATH]. Example: [\"-n\", \"fn main\", \"src/\"]. Supports regex patterns, glob filters (-g flag), file type filters (-t flag), context lines (-C flag), and all standard ripgrep options"
+                "pattern": {
+                    "type": "string",
+                    "description": "The regular expression pattern to search for in file contents. Supports full regex syntax (e.g. \"log.*Error\", \"function\\s+\\w+\")"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "File or directory path to search in. Defaults to current working directory if not specified"
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\"). Only files matching the glob will be searched"
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Filter files by type. Common values: \"rust\", \"js\", \"py\", \"go\", \"java\", \"ts\". More efficient than glob for type-based filtering"
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["content", "files_with_matches", "count"],
+                    "description": "Output mode: \"content\" shows matching lines with line numbers, \"files_with_matches\" lists only file paths, \"count\" shows match counts per file"
+                },
+                "-i": {
+                    "type": "boolean",
+                    "description": "Enable case-insensitive search (default: false)"
+                },
+                "-C": {
+                    "type": "number",
+                    "description": "Number of context lines to show before and after each match"
+                },
+                "-n": {
+                    "type": "boolean",
+                    "description": "Show line numbers (default: true)"
+                },
+                "multiline": {
+                    "type": "boolean",
+                    "description": "Enable multiline mode where . matches newlines (default: false)"
                 },
                 "head_limit": {
                     "type": "number",
-                    "description": "Limit output to first N matching lines (default 500). Use sparingly — large result sets waste context"
+                    "description": "Limit output to first N matching lines (default 250). Pass 0 for unlimited. Use sparingly — large result sets waste context"
+                },
+                "offset": {
+                    "type": "number",
+                    "description": "Skip first N lines of output before applying head_limit"
                 }
             },
-            "required": ["args"]
+            "required": ["pattern", "output_mode"]
         })
     }
 
@@ -444,44 +560,64 @@ impl BaseTool for SearchFilesRgTool {
         &self,
         input: Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let args_val = input["args"]
-            .as_array()
-            .ok_or("Missing args parameter (array of strings)")?;
+        let pattern = match input.get("pattern").and_then(|v| v.as_str()) {
+            Some(p) => p.to_string(),
+            None => return Ok("Error: Missing required parameter 'pattern'".to_string()),
+        };
+        let output_mode = match input.get("output_mode").and_then(|v| v.as_str()) {
+            Some(m) => m.to_string(),
+            None => return Ok("Error: Missing required parameter 'output_mode'".to_string()),
+        };
 
-        if args_val.is_empty() {
-            return Ok(
-                "Error: No arguments provided. Please provide ripgrep arguments.".to_string(),
-            );
-        }
+        let grep_input = GrepInput {
+            pattern,
+            path: input.get("path").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            glob: input.get("glob").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            type_filter: input.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            output_mode,
+            case_insensitive: input.get("-i").and_then(|v| v.as_bool()).unwrap_or(false),
+            context: input.get("-C").and_then(|v| v.as_u64()).map(|n| n as usize),
+            line_number: input.get("-n").and_then(|v| v.as_bool()).unwrap_or(true),
+            multiline: input.get("multiline").and_then(|v| v.as_bool()).unwrap_or(false),
+            head_limit: input.get("head_limit").and_then(|v| v.as_u64()).unwrap_or(250) as usize,
+            offset: input.get("offset").and_then(|v| v.as_u64()).map(|n| n as usize),
+        };
 
-        let args: Vec<String> = args_val
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-
-        let head_limit = input["head_limit"].as_u64().unwrap_or(500) as usize;
-
-        let parsed = match parse_args(&args) {
+        let parsed = match grep_input.to_parsed_args() {
             Ok(p) => p,
             Err(e) => return Ok(format!("Error: {e}")),
         };
+
+        let head_limit = grep_input.head_limit;
 
         let cwd = self.cwd.clone();
         let result = timeout(
             Duration::from_secs(15),
             tokio::task::spawn_blocking(move || execute_search(&parsed, &cwd, head_limit)),
-        )
-        .await;
+        ).await;
 
-        match result {
-            Err(_) => Ok(
-                "Error: Search timed out after 15 seconds. Please use a more specific pattern."
-                    .to_string(),
-            ),
-            Ok(Err(e)) => Ok(format!("Error: {e}")),
-            Ok(Ok(Ok(output))) => Ok(output),
-            Ok(Ok(Err(e))) => Ok(format!("Error: {e}")),
-        }
+        // offset 后处理（在超时/结果后应用）
+        let output = match result {
+            Err(_) => return Ok("Error: Search timed out after 15 seconds. Please use a more specific pattern.".to_string()),
+            Ok(Err(e)) => return Ok(format!("Error: {e}")),
+            Ok(Ok(Ok(output))) => output,
+            Ok(Ok(Err(e))) => return Ok(format!("Error: {e}")),
+        };
+
+        // 应用 offset：跳过前 N 行
+        let final_output = if let Some(offset) = grep_input.offset {
+            if offset > 0 {
+                let lines: Vec<&str> = output.split('\n').collect();
+                let skipped: Vec<&str> = lines.into_iter().skip(offset).collect();
+                skipped.join("\n")
+            } else {
+                output
+            }
+        } else {
+            output
+        };
+
+        Ok(final_output)
     }
 }
 
@@ -490,28 +626,28 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_search_files_rg_hit() {
+    async fn test_grep_hit() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("test.txt"),
             "needle in a haystack\nother line",
         )
         .unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"args": ["-n", "needle", "./"]}))
+            .invoke(serde_json::json!({"pattern": "needle", "output_mode": "content", "path": "./"}))
             .await
             .unwrap();
         assert!(result.contains("needle"), "should find needle: {result}");
     }
 
     #[tokio::test]
-    async fn test_search_files_rg_no_match() {
+    async fn test_grep_no_match() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "haystack only").unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"args": ["-n", "zzz_not_here", "./"]}))
+            .invoke(serde_json::json!({"pattern": "zzz_not_here", "output_mode": "content", "path": "./"}))
             .await
             .unwrap();
         assert!(
@@ -521,31 +657,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_files_rg_empty_args() {
+    async fn test_grep_missing_pattern() {
         let dir = tempfile::tempdir().unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
-        let result = tool.invoke(serde_json::json!({"args": []})).await.unwrap();
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
+        let result = tool.invoke(serde_json::json!({"output_mode": "content"})).await.unwrap();
         assert!(
-            result.contains("No arguments"),
-            "should report missing args: {result}"
+            result.contains("Missing required parameter 'pattern'"),
+            "should report missing pattern: {result}"
         );
     }
 
     #[tokio::test]
-    async fn test_search_files_rg_regex() {
+    async fn test_grep_regex() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "needle123\nneedle456").unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"args": ["-n", "needle[0-9]+", "./"]}))
+            .invoke(serde_json::json!({"pattern": "needle[0-9]+", "output_mode": "content", "path": "./"}))
             .await
             .unwrap();
         assert!(result.contains("needle"), "regex should match: {result}");
     }
 
     #[test]
-    fn test_description_extended() {
-        let tool = SearchFilesRgTool::new("/tmp");
+    fn test_grep_description_extended() {
+        let tool = GrepTool::new("/tmp");
         let desc = tool.description();
         assert!(desc.contains("regex"), "description 应提及正则支持");
         assert!(
@@ -556,14 +692,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_files_rg_files_only() {
+    async fn test_grep_files_only() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "needle here\nother line").unwrap();
         std::fs::write(dir.path().join("b.txt"), "no match here").unwrap();
         std::fs::write(dir.path().join("c.txt"), "needle again").unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"args": ["-l", "needle", "./"]}))
+            .invoke(serde_json::json!({"pattern": "needle", "output_mode": "files_with_matches", "path": "./"}))
             .await
             .unwrap();
         assert!(result.contains("a.txt"), "should find a.txt: {result}");
@@ -572,13 +708,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_files_rg_count() {
+    async fn test_grep_count() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "needle\nneedle\nneedle").unwrap();
         std::fs::write(dir.path().join("b.txt"), "needle once").unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"args": ["-c", "needle", "./"]}))
+            .invoke(serde_json::json!({"pattern": "needle", "output_mode": "count", "path": "./"}))
             .await
             .unwrap();
         assert!(result.contains("a.txt:3"), "a.txt should have 3 matches: {result}");
@@ -586,12 +722,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_files_rg_case_insensitive() {
+    async fn test_grep_case_insensitive() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "NEEDLE\nneedle\nNeedle").unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"args": ["-i", "NEEDLE", "./"]}))
+            .invoke(serde_json::json!({"pattern": "NEEDLE", "output_mode": "content", "-i": true, "path": "./"}))
             .await
             .unwrap();
         assert!(result.contains("NEEDLE"), "should match uppercase: {result}");
@@ -600,16 +736,74 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_files_rg_glob_filter() {
+    async fn test_grep_glob_filter() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "needle in txt").unwrap();
         std::fs::write(dir.path().join("test.rs"), "needle in rs").unwrap();
-        let tool = SearchFilesRgTool::new(dir.path().to_str().unwrap());
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
         let result = tool
-            .invoke(serde_json::json!({"args": ["-n", "-g", "*.txt", "needle", "./"]}))
+            .invoke(serde_json::json!({"pattern": "needle", "output_mode": "content", "glob": "*.txt", "path": "./"}))
             .await
             .unwrap();
         assert!(result.contains("test.txt"), "should find in .txt: {result}");
         assert!(!result.contains("test.rs"), "should not find in .rs: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_grep_type_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "needle in txt").unwrap();
+        std::fs::write(dir.path().join("test.rs"), "needle in rs").unwrap();
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "pattern": "needle",
+                "output_mode": "content",
+                "type": "rust",
+                "path": "./"
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("test.rs"), "should find in .rs: {result}");
+        assert!(!result.contains("test.txt"), "should not find in .txt with type=rust: {result}");
+    }
+
+    #[test]
+    fn test_grep_tool_name() {
+        let tool = GrepTool::new("/tmp");
+        assert_eq!(tool.name(), "Grep");
+    }
+
+    #[tokio::test]
+    async fn test_grep_invalid_output_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "pattern": "needle",
+                "output_mode": "invalid_mode"
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("Error"), "should report invalid output_mode: {result}");
+    }
+
+    #[tokio::test]
+    async fn test_grep_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let lines: Vec<String> = (0..10).map(|i| format!("line {} needle", i)).collect();
+        std::fs::write(dir.path().join("test.txt"), lines.join("\n")).unwrap();
+        let tool = GrepTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "pattern": "needle",
+                "output_mode": "content",
+                "path": "./",
+                "offset": 5
+            }))
+            .await
+            .unwrap();
+        assert!(!result.contains("line 0"), "should skip first 5 lines: {result}");
+        assert!(result.contains("line 5"), "should include line 5+: {result}");
     }
 }

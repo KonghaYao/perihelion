@@ -8,7 +8,7 @@ pub mod write;
 pub use edit::EditFileTool;
 pub use folder::FolderOperationsTool;
 pub use glob::GlobFilesTool;
-pub use grep::SearchFilesRgTool;
+pub use grep::GrepTool;
 pub use read::ReadFileTool;
 pub use write::WriteFileTool;
 

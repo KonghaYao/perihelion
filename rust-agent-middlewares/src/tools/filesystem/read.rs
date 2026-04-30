@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use super::resolve_path;
 
-/// read_file tool - 与 TypeScript read_tool 对齐
+/// Read tool - 与 TypeScript read_tool 对齐
 pub struct ReadFileTool {
     pub cwd: String,
 }
@@ -29,7 +29,7 @@ Usage:
 - Results are returned using cat -n format, with line numbers starting at 1
 - This tool reads files from the local filesystem; it cannot handle URLs
 - You can call multiple tools in a single response. It is always better to speculatively read multiple files before making edits
-- You should prefer using the read_file tool over the bash tool with commands like cat, head, tail, or sed to read files. This provides better output formatting and filtering
+- You should prefer using the Read tool over the Bash tool with commands like cat, head, tail, or sed to read files. This provides better output formatting and filtering
 - For open-ended searches that may require multiple rounds of globbing and grepping, use the Agent tool instead
 
 Error handling:
@@ -81,7 +81,7 @@ fn is_binary_extension(ext: &str) -> bool {
 #[async_trait::async_trait]
 impl BaseTool for ReadFileTool {
     fn name(&self) -> &str {
-        "read_file"
+        "Read"
     }
 
     fn description(&self) -> &str {
@@ -103,6 +103,10 @@ impl BaseTool for ReadFileTool {
                 "limit": {
                     "type": "number",
                     "description": "The number of lines to read. Only provide if the file is too large to read in a single call. Not providing this parameter reads the whole file (recommended)"
+                },
+                "pages": {
+                    "type": "string",
+                    "description": "For PDF files, the page range to read, e.g. '1-5', '3', '10-20'. Only applies to PDF files"
                 }
             },
             "required": ["file_path"]
@@ -121,6 +125,21 @@ impl BaseTool for ReadFileTool {
         let limit = input["limit"].as_u64().unwrap_or(MAX_LINES as u64) as usize;
 
         let resolved = resolve_path(&self.cwd, file_path);
+
+        let pages = input["pages"].as_str().map(|s| s.to_string());
+
+        // PDF + pages: 返回占位提示
+        if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
+            if ext.eq_ignore_ascii_case("pdf") {
+                if pages.is_some() {
+                    return Ok(format!(
+                        "[PDF READING NOT YET SUPPORTED]\n\nFile path: {}\nPDF reading with page selection is not yet implemented. Use the Bash tool with a PDF reader command as a workaround.",
+                        resolved.display()
+                    ));
+                }
+                // PDF 但未提供 pages → 继续走到下面的二进制检测，返回 BINARY FILE DETECTED
+            }
+        }
 
         if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
             if is_binary_extension(&ext.to_lowercase()) {
@@ -307,6 +326,38 @@ mod tests {
         assert!(
             desc.len() > 200,
             "description 应为扩展后的多段落文本，长度 > 200 字符"
+        );
+    }
+
+    #[test]
+    fn test_tool_name_is_Read() {
+        let tool = ReadFileTool::new("/tmp");
+        assert_eq!(tool.name(), "Read");
+    }
+
+    #[tokio::test]
+    async fn test_pdf_with_pages_returns_placeholder() {
+        let tool = ReadFileTool::new("/tmp");
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "test.pdf", "pages": "1-5"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("PDF READING NOT YET SUPPORTED"),
+            "should return placeholder: {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pdf_without_pages_returns_binary() {
+        let tool = ReadFileTool::new("/tmp");
+        let result = tool
+            .invoke(serde_json::json!({"file_path": "test.pdf"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("BINARY FILE DETECTED"),
+            "should return binary: {result}"
         );
     }
 }

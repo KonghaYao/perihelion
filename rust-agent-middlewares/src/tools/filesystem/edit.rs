@@ -6,8 +6,8 @@ use super::resolve_path;
 const EDIT_FILE_DESCRIPTION: &str = r#"Performs exact string replacements in files.
 
 Usage:
-- You must use your read_file tool at least once in the conversation before editing. This tool will fail if you attempt an edit without reading the file
-- When editing text from read_file tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix
+- You must use your Read tool at least once in the conversation before editing. This tool will fail if you attempt an edit without reading the file
+- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix
 - ALWAYS prefer editing existing files in the codebase. DO NOT create new files unless explicitly required
 - The file_path parameter must be an absolute path, not a relative path
 - The old_string parameter must match exactly, including all whitespace and indentation
@@ -20,7 +20,7 @@ Error handling:
 - old_string is empty: returns an error rejecting the operation
 - File not found: returns an error indicating the path does not exist"#;
 
-/// edit_file tool (replace) - 与 TypeScript replace_tool 对齐
+/// Edit tool (replace) - 与 TypeScript replace_tool 对齐
 pub struct EditFileTool {
     pub cwd: String,
 }
@@ -34,7 +34,7 @@ impl EditFileTool {
 #[async_trait::async_trait]
 impl BaseTool for EditFileTool {
     fn name(&self) -> &str {
-        "edit_file"
+        "Edit"
     }
 
     fn description(&self) -> &str {
@@ -269,5 +269,11 @@ mod tests {
             "description 应提及 replace_all"
         );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
+    }
+
+    #[test]
+    fn test_tool_name_is_Edit() {
+        let tool = EditFileTool::new("/tmp");
+        assert_eq!(tool.name(), "Edit");
     }
 }

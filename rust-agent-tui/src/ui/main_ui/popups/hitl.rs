@@ -173,7 +173,7 @@ mod tests {
         let (mut app, mut handle) = App::new_headless(120, 30);
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let items = vec![BatchItem {
-            tool_name: "bash".to_string(),
+            tool_name: "Bash".to_string(),
             input: serde_json::json!({"command": "ls"}),
         }];
         let prompt = HitlBatchPrompt::new(items, tx);
@@ -190,11 +190,11 @@ mod tests {
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let items = vec![
             BatchItem {
-                tool_name: "bash".to_string(),
+                tool_name: "Bash".to_string(),
                 input: serde_json::json!({"command": "ls"}),
             },
             BatchItem {
-                tool_name: "write_file".to_string(),
+                tool_name: "Write".to_string(),
                 input: serde_json::json!({"path": "test.rs"}),
             },
         ];

@@ -10,13 +10,14 @@ pub use rust_create_agent::ask_user::{AskUserBatchRequest, AskUserOption, AskUse
 struct InputOption {
     label: String,
     description: Option<String>,
+    preview: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
 struct InputQuestion {
     question: String,
     header: String,
-    #[serde(default)]
+    #[serde(default, rename = "multiSelect")]
     multi_select: bool,
     options: Vec<InputOption>,
 }
@@ -28,12 +29,12 @@ struct AskUserInput {
 
 /// 将一个 ToolCall 解析为 AskUserQuestionData 列表；非 ask_user_question 工具返回空 Vec。
 pub fn parse_ask_user(tool_call: &ToolCall) -> Result<Vec<AskUserQuestionData>, AgentError> {
-    if tool_call.name != "ask_user_question" {
+    if tool_call.name != "AskUserQuestion" {
         return Ok(vec![]);
     }
     let input: AskUserInput = serde_json::from_value(tool_call.input.clone()).map_err(|e| {
         AgentError::ToolExecutionFailed {
-            tool: "ask_user_question".to_string(),
+            tool: "AskUserQuestion".to_string(),
             reason: format!("参数解析失败: {e}"),
         }
     })?;
@@ -62,7 +63,7 @@ pub fn parse_ask_user(tool_call: &ToolCall) -> Result<Vec<AskUserQuestionData>, 
 /// `ask_user_question` 工具定义（对齐 Claude AskUserQuestion）
 pub fn ask_user_tool_definition() -> rust_create_agent::tools::ToolDefinition {
     rust_create_agent::tools::ToolDefinition {
-        name: "ask_user_question".to_string(),
+        name: "AskUserQuestion".to_string(),
         description: "向用户批量提问并提供选项，获取用户的选择或自定义输入。\
                       当任务需要用户提供细节、偏好或做出选择时使用。\
                       一次调用支持 1–4 个问题，全部打包展示给用户。\
@@ -87,7 +88,7 @@ pub fn ask_user_tool_definition() -> rust_create_agent::tools::ToolDefinition {
                                 "type": "string",
                                 "description": "问题短标签（<=12字），用于 UI Tab 显示，例如：颜色偏好、部署方式"
                             },
-                            "multi_select": {
+                            "multiSelect": {
                                 "type": "boolean",
                                 "default": false,
                                 "description": "是否允许多选，默认 false（单选）"
@@ -104,6 +105,10 @@ pub fn ask_user_tool_definition() -> rust_create_agent::tools::ToolDefinition {
                                         "description": {
                                             "type": "string",
                                             "description": "选项说明，解释该选项的含义或适用场景（可选）"
+                                        },
+                                        "preview": {
+                                            "type": "string",
+                                            "description": "预览内容，展示选项的效果或示例（可选）"
                                         }
                                     },
                                     "required": ["label"]

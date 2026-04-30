@@ -8,18 +8,18 @@ use super::markdown::parse_markdown_default;
 /// 只读工具分类，用于折叠聚合
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolCategory {
-    Read,   // read_file
-    Search, // search_files_rg
-    Glob,   // glob_files
+    Read,   // Read
+    Search, // Grep
+    Glob,   // Glob
 }
 
 impl ToolCategory {
     /// 从工具名判断分类；非只读工具返回 None
     pub fn from_tool_name(name: &str) -> Option<Self> {
         match name {
-            "read_file" => Some(ToolCategory::Read),
-            "search_files_rg" => Some(ToolCategory::Search),
-            "glob_files" => Some(ToolCategory::Glob),
+            "Read" => Some(ToolCategory::Read),
+            "Grep" => Some(ToolCategory::Search),
+            "Glob" => Some(ToolCategory::Glob),
             _ => None,
         }
     }
@@ -54,9 +54,9 @@ impl ToolCategory {
     /// 根据 tools 列表生成摘要，支持混合类别（如 search + read）
     pub fn summary_for_tools(tools: &[ToolEntry]) -> String {
         let count = tools.len();
-        let has_search = tools.iter().any(|t| t.tool_name == "search_files_rg");
-        let has_read = tools.iter().any(|t| t.tool_name == "read_file");
-        let has_glob = tools.iter().any(|t| t.tool_name == "glob_files");
+        let has_search = tools.iter().any(|t| t.tool_name == "Grep");
+        let has_read = tools.iter().any(|t| t.tool_name == "Read");
+        let has_glob = tools.iter().any(|t| t.tool_name == "Glob");
         let mixed = [has_search, has_read, has_glob]
             .iter()
             .filter(|&&b| b)
@@ -203,6 +203,8 @@ pub enum MessageViewModel {
         collapsed: bool,
         /// SubAgentEnd 携带的结果摘要（工具返回值）
         final_result: Option<String>,
+        /// SubAgent 执行是否以错误结束
+        is_error: bool,
     },
 }
 
@@ -340,10 +342,10 @@ impl MessageViewModel {
                     .map(|(_, name, input)| (name.clone(), input.clone()))
                     .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
                 let raw_content = content.text_content();
-                // launch_agent 工具恢复为 SubAgentGroup（完成状态，折叠）
-                if tool_name == "launch_agent" {
-                    let agent_id = input["agent_id"].as_str().unwrap_or("unknown").to_string();
-                    let task_preview = input["task"]
+                // Agent 工具恢复为 SubAgentGroup（完成状态，折叠）
+                if tool_name == "Agent" {
+                    let agent_id = input["subagent_type"].as_str().unwrap_or("unknown").to_string();
+                    let task_preview = input["prompt"]
                         .as_str()
                         .unwrap_or("")
                         .chars()
@@ -357,6 +359,7 @@ impl MessageViewModel {
                         is_running: false,
                         collapsed: true,
                         final_result: Some(raw_content),
+                        is_error: *is_error,
                     };
                 }
                 // 使用统一格式化函数生成 display_name 和 args_display
@@ -512,6 +515,7 @@ impl MessageViewModel {
             is_running: true,
             collapsed: false,
             final_result: None,
+            is_error: false,
         }
     }
 
@@ -534,14 +538,14 @@ impl MessageViewModel {
 pub fn tool_color(name: &str) -> Color {
     match name {
         // 读取/搜索 — 哑光绿
-        "read_file" | "glob_files" | "search_files_rg" => theme::SAGE,
+        "Read" | "Glob" | "Grep" => theme::SAGE,
         // 写入/编辑 — 暖米灰
-        "write_file" | "edit_file" | "folder_operations" | "delete_file" | "delete_folder"
+        "Write" | "Edit" | "folder_operations" | "delete_file" | "delete_folder"
         | "rm" | "rm_rf" => theme::WARNING,
         // 执行 — 棕金
-        "bash" => theme::MODEL_INFO,
+        "Bash" => theme::MODEL_INFO,
         // 代理/交互 — 紫色
-        "launch_agent" | "ask_user_question" | "todo_write" => theme::THINKING,
+        "Agent" | "AskUserQuestion" | "TodoWrite" => theme::THINKING,
         // 错误
         _ if name.contains("error") => theme::ERROR,
         // 其他
@@ -562,8 +566,8 @@ mod tests {
         let msg = BaseMessage::ai_with_tool_calls(
             MessageContent::text(""),
             vec![
-                ToolCallRequest::new("toolu_001", "bash", json!({"command": "ls"})),
-                ToolCallRequest::new("toolu_002", "read_file", json!({"path": "test.txt"})),
+                ToolCallRequest::new("toolu_001", "Bash", json!({"command": "ls"})),
+                ToolCallRequest::new("toolu_002", "Read", json!({"path": "test.txt"})),
             ],
         );
 
@@ -588,8 +592,8 @@ mod tests {
                         }
                     })
                     .collect();
-                assert!(names.contains(&"bash"), "应包含 bash 工具");
-                assert!(names.contains(&"read_file"), "应包含 read_file 工具");
+                assert!(names.contains(&"Bash"), "应包含 bash 工具");
+                assert!(names.contains(&"Read"), "应包含 read_file 工具");
             }
             _ => panic!("应该是 AssistantBubble"),
         }
@@ -602,7 +606,7 @@ mod tests {
             MessageContent::text("I'll run a command"),
             vec![ToolCallRequest::new(
                 "toolu_001",
-                "bash",
+                "Bash",
                 json!({"command": "ls"}),
             )],
         );
@@ -635,7 +639,7 @@ mod tests {
         // content 中包含 ToolUse block，同时 tool_calls 也有相同的
         let blocks = vec![
             ContentBlock::text("I'll run bash"),
-            ContentBlock::tool_use("toolu_001", "bash", json!({"command": "ls"})),
+            ContentBlock::tool_use("toolu_001", "Bash", json!({"command": "ls"})),
         ];
         let msg = BaseMessage::ai_from_blocks(blocks);
 
@@ -669,5 +673,32 @@ mod tests {
             }
             _ => panic!("应该是 AssistantBubble"),
         }
+    }
+
+    #[test]
+    fn test_tool_category_new_names() {
+        assert_eq!(ToolCategory::from_tool_name("Read"), Some(ToolCategory::Read));
+        assert_eq!(ToolCategory::from_tool_name("Grep"), Some(ToolCategory::Search));
+        assert_eq!(ToolCategory::from_tool_name("Glob"), Some(ToolCategory::Glob));
+        assert_eq!(ToolCategory::from_tool_name("Write"), None);
+        assert_eq!(ToolCategory::from_tool_name("Bash"), None);
+        assert_eq!(ToolCategory::from_tool_name("Agent"), None);
+    }
+
+    #[test]
+    fn test_tool_color_new_names() {
+        // 读取/搜索 — SAGE
+        assert_eq!(tool_color("Read"), theme::SAGE);
+        assert_eq!(tool_color("Glob"), theme::SAGE);
+        assert_eq!(tool_color("Grep"), theme::SAGE);
+        // 写入/编辑 — WARNING
+        assert_eq!(tool_color("Write"), theme::WARNING);
+        assert_eq!(tool_color("Edit"), theme::WARNING);
+        // 执行 — MODEL_INFO
+        assert_eq!(tool_color("Bash"), theme::MODEL_INFO);
+        // 代理/交互 — THINKING
+        assert_eq!(tool_color("Agent"), theme::THINKING);
+        assert_eq!(tool_color("AskUserQuestion"), theme::THINKING);
+        assert_eq!(tool_color("TodoWrite"), theme::THINKING);
     }
 }

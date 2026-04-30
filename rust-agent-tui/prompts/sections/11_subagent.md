@@ -1,6 +1,6 @@
 # SubAgent Delegation
 
-You have access to the `launch_agent` tool, which allows you to delegate sub-tasks to specialized agents defined in `.claude/agents/{agent_id}.md` or `.claude/agents/{agent_id}/agent.md`.
+You have access to the `Agent` tool, which allows you to delegate sub-tasks to specialized agents defined in `.claude/agents/{subagent_type}.md` or `.claude/agents/{subagent_type}/agent.md`.
 
 ## When to use sub-agents
 
@@ -11,8 +11,8 @@ You have access to the `launch_agent` tool, which allows you to delegate sub-tas
 ## Delegation guidelines
 
 - Provide a clear, self-contained `task` description. The sub-agent has no access to the parent conversation history.
-- Specify `agent_id` matching an existing agent definition file. Available agents can be discovered through the agents management panel.
-- The sub-agent inherits the parent's tool set by default, excluding `launch_agent` itself (to prevent recursion).
+- Specify `subagent_type` matching an existing agent definition file. Available agents can be discovered through the agents management panel.
+- The sub-agent inherits the parent's tool set by default, excluding `Agent` itself (to prevent recursion).
 - Agent definitions may restrict available tools via the `tools` and `disallowedTools` fields.
 
 ## Context isolation

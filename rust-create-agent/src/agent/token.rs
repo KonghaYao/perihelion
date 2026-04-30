@@ -27,7 +27,11 @@ impl TokenTracker {
         if let Some(v) = usage.cache_read_input_tokens {
             self.total_cache_read_tokens += v as u64;
         }
-        self.last_usage = Some(usage.clone());
+        // 只在 input_tokens > 0 时更新 last_usage，
+        // 防止异常 API 响应（input_tokens=0）覆盖正常的上下文估算
+        if usage.input_tokens > 0 {
+            self.last_usage = Some(usage.clone());
+        }
         self.llm_call_count += 1;
     }
 
@@ -145,6 +149,24 @@ mod tests {
     fn test_estimated_context_tokens_none() {
         let tracker = TokenTracker::default();
         assert!(tracker.estimated_context_tokens().is_none());
+    }
+
+    #[test]
+    fn test_accumulate_zero_input_tokens_does_not_overwrite_last_usage() {
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(50000, 2000, None, None));
+        assert_eq!(tracker.estimated_context_tokens(), Some(52000));
+
+        // 异常 API 响应 input_tokens=0，不应覆盖 last_usage
+        tracker.accumulate(&make_usage(0, 100, None, None));
+        assert_eq!(tracker.total_input_tokens, 50000, "total 仍累积");
+        assert_eq!(tracker.total_output_tokens, 2100, "total 仍累积");
+        assert_eq!(tracker.llm_call_count, 2);
+        assert_eq!(
+            tracker.estimated_context_tokens(),
+            Some(52000),
+            "last_usage 不应被 input_tokens=0 覆盖"
+        );
     }
 
     #[test]

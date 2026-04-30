@@ -51,6 +51,25 @@ impl App {
 
     // ─── Thread 操作 ──────────────────────────────────────────────────────────
 
+    /// 重置 AgentComm 会话状态（token tracker、重试、subagent 等）
+    /// 在 open_thread / new_thread 时调用，确保切换 thread 后上下文干净
+    fn reset_agent_session(&mut self) {
+        self.agent.session_token_tracker.reset();
+        self.agent.pre_compact_token_snapshot = None;
+        self.agent.needs_auto_compact = false;
+        self.agent.auto_compact_failures = 0;
+        self.agent.retry_status = None;
+        self.agent.subagent_depth = 0;
+        self.agent.task_start_time = None;
+        self.agent.last_task_duration = None;
+        self.agent.agent_id = None;
+        self.agent.interaction_prompt = None;
+        self.agent.pending_hitl_items = None;
+        self.agent.pending_ask_user = None;
+        self.agent.cancel_token = None;
+        self.agent.agent_rx = None;
+    }
+
     /// 恢复历史 thread：加载消息，关闭 browser
     pub fn open_thread(&mut self, thread_id: ThreadId) {
         let store = self.thread_store.clone();
@@ -75,6 +94,9 @@ impl App {
         self.core.thread_browser = None;
         self.core.pending_attachments.clear();
         self.langfuse.langfuse_session = None;
+        self.todo_items.clear();
+
+        self.reset_agent_session();
 
         // 恢复 sticky header：找到 thread 中最后一条 Human 消息
         self.core.last_human_message = base_msgs
@@ -115,6 +137,9 @@ impl App {
         self.core.thread_browser = None;
         self.langfuse.langfuse_session = None;
         self.core.last_human_message = None;
+
+        self.reset_agent_session();
+
         let _ = self.core.render_tx.send(RenderEvent::Clear);
     }
 

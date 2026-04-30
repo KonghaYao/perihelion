@@ -20,10 +20,10 @@ use crate::agent_define::AgentOverrides;
 use crate::parse_agent_file;
 use crate::tools::BoxToolWrapper;
 
-/// SubAgentMiddleware - 向父 agent 注入 `launch_agent` 工具
+/// SubAgentMiddleware - 向父 agent 注入 `Agent` 工具
 ///
 /// 在 `before_agent` 阶段通过 `collect_tools` 将 `SubAgentTool` 提供给父 agent，
-/// 使 LLM 可调用 `launch_agent` 工具将子任务委派给专门的子 agent。
+/// 使 LLM 可调用 `Agent` 工具将子任务委派给专门的子 agent。
 ///
 /// # 使用示例
 ///
@@ -176,7 +176,7 @@ fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
 /// 生成 agents 摘要系统消息
 fn build_agents_summary(agents: &[(String, String, String)]) -> String {
     let mut lines = vec![
-        "你可以使用 `launch_agent` 工具委派子任务给以下专门 Agent：".to_string(),
+        "你可以使用 `Agent` 工具委派子任务给以下专门 Agent：".to_string(),
         String::new(),
     ];
 
@@ -186,7 +186,7 @@ fn build_agents_summary(agents: &[(String, String, String)]) -> String {
 
     lines.push(String::new());
     lines.push(
-        "调用时传入 `agent_id` 字段（括号内的标识符）和 `task` 字段（任务描述）。".to_string(),
+        "调用时传入 `subagent_type` 字段（括号内的标识符）和 `prompt` 字段（任务描述）。".to_string(),
     );
 
     lines.join("\n")
@@ -267,7 +267,7 @@ mod tests {
         );
         let tools = <SubAgentMiddleware as Middleware<AgentState>>::collect_tools(&m, "/tmp");
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name(), "launch_agent");
+        assert_eq!(tools[0].name(), "Agent");
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
             Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
         let tool = m.build_tool("/tmp");
-        assert_eq!(tool.name(), "launch_agent");
+        assert_eq!(tool.name(), "Agent");
     }
 
     #[test]
@@ -350,7 +350,7 @@ mod tests {
         let content = state.messages()[0].content();
         assert!(content.contains("tester"));
         assert!(content.contains("Runs tests"));
-        assert!(content.contains("launch_agent"));
+        assert!(content.contains("Agent"));
     }
 
     #[tokio::test]

@@ -4,7 +4,7 @@ When approval mode is enabled, certain tool calls require explicit user approval
 
 - `bash` — shell command execution
 - `folder_operations` — folder create/list/exists
-- `launch_agent` — sub-agent delegation
+- `Agent` — sub-agent delegation
 - `write_*` — any file write operation
 - `edit_*` — any file edit operation
 - `delete_*` / `rm_*` — any file deletion operation

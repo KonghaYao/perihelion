@@ -33,27 +33,27 @@ pub fn is_yolo_mode() -> bool {
 /// 默认敏感工具判断规则
 ///
 /// - `bash`：所有 bash 命令
-/// - `write_*`：文件写入
-/// - `edit_*`：文件编辑
+/// - `Write`：文件写入
+/// - `Edit`：文件编辑
 /// - `folder_operations`：目录操作
 /// - `launch_agent`：子 Agent 委派（子 Agent 不含 HITL，可传递绕过审批）
 pub fn default_requires_approval(tool_name: &str) -> bool {
-    tool_name == "bash"
+    tool_name == "Bash"
         || tool_name == "folder_operations"
-        || tool_name == "launch_agent"
-        || tool_name.starts_with("write_")
-        || tool_name.starts_with("edit_")
+        || tool_name == "Agent"
+        || tool_name == "Write"
+        || tool_name == "Edit"
         || tool_name.starts_with("delete_")
         || tool_name.starts_with("rm_")
 }
 
 /// 判断工具是否为文件编辑类工具（AcceptEdits 模式使用）
 ///
-/// `write_*`、`edit_*`、`folder_operations` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
-/// `bash`、`launch_agent`、`delete_*`、`rm_*` 不属于编辑工具，仍需审批。
+/// `Write`、`Edit`、`folder_operations` 归类为编辑工具，在 AcceptEdits 模式下自动放行。
+/// `Bash`、`Agent`、`delete_*`、`rm_*` 不属于编辑工具，仍需审批。
 pub fn is_edit_tool(tool_name: &str) -> bool {
-    tool_name.starts_with("write_")
-        || tool_name.starts_with("edit_")
+    tool_name == "Write"
+        || tool_name == "Edit"
         || tool_name == "folder_operations"
 }
 
@@ -416,9 +416,9 @@ mod tests {
     async fn test_disabled_allows_all() {
         let mw = HumanInTheLoopMiddleware::disabled();
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
@@ -426,9 +426,9 @@ mod tests {
         let mw =
             HumanInTheLoopMiddleware::new(Arc::new(AutoApproveBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
@@ -436,7 +436,7 @@ mod tests {
         let mw =
             HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await;
         assert!(matches!(result, Err(AgentError::ToolRejected { .. })));
     }
@@ -446,25 +446,25 @@ mod tests {
         let mw =
             HumanInTheLoopMiddleware::new(Arc::new(AutoRejectBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("read_file");
+        let tc = make_tool_call("Read");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "read_file");
+        assert_eq!(result.name, "Read");
     }
 
     #[test]
     fn test_default_requires_approval() {
-        assert!(default_requires_approval("bash"));
-        assert!(default_requires_approval("write_file"));
-        assert!(default_requires_approval("edit_file"));
+        assert!(default_requires_approval("Bash"));
+        assert!(default_requires_approval("Write"));
+        assert!(default_requires_approval("Edit"));
         assert!(default_requires_approval("folder_operations"));
         assert!(default_requires_approval("delete_something"));
         assert!(default_requires_approval("rm_rf"));
-        assert!(default_requires_approval("launch_agent"));
+        assert!(default_requires_approval("Agent"));
 
-        assert!(!default_requires_approval("read_file"));
-        assert!(!default_requires_approval("glob_files"));
-        assert!(!default_requires_approval("search_files_rg"));
-        assert!(!default_requires_approval("todo_write"));
+        assert!(!default_requires_approval("Read"));
+        assert!(!default_requires_approval("Glob"));
+        assert!(!default_requires_approval("Grep"));
+        assert!(!default_requires_approval("TodoWrite"));
         assert!(!default_requires_approval("ask_user"));
     }
 
@@ -491,9 +491,9 @@ mod tests {
 
         let mw = HumanInTheLoopMiddleware::new(Arc::new(EditBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
         assert_eq!(result.input, serde_json::json!({"command": "echo safe"}));
     }
 
@@ -520,7 +520,7 @@ mod tests {
 
         let mw = HumanInTheLoopMiddleware::new(Arc::new(RespondBroker), default_requires_approval);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await;
         match result {
             Err(AgentError::ToolRejected { reason, .. }) => {
@@ -534,14 +534,14 @@ mod tests {
 
     #[test]
     fn test_is_edit_tool() {
-        assert!(is_edit_tool("write_file"));
-        assert!(is_edit_tool("edit_file"));
+        assert!(is_edit_tool("Write"));
+        assert!(is_edit_tool("Edit"));
         assert!(is_edit_tool("folder_operations"));
-        assert!(!is_edit_tool("bash"));
-        assert!(!is_edit_tool("launch_agent"));
+        assert!(!is_edit_tool("Bash"));
+        assert!(!is_edit_tool("Agent"));
         assert!(!is_edit_tool("delete_x"));
         assert!(!is_edit_tool("rm_x"));
-        assert!(!is_edit_tool("read_file"));
+        assert!(!is_edit_tool("Read"));
     }
 
     /// Mock 自动分类器
@@ -582,16 +582,16 @@ mod tests {
     async fn test_bypass_permissions_allows_all() {
         let mw = make_mw_with_mode(PermissionMode::Bypass, None);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
     async fn test_dont_ask_rejects_all() {
         let mw = make_mw_with_mode(PermissionMode::DontAsk, None);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await;
         assert!(matches!(result, Err(AgentError::ToolRejected { .. })));
     }
@@ -600,27 +600,27 @@ mod tests {
     async fn test_accept_edits_allows_write_file() {
         let mw = make_mw_with_mode(PermissionMode::AcceptEdit, None);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("write_file");
+        let tc = make_tool_call("Write");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "write_file");
+        assert_eq!(result.name, "Write");
     }
 
     #[tokio::test]
     async fn test_accept_edits_approves_bash_via_broker() {
         let mw = make_mw_with_mode(PermissionMode::AcceptEdit, None);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
     async fn test_default_mode_approves_bash_via_broker() {
         let mw = make_mw_with_mode(PermissionMode::Default, None);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
@@ -630,9 +630,9 @@ mod tests {
             Some(Arc::new(MockClassifier::new(Classification::Allow))),
         );
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
@@ -642,7 +642,7 @@ mod tests {
             Some(Arc::new(MockClassifier::new(Classification::Deny))),
         );
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await;
         assert!(matches!(result, Err(AgentError::ToolRejected { .. })));
     }
@@ -654,27 +654,27 @@ mod tests {
             Some(Arc::new(MockClassifier::new(Classification::Unsure))),
         );
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
     async fn test_auto_mode_no_classifier_falls_back_to_broker() {
         let mw = make_mw_with_mode(PermissionMode::AutoMode, None);
         let mut state = AgentState::new("/tmp");
-        let tc = make_tool_call("bash");
+        let tc = make_tool_call("Bash");
         let result = mw.before_tool(&mut state, &tc).await.unwrap();
-        assert_eq!(result.name, "bash");
+        assert_eq!(result.name, "Bash");
     }
 
     #[tokio::test]
     async fn test_process_batch_bypass_permissions() {
         let mw = make_mw_with_mode(PermissionMode::Bypass, None);
         let calls = vec![
-            make_tool_call("bash"),
-            make_tool_call("write_file"),
-            make_tool_call("read_file"),
+            make_tool_call("Bash"),
+            make_tool_call("Write"),
+            make_tool_call("Read"),
         ];
         let results = mw.process_batch(&calls).await;
         assert_eq!(results.len(), 3);
@@ -684,7 +684,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_batch_dont_ask_rejects_sensitive() {
         let mw = make_mw_with_mode(PermissionMode::DontAsk, None);
-        let calls = vec![make_tool_call("bash"), make_tool_call("read_file")];
+        let calls = vec![make_tool_call("Bash"), make_tool_call("Read")];
         let results = mw.process_batch(&calls).await;
         assert_eq!(results.len(), 2);
         assert!(results[0].is_err(), "bash 应被拒绝");
@@ -695,9 +695,9 @@ mod tests {
     async fn test_process_batch_accept_edits_mixed() {
         let mw = make_mw_with_mode(PermissionMode::AcceptEdit, None);
         let calls = vec![
-            make_tool_call("write_file"),
-            make_tool_call("bash"),
-            make_tool_call("read_file"),
+            make_tool_call("Write"),
+            make_tool_call("Bash"),
+            make_tool_call("Read"),
         ];
         let results = mw.process_batch(&calls).await;
         assert_eq!(results.len(), 3);

@@ -15,12 +15,12 @@ Usage:
 - The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh)
 - IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, or echo commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task
 - Instead, use the appropriate dedicated tool which will provide a much better experience for the user:
-  - File search: Use glob_files (NOT find or ls)
-  - Content search: Use search_files_rg (NOT grep or rg)
-  - Read files: Use read_file (NOT cat/head/tail)
-  - Edit files: Use edit_file (NOT sed/awk)
-  - Write files: Use write_file (NOT echo/cat with redirect)
-- You can specify an optional timeout in seconds (up to 300 seconds / 5 minutes). Default is 120 seconds (2 minutes)
+  - File search: Use Glob (NOT find or ls)
+  - Content search: Use Grep (NOT grep or rg)
+  - Read files: Use Read (NOT cat/head/tail)
+  - Edit files: Use Edit (NOT sed/awk)
+  - Write files: Use Write (NOT echo/cat with redirect)
+- You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). Default is 120000ms (2 minutes)
 - When issuing multiple commands, use && to chain them together rather than using separate tool calls if the commands depend on each other
 - For long running commands, consider using a timeout to avoid waiting indefinitely
 
@@ -105,7 +105,7 @@ fn truncate_output(output: &str) -> String {
 #[async_trait::async_trait]
 impl BaseTool for BashTool {
     fn name(&self) -> &str {
-        "bash"
+        "Bash"
     }
 
     fn description(&self) -> &str {
@@ -120,9 +120,17 @@ impl BaseTool for BashTool {
                     "type": "string",
                     "description": "The bash command (and optional arguments) to execute. This can be complex commands that use pipes, &&, or other shell features. For multiple dependent commands, chain them with && rather than making separate calls"
                 },
-                "timeout_secs": {
+                "timeout": {
                     "type": "number",
-                    "description": "Optional timeout in seconds (default 120, max 300). If the command takes longer than this, it will be killed and a timeout error returned"
+                    "description": "Optional timeout in milliseconds (default 120000, max 600000). If the command takes longer than this, it will be killed and a timeout error returned"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "A clear, concise description of what this command does in active voice. Never use words like 'complex' or 'risk' in the description — just describe what it does"
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Set to true to run this command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later"
                 }
             },
             "required": ["command"]
@@ -137,7 +145,9 @@ impl BaseTool for BashTool {
             .as_str()
             .ok_or("Missing command parameter")?;
 
-        let timeout_secs = input["timeout_secs"].as_u64().unwrap_or(120).clamp(1, 300);
+        let timeout_ms = input["timeout"].as_u64().unwrap_or(120_000).clamp(1, 600_000);
+        let _description = input["description"].as_str();
+        let _run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
         let (shell, flag) = if cfg!(target_os = "windows") {
             ("cmd", "/C")
@@ -145,7 +155,7 @@ impl BaseTool for BashTool {
             ("bash", "-c")
         };
 
-        let result = timeout(Duration::from_secs(timeout_secs), {
+        let result = timeout(Duration::from_millis(timeout_ms), {
             let mut cmd = Command::new(shell);
             cmd.arg(flag)
                 .arg(command)
@@ -163,7 +173,8 @@ impl BaseTool for BashTool {
 
         match result {
             Err(_) => Ok(format!(
-                "Error: Command timed out after {timeout_secs} seconds.\nCommand: {command}"
+                "Error: Command timed out after {} seconds.\nCommand: {command}",
+                timeout_ms as f64 / 1000.0
             )),
             Ok(Err(e)) => Ok(format!("Error executing command: {e}")),
             Ok(Ok(out)) => {
@@ -211,7 +222,7 @@ impl TerminalMiddleware {
     }
 
     pub fn tool_names() -> Vec<&'static str> {
-        vec!["bash"]
+        vec!["Bash"]
     }
 }
 
@@ -265,16 +276,16 @@ mod tests {
         let start = Instant::now();
 
         // Windows 用 ping 模拟 sleep，Unix 用 sleep
-        let (sleep_cmd, timeout_secs) = if cfg!(target_os = "windows") {
-            ("ping -n 60 127.0.0.1", 1)
+        let (sleep_cmd, timeout_ms) = if cfg!(target_os = "windows") {
+            ("ping -n 60 127.0.0.1", 1000)
         } else {
-            ("sleep 60", 1)
+            ("sleep 60", 1000)
         };
 
         let result = tool
             .invoke(serde_json::json!({
                 "command": sleep_cmd,
-                "timeout_secs": timeout_secs
+                "timeout": timeout_ms
             }))
             .await
             .unwrap();
@@ -363,16 +374,16 @@ mod tests {
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 
-    /// 零超时应被 clamp 到至少 1 秒，避免命令立即超时无法执行
+    /// 零超时应被 clamp 到至少 1 毫秒，避免命令立即超时无法执行
     #[tokio::test]
     async fn test_bash_timeout_clamped_to_minimum() {
         let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
         let start = Instant::now();
-        // timeout_secs = 0 → clamp 到 1 秒，命令应在 1 秒内执行完毕
+        // timeout = 0 → clamp 到 1 毫秒，命令应在 1 秒内执行完毕
         let result = tool
             .invoke(serde_json::json!({
                 "command": "echo quick",
-                "timeout_secs": 0
+                "timeout": 0
             }))
             .await
             .unwrap();
@@ -386,17 +397,43 @@ mod tests {
         );
     }
 
-    /// 显式超时 300 秒应被允许（上限）
+    /// 显式超时 600000 毫秒应被允许（上限）
     #[tokio::test]
     async fn test_bash_timeout_maximum_accepted() {
         let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
         let result = tool
             .invoke(serde_json::json!({
                 "command": "echo ok",
-                "timeout_secs": 300
+                "timeout": 600000
             }))
             .await
             .unwrap();
+        assert!(result.contains("ok"));
+    }
+
+    #[test]
+    fn test_tool_name_is_Bash() {
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+        assert_eq!(tool.name(), "Bash");
+    }
+
+    #[tokio::test]
+    async fn test_bash_default_timeout_is_120_seconds() {
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+        // 不传 timeout → 默认 120000ms = 120s
+        let result = tool.invoke(serde_json::json!({"command": "echo ok"})).await.unwrap();
+        assert!(result.contains("ok"));
+    }
+
+    #[tokio::test]
+    async fn test_bash_description_and_run_in_background_parsed() {
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+        // description 和 run_in_background 不影响执行
+        let result = tool.invoke(serde_json::json!({
+            "command": "echo ok",
+            "description": "test description",
+            "run_in_background": true
+        })).await.unwrap();
         assert!(result.contains("ok"));
     }
 }

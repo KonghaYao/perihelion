@@ -6,6 +6,21 @@ use ratatui::{
 use super::message_view::{ContentBlockView, MessageViewModel, ToolCategory};
 use super::theme;
 
+/// Generate always-visible error summary lines (up to 400 Unicode chars).
+/// 2-space indent, no vertical bar, no prefix. Preserves newlines (multi-line render).
+fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
+    let truncated: String = content.chars().take(400).collect();
+    truncated
+        .lines()
+        .map(|line| {
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled(line.to_string(), Style::default().fg(theme::ERROR)),
+            ])
+        })
+        .collect()
+}
+
 /// 将单个 ViewModel 渲染为 Vec<Line>
 pub fn render_view_model(
     vm: &MessageViewModel,
@@ -190,6 +205,8 @@ pub fn render_view_model(
                 if let Some(_omitted) = state.omitted_lines {
                     // 省略提示已删除
                 }
+            } else if *is_error && !content.is_empty() {
+                lines.extend(error_summary_lines(content));
             }
             lines
         }
@@ -198,9 +215,15 @@ pub fn render_view_model(
             task_preview,
             recent_messages,
             collapsed,
+            is_error,
+            final_result,
             ..
         } => {
-            let agent_color = theme::SUB_AGENT;
+            let agent_color = if *is_error {
+                theme::ERROR
+            } else {
+                theme::SUB_AGENT
+            };
             let mut lines: Vec<Line<'static>> = Vec::new();
 
             if *collapsed {
@@ -221,6 +244,13 @@ pub fn render_view_model(
                     format!("  {}{}", task_label, suffix),
                     Style::default().fg(theme::MUTED),
                 )]));
+                if *is_error {
+                    if let Some(ref result) = final_result {
+                        if !result.is_empty() {
+                            lines.extend(error_summary_lines(result));
+                        }
+                    }
+                }
             } else {
                 // 展开状态：名称 + 任务描述
                 let task_label: String = task_preview.chars().take(50).collect();
@@ -287,6 +317,12 @@ pub fn render_view_model(
                     format!("  ▶ {}", summary),
                     Style::default().fg(theme::MUTED),
                 )]));
+                // 折叠时显示出错工具的错误摘要
+                for entry in tools {
+                    if entry.is_error && !entry.content.is_empty() {
+                        lines.extend(error_summary_lines(&entry.content));
+                    }
+                }
             } else {
                 // 展开：标题 + 每个工具的参数
                 let arrow = if count == 1 { " " } else { " " };

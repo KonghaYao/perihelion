@@ -106,7 +106,7 @@ mod tests {
         let notified = handle.render_notify.notified();
         app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "t1".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             display: "ReadFile".into(),
             args: "src/main.rs".into(),
             input: serde_json::json!({"path": "src/main.rs"}),
@@ -121,7 +121,7 @@ mod tests {
         // ToolStart 通过 Pipeline 创建 ToolBlock，display_name 为 format_tool_name 的结果
         let has_tool = snap
             .iter()
-            .any(|l| l.contains("Read") || l.contains("read_file"));
+            .any(|l| l.contains("Read") || l.contains("Read"));
         assert!(has_tool, "应显示工具调用块，实际内容:\n{}", snap.join("\n"));
     }
 
@@ -495,14 +495,14 @@ mod tests {
         });
         app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "t1".into(),
-            name: "read_file".into(),
+            name: "Read".into(),
             display: "ReadFile".into(),
             args: "src/main.rs".into(),
             input: serde_json::json!({"path": "src/main.rs"}),
         });
         app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "t2".into(),
-            name: "bash".into(),
+            name: "Bash".into(),
             display: "Bash".into(),
             args: "cargo test".into(),
             input: serde_json::json!({"command": "cargo test"}),
@@ -559,7 +559,7 @@ mod tests {
         for i in 1..=6 {
             app.push_agent_event(AgentEvent::ToolStart {
                 tool_call_id: format!("t{}", i),
-                name: "read_file".into(),
+                name: "Read".into(),
                 display: "ReadFile".into(),
                 args: format!("file{}.rs", i),
                 input: serde_json::json!({"path": format!("file{}.rs", i)}),
@@ -634,7 +634,7 @@ mod tests {
         let notified1 = handle.render_notify.notified();
         app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "tc1".into(),
-            name: "bash".into(),
+            name: "Bash".into(),
             display: "Bash".into(),
             args: "ls".into(),
             input: serde_json::json!({"command": "ls"}),
@@ -656,7 +656,7 @@ mod tests {
         // ToolStart 创建的 ToolBlock，display_name 为 format_tool_name 的结果
         let has_tool_call_text = snap
             .iter()
-            .any(|l| l.contains("Shell") || l.contains("bash"));
+            .any(|l| l.contains("Shell") || l.contains("Bash"));
         assert!(
             has_tool_call_text,
             "ToolCall 创建的 ToolBlock 应在快照中可见，但实际内容为:\n{}",
@@ -738,7 +738,7 @@ mod tests {
         let notified = handle.render_notify.notified();
         app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "tc1".into(),
-            name: "bash".into(),
+            name: "Bash".into(),
             display: "Bash".into(),
             args: "ls".into(),
             input: serde_json::json!({"command": "ls"}),
@@ -1686,9 +1686,9 @@ mod tests {
         let (mut app, mut handle) = crate::app::App::new_headless(120, 30);
 
         let vm = crate::app::MessageViewModel::ToolBlock {
-            tool_name: "bash".to_string(),
+            tool_name: "Bash".to_string(),
             tool_call_id: "tc_test".to_string(),
-            display_name: "bash".to_string(),
+            display_name: "Bash".to_string(),
             args_display: Some("ls -la".to_string()),
             content: "file1.txt\nfile2.txt".to_string(),
             color: crate::ui::theme::SAGE,
@@ -1707,7 +1707,7 @@ mod tests {
                 f.render_widget(paragraph, area);
             })
             .unwrap();
-        assert!(handle.contains("bash"), "should render tool name");
+        assert!(handle.contains("Bash"), "should render tool name");
     }
 
     #[tokio::test]
@@ -2020,7 +2020,7 @@ mod tests {
         let n2 = handle.render_notify.notified();
         app.push_agent_event(AgentEvent::ToolStart {
             tool_call_id: "tc1".into(),
-            name: "bash".into(),
+            name: "Bash".into(),
             display: "Shell".into(),
             args: "ls".into(),
             input: serde_json::json!({"command": "ls"}),
@@ -2332,5 +2332,140 @@ mod tests {
             }
         });
         assert!(has_hint, "空消息 compact 应显示无上下文提示");
+    }
+
+    // ─── 错误信息红色显示测试 ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_tool_block_error_visible_when_collapsed() {
+        use crate::ui::message_render::render_view_model;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Bash".to_string(),
+            tool_call_id: "tc_err".to_string(),
+            display_name: "Shell".to_string(),
+            args_display: Some("bad_command".to_string()),
+            content: "command not found: bad_command\nexit code 127".to_string(),
+            is_error: true,
+            collapsed: true,
+            color: crate::ui::theme::ERROR,
+        };
+        let lines = render_view_model(&vm, Some(1), 80);
+        // header + 2 error summary lines (content has 2 lines)
+        assert!(
+            lines.len() >= 3,
+            "collapsed error ToolBlock should have header + error lines, got {}",
+            lines.len()
+        );
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            text.contains("command not found"),
+            "error content should be visible: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_tool_block_success_no_summary_when_collapsed() {
+        use crate::ui::message_render::render_view_model;
+        let vm = MessageViewModel::ToolBlock {
+            tool_name: "Read".to_string(),
+            tool_call_id: "tc_ok".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("file.txt".to_string()),
+            content: "file contents here".to_string(),
+            is_error: false,
+            collapsed: true,
+            color: crate::ui::theme::SAGE,
+        };
+        let lines = render_view_model(&vm, Some(1), 80);
+        assert_eq!(
+            lines.len(),
+            1,
+            "successful collapsed ToolBlock should have only header"
+        );
+    }
+
+    #[test]
+    fn test_tool_call_group_error_visible_when_collapsed() {
+        use crate::ui::message_render::render_view_model;
+        use crate::ui::message_view::{ToolCategory, ToolEntry};
+
+        let vm = MessageViewModel::ToolCallGroup {
+            category: ToolCategory::Read,
+            tools: vec![
+                ToolEntry {
+                    tool_name: "Read".to_string(),
+                    display_name: "Read".to_string(),
+                    args_display: Some("ok_file.txt".to_string()),
+                    content: "ok content".to_string(),
+                    is_error: false,
+                },
+                ToolEntry {
+                    tool_name: "Read".to_string(),
+                    display_name: "Read".to_string(),
+                    args_display: Some("missing.txt".to_string()),
+                    content: "Error: file not found".to_string(),
+                    is_error: true,
+                },
+            ],
+            collapsed: true,
+        };
+        let lines = render_view_model(&vm, Some(1), 80);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            text.contains("Error: file not found"),
+            "error from failed tool should be visible: {}",
+            text
+        );
+        assert!(
+            !text.contains("ok content"),
+            "successful tool content should NOT be visible: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_subagent_group_error_red_title_and_summary() {
+        use crate::ui::message_render::render_view_model;
+
+        let vm = MessageViewModel::SubAgentGroup {
+            agent_id: "test-agent".to_string(),
+            task_preview: "do something risky".to_string(),
+            total_steps: 3,
+            recent_messages: Vec::new(),
+            is_running: false,
+            collapsed: true,
+            final_result: Some("Agent failed: permission denied".to_string()),
+            is_error: true,
+        };
+        let lines = render_view_model(&vm, Some(1), 80);
+        // 标题行应为红色
+        let title_color = lines
+            .first()
+            .and_then(|l| l.spans.first().and_then(|s| s.style.fg));
+        assert_eq!(
+            title_color,
+            Some(crate::ui::theme::ERROR),
+            "title should be red on error"
+        );
+        // 错误摘要应可见
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            text.contains("Agent failed"),
+            "error summary should be visible: {}",
+            text
+        );
     }
 }

@@ -229,8 +229,8 @@ mod tests {
     #[test]
     fn test_cache_key_same_input() {
         let input = serde_json::json!({"cmd": "ls"});
-        let (name1, hash1) = LlmAutoClassifier::cache_key("bash", &input);
-        let (name2, hash2) = LlmAutoClassifier::cache_key("bash", &input);
+        let (name1, hash1) = LlmAutoClassifier::cache_key("Bash", &input);
+        let (name2, hash2) = LlmAutoClassifier::cache_key("Bash", &input);
         assert_eq!(name1, name2);
         assert_eq!(hash1, hash2);
     }
@@ -239,8 +239,8 @@ mod tests {
     fn test_cache_key_different_input() {
         let input1 = serde_json::json!({"cmd": "ls"});
         let input2 = serde_json::json!({"cmd": "rm -rf /"});
-        let (_, hash1) = LlmAutoClassifier::cache_key("bash", &input1);
-        let (_, hash2) = LlmAutoClassifier::cache_key("bash", &input2);
+        let (_, hash1) = LlmAutoClassifier::cache_key("Bash", &input1);
+        let (_, hash2) = LlmAutoClassifier::cache_key("Bash", &input2);
         assert_ne!(hash1, hash2);
     }
 
@@ -251,7 +251,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .classify("Bash", &serde_json::json!({"cmd": "ls"}))
             .await;
         assert_eq!(result, Classification::Allow);
     }
@@ -263,7 +263,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .classify("Bash", &serde_json::json!({"cmd": "rm -rf /"}))
             .await;
         assert_eq!(result, Classification::Deny);
     }
@@ -275,7 +275,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .classify("Bash", &serde_json::json!({"cmd": "ls"}))
             .await;
         assert_eq!(result, Classification::Unsure);
     }
@@ -287,7 +287,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .classify("Bash", &serde_json::json!({"cmd": "ls"}))
             .await;
         assert_eq!(result, Classification::Unsure);
     }
@@ -299,7 +299,7 @@ mod tests {
         let model = Arc::new(AsyncMutex::new(Box::new(mock) as Box<dyn BaseModel>));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .classify("Bash", &serde_json::json!({"cmd": "ls"}))
             .await;
         assert_eq!(result, Classification::Unsure);
     }
@@ -311,9 +311,9 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let input = serde_json::json!({"cmd": "ls"});
-        classifier.classify("bash", &input).await;
+        classifier.classify("Bash", &input).await;
         // 缓存命中验证通过 cache_key + lookup_cache 间接测试
-        let key = LlmAutoClassifier::cache_key("bash", &input);
+        let key = LlmAutoClassifier::cache_key("Bash", &input);
         assert!(classifier.lookup_cache(&key).is_some());
     }
 
@@ -324,10 +324,10 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::with_cache_ttl(model, Duration::from_millis(50));
         let input = serde_json::json!({"cmd": "ls"});
-        classifier.classify("bash", &input).await;
+        classifier.classify("Bash", &input).await;
         // 等待缓存过期
         tokio::time::sleep(Duration::from_millis(60)).await;
-        let key = LlmAutoClassifier::cache_key("bash", &input);
+        let key = LlmAutoClassifier::cache_key("Bash", &input);
         assert!(classifier.lookup_cache(&key).is_none(), "缓存应已过期");
     }
 
@@ -340,7 +340,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .classify("Bash", &serde_json::json!({"cmd": "rm -rf /"}))
             .await;
         assert_ne!(result, Classification::Allow, "NOT ALLOW 不应被判为 Allow");
         assert_eq!(result, Classification::Unsure);
@@ -353,7 +353,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .classify("Bash", &serde_json::json!({"cmd": "rm -rf /"}))
             .await;
         assert_ne!(result, Classification::Allow, "DISALLOW 不应被判为 Allow");
         assert_eq!(
@@ -370,7 +370,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .classify("Bash", &serde_json::json!({"cmd": "ls"}))
             .await;
         assert_eq!(result, Classification::Allow, "独立 ALLOW 应判为 Allow");
     }
@@ -382,7 +382,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "ls"}))
+            .classify("Bash", &serde_json::json!({"cmd": "ls"}))
             .await;
         assert_eq!(result, Classification::Allow, "I ALLOW THIS 应判为 Allow");
     }
@@ -394,7 +394,7 @@ mod tests {
         ));
         let classifier = LlmAutoClassifier::new(model);
         let result = classifier
-            .classify("bash", &serde_json::json!({"cmd": "rm -rf /"}))
+            .classify("Bash", &serde_json::json!({"cmd": "rm -rf /"}))
             .await;
         assert_eq!(result, Classification::Deny, "I DENY THIS 应判为 Deny");
     }

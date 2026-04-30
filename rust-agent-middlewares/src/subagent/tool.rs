@@ -16,18 +16,18 @@ use crate::subagent::skill_preload::SkillPreloadMiddleware;
 use crate::tools::ArcToolWrapper;
 use tokio::sync::mpsc;
 
-/// SubAgentTool - 实现 `launch_agent` 工具，允许 LLM 将子任务委派给专门的子 agent 执行
+/// SubAgentTool - 实现 `Agent` 工具，允许 LLM 将子任务委派给专门的子 agent 执行
 ///
-/// LLM 通过调用此工具并传入 `agent_id` 和 `task`，触发对应 agent 定义文件的执行。
+/// LLM 通过调用此工具并传入 `subagent_type` 和 `prompt`，触发对应 agent 定义文件的执行。
 /// 子 agent 继承父 agent 的工具集（根据 tools/disallowedTools 字段过滤），
 /// 不包含 HITL 中间件，执行结果以字符串形式返回给父 agent。
 
-const LAUNCH_AGENT_DESCRIPTION: &str = r#"Launch a sub-agent with an independent context to handle a specialized sub-task. The sub-agent executes based on the configuration defined in .claude/agents/{agent_id}.md or .claude/agents/{agent_id}/agent.md.
+const AGENT_DESCRIPTION: &str = r#"Launch a sub-agent with an independent context to handle a specialized sub-task. The sub-agent executes based on the configuration defined in .claude/agents/{subagent_type}.md or .claude/agents/{subagent_type}/agent.md.
 
 Usage:
-- Provide a clear, self-contained task description. The sub-agent has no access to the parent conversation history
-- Specify agent_id matching an existing agent definition file
-- The sub-agent inherits the parent's tool set by default, excluding launch_agent itself (to prevent recursion)
+- Provide a clear, self-contained task description via the prompt parameter. The sub-agent has no access to the parent conversation history
+- Specify subagent_type matching an existing agent definition file. When not provided, creates a fork of the current agent
+- The sub-agent inherits the parent's tool set by default, excluding Agent itself (to prevent recursion)
 - Agent definitions may restrict available tools via the tools and disallowedTools fields in frontmatter
 - The sub-agent executes in isolated state — it cannot access the parent's message history or intermediate results
 
@@ -117,8 +117,8 @@ impl SubAgentTool {
     /// 根据 agent 定义的 tools/disallowedTools 字段，从父工具集中过滤出子 agent 可用的工具
     ///
     /// 规则：
-    /// - tools 为 Empty → 继承所有父工具（但始终排除 launch_agent 自身，防止递归）
-    /// - tools 有值    → 仅保留名称在列表中的工具（同时排除 launch_agent）
+    /// - tools 为 Empty → 继承所有父工具（但始终排除 Agent 自身，防止递归）
+    /// - tools 有值    → 仅保留名称在列表中的工具（同时排除 Agent）
     /// - 再从结果中移除 disallowed_tools 列出的工具
     fn filter_tools(
         &self,
@@ -133,8 +133,8 @@ impl SubAgentTool {
             .filter(|tool| {
                 let name = tool.name();
                 let name_lower = name.to_lowercase();
-                // 始终排除 launch_agent，防止递归
-                if name == "launch_agent" {
+                // 始终排除 Agent，防止递归
+                if name == "Agent" {
                     return false;
                 }
                 // 若 allowed_list 非空，则仅保留列表中的工具（大小写不敏感）
@@ -160,25 +160,41 @@ impl SubAgentTool {
 #[async_trait]
 impl BaseTool for SubAgentTool {
     fn name(&self) -> &str {
-        "launch_agent"
+        "Agent"
     }
 
     fn description(&self) -> &str {
-        LAUNCH_AGENT_DESCRIPTION
+        AGENT_DESCRIPTION
     }
 
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
-            "required": ["agent_id", "task"],
+            "required": ["prompt"],
             "properties": {
-                "agent_id": {
-                    "type": "string",
-                    "description": "The identifier of the agent to launch. Corresponds to a file at .claude/agents/{agent_id}.md or .claude/agents/{agent_id}/agent.md"
-                },
-                "task": {
+                "prompt": {
                     "type": "string",
                     "description": "The task description to delegate to the sub-agent. Must be clear and self-contained, as the sub-agent has no access to the parent conversation history. Include all necessary context"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "A short description of the task (3-5 words), used for UI display and logging"
+                },
+                "subagent_type": {
+                    "type": "string",
+                    "description": "The agent type/ID matching an existing agent definition file at .claude/agents/{subagent_type}.md or .claude/agents/{subagent_type}/agent.md. When empty or not provided, creates a fork of the current agent with all tools"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "A short alias for the sub-agent, used for UI identification"
+                },
+                "isolation": {
+                    "type": "string",
+                    "description": "Isolation mode for the sub-agent. Use 'worktree' to create an isolated git worktree. Currently reserved for future use"
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Set to true to run the sub-agent in the background. Currently reserved for future use"
                 },
                 "cwd": {
                     "type": "string",
@@ -192,14 +208,15 @@ impl BaseTool for SubAgentTool {
         &self,
         input: serde_json::Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let agent_id = match input.get("agent_id").and_then(|v| v.as_str()) {
-            Some(id) => id.to_string(),
-            None => return Ok("错误：缺少必需参数 agent_id".to_string()),
+        let prompt = match input.get("prompt").and_then(|v| v.as_str()) {
+            Some(p) => p.to_string(),
+            None => return Ok("错误：缺少必需参数 prompt".to_string()),
         };
-        let task = match input.get("task").and_then(|v| v.as_str()) {
-            Some(t) => t.to_string(),
-            None => return Ok("错误：缺少必需参数 task".to_string()),
-        };
+        let subagent_type = input.get("subagent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let _description = input.get("description").and_then(|v| v.as_str());
+        let _name = input.get("name").and_then(|v| v.as_str());
+        let _isolation = input.get("isolation").and_then(|v| v.as_str());
+        let _run_in_background = input.get("run_in_background").and_then(|v| v.as_bool()).unwrap_or(false);
         // cwd 默认继承父 agent 的工作目录
         let cwd = input
             .get("cwd")
@@ -208,6 +225,11 @@ impl BaseTool for SubAgentTool {
             .to_string();
 
         // 1. 查找 agent 定义文件
+        let agent_id = match &subagent_type {
+            Some(id) => id.clone(),
+            None => return Ok("错误：请提供 subagent_type 参数指定要使用的 agent 类型".to_string()),
+        };
+
         let agent_path = AgentDefineMiddleware::candidate_paths(&cwd, &agent_id)
             .into_iter()
             .find(|p| p.is_file());
@@ -306,7 +328,7 @@ impl BaseTool for SubAgentTool {
         // 7. 执行子 agent
         let mut state = AgentState::new(cwd.clone());
         match agent_builder
-            .execute(AgentInput::text(task), &mut state, self.cancel.clone())
+            .execute(AgentInput::text(prompt), &mut state, self.cancel.clone())
             .await
         {
             Ok(output) => Ok(format_subagent_result(&output)),
@@ -405,17 +427,54 @@ mod tests {
     #[test]
     fn test_tool_name() {
         let t = make_subagent_tool(vec![]);
-        assert_eq!(t.name(), "launch_agent");
+        assert_eq!(t.name(), "Agent");
     }
 
     #[test]
-    fn test_tool_parameters_has_required_fields() {
+    fn test_agent_parameters_required_is_prompt_only() {
         let t = make_subagent_tool(vec![]);
         let params = t.parameters();
         let required = params["required"].as_array().unwrap();
         let names: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
-        assert!(names.contains(&"agent_id"));
-        assert!(names.contains(&"task"));
+        assert!(names.contains(&"prompt"));
+        assert!(!names.contains(&"agent_id"));
+        assert!(!names.contains(&"task"));
+    }
+
+    /// 验证缺少 prompt 参数时返回错误
+    #[tokio::test]
+    async fn test_agent_prompt_missing_returns_error() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("test-agent.md"),
+            "---\nname: test-agent\ndescription: A test agent\n---\n\nYou are a test agent.\n",
+        )
+        .unwrap();
+
+        let t = make_subagent_tool(vec![]);
+        let result = t
+            .invoke(serde_json::json!({
+                "subagent_type": "test-agent",
+                "cwd": dir.path().to_str().unwrap()
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("prompt"), "应返回缺少 prompt 的错误: {}", result);
+    }
+
+    /// 验证缺少 subagent_type 参数时返回错误
+    #[tokio::test]
+    async fn test_agent_subagent_type_missing_returns_error() {
+        let t = make_subagent_tool(vec![]);
+        let result = t
+            .invoke(serde_json::json!({
+                "prompt": "do something"
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("subagent_type"), "应返回缺少 subagent_type 的错误: {}", result);
     }
 
     #[tokio::test]
@@ -423,8 +482,8 @@ mod tests {
         let t = make_subagent_tool(vec![]);
         let result = t
             .invoke(serde_json::json!({
-                "agent_id": "nonexistent-agent",
-                "task": "do something",
+                "subagent_type": "nonexistent-agent",
+                "prompt": "do something",
                 "cwd": "/tmp"
             }))
             .await
@@ -434,11 +493,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_filter_inherit_all() {
-        // tools 为 Empty → 继承所有父工具，但排除 launch_agent
+        // tools 为 Empty → 继承所有父工具，但排除 Agent
         let parent_tools = vec![
-            make_tool("read_file"),
-            make_tool("write_file"),
-            make_tool("launch_agent"), // 这个应该被排除
+            make_tool("Read"),
+            make_tool("Write"),
+            make_tool("Agent"), // 这个应该被排除
         ];
         let t = make_subagent_tool(parent_tools);
 
@@ -447,31 +506,31 @@ mod tests {
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
-        assert!(names.contains(&"read_file"));
-        assert!(names.contains(&"write_file"));
-        assert!(!names.contains(&"launch_agent"), "launch_agent 不应被继承");
+        assert!(names.contains(&"Read"));
+        assert!(names.contains(&"Write"));
+        assert!(!names.contains(&"Agent"), "Agent 不应被继承");
     }
 
     #[test]
     fn test_tool_filter_allowlist() {
         // tools 有值 → 仅保留指定工具
         let parent_tools = vec![
-            make_tool("read_file"),
-            make_tool("write_file"),
-            make_tool("glob_files"),
+            make_tool("Read"),
+            make_tool("Write"),
+            make_tool("Glob"),
         ];
         let t = make_subagent_tool(parent_tools);
 
-        let allowed = ToolsValue::List(vec!["read_file".to_string(), "glob_files".to_string()]);
+        let allowed = ToolsValue::List(vec!["Read".to_string(), "Glob".to_string()]);
         let disallowed = ToolsValue::Empty;
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
-        assert!(names.contains(&"read_file"));
-        assert!(names.contains(&"glob_files"));
+        assert!(names.contains(&"Read"));
+        assert!(names.contains(&"Glob"));
         assert!(
-            !names.contains(&"write_file"),
-            "write_file 不在 allowlist 中应被排除"
+            !names.contains(&"Write"),
+            "Write 不在 allowlist 中应被排除"
         );
     }
 
@@ -479,25 +538,25 @@ mod tests {
     fn test_tool_filter_disallow() {
         // disallowedTools → 从继承集合中排除
         let parent_tools = vec![
-            make_tool("read_file"),
-            make_tool("write_file"),
-            make_tool("edit_file"),
+            make_tool("Read"),
+            make_tool("Write"),
+            make_tool("Edit"),
         ];
         let t = make_subagent_tool(parent_tools);
 
         let allowed = ToolsValue::Empty;
-        let disallowed = ToolsValue::List(vec!["write_file".to_string(), "edit_file".to_string()]);
+        let disallowed = ToolsValue::List(vec!["Write".to_string(), "Edit".to_string()]);
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
-        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"Read"));
         assert!(
-            !names.contains(&"write_file"),
-            "write_file 在 disallow 列表中应被排除"
+            !names.contains(&"Write"),
+            "Write 在 disallow 列表中应被排除"
         );
         assert!(
-            !names.contains(&"edit_file"),
-            "edit_file 在 disallow 列表中应被排除"
+            !names.contains(&"Edit"),
+            "Edit 在 disallow 列表中应被排除"
         );
     }
 
@@ -515,8 +574,8 @@ mod tests {
         let t = make_subagent_tool(vec![]);
         let result = t
             .invoke(serde_json::json!({
-                "agent_id": "test-agent",
-                "task": "hello",
+                "subagent_type": "test-agent",
+                "prompt": "hello",
                 "cwd": dir.path().to_str().unwrap()
             }))
             .await
@@ -525,34 +584,63 @@ mod tests {
         assert!(result.contains("echo"), "应收到子 agent 的输出: {}", result);
     }
 
+    /// 验证 Agent 预留字段（isolation/run_in_background/description/name）不影响执行
     #[tokio::test]
-    async fn test_launch_agent_tool_in_list() {
-        // 验证 SubAgentTool 的工具名称正确，可加入工具列表
+    async fn test_agent_reserved_fields_parsed() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("test-agent.md"),
+            "---\nname: test-agent\ndescription: A test agent\n---\n\nYou are a test agent.\n",
+        )
+        .unwrap();
+
         let t = make_subagent_tool(vec![]);
-        assert_eq!(t.name(), "launch_agent");
-        let def = t.definition();
-        assert_eq!(def.name, "launch_agent");
+        let result = t
+            .invoke(serde_json::json!({
+                "prompt": "hello",
+                "subagent_type": "test-agent",
+                "description": "test desc",
+                "name": "test-alias",
+                "isolation": "worktree",
+                "run_in_background": true,
+                "cwd": dir.path().to_str().unwrap()
+            }))
+            .await
+            .unwrap();
+        // 预留字段不影响执行，仍应返回正常结果
+        assert!(result.contains("echo"), "应正常执行: {}", result);
     }
 
-    /// 防递归：即使 agent.md tools 字段显式包含 launch_agent，也必须被排除
+    #[tokio::test]
+    async fn test_agent_tool_in_list() {
+        // 验证 SubAgentTool 的工具名称正确，可加入工具列表
+        let t = make_subagent_tool(vec![]);
+        assert_eq!(t.name(), "Agent");
+        let def = t.definition();
+        assert_eq!(def.name, "Agent");
+    }
+
+    /// 防递归：即使 agent.md tools 字段显式包含 Agent，也必须被排除
     #[test]
-    fn test_launch_agent_excluded_even_when_explicitly_allowed() {
+    fn test_agent_excluded_even_when_explicitly_allowed() {
         let parent_tools = vec![
-            make_tool("read_file"),
-            make_tool("launch_agent"), // 父工具集中有 launch_agent
+            make_tool("Read"),
+            make_tool("Agent"), // 父工具集中有 Agent
         ];
         let t = make_subagent_tool(parent_tools);
 
-        // agent.md 中 tools: ["launch_agent", "read_file"]
-        let allowed = ToolsValue::List(vec!["launch_agent".to_string(), "read_file".to_string()]);
+        // agent.md 中 tools: ["Agent", "Read"]
+        let allowed = ToolsValue::List(vec!["Agent".to_string(), "Read".to_string()]);
         let disallowed = ToolsValue::Empty;
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
-        assert!(names.contains(&"read_file"), "read_file 应保留");
+        assert!(names.contains(&"Read"), "Read 应保留");
         assert!(
-            !names.contains(&"launch_agent"),
-            "launch_agent 即使在显式 allowlist 中也必须排除（防递归）"
+            !names.contains(&"Agent"),
+            "Agent 即使在显式 allowlist 中也必须排除（防递归）"
         );
     }
 
@@ -560,58 +648,58 @@ mod tests {
     #[test]
     fn test_tool_filter_case_insensitive() {
         let parent_tools = vec![
-            make_tool("read_file"),
-            make_tool("write_file"),
-            make_tool("glob_files"),
+            make_tool("Read"),
+            make_tool("Write"),
+            make_tool("Glob"),
         ];
         let t = make_subagent_tool(parent_tools);
 
-        // 用户在 agent.md 中写 PascalCase：tools: Read_File, Glob_Files
-        let allowed = ToolsValue::List(vec!["Read_File".to_string(), "Glob_Files".to_string()]);
+        // 用户在 agent.md 中写不同大小写：tools: READ, glob
+        let allowed = ToolsValue::List(vec!["READ".to_string(), "glob".to_string()]);
         let disallowed = ToolsValue::Empty;
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
         assert!(
-            names.contains(&"read_file"),
-            "大小写不敏感：Read_File 应匹配 read_file"
+            names.contains(&"Read"),
+            "大小写不敏感：READ 应匹配 Read"
         );
         assert!(
-            names.contains(&"glob_files"),
-            "大小写不敏感：Glob_Files 应匹配 glob_files"
+            names.contains(&"Glob"),
+            "大小写不敏感：glob 应匹配 Glob"
         );
         assert!(
-            !names.contains(&"write_file"),
-            "write_file 不在 allowlist 中应被排除"
+            !names.contains(&"Write"),
+            "Write 不在 allowlist 中应被排除"
         );
 
         // disallowedTools 大小写不敏感
         let allowed2 = ToolsValue::Empty;
-        let disallowed2 = ToolsValue::List(vec!["Write_File".to_string()]);
+        let disallowed2 = ToolsValue::List(vec!["WRITE".to_string()]);
         let filtered2 = t.filter_tools(&allowed2, &disallowed2);
         let names2: Vec<&str> = filtered2.iter().map(|t| t.name()).collect();
 
-        assert!(names2.contains(&"read_file"));
-        assert!(names2.contains(&"glob_files"));
+        assert!(names2.contains(&"Read"));
+        assert!(names2.contains(&"Glob"));
         assert!(
-            !names2.contains(&"write_file"),
-            "Write_File 应大小写不敏感地排除 write_file"
+            !names2.contains(&"Write"),
+            "WRITE 应大小写不敏感地排除 Write"
         );
     }
 
-    /// 防递归：launch_agent 在 disallowedTools 中是冗余但不应出错
+    /// 防递归：Agent 在 disallowedTools 中是冗余但不应出错
     #[test]
-    fn test_launch_agent_excluded_when_in_disallowed() {
-        let parent_tools = vec![make_tool("read_file"), make_tool("launch_agent")];
+    fn test_agent_excluded_when_in_disallowed() {
+        let parent_tools = vec![make_tool("Read"), make_tool("Agent")];
         let t = make_subagent_tool(parent_tools);
 
         let allowed = ToolsValue::Empty;
-        let disallowed = ToolsValue::List(vec!["launch_agent".to_string()]);
+        let disallowed = ToolsValue::List(vec!["Agent".to_string()]);
         let filtered = t.filter_tools(&allowed, &disallowed);
         let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
 
-        assert!(names.contains(&"read_file"));
-        assert!(!names.contains(&"launch_agent"), "launch_agent 不应出现");
+        assert!(names.contains(&"Read"));
+        assert!(!names.contains(&"Agent"), "Agent 不应出现");
     }
 
     /// 验证 with_system_builder 能正确注入系统提示词
@@ -658,8 +746,8 @@ mod tests {
 
         let result = t
             .invoke(serde_json::json!({
-                "agent_id": "tone-test",
-                "task": "hello",
+                "subagent_type": "tone-test",
+                "prompt": "hello",
                 "cwd": dir.path().to_str().unwrap()
             }))
             .await
@@ -729,8 +817,8 @@ mod tests {
 
         let result = t
             .invoke(serde_json::json!({
-                "agent_id": "skill-user",
-                "task": "test task",
+                "subagent_type": "skill-user",
+                "prompt": "test task",
                 "cwd": dir.path().to_str().unwrap()
             }))
             .await
@@ -744,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn test_launch_agent_description_extended() {
+    fn test_agent_description_extended() {
         let t = make_subagent_tool(vec![]);
         let desc = t.description();
         assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
@@ -843,8 +931,8 @@ mod tests {
 
         let result = t
             .invoke(serde_json::json!({
-                "agent_id": "forever",
-                "task": "run",
+                "subagent_type": "forever",
+                "prompt": "run",
                 "cwd": dir.path().to_str().unwrap()
             }))
             .await

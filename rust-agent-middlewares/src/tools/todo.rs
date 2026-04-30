@@ -19,8 +19,9 @@ pub enum TodoStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoItem {
-    pub id: String,
     pub content: String,
+    #[serde(default, rename = "activeForm", skip_serializing_if = "Option::is_none")]
+    pub active_form: Option<String>,
     pub status: TodoStatus,
 }
 
@@ -46,7 +47,7 @@ Status values:
 - "in_progress": Currently being worked on
 - "completed": Finished successfully"#;
 
-/// todo_write 工具：全量覆盖 todo 列表，并通过 channel 通知 TUI 侧
+/// TodoWrite 工具：全量覆盖 todo 列表，并通过 channel 通知 TUI 侧
 pub struct TodoWriteTool {
     todos: Arc<Mutex<Vec<TodoItem>>>,
     notify_tx: Option<mpsc::Sender<Vec<TodoItem>>>,
@@ -69,45 +70,35 @@ impl TodoWriteTool {
 /// 对比新旧 todo 列表，生成变更摘要（用于 TUI 显示）
 fn summarize_changes(old: &[TodoItem], new: &[TodoItem]) -> String {
     let mut parts: Vec<String> = Vec::new();
+    let max_len = old.len().max(new.len());
 
-    let old_map: std::collections::HashMap<&str, &TodoItem> =
-        old.iter().map(|t| (t.id.as_str(), t)).collect();
-    let new_map: std::collections::HashMap<&str, &TodoItem> =
-        new.iter().map(|t| (t.id.as_str(), t)).collect();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut status_changes = Vec::new();
 
-    // 新增项
-    let added: Vec<&str> = new
-        .iter()
-        .filter(|t| !old_map.contains_key(t.id.as_str()))
-        .map(|t| t.id.as_str())
-        .collect();
+    for i in 0..max_len {
+        match (old.get(i), new.get(i)) {
+            (None, Some(_)) => added.push(format!("[{i}]")),
+            (Some(_), None) => removed.push(format!("[{i}]")),
+            (Some(old_item), Some(new_item)) => {
+                if old_item.status != new_item.status {
+                    let status_str = match &new_item.status {
+                        TodoStatus::Pending => "pending",
+                        TodoStatus::InProgress => "in_progress",
+                        TodoStatus::Completed => "completed",
+                    };
+                    status_changes.push(format!("[{i}]→{status_str}"));
+                }
+            }
+            (None, None) => {}
+        }
+    }
+
     if !added.is_empty() {
         parts.push(format!("+{}", added.join(",")));
     }
-
-    // 删除项
-    let removed: Vec<&str> = old
-        .iter()
-        .filter(|t| !new_map.contains_key(t.id.as_str()))
-        .map(|t| t.id.as_str())
-        .collect();
     if !removed.is_empty() {
         parts.push(format!("-{}", removed.join(",")));
-    }
-
-    // 状态变更
-    let mut status_changes: Vec<String> = Vec::new();
-    for new_item in new {
-        if let Some(old_item) = old_map.get(new_item.id.as_str()) {
-            if old_item.status != new_item.status {
-                let status_str = match &new_item.status {
-                    TodoStatus::Pending => "pending",
-                    TodoStatus::InProgress => "in_progress",
-                    TodoStatus::Completed => "completed",
-                };
-                status_changes.push(format!("{}→{}", new_item.id, status_str));
-            }
-        }
     }
     if !status_changes.is_empty() {
         parts.push(status_changes.join(","));
@@ -123,7 +114,7 @@ fn summarize_changes(old: &[TodoItem], new: &[TodoItem]) -> String {
 #[async_trait]
 impl BaseTool for TodoWriteTool {
     fn name(&self) -> &str {
-        "todo_write"
+        "TodoWrite"
     }
 
     fn description(&self) -> &str {
@@ -140,13 +131,13 @@ impl BaseTool for TodoWriteTool {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id": {
-                                "type": "string",
-                                "description": "Unique identifier for this todo item. Use simple, stable IDs (e.g. '1', '2', '3') that persist across updates"
-                            },
                             "content": {
                                 "type": "string",
                                 "description": "A concise description of the task to be done (1-2 sentences)"
+                            },
+                            "activeForm": {
+                                "type": "string",
+                                "description": "Present-tense form of the task description (e.g. 'Running tests'), used for UI spinner display"
                             },
                             "status": {
                                 "type": "string",
@@ -154,7 +145,7 @@ impl BaseTool for TodoWriteTool {
                                 "description": "Current status: 'pending' (not started), 'in_progress' (actively working), 'completed' (done)"
                             }
                         },
-                        "required": ["id", "content", "status"]
+                        "required": ["content", "status"]
                     }
                 }
             },
@@ -167,7 +158,7 @@ impl BaseTool for TodoWriteTool {
         input: Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let items: Vec<TodoItem> = serde_json::from_value(input["todos"].clone())
-            .map_err(|e| format!("todo_write: invalid input: {e}"))?;
+            .map_err(|e| format!("TodoWrite: invalid input: {e}"))?;
 
         // 对比新旧列表，生成变更摘要
         let summary = {
@@ -184,7 +175,7 @@ impl BaseTool for TodoWriteTool {
         // 通知 TUI；channel 关闭时说明 TUI 已退出，记录 warn 后继续（不影响工具返回值）
         if let Some(tx) = &self.notify_tx {
             if tx.send(items).await.is_err() {
-                tracing::warn!("todo_write: notify channel closed, TUI may have disconnected");
+                tracing::warn!("TodoWrite: notify channel closed, TUI may have disconnected");
             }
         }
 
@@ -211,5 +202,61 @@ mod tests {
             "description 应提及三种状态值"
         );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
+    }
+
+    #[test]
+    fn test_tool_name_is_TodoWrite() {
+        let (tx, _rx) = mpsc::channel(8);
+        let tool = TodoWriteTool::new(tx);
+        assert_eq!(tool.name(), "TodoWrite");
+    }
+
+    #[test]
+    fn test_todo_item_no_id() {
+        let item: TodoItem = serde_json::from_value(serde_json::json!({
+            "content": "test",
+            "status": "pending"
+        }))
+        .unwrap();
+        assert_eq!(item.content, "test");
+    }
+
+    #[test]
+    fn test_todo_item_active_form() {
+        let item: TodoItem = serde_json::from_value(serde_json::json!({
+            "content": "test",
+            "activeForm": "Running tests",
+            "status": "in_progress"
+        }))
+        .unwrap();
+        assert_eq!(item.active_form, Some("Running tests".to_string()));
+    }
+
+    #[test]
+    fn test_summarize_changes_by_index() {
+        let old = vec![
+            TodoItem { content: "A".into(), active_form: None, status: TodoStatus::Pending },
+            TodoItem { content: "B".into(), active_form: None, status: TodoStatus::Pending },
+        ];
+        let new = vec![
+            TodoItem { content: "A".into(), active_form: None, status: TodoStatus::InProgress },
+            TodoItem { content: "B".into(), active_form: None, status: TodoStatus::Pending },
+            TodoItem { content: "C".into(), active_form: None, status: TodoStatus::Pending },
+        ];
+        let summary = summarize_changes(&old, &new);
+        assert!(summary.contains("[0]→in_progress"), "should detect status change at [0]: {summary}");
+        assert!(summary.contains("+[2]"), "should detect addition at [2]: {summary}");
+    }
+
+    #[test]
+    fn test_summarize_changes_empty() {
+        let old = vec![
+            TodoItem { content: "A".into(), active_form: None, status: TodoStatus::Pending },
+        ];
+        let new = vec![
+            TodoItem { content: "A".into(), active_form: None, status: TodoStatus::Pending },
+        ];
+        let summary = summarize_changes(&old, &new);
+        assert_eq!(summary, "saved");
     }
 }

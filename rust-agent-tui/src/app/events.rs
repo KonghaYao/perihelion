@@ -42,12 +42,12 @@ pub enum AgentEvent {
     },
     /// 上下文压缩失败，携带错误信息
     CompactError(String),
-    /// SubAgent 开始执行（由 launch_agent ToolStart 映射而来）
+    /// SubAgent 开始执行（由 Agent ToolStart 映射而来）
     SubAgentStart {
         agent_id: String,
         task_preview: String,
     },
-    /// SubAgent 执行结束（由 launch_agent ToolEnd 映射而来）
+    /// SubAgent 执行结束（由 Agent ToolEnd 映射而来）
     SubAgentEnd {
         result: String,
         is_error: bool,

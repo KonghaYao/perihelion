@@ -31,13 +31,14 @@ impl AskUserTool {
 struct InputOption {
     label: String,
     description: Option<String>,
+    preview: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
 struct InputQuestion {
     question: String,
     header: String,
-    #[serde(default)]
+    #[serde(default, rename = "multiSelect")]
     multi_select: bool,
     options: Vec<InputOption>,
 }
@@ -76,7 +77,7 @@ fn parse_questions(
 #[async_trait]
 impl BaseTool for AskUserTool {
     fn name(&self) -> &str {
-        "ask_user_question"
+        "AskUserQuestion"
     }
 
     fn description(&self) -> &str {
@@ -302,5 +303,44 @@ mod tests {
         let tool = make_tool(response);
         let result = tool.invoke(single_question_input()).await;
         assert!(result.is_err(), "non-Answers response should return Err");
+    }
+
+    #[test]
+    fn test_tool_name_is_AskUserQuestion() {
+        let tool = make_tool(make_answer(&[], None));
+        assert_eq!(tool.name(), "AskUserQuestion");
+    }
+
+    #[tokio::test]
+    async fn test_multi_select_camel_case_input() {
+        let tool = make_tool(make_answer(&["A", "B"], None));
+        let result = tool
+            .invoke(serde_json::json!({
+                "questions": [{
+                    "question": "Pick all?",
+                    "header": "H1",
+                    "multiSelect": true,
+                    "options": [{"label": "A"}, {"label": "B"}]
+                }]
+            }))
+            .await
+            .unwrap();
+        assert_eq!(result, "A, B", "multiSelect (camelCase) should work");
+    }
+
+    #[tokio::test]
+    async fn test_preview_field_ignored() {
+        let tool = make_tool(make_answer(&["选项A"], None));
+        let result = tool
+            .invoke(serde_json::json!({
+                "questions": [{
+                    "question": "What?",
+                    "header": "H1",
+                    "options": [{"label": "选项A", "preview": "some preview"}]
+                }]
+            }))
+            .await
+            .unwrap();
+        assert_eq!(result, "选项A", "preview field should not cause error");
     }
 }

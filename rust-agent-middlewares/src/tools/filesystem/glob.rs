@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::resolve_path;
 
-/// glob_files tool - 与 TypeScript glob_tool 对齐
+/// Glob tool - 与 TypeScript glob_tool 对齐
 pub struct GlobFilesTool {
     pub cwd: String,
 }
@@ -26,12 +26,12 @@ Usage:
 - Maximum 1000 results returned; results are truncated beyond this limit with a notice
 - Common directories like node_modules, .git, target, dist, build are automatically excluded from results
 - The path parameter is optional; defaults to the current working directory
-- For searching file contents, use search_files_rg instead
+- For searching file contents, use Grep instead
 
 When to use:
-- Use glob_files when searching for files by name pattern (e.g., find all TypeScript files, find a specific config file)
-- Use search_files_rg when searching for content within files (e.g., find where a function is defined)
-- For open-ended searches requiring multiple rounds, consider using a sub-agent via launch_agent"#;
+- Use Glob when searching for files by name pattern (e.g., find all TypeScript files, find a specific config file)
+- Use Grep when searching for content within files (e.g., find where a function is defined)
+- For open-ended searches requiring multiple rounds, consider using a sub-agent via Agent"#;
 
 fn should_skip_dir(name: &str) -> bool {
     matches!(
@@ -97,7 +97,7 @@ fn collect_files(base: &Path, pattern: &str, results: &mut Vec<String>) {
 #[async_trait::async_trait]
 impl BaseTool for GlobFilesTool {
     fn name(&self) -> &str {
-        "glob_files"
+        "Glob"
     }
 
     fn description(&self) -> &str {
@@ -238,5 +238,11 @@ mod tests {
             "description 应提及排序规则"
         );
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
+    }
+
+    #[test]
+    fn test_tool_name_is_Glob() {
+        let tool = GlobFilesTool::new("/tmp");
+        assert_eq!(tool.name(), "Glob");
     }
 }
