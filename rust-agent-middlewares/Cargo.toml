@@ -24,6 +24,8 @@ uuid = { version = "1", features = ["v7", "serde"] }
 croner = "3"
 tracing = "0.1"
 parking_lot = "0.12"
+grep = "0.4"
+num_cpus = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"
