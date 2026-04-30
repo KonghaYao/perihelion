@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第16轮
+
+Token 追踪模块审查：发现 ContextBudget 虽在 token.rs 完整定义了 auto_compact/warning 阈值计算逻辑（含测试），但 executor 从未使用——而是硬编码 80% 作为上下文警告阈值，且与 CompactConfig 的 70% 默认 warning_threshold 不一致，定义层与执行层脱节。为 ReActAgent 新增 context_budget 字段和 with_context_budget() builder 方法，execute 循环改为优先使用 ContextBudget::should_warn()，无配置时回退硬编码逻辑。新增 2 个测试。818 测试通过。
+
 ## 2026-04-30 第15轮
 
 SubAgent 模块审查优化：发现 invoke 方法中 agent 定义文件被 parse_agent_file 解析后又通过 load_overrides 重新读取解析同一文件，造成冗余 I/O。新增 overrides_from_agent_def 从已解析数据直接提取 AgentOverrides 消除二重解析。同时发现子 agent execute 调用始终传入 None 取消令牌——用户 Ctrl+C 无法中断子 agent 执行。为 SubAgentTool/SubAgentMiddleware 新增 cancel 令牌传递链路，TUI 注入父 agent 取消令牌。新增 4 个测试覆盖 overrides 提取和取消中断。816 测试全部通过。
