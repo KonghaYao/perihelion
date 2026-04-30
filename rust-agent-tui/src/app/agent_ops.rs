@@ -740,7 +740,7 @@ impl App {
             self.core.pipeline.clear();
             self.core.pipeline.restore_completed(self.agent.agent_state_messages.clone());
             let vm = MessageViewModel::system(
-                format!("Micro-compact: 清除了 {} 个旧工具结果", cleared)
+                format!("自动清理：释放了 {} 个工具调用结果", cleared)
             );
             self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         }

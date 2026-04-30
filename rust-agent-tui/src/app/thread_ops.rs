@@ -171,6 +171,7 @@ impl App {
         self.agent.cancel_token = Some(cancel.clone());
 
         self.set_loading(true);
+        self.spinner_state.set_verb(Some("压缩上下文"));
 
         let vm = MessageViewModel::system("正在压缩上下文…".to_string());
         self.core.view_messages.push(vm.clone());

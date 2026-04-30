@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, MessageViewModel};
 use super::Command;
 
 pub struct CompactCommand;
@@ -13,6 +13,12 @@ impl Command for CompactCommand {
     }
 
     fn execute(&self, app: &mut App, args: &str) {
+        if app.core.loading {
+            app.core.view_messages.push(MessageViewModel::system(
+                "Agent 运行中，无法执行压缩".to_string(),
+            ));
+            return;
+        }
         app.start_compact(args.to_string());
     }
 }
