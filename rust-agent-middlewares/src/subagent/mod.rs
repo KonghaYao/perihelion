@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use rust_create_agent::agent::events::AgentEventHandler;
 use rust_create_agent::agent::react::ReactLLM;
 use rust_create_agent::agent::state::State;
+use rust_create_agent::agent::AgentCancellationToken;
 use rust_create_agent::error::AgentResult;
 use rust_create_agent::messages::BaseMessage;
 use rust_create_agent::middleware::r#trait::Middleware;
@@ -52,6 +53,8 @@ pub struct SubAgentMiddleware {
     /// 系统提示构建器：(agent overrides, cwd) → system prompt 字符串
     /// 设置后，子 agent 通过 with_system_prompt() 注入系统提示（Langfuse 可见）
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
+    /// 父 agent 取消令牌（传递给子 agent，支持用户中断）
+    cancel: Option<AgentCancellationToken>,
 }
 
 impl SubAgentMiddleware {
@@ -69,6 +72,7 @@ impl SubAgentMiddleware {
             event_handler,
             llm_factory,
             system_builder: None,
+            cancel: None,
         }
     }
 
@@ -78,6 +82,12 @@ impl SubAgentMiddleware {
         builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
     ) -> Self {
         self.system_builder = Some(builder);
+        self
+    }
+
+    /// 设置父 agent 取消令牌（传递给子 agent，支持用户中断子 agent 执行）
+    pub fn with_cancel(mut self, cancel: AgentCancellationToken) -> Self {
+        self.cancel = Some(cancel);
         self
     }
 
@@ -91,6 +101,9 @@ impl SubAgentMiddleware {
         );
         if let Some(ref builder) = self.system_builder {
             tool = tool.with_system_builder(Arc::clone(builder));
+        }
+        if let Some(ref cancel) = self.cancel {
+            tool = tool.with_cancel(cancel.clone());
         }
         tool
     }

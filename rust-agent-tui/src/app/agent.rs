@@ -174,7 +174,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         Some(Arc::clone(&handler) as Arc<dyn rust_create_agent::agent::events::AgentEventHandler>),
         llm_factory,
     )
-    .with_system_builder(system_builder);
+    .with_system_builder(system_builder)
+    .with_cancel(cancel.clone());
 
     // 构建 ReActAgent
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具

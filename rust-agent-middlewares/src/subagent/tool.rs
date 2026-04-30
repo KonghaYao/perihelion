@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rust_create_agent::agent::events::AgentEventHandler;
 use rust_create_agent::agent::react::{AgentInput, ReactLLM};
 use rust_create_agent::agent::state::AgentState;
-use rust_create_agent::agent::ReActAgent;
+use rust_create_agent::agent::{AgentCancellationToken, ReActAgent};
 use rust_create_agent::tools::BaseTool;
 
 use crate::agent_define::{AgentDefineMiddleware, AgentOverrides};
@@ -55,6 +55,8 @@ pub struct SubAgentTool {
     /// 返回的内容会通过 `with_system_prompt()` 注入到子 agent 的 state 消息中，
     /// 使其在 Langfuse 等追踪工具中可见。为 None 时不注入系统提示词。
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
+    /// 可选的取消令牌，用于中断子 agent 执行
+    cancel: Option<AgentCancellationToken>,
 }
 
 impl SubAgentTool {
@@ -70,6 +72,7 @@ impl SubAgentTool {
             llm_factory,
             parent_cwd,
             system_builder: None,
+            cancel: None,
         }
     }
 
@@ -80,6 +83,31 @@ impl SubAgentTool {
     ) -> Self {
         self.system_builder = Some(builder);
         self
+    }
+
+    /// 设置取消令牌，用于支持用户中断子 agent 执行
+    pub fn with_cancel(mut self, cancel: AgentCancellationToken) -> Self {
+        self.cancel = Some(cancel);
+        self
+    }
+
+    /// 从已解析的 agent_def 提取 AgentOverrides，避免二次 I/O
+    fn overrides_from_agent_def(
+        system_prompt: &str,
+        tone: &Option<String>,
+        proactiveness: &Option<String>,
+    ) -> Option<AgentOverrides> {
+        let persona = if system_prompt.is_empty() {
+            None
+        } else {
+            Some(system_prompt.to_string())
+        };
+        let overrides = AgentOverrides {
+            persona,
+            tone: tone.clone(),
+            proactiveness: proactiveness.clone(),
+        };
+        if overrides.is_empty() { None } else { Some(overrides) }
     }
 
     /// 根据 agent 定义的 tools/disallowedTools 字段，从父工具集中过滤出子 agent 可用的工具
@@ -246,8 +274,13 @@ impl BaseTool for SubAgentTool {
 
         // 6. 通过 with_system_prompt 将系统提示词注入 state（使其对 Langfuse 等追踪可见）
         //    系统提示词 = build_system_prompt(agent overrides, cwd)，包含 tone/proactiveness
+        //    复用已解析的 agent_def 提取 overrides，避免二次 I/O（load_overrides 会重新读取文件）
         if let Some(ref builder) = self.system_builder {
-            let overrides = AgentDefineMiddleware::load_overrides(&cwd, &agent_id);
+            let overrides = Self::overrides_from_agent_def(
+                &agent_def.system_prompt,
+                &agent_def.frontmatter.tone,
+                &agent_def.frontmatter.proactiveness,
+            );
             let system_content = builder(overrides.as_ref(), &cwd);
             agent_builder = agent_builder.with_system_prompt(system_content);
         }
@@ -265,10 +298,13 @@ impl BaseTool for SubAgentTool {
         // 7. 执行子 agent
         let mut state = AgentState::new(cwd.clone());
         match agent_builder
-            .execute(AgentInput::text(task), &mut state, None)
+            .execute(AgentInput::text(task), &mut state, self.cancel.clone())
             .await
         {
             Ok(output) => Ok(format_subagent_result(&output)),
+            Err(rust_create_agent::error::AgentError::Interrupted) => {
+                Ok(format!("子 agent 执行被中断"))
+            }
             Err(e) => {
                 let msg = format!("子 agent 执行失败：{}", e);
                 Err(msg.into())
@@ -709,5 +745,98 @@ mod tests {
         assert!(desc.contains("isolated") || desc.contains("isolation"),
             "description 应提及上下文隔离");
         assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
+    }
+
+    /// 验证 overrides_from_agent_def 从已解析数据正确提取 AgentOverrides
+    #[test]
+    fn test_overrides_from_agent_def_with_all_fields() {
+        let ov = SubAgentTool::overrides_from_agent_def(
+            "You are a reviewer.",
+            &Some("Be thorough.".to_string()),
+            &Some("Proactively suggest.".to_string()),
+        );
+        let ov = ov.unwrap();
+        assert_eq!(ov.persona.as_deref().unwrap(), "You are a reviewer.");
+        assert_eq!(ov.tone.as_deref().unwrap(), "Be thorough.");
+        assert_eq!(ov.proactiveness.as_deref().unwrap(), "Proactively suggest.");
+    }
+
+    #[test]
+    fn test_overrides_from_agent_def_empty() {
+        let ov = SubAgentTool::overrides_from_agent_def("", &None, &None);
+        assert!(ov.is_none(), "全空字段应返回 None");
+    }
+
+    #[test]
+    fn test_overrides_from_agent_def_persona_only() {
+        let ov = SubAgentTool::overrides_from_agent_def(
+            "I am a helper.",
+            &None,
+            &None,
+        );
+        let ov = ov.unwrap();
+        assert_eq!(ov.persona.as_deref().unwrap(), "I am a helper.");
+        assert!(ov.tone.is_none());
+        assert!(ov.proactiveness.is_none());
+    }
+
+    /// 验证取消令牌可中断子 agent 执行
+    #[tokio::test]
+    async fn test_cancel_token_interrupts_subagent() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("forever.md"),
+            "---\nname: forever\ndescription: Runs forever\n---\n\nYou run forever.\n",
+        ).unwrap();
+
+        // LLM 永远调用一个从未注册的工具，导致 ToolNotFound 但不会无限循环
+        struct ToolNotFoundLLM;
+        #[async_trait::async_trait]
+        impl ReactLLM for ToolNotFoundLLM {
+            async fn generate_reasoning(
+                &self,
+                messages: &[BaseMessage],
+                _tools: &[&dyn BaseTool],
+            ) -> rust_create_agent::error::AgentResult<Reasoning> {
+                if messages.iter().any(|m| matches!(m, BaseMessage::Tool { .. })) {
+                    Ok(Reasoning::with_answer("", "done"))
+                } else {
+                    Ok(Reasoning::with_tools(
+                        "call missing",
+                        vec![rust_create_agent::agent::react::ToolCall::new(
+                            "id1", "nonexistent", serde_json::json!({}),
+                        )],
+                    ))
+                }
+            }
+        }
+
+        let cancel = AgentCancellationToken::new();
+        // 在子 agent 执行前触发取消
+        cancel.cancel();
+
+        let t = SubAgentTool::new(
+            Arc::new(vec![]),
+            None,
+            Arc::new(|_: Option<&str>| Box::new(ToolNotFoundLLM) as Box<dyn ReactLLM + Send + Sync>),
+            dir.path().to_str().unwrap().to_string(),
+        )
+        .with_cancel(cancel);
+
+        let result = t
+            .invoke(serde_json::json!({
+                "agent_id": "forever",
+                "task": "run",
+                "cwd": dir.path().to_str().unwrap()
+            }))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("被中断"),
+            "取消应导致中断消息，实际: {}",
+            result
+        );
     }
 }
