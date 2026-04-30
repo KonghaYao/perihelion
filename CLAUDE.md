@@ -4,11 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-Rust Agent 框架，包含 **3 个 Workspace Crate**：
+Rust Agent 框架，包含 **4 个 Workspace Crate**：
 
-- **`rust-create-agent`**：核心框架——ReAct 循环执行器、Middleware trait、LLM 适配器、工具系统
-- **`rust-agent-middlewares`**：具体中间件实现（文件系统、终端、Skills、HITL、SubAgent、ask_user_question）
-- **`rust-agent-tui`**：交互式 TUI playground，基于 ratatui
+- **`rust-create-agent`**：核心框架——ReAct 循环执行器、Middleware trait、LLM 适配器、工具系统、线程持久化（SQLite）、遥测（OTel）
+- **`rust-agent-middlewares`**：中间件实现（文件系统、终端、HITL、SubAgent、Skills、Todo、Cron 等）
+- **`perihelion-widgets`**：独立 widget crate（BorderedPanel/ScrollableArea/SelectableList 等 11 组件），零内部依赖，仅依赖 ratatui + pulldown-cmark
+- **`rust-agent-tui`**：交互式 TUI 应用，基于 ratatui
+
+核心价值：高兼容（复用 `.claude/` 配置零迁移）、可插拔（中间件模式按需组合）、生产可用（异步+OTel 追踪）。
 
 ## 开发命令
 
@@ -25,11 +28,13 @@ cargo test -p rust-create-agent --lib -- test_name  # 运行单个测试
 ## Workspace 依赖关系
 
 ```
-rust-create-agent (核心框架，无内部依赖)
+rust-create-agent (核心框架，零内部依赖)
     ↑
 rust-agent-middlewares (中间件实现)
     ↑
-rust-agent-tui (TUI 应用，依赖 middlewares)
+perihelion-widgets (零内部依赖，仅依赖 ratatui + pulldown-cmark)
+    ↑
+rust-agent-tui (TUI 应用，依赖 widgets + middlewares)
 ```
 
 ## 数据流
@@ -40,23 +45,28 @@ rust-agent-tui (TUI 应用，依赖 middlewares)
 AgentInput
   └─ state.add_message(Human)
   └─ chain.collect_tools(cwd)        # ToolProvider + 中间件工具合并，手动注册的优先级最高
-  └─ chain.run_before_agent(state)   # 按注册顺序执行
+  └─ chain.run_before_agent(state)   # AgentDefine → AgentsMd → Skills → SkillPreload → PrependSystem
   └─ loop(max_iterations=50):
+      └─ emit(LlmCallStart{step, messages, tools})
       └─ llm.generate_reasoning(state.messages, tools)
       │    └─ BaseModel.invoke(LlmRequest{messages, tools, system})
       │    └─ stop_reason==ToolUse  → Reasoning{tool_calls}
       │       stop_reason==EndTurn  → Reasoning{final_answer}
+      └─ emit(LlmCallEnd{step, model, output, usage})
       │
       ├─ [有工具调用]:
       │   └─ state.add_message(Ai{tool_calls})
-      │   └─ chain.run_before_tool()   # HITL 在此拦截
+      │   └─ emit(MessageAdded(Ai))
+      │   └─ chain.run_before_tool()   # HITL 在此拦截（根据 PermissionMode 决定放行/拦截）
       │   └─ futures::future::join_all(tools)  # 并发执行所有工具
       │   └─ chain.run_after_tool()    # TodoMiddleware 在此解析 todo_write
       │   └─ emit(ToolStart/ToolEnd)
       │   └─ state.add_message(Tool{result})
+      │   └─ emit(MessageAdded(Tool))
       │
       └─ [最终回答]:
           └─ emit(TextChunk(answer))
+          └─ emit(StateSnapshot) → 持久化
           └─ chain.run_after_agent(state, output) → AgentOutput
 ```
 
@@ -72,15 +82,20 @@ submit_message()
   │       ApprovalNeeded          → app.hitl_prompt = Some(...)  [break]
   │       AskUserBatch            → app.ask_user_prompt = Some(...) [break]
   │       Done/Error              → set_loading(false), agent_rx=None
+  │       LlmCallStart/End        → LangfuseTracer 上报 Generation
   │
-  └─ mpsc(4): ApprovalEvent channel ──→ 转发 task
-       ApprovalEvent::Batch        → YOLO（默认）: 直接 response_tx.send(Approve×N)
-                                     审批模式（-a）: tx.send(AgentEvent::ApprovalNeeded)
-       ApprovalEvent::AskUserBatch → tx.send(AgentEvent::AskUserBatch)  [始终转发]
+  ├─ mpsc(4): ApprovalEvent channel ──→ 转发 task
+  │    ApprovalEvent::Batch        → YOLO（默认）: 直接 response_tx.send(Approve×N)
+  │                                 非YOLO: tx.send(AgentEvent::ApprovalNeeded)
+  │    ApprovalEvent::AskUserBatch → tx.send(AgentEvent::AskUserBatch)  [始终转发]
+  │
+  └─ oneshot: 弹窗确认后
+       hitl_confirm()     → response_tx.send(decisions)   → HITL before_tool 的 oneshot 解除
+       ask_user_confirm() → response_tx.send(answers)     → AskUserTool::invoke 的 oneshot 解除
 
-用户操作弹窗后:
-  hitl_confirm()     → response_tx.send(decisions)   → HITL before_tool 的 oneshot 解除
-  ask_user_confirm() → response_tx.send(answers)     → AskUserTool::invoke 的 oneshot 解除
+渲染管道（独立线程）:
+  render_thread ← RenderEvent::Update → 更新 RenderCache（RwLock）→ Notify
+  主线程 ← poll 超时 / 用户事件 → 读 RenderCache → terminal.draw()
 ```
 
 ### 系统提示词架构
@@ -96,9 +111,9 @@ submit_message()
 | 字段 | 触发条件 |
 |------|---------|
 | `hitl_enabled` | `YOLO_MODE=false`（`-a` CLI 参数） |
-| `subagent_enabled` | 默认 `true`（TODO: 从中间件注册状态推断） |
-| `cron_enabled` | 默认 `true`（TODO: 从中间件注册状态推断） |
-| `skills_enabled` | 默认 `true`（TODO: 从中间件注册状态推断） |
+| `subagent_enabled` | 默认 `true` |
+| `cron_enabled` | 默认 `true` |
+| `skills_enabled` | 默认 `true` |
 
 ### 消息类型
 
@@ -130,19 +145,83 @@ submit_message()
 | Prompt Cache | — | 默认开启，`cache_control:ephemeral` |
 | 扩展思考 | — | `.with_extended_thinking(budget_tokens)`（3.7+） |
 
-测试用 `MockLLM::tool_then_answer()` 按脚本回放推理，无需真实 API。
+`RetryableLLM<L>` 装饰器：指数退避+25%随机抖动，`LlmRetrying` 事件通知。测试用 `MockLLM::tool_then_answer()` 按脚本回放。
 
-### HITL 决策
+### HITL & 权限模式
+
+**5 级权限模式**（`Shift+Tab` 循环切换，状态栏实时显示）：
+
+| 模式 | 行为 |
+|------|------|
+| `Default` | 默认，大部分操作放行 |
+| `AcceptEdits` | 放行文件编辑 |
+| `Auto` | LLM 分类器判断 |
+| `BypassPermissions` | 全部放行（= 原 YOLO） |
+| `DontAsk` | 跳过所有交互 |
+
+`Arc<AtomicU8>` 无锁共享，HITL middleware 根据 mode 决定放行/拦截。
 
 `HitlDecision` 四种结果：`Approve` / `Edit(new_input)` / `Reject` → 错误 / `Respond(msg)` → 原因。
 
 默认需审批工具：`bash`、`folder_operations`、`launch_agent`、`write_*`、`edit_*`、`delete_*`、`rm_*`。
 
-### Skills 搜索顺序
+### Skills
 
-`~/.claude/skills/` → `skillsDir`（`~/.zen-code/settings.json`） → `./.claude/skills/`
+搜索顺序：`~/.claude/skills/` → `skillsDir`（`~/.zen-code/settings.json`） → `./.claude/skills/`，同名先到先得。
 
-同名 skill 以先出现的为准。每个 skill 是一个子目录，内含 `SKILL.md`（YAML frontmatter: `name`, `description`）。
+每个 skill 是子目录，内含 `SKILL.md`（YAML frontmatter: `name`, `description`）。输入 `/` 前缀触发 Skills 浮层，Tab 导航，Enter 补全为 `/skill-name`。
+
+### 中间件链执行顺序
+
+主 Agent 典型组装顺序：
+
+```
+1. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
+2. AgentsMdMiddleware         ← 读 CLAUDE.md/AGENTS.md 注入 system
+3. SkillsMiddleware           ← Skills 摘要注入 system
+4. SkillPreloadMiddleware     ← #skill-name 全文注入（fake tool 序列）
+5. FilesystemMiddleware       ← 6 个文件系统工具
+6. TerminalMiddleware         ← bash 工具
+7. TodoMiddleware             ← after_tool 解析 todo_write
+8. HumanInTheLoopMiddleware   ← before_tool 拦截敏感工具
+9. SubAgentMiddleware         ← launch_agent 工具
+[ReActAgent.with_system_prompt()] ← system prompt prepend
+```
+
+子 Agent：`AgentsMd → Skills → SkillPreload → Todo → PrependSystem`。
+
+手动注册工具（`register_tool`）优先级最高，覆盖同名中间件工具。
+
+### 上下文压缩
+
+Token 累积达到上下文窗口阈值（默认 85%）时自动触发：
+
+1. **Micro-compact**：零 API 调用，清除可压缩工具结果/图片/文档
+2. 如仍超限 → **Full Compact**：LLM 生成 9 段结构化摘要替换历史
+3. **Re-inject**：重新注入最近文件 + Skills
+
+`TokenTracker` 累积追踪 input/output/cache tokens，`ContextBudget` 管理上下文窗口预算。
+
+### 事件系统
+
+**AgentEvent（核心层，11 种变体）：**
+
+| 事件 | 说明 |
+|------|------|
+| `AiReasoning` | AI 推理/CoT 内容 |
+| `TextChunk` | LLM 最终文字输出 |
+| `ToolStart` / `ToolEnd` | 工具调用开始/结束 |
+| `StepDone` | 一轮 ReAct 完成 |
+| `StateSnapshot` | 完整消息快照（持久化用） |
+| `MessageAdded` | 增量消息（持久化+遥测） |
+| `LlmCallStart` / `LlmCallEnd` | LLM 调用（Langfuse Generation） |
+| `LlmRetrying` | LLM 重试中 |
+
+TUI 层扩展：`Done` / `Error` / `ApprovalNeeded` / `AskUserBatch`。
+
+### 消息管线
+
+`MessagePipeline` 统一管理消息状态，`PipelineAction` 枚举描述所有 UI 变更。`reconcile_tail()` 在 Done/Interrupted 时触发尾部重建。
 
 ## 工具清单（rust-agent-middlewares）
 
@@ -152,7 +231,7 @@ submit_message()
 | `write_file` | FilesystemMiddleware | ✓ |
 | `edit_file` | FilesystemMiddleware | ✓ |
 | `glob_files` | FilesystemMiddleware | — |
-| `search_files_rg` | FilesystemMiddleware | — |
+| `search_files_rg` | FilesystemMiddleware（grep+grep-regex 进程内搜索，WalkParallel 并行） | — |
 | `folder_operations` | FilesystemMiddleware | ✓ |
 | `bash` | TerminalMiddleware | ✓ |
 | `todo_write` | TodoMiddleware | — |
@@ -241,7 +320,7 @@ Final response text here
 
 ## TUI 命令
 
-输入 `/` 前缀触发，支持前缀唯一匹配（如 `/m` 匹配 `/model`）：
+输入 `/` 前缀触发统一浮层（命令组 + Skills 组），Tab 导航，Enter 补全。命令优先于 Skills。支持前缀唯一匹配（如 `/m` 匹配 `/model`）：
 
 | 命令 | 说明 |
 |------|------|
@@ -250,11 +329,9 @@ Final response text here
 | `/model <alias>` | 直接切换激活别名（`opus` / `sonnet` / `haiku`） |
 | `/history` | 打开历史对话浏览面板（↑↓ 导航，`d` 删除，`Enter` 打开） |
 | `/agents` | 打开 SubAgent 定义管理面板 |
-| `/compact` | 触发上下文压缩 |
+| `/compact` | 触发上下文压缩（执行后创建新 Thread 保留旧历史） |
 | `/clear` | 清空当前消息列表 |
 | `/help` | 列出所有命令 |
-
-输入 `#` 前缀触发 Skills 浮层，`Tab` 导航，`Enter` 补全为 `#skill-name`。
 
 ## TUI Headless 测试模式
 
@@ -334,8 +411,9 @@ ReActAgent::new(llm)
 | `RUST_LOG_FILE` | 日志文件路径 |
 | `RUST_LOG_FORMAT=json` | 使用 JSON 格式输出日志 |
 | `LANGFUSE_*` | Langfuse 追踪配置 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP 导出端点 |
 
-`.env` 文件已 gitignore，本地开发配置在 `rust-agent-tui/.env`。
+配置通过 `~/.zen-code/settings.json` 的 `env` 字段注入环境变量（已替代 .env 文件）。
 
 ## CLI 参数
 
@@ -343,6 +421,17 @@ ReActAgent::new(llm)
 |------|------|
 | `-y, --yolo` | 已废弃（YOLO 已是默认行为） |
 | `-a, --approve` | 启用 HITL 审批（设置 `YOLO_MODE=false`） |
+
+运行时 `Shift+Tab` 循环切换 5 级权限模式。
+
+## 编码规范
+
+- Rust 2021 edition，tokio async/await + async-trait
+- 库 crate 用 `thiserror`，应用层用 `anyhow::Result`
+- 日志用 `tracing` 宏，禁止 `println!`/`eprintln!`
+- 单元测试 `#[cfg(test)] mod tests`，bin crate 集成测试在 `src/` 内（不支持 `tests/` 目录）
+- 文件组织：每模块一目录，`mod.rs` 入口
+- Workspace resolver = "2"，禁止下层 crate 依赖上层
 
 ## 开发注意事项
 
