@@ -3,6 +3,20 @@ use serde_json::Value;
 
 use super::resolve_path;
 
+const WRITE_FILE_DESCRIPTION: &str = r#"Writes a file to the local filesystem.
+
+Usage:
+- This tool will overwrite the existing file if there is one at the provided path
+- If this is an existing file, you MUST use the read_file tool first to read the file's contents. This tool will fail if you did not read the file first
+- ALWAYS prefer editing existing files in the codebase. DO NOT create new files unless explicitly required
+- The file_path parameter must be an absolute path, not a relative path
+- Parent directories are created automatically if they do not exist
+
+Notes:
+- Uses atomic write (write to temp file then rename) to prevent data loss on crash
+- NEVER create documentation files (*.md) or README files unless explicitly requested by the User
+- Only use emojis if the User explicitly requests it. Avoid writing emojis to files unless asked"#;
+
 /// write_file tool - 与 TypeScript write_tool 对齐
 pub struct WriteFileTool {
     pub cwd: String,
@@ -21,15 +35,21 @@ impl BaseTool for WriteFileTool {
     }
 
     fn description(&self) -> &str {
-        "Writes a file to the local filesystem. Relative paths are resolved based on the current working directory (cwd). Parameters (JSON): file_path: string (required), content: string (required)"
+        WRITE_FILE_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "file_path": { "type": "string", "description": "Path to the file (absolute or relative to cwd)" },
-                "content":   { "type": "string", "description": "Content to write to the file" }
+                "file_path": {
+                    "type": "string",
+                    "description": "The absolute path to the file to write (must be absolute, not relative)"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The full content to write to the file"
+                }
             },
             "required": ["file_path", "content"]
         })
@@ -160,5 +180,14 @@ mod tests {
             .await;
         #[cfg(unix)]
         assert!(result.is_err(), "写入只读目录应返回 Err");
+    }
+
+    #[test]
+    fn test_description_extended() {
+        let tool = WriteFileTool::new("/tmp");
+        let desc = tool.description();
+        assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
+        assert!(desc.contains("atomic write"), "description 应提及原子写入");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

@@ -18,6 +18,26 @@ const MAX_LINES: usize = 2000;
 /// 最大允许读取的文件大小（32 MB）
 const MAX_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
+const READ_FILE_DESCRIPTION: &str = r#"Reads a file from the local filesystem. You can access any file directly by using this tool.
+Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+
+Usage:
+- The file_path parameter must be an absolute path, not a relative path
+- By default, it reads up to 2000 lines starting from the beginning of the file
+- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- Any lines longer than 65536 characters will be truncated
+- Results are returned using cat -n format, with line numbers starting at 1
+- This tool reads files from the local filesystem; it cannot handle URLs
+- You can call multiple tools in a single response. It is always better to speculatively read multiple files before making edits
+- You should prefer using the read_file tool over the bash tool with commands like cat, head, tail, or sed to read files. This provides better output formatting and filtering
+- For open-ended searches that may require multiple rounds of globbing and grepping, use the Agent tool instead
+
+Error handling:
+- File not found: returns an error message indicating the path does not exist
+- Binary files: detected by extension and returns a message indicating the file cannot be displayed as text
+- Files exceeding 32 MB: returns an error suggesting use of offset/limit parameters
+- Offset exceeds file length: returns an error indicating the line range is invalid"#;
+
 fn is_binary_extension(ext: &str) -> bool {
     matches!(
         ext,
@@ -37,16 +57,25 @@ impl BaseTool for ReadFileTool {
     }
 
     fn description(&self) -> &str {
-        "Reads a file from the local filesystem. Relative paths are resolved based on the current working directory (cwd). Parameters (JSON): file_path: string (required), offset: number (optional), limit: number (optional)"
+        READ_FILE_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "file_path": { "type": "string", "description": "Path to the file (absolute or relative to cwd)" },
-                "offset":    { "type": "number", "description": "Line number to start reading from (default 0)" },
-                "limit":     { "type": "number", "description": "Number of lines to read (default 2000)" }
+                "file_path": {
+                    "type": "string",
+                    "description": "The absolute path to the file to read"
+                },
+                "offset": {
+                    "type": "number",
+                    "description": "The line number to start reading from. Only provide if the file is too large to read in a single call. Not providing this parameter reads the whole file (recommended)"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "The number of lines to read. Only provide if the file is too large to read in a single call. Not providing this parameter reads the whole file (recommended)"
+                }
             },
             "required": ["file_path"]
         })
@@ -208,5 +237,15 @@ mod tests {
             result.contains("File too large"),
             "超大文件应返回 File too large 错误: {result}"
         );
+    }
+
+    #[test]
+    fn test_description_extended() {
+        let tool = ReadFileTool::new("/tmp");
+        let desc = tool.description();
+        assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
+        assert!(desc.contains("Error handling:"), "description 应包含 Error handling 段落");
+        assert!(desc.contains("line numbers"), "description 应提及行号格式");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本，长度 > 200 字符");
     }
 }

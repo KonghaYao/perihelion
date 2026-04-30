@@ -17,6 +17,26 @@ impl SearchFilesRgTool {
     }
 }
 
+const SEARCH_FILES_RG_DESCRIPTION: &str = r#"A powerful search tool built on ripgrep (rg). Supports full regex syntax (e.g. "log.*Error", "function\s+\w+"). Filter files with glob parameter (e.g. "*.js", "*.{ts,tsx}") or type parameter (e.g. "js", "py", "rust", "go"). Use output_mode to control result format.
+
+Usage:
+- Use the args parameter as a ripgrep arguments array. Format: [OPTIONS..., PATTERN, PATH]
+- If you need to identify a set of files, prefer glob_files over search_files_rg
+- Supports full regex syntax — literal braces need escaping (use \{\} to find interface{} in Go code)
+- Output includes line numbers by default when -n flag is used
+- Search times out after 15 seconds; use more specific patterns for large codebases
+- Maximum 500 lines of output; use head_limit parameter to adjust
+
+Output modes:
+- Default: shows matching lines with line numbers
+- Use -l flag (in args) to list only file paths that contain matches
+- Use -c flag (in args) to show match counts per file
+
+When to use:
+- Prefer search_files_rg over bash commands like grep or rg for content search
+- Use glob_files for file name search, search_files_rg for content search
+- For open-ended searches, start with the most specific query and broaden if needed"#;
+
 /// 如果 args 中有至少 2 个非选项参数（PATTERN + PATH），将最后一个解析为绝对路径。
 /// rg 的参数模型：[OPTIONS...] PATTERN [PATH]。只有 1 个非选项参数时是 PATTERN，不应解析。
 fn resolve_last_path_arg(args: &mut [String], cwd: &str) {
@@ -41,7 +61,7 @@ impl BaseTool for SearchFilesRgTool {
     }
 
     fn description(&self) -> &str {
-        "Ripgrep (rg) - A fast text search tool. Parameters (JSON): args: string[] (required) - ripgrep arguments array e.g. [\"-n\", \"pattern\", \"./\"], head_limit: number (optional)"
+        SEARCH_FILES_RG_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
@@ -51,9 +71,12 @@ impl BaseTool for SearchFilesRgTool {
                 "args": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "Ripgrep arguments array. Format: [OPTIONS..., PATTERN, PATH]. Example: [\"-n\", \"fn main\", \"src/\"]"
+                    "description": "Ripgrep arguments as a string array. Format: [OPTIONS..., PATTERN, PATH]. Example: [\"-n\", \"fn main\", \"src/\"]. Supports regex patterns, glob filters (-g flag), file type filters (-t flag), context lines (-C flag), and all standard ripgrep options"
                 },
-                "head_limit": { "type": "number", "description": "Limit output to first N lines (default 500)" }
+                "head_limit": {
+                    "type": "number",
+                    "description": "Limit output to first N matching lines (default 500). Use sparingly — large result sets waste context"
+                }
             },
             "required": ["args"]
         })
@@ -182,6 +205,15 @@ mod tests {
             return;
         }
         assert!(result.contains("needle"), "regex should match: {result}");
+    }
+
+    #[test]
+    fn test_description_extended() {
+        let tool = SearchFilesRgTool::new("/tmp");
+        let desc = tool.description();
+        assert!(desc.contains("regex"), "description 应提及正则支持");
+        assert!(desc.contains("Output modes:"), "description 应包含 Output modes 段落");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }
 

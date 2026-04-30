@@ -8,6 +8,32 @@ use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
 /// BashTool - 终端命令执行工具，与 TypeScript TerminalMiddleware 对齐
+
+const BASH_DESCRIPTION: &str = r#"Executes a given shell command and returns its output.
+
+Usage:
+- The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh)
+- IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, or echo commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task
+- Instead, use the appropriate dedicated tool which will provide a much better experience for the user:
+  - File search: Use glob_files (NOT find or ls)
+  - Content search: Use search_files_rg (NOT grep or rg)
+  - Read files: Use read_file (NOT cat/head/tail)
+  - Edit files: Use edit_file (NOT sed/awk)
+  - Write files: Use write_file (NOT echo/cat with redirect)
+- You can specify an optional timeout in seconds (up to 300 seconds / 5 minutes). Default is 120 seconds (2 minutes)
+- When issuing multiple commands, use && to chain them together rather than using separate tool calls if the commands depend on each other
+- For long running commands, consider using a timeout to avoid waiting indefinitely
+
+Platform behavior:
+- Windows: uses cmd /C to execute commands
+- Unix/macOS: uses bash -c to execute commands
+- On Unix, child processes run in their own process group; timeout kills the entire process tree
+
+Output handling:
+- Output exceeding 2000 lines is truncated (head + tail preserved)
+- Output exceeding 100000 bytes is truncated
+- Non-zero exit codes are reported
+- Both stdout and stderr are captured"#;
 pub struct BashTool {
     pub cwd: String,
 }
@@ -70,15 +96,21 @@ impl BaseTool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "Execute shell commands in a persistent working directory context. Parameters (JSON): command: string (required), timeout_secs: number (optional, default 120)"
+        BASH_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "command":      { "type": "string", "description": "The shell command to execute" },
-                "timeout_secs": { "type": "number", "description": "Command timeout in seconds (default 120)" }
+                "command": {
+                    "type": "string",
+                    "description": "The bash command (and optional arguments) to execute. This can be complex commands that use pipes, &&, or other shell features. For multiple dependent commands, chain them with && rather than making separate calls"
+                },
+                "timeout_secs": {
+                    "type": "number",
+                    "description": "Optional timeout in seconds (default 120, max 300). If the command takes longer than this, it will be killed and a timeout error returned"
+                }
             },
             "required": ["command"]
         })
@@ -297,5 +329,15 @@ mod tests {
             "截断后应保留尾部关键信息: {result}"
         );
         assert!(result.contains("line 0"), "应保留头部: {result}");
+    }
+
+    #[test]
+    fn test_bash_description_extended() {
+        let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+        let desc = tool.description();
+        assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
+        assert!(desc.contains("dedicated tool"), "description 应强调优先使用专用工具");
+        assert!(desc.contains("timeout"), "description 应提及超时");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

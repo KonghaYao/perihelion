@@ -18,6 +18,21 @@ impl GlobFilesTool {
 /// 最多返回的文件数，防止撑爆 LLM context window
 const MAX_RESULTS: usize = 1_000;
 
+const GLOB_FILES_DESCRIPTION: &str = r#"Fast file pattern matching tool that works with any codebase size. Supports glob patterns like "**/*.js" or "src/**/*.ts". Returns matching file paths sorted by modification time.
+
+Usage:
+- Use this tool when you need to find files by name patterns
+- Returns file paths sorted by modification time (most recently modified first)
+- Maximum 1000 results returned; results are truncated beyond this limit with a notice
+- Common directories like node_modules, .git, target, dist, build are automatically excluded from results
+- The path parameter is optional; defaults to the current working directory
+- For searching file contents, use search_files_rg instead
+
+When to use:
+- Use glob_files when searching for files by name pattern (e.g., find all TypeScript files, find a specific config file)
+- Use search_files_rg when searching for content within files (e.g., find where a function is defined)
+- For open-ended searches requiring multiple rounds, consider using a sub-agent via launch_agent"#;
+
 fn should_skip_dir(name: &str) -> bool {
     matches!(
         name,
@@ -86,15 +101,21 @@ impl BaseTool for GlobFilesTool {
     }
 
     fn description(&self) -> &str {
-        "Fast file pattern matching tool. Supports glob patterns like \"**/*.rs\". Parameters (JSON): pattern: string (required), path: string (optional)"
+        GLOB_FILES_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "pattern": { "type": "string", "description": "Glob pattern to match files, e.g. \"**/*.rs\"" },
-                "path":    { "type": "string", "description": "Directory to search in (absolute or relative to cwd, default: cwd)" }
+                "pattern": {
+                    "type": "string",
+                    "description": "The glob pattern to match files against (e.g. \"**/*.js\", \"src/**/*.rs\", \"*.config.json\"). Use ** for recursive matching"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "The directory to search in. Absolute path or relative to cwd. If not specified, the current working directory is used"
+                }
             },
             "required": ["pattern"]
         })
@@ -199,5 +220,14 @@ mod tests {
             .await
             .unwrap();
         assert!(result.contains("Directory not found"), "should report missing dir: {result}");
+    }
+
+    #[test]
+    fn test_description_extended() {
+        let tool = GlobFilesTool::new("/tmp");
+        let desc = tool.description();
+        assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
+        assert!(desc.contains("modification time"), "description 应提及排序规则");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

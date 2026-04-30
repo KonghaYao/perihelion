@@ -21,6 +21,25 @@ use tokio::sync::mpsc;
 /// LLM 通过调用此工具并传入 `agent_id` 和 `task`，触发对应 agent 定义文件的执行。
 /// 子 agent 继承父 agent 的工具集（根据 tools/disallowedTools 字段过滤），
 /// 不包含 HITL 中间件，执行结果以字符串形式返回给父 agent。
+
+const LAUNCH_AGENT_DESCRIPTION: &str = r#"Launch a sub-agent with an independent context to handle a specialized sub-task. The sub-agent executes based on the configuration defined in .claude/agents/{agent_id}.md or .claude/agents/{agent_id}/agent.md.
+
+Usage:
+- Provide a clear, self-contained task description. The sub-agent has no access to the parent conversation history
+- Specify agent_id matching an existing agent definition file
+- The sub-agent inherits the parent's tool set by default, excluding launch_agent itself (to prevent recursion)
+- Agent definitions may restrict available tools via the tools and disallowedTools fields in frontmatter
+- The sub-agent executes in isolated state — it cannot access the parent's message history or intermediate results
+
+When to use:
+- For tasks that benefit from independent context isolation (e.g., code review while working on a different feature)
+- For tasks requiring specialized persona or behavior defined in agent configuration files
+- For parallelizable sub-tasks that do not depend on each other's results
+- When you need to break a complex task into smaller, independently executable pieces
+
+Return format:
+- If the sub-agent made tool calls, the result includes a summary of tools used followed by the final response
+- If no tool calls were made, only the final response text is returned"#;
 pub struct SubAgentTool {
     /// 父 agent 工具集（Arc 共享，只读）
     parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
@@ -113,7 +132,7 @@ impl BaseTool for SubAgentTool {
     }
 
     fn description(&self) -> &str {
-        "委派子任务给专门配置的子 agent 执行。子 agent 根据 .claude/agents/{agent_id}.md 或 agents/{agent_id}.md 中的配置文件运行，独立完成任务后返回结果。适用于需要专门技能或独立上下文的子任务。"
+        LAUNCH_AGENT_DESCRIPTION
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -123,15 +142,15 @@ impl BaseTool for SubAgentTool {
             "properties": {
                 "agent_id": {
                     "type": "string",
-                    "description": "Agent 定义文件名（不含 .md 扩展名），如 'code-reviewer'。对应 .claude/agents/{agent_id}.md 文件"
+                    "description": "The identifier of the agent to launch. Corresponds to a file at .claude/agents/{agent_id}.md or .claude/agents/{agent_id}/agent.md"
                 },
                 "task": {
                     "type": "string",
-                    "description": "委派给子 agent 的任务描述，应清晰说明要完成的工作"
+                    "description": "The task description to delegate to the sub-agent. Must be clear and self-contained, as the sub-agent has no access to the parent conversation history. Include all necessary context"
                 },
                 "cwd": {
                     "type": "string",
-                    "description": "子 agent 工作目录，默认继承父 agent 的当前工作目录"
+                    "description": "The working directory for the sub-agent. Defaults to inheriting the parent agent's current working directory if not specified"
                 }
             }
         })
@@ -678,5 +697,17 @@ mod tests {
             "LLM 应收到包含 '预加载 skill 文件' 的消息，实际结果: {}",
             result
         );
+    }
+
+    #[test]
+    fn test_launch_agent_description_extended() {
+        let t = make_subagent_tool(vec![]);
+        let desc = t.description();
+        assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
+        assert!(desc.contains("sub-agent") || desc.contains("sub agent"),
+            "description 应提及 sub-agent");
+        assert!(desc.contains("isolated") || desc.contains("isolation"),
+            "description 应提及上下文隔离");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

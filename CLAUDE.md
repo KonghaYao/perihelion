@@ -83,6 +83,23 @@ submit_message()
   ask_user_confirm() → response_tx.send(answers)     → AskUserTool::invoke 的 oneshot 解除
 ```
 
+### 系统提示词架构
+
+系统提示词通过 `build_system_prompt(overrides, cwd, features)` 函数合成，段落文件位于 `rust-agent-tui/prompts/sections/`：
+
+- **静态段落**（01-08，始终包含）：身份定义、系统行为、任务执行、危险操作、工具策略、语气风格、沟通方式、环境信息
+- **Feature-gated 段落**（10-13，条件包含）：HITL 审批、SubAgent、Cron、Skills
+- **动态覆盖块**：从 `AgentOverrides` 的 persona/tone/proactiveness 字段生成，注入到提示词最前面
+
+`PromptFeatures` 结构体控制条件段落注入：
+
+| 字段 | 触发条件 |
+|------|---------|
+| `hitl_enabled` | `YOLO_MODE=false`（`-a` CLI 参数） |
+| `subagent_enabled` | 默认 `true`（TODO: 从中间件注册状态推断） |
+| `cron_enabled` | 默认 `true`（TODO: 从中间件注册状态推断） |
+| `skills_enabled` | 默认 `true`（TODO: 从中间件注册状态推断） |
+
 ### 消息类型
 
 `BaseMessage` 四种变体（`Human/Ai/System/Tool`），内容统一用 `MessageContent`。
@@ -272,11 +289,10 @@ async fn test_example() {
 ## 关键模式
 
 ```rust
-// 组装 agent（系统提示词通过 PrependSystemMiddleware 注入）
+// 组装 agent（系统提示词通过 with_system_prompt() 注入）
 ReActAgent::new(BaseModelReactLLM::new(model))
     .max_iterations(50)
     .add_middleware(Box::new(FilesystemMiddleware::new()))
-    .add_middleware(Box::new(PrependSystemMiddleware::new(prompt)))
     .register_tool(Box::new(AskUserTool::new(invoker)))
     .with_event_handler(Arc::new(FnEventHandler(move |ev| { tx.try_send(ev); })))
     .execute(AgentInput::text(input), &mut AgentState::new(cwd))
@@ -295,7 +311,7 @@ let llm_factory = Arc::new(move || {
     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 });
 let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str| {
-    build_system_prompt(overrides, cwd)
+    build_system_prompt(overrides, cwd, PromptFeatures::detect())
 });
 ReActAgent::new(llm)
     .add_middleware(Box::new(

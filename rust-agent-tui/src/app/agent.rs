@@ -63,7 +63,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     } else {
         None
     };
-    let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd);
+    let features = crate::prompt::PromptFeatures::detect();
+    let system_prompt = crate::prompt::build_system_prompt(overrides.as_ref(), &cwd, features);
     let provider_for_factory = provider.clone();
     let provider_name = provider.display_name().to_string();
 
@@ -165,7 +166,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
 
     // 系统提示构建器：根据 agent overrides 构建包含 tone/proactiveness 的完整系统提示
     let system_builder: Arc<dyn Fn(Option<&rust_agent_middlewares::AgentOverrides>, &str) -> String + Send + Sync> =
-        Arc::new(|overrides, cwd| crate::prompt::build_system_prompt(overrides, cwd));
+        Arc::new(|overrides, cwd| crate::prompt::build_system_prompt(overrides, cwd, crate::prompt::PromptFeatures::detect()));
 
     // SubAgent 中间件
     let subagent = SubAgentMiddleware::new(

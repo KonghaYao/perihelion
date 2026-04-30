@@ -19,6 +19,23 @@ impl FolderOperationsTool {
 /// 列表操作最多返回的条目数，防止撑爆 LLM context window
 const MAX_LIST_ENTRIES: usize = 500;
 
+const FOLDER_OPERATIONS_DESCRIPTION: &str = r#"Unified folder operations tool supporting create, list, and existence check.
+
+Operations:
+- "create": Creates a directory at the specified path. By default creates parent directories recursively (recursive: true). Use recursive: false to only create a single directory level
+- "list": Lists the contents of a directory, showing files and subdirectories with sizes and modification dates. Output is truncated beyond 500 entries
+- "exists": Checks whether a path exists and whether it is a directory or file
+
+Usage:
+- The folder_path parameter must be an absolute path, not a relative path
+- You can call multiple tools in a single response. It is always better to check directory existence before creating or listing
+- When creating a directory, the recursive parameter defaults to true, creating all necessary parent directories
+
+Notes:
+- List output shows entries with file size and modification date
+- Directories are shown with a trailing / indicator
+- For large directories (>500 entries), output is truncated with a summary count"#;
+
 fn list_folder(resolved: &Path) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let entries = std::fs::read_dir(resolved)?;
 
@@ -102,16 +119,26 @@ impl BaseTool for FolderOperationsTool {
     }
 
     fn description(&self) -> &str {
-        "Unified folder operations tool supporting create, list, and existence check. Parameters (JSON): operation: \"create\"|\"list\"|\"exists\" (required), folder_path: string (required), recursive: bool (optional)"
+        FOLDER_OPERATIONS_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "operation":   { "type": "string",  "enum": ["create", "list", "exists"], "description": "Operation to perform" },
-                "folder_path": { "type": "string",  "description": "Path to the folder (absolute or relative to cwd)" },
-                "recursive":   { "type": "boolean", "description": "Create parent directories if needed (default true)" }
+                "operation": {
+                    "type": "string",
+                    "enum": ["create", "list", "exists"],
+                    "description": "The folder operation to perform: \"create\" to create a directory, \"list\" to list directory contents, \"exists\" to check if a path exists"
+                },
+                "folder_path": {
+                    "type": "string",
+                    "description": "The absolute path to the folder for the operation"
+                },
+                "recursive": {
+                    "type": "boolean",
+                    "description": "For \"create\" operation: whether to create parent directories if needed (default true). Ignored for other operations"
+                }
             },
             "required": ["operation", "folder_path"]
         })
@@ -267,5 +294,14 @@ mod tests {
             "截断后应保留部分文件: {result}"
         );
         assert!(result.contains("truncated"), "应显示截断提示: {result}");
+    }
+
+    #[test]
+    fn test_description_extended() {
+        let tool = FolderOperationsTool::new("/tmp");
+        let desc = tool.description();
+        assert!(desc.contains("create") && desc.contains("list") && desc.contains("exists"),
+            "description 应提及三种操作");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

@@ -3,6 +3,23 @@ use serde_json::Value;
 
 use super::resolve_path;
 
+const EDIT_FILE_DESCRIPTION: &str = r#"Performs exact string replacements in files.
+
+Usage:
+- You must use your read_file tool at least once in the conversation before editing. This tool will fail if you attempt an edit without reading the file
+- When editing text from read_file tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix
+- ALWAYS prefer editing existing files in the codebase. DO NOT create new files unless explicitly required
+- The file_path parameter must be an absolute path, not a relative path
+- The old_string parameter must match exactly, including all whitespace and indentation
+- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string
+- Use replace_all for replacing and renaming strings across the file
+
+Error handling:
+- old_string not found: returns an error indicating the string does not exist in the file
+- old_string not unique: returns an error with the count of occurrences, suggesting more context or replace_all
+- old_string is empty: returns an error rejecting the operation
+- File not found: returns an error indicating the path does not exist"#;
+
 /// edit_file tool (replace) - 与 TypeScript replace_tool 对齐
 pub struct EditFileTool {
     pub cwd: String,
@@ -21,17 +38,29 @@ impl BaseTool for EditFileTool {
     }
 
     fn description(&self) -> &str {
-        "Performs exact string replacements in files. Parameters (JSON): file_path: string (required), old_string: string (required), new_string: string (required), replace_all: bool (optional)"
+        EDIT_FILE_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "file_path":   { "type": "string",  "description": "Path to the file to modify" },
-                "old_string":  { "type": "string",  "description": "The exact text to replace" },
-                "new_string":  { "type": "string",  "description": "The replacement text" },
-                "replace_all": { "type": "boolean", "description": "Replace all occurrences (default false)" }
+                "file_path": {
+                    "type": "string",
+                    "description": "The absolute path to the file to modify"
+                },
+                "old_string": {
+                    "type": "string",
+                    "description": "The text to replace. Must match EXACTLY including all whitespace, indentation, and newlines. The edit will fail if old_string is not unique in the file unless replace_all is true"
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "The text to replace it with (must be different from old_string)"
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "If true, replace all occurrences of old_string. If false (default), replace only the first occurrence. Use this to rename variables or update repeated patterns across the file"
+                }
             },
             "required": ["file_path", "old_string", "new_string"]
         })
@@ -203,5 +232,15 @@ mod tests {
         // 文件内容不应被修改
         let content = std::fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "hello world", "file should not be modified");
+    }
+
+    #[test]
+    fn test_description_extended() {
+        let tool = EditFileTool::new("/tmp");
+        let desc = tool.description();
+        assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
+        assert!(desc.contains("old_string"), "description 应提及 old_string");
+        assert!(desc.contains("replace_all"), "description 应提及 replace_all");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }

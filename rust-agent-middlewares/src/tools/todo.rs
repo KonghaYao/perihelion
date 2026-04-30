@@ -26,6 +26,26 @@ pub struct TodoItem {
 
 // ─── TodoWriteTool ────────────────────────────────────────────────────────────
 
+const TODO_WRITE_DESCRIPTION: &str = r#"Maintain a todo list for complex multi-step tasks. Call this to create or update your todo list with the complete current state. Each call fully replaces the previous list.
+
+Usage:
+- Use this tool when working on complex, multi-step tasks that benefit from tracking progress
+- Each call sends the COMPLETE todo list — this is a full replacement, not a partial update
+- Include ALL items in every call, not just changed ones
+- Mark items as "in_progress" when starting work on them, and "completed" when done
+- Keep descriptions concise but specific enough to understand at a glance
+
+When to use:
+- Use for tasks with 3+ distinct steps that require tracking
+- Use when the user explicitly asks for a plan or task breakdown
+- Do NOT use for simple, single-step tasks
+- Do NOT use for tasks that can be completed in a single tool call
+
+Status values:
+- "pending": Not yet started
+- "in_progress": Currently being worked on
+- "completed": Finished successfully"#;
+
 /// todo_write 工具：全量覆盖 todo 列表，并通过 channel 通知 TUI 侧
 pub struct TodoWriteTool {
     todos: Arc<Mutex<Vec<TodoItem>>>,
@@ -53,7 +73,7 @@ impl BaseTool for TodoWriteTool {
     }
 
     fn description(&self) -> &str {
-        "Maintain a todo list for complex multi-step tasks. Call this to create or update your todo list with the complete current state. Each call fully replaces the previous list."
+        TODO_WRITE_DESCRIPTION
     }
 
     fn parameters(&self) -> Value {
@@ -62,16 +82,22 @@ impl BaseTool for TodoWriteTool {
             "properties": {
                 "todos": {
                     "type": "array",
-                    "description": "Complete todo list (replaces previous state)",
+                    "description": "The complete todo list (replaces all previous items). Include ALL items in every call, not just new or changed ones. Items not included will be removed",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id":      { "type": "string", "description": "Unique identifier" },
-                            "content": { "type": "string", "description": "Task description" },
-                            "status":  {
+                            "id": {
+                                "type": "string",
+                                "description": "Unique identifier for this todo item. Use simple, stable IDs (e.g. '1', '2', '3') that persist across updates"
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "A concise description of the task to be done (1-2 sentences)"
+                            },
+                            "status": {
                                 "type": "string",
                                 "enum": ["pending", "in_progress", "completed"],
-                                "description": "Task status"
+                                "description": "Current status: 'pending' (not started), 'in_progress' (actively working), 'completed' (done)"
                             }
                         },
                         "required": ["id", "content", "status"]
@@ -102,5 +128,23 @@ impl BaseTool for TodoWriteTool {
         }
 
         Ok("todo saved successfully".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    #[test]
+    fn test_description_extended() {
+        let (tx, _rx) = mpsc::channel(8);
+        let tool = TodoWriteTool::new(tx);
+        let desc = tool.description();
+        assert!(desc.contains("full replacement") || desc.contains("fully replaces"),
+            "description 应提及全量替换语义");
+        assert!(desc.contains("pending") && desc.contains("in_progress") && desc.contains("completed"),
+            "description 应提及三种状态值");
+        assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
     }
 }
