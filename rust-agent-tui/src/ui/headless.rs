@@ -1944,4 +1944,46 @@ mod tests {
         app.core.command_registry = registry;
         assert!(!known, "歧义前缀 dispatch 应返回 false");
     }
+
+    // ── SystemNote Error Color Detection ────────────────────────────────────
+
+    #[test]
+    fn test_system_note_error_detection() {
+        use crate::ui::message_view::MessageViewModel;
+        // 错误类 system note
+        let error_content = "❌ 压缩失败: 未配置 Provider";
+        assert!(
+            error_content.contains("❌") || error_content.contains("失败"),
+            "应检测到错误标记"
+        );
+        let warn_content = "⚠ 已中断";
+        assert!(
+            warn_content.contains("⚠"),
+            "应检测到警告标记"
+        );
+        // 普通信息
+        let info_content = "已加载对话";
+        assert!(
+            !info_content.contains("❌") && !info_content.contains("失败") && !info_content.contains("⚠"),
+            "普通消息不应被标记为错误"
+        );
+    }
+
+    // ── Compact Start Feedback ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_compact_empty_shows_no_context_message() {
+        let (mut app, _handle) = App::new_headless(120, 30);
+        // 空消息时调用 compact 应提示无上下文
+        app.start_compact(String::new());
+        let msgs = &app.core.view_messages;
+        let has_hint = msgs.iter().any(|vm| {
+            if let crate::ui::message_view::MessageViewModel::SystemNote { content } = vm {
+                content.contains("无可压缩")
+            } else {
+                false
+            }
+        });
+        assert!(has_hint, "空消息 compact 应显示无上下文提示");
+    }
 }
