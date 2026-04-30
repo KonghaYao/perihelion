@@ -99,19 +99,8 @@ impl App {
             .send(RenderEvent::LoadHistory(self.core.view_messages.clone()));
     }
 
-    /// 恢复历史 thread（带反馈消息）：获取标题后调用 open_thread
     pub fn open_thread_with_feedback(&mut self, thread_id: ThreadId) {
-        let title = self.core.thread_browser.as_ref()
-            .and_then(|b| b.selected_thread())
-            .and_then(|t| t.title.clone())
-            .unwrap_or_else(|| "(无标题)".to_string());
         self.open_thread(thread_id);
-        // 在已加载的消息开头插入确认消息
-        let confirm = MessageViewModel::system(
-            format!("已加载「{}」", title),
-        );
-        self.core.view_messages.insert(0, confirm.clone());
-        let _ = self.core.render_tx.send(RenderEvent::AddMessage(confirm));
     }
 
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）

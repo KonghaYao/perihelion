@@ -7,7 +7,11 @@ use super::message_view::{ContentBlockView, MessageViewModel, ToolCategory};
 use super::theme;
 
 /// 将单个 ViewModel 渲染为 Vec<Line>
-pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: usize) -> Vec<Line<'static>> {
+pub fn render_view_model(
+    vm: &MessageViewModel,
+    _index: Option<usize>,
+    _width: usize,
+) -> Vec<Line<'static>> {
     match vm {
         MessageViewModel::UserBubble { rendered, .. } => {
             let user_bg: Color = Color::Rgb(74, 70, 66);
@@ -17,7 +21,10 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                     // 第一行：用户消息用 ❯ 前缀，带底色
                     let mut spans = vec![Span::styled(
                         "❯ ",
-                        Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD).bg(user_bg),
+                        Style::default()
+                            .fg(theme::ACCENT)
+                            .add_modifier(Modifier::BOLD)
+                            .bg(user_bg),
                     )];
                     for span in &line.spans {
                         spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
@@ -34,10 +41,7 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             }
             lines
         }
-        MessageViewModel::AssistantBubble {
-            blocks,
-            ..
-        } => {
+        MessageViewModel::AssistantBubble { blocks, .. } => {
             let mut lines = Vec::new();
             let mut first_text_merged = false;
 
@@ -45,15 +49,13 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                 match block {
                     ContentBlockView::Text { rendered, raw, .. } => {
                         // 检测是否为 diff 内容，如果是则用 diff 着色覆盖
-                        let is_diff = perihelion_widgets::message_block::highlight::is_diff_content(raw);
+                        let is_diff =
+                            perihelion_widgets::message_block::highlight::is_diff_content(raw);
                         for line in rendered.lines.iter() {
                             if !first_text_merged {
                                 // 第一行文本合并到标题行，保留 markdown 样式 spans
                                 let mut spans = vec![
-                                    Span::styled(
-                                        format!("●"),
-                                        Style::default().fg(Color::White),
-                                    ),
+                                    Span::styled(format!("●"), Style::default().fg(Color::White)),
                                     Span::raw(" "),
                                 ];
                                 spans.extend(line.spans.clone());
@@ -116,10 +118,7 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                 perihelion_widgets::ToolCallStatus::Completed
             };
 
-            let mut state = perihelion_widgets::ToolCallState::new(
-                display_name.clone(),
-                *color,
-            );
+            let mut state = perihelion_widgets::ToolCallState::new(display_name.clone(), *color);
             state.status = status;
             state.collapsed = *collapsed;
             state.is_error = *is_error;
@@ -131,20 +130,22 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             }
 
             // 使用 ToolCallWidget 的渲染逻辑
-            let indicator = perihelion_widgets::tool_call::display::format_indicator(state.status.clone(), state.tick);
+            let indicator = perihelion_widgets::tool_call::display::format_indicator(
+                state.status.clone(),
+                state.tick,
+            );
             let indicator_color = match state.status {
                 perihelion_widgets::ToolCallStatus::Completed => Color::Green,
                 _ => Color::White,
             };
             let mut header_spans = vec![
-                Span::styled(
-                    indicator.to_string(),
-                    Style::default().fg(indicator_color),
-                ),
+                Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),
                 Span::raw(" "),
                 Span::styled(
                     state.tool_name.clone(),
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ];
             // Running 状态添加文字标签
@@ -155,7 +156,10 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                 ));
             }
             if !state.args_summary.is_empty() {
-                let summary = perihelion_widgets::tool_call::display::format_args_summary(&state.args_summary, 40);
+                let summary = perihelion_widgets::tool_call::display::format_args_summary(
+                    &state.args_summary,
+                    40,
+                );
                 header_spans.push(Span::styled(
                     format!("({})", summary),
                     Style::default().fg(Color::DarkGray),
@@ -163,8 +167,16 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             }
             let mut lines = vec![Line::from(header_spans)];
             if !state.collapsed && !state.result_lines.is_empty() {
-                let result_color = if *is_error { theme::ERROR } else { theme::MUTED };
-                let border_color = if *is_error { theme::ERROR } else { Color::DarkGray };
+                let result_color = if *is_error {
+                    theme::ERROR
+                } else {
+                    theme::MUTED
+                };
+                let border_color = if *is_error {
+                    theme::ERROR
+                } else {
+                    Color::DarkGray
+                };
                 for line in &state.result_lines {
                     lines.push(Line::from(vec![
                         Span::styled("  │ ".to_string(), Style::default().fg(border_color)),
@@ -180,62 +192,49 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
         MessageViewModel::SubAgentGroup {
             agent_id,
             task_preview,
-            total_steps,
             recent_messages,
-            is_running,
             collapsed,
-            final_result,
+            ..
         } => {
             let agent_color = theme::SUB_AGENT;
             let mut lines: Vec<Line<'static>> = Vec::new();
 
             if *collapsed {
-                // 折叠状态：单行显示摘要
-                let result_preview = final_result
-                    .as_deref()
-                    .map(|r| {
-                        let preview: String = r.chars().take(50).collect();
-                        if r.chars().count() > 50 {
-                            format!("{}…", preview)
-                        } else {
-                            preview
-                        }
-                    })
-                    .unwrap_or_default();
-                let mut spans = vec![
-                    Span::styled(
-                        format!("● 🤖 {}  「已完成 {} 步」", agent_id, total_steps),
-                        Style::default().fg(agent_color).add_modifier(Modifier::BOLD),
-                    ),
-                ];
-                if !result_preview.is_empty() {
-                    spans.push(Span::styled(
-                        format!("  {}", result_preview),
-                        Style::default().fg(theme::MUTED),
-                    ));
-                }
-                lines.push(Line::from(spans));
-            } else {
-                // 展开状态：头行 + 嵌套消息 + 摘要
-                let status_span = if *is_running {
-                    Span::styled(
-                        format!("[运行中 · 已执行 {} 步]", total_steps),
-                        Style::default().fg(theme::WARNING),
-                    )
+                // 折叠状态：两行显示
+                lines.push(Line::from(vec![Span::styled(
+                    format!("● {}", agent_id),
+                    Style::default()
+                        .fg(agent_color)
+                        .add_modifier(Modifier::BOLD),
+                )]));
+                let task_label: String = task_preview.chars().take(50).collect();
+                let suffix = if task_preview.chars().count() > 50 {
+                    "…"
                 } else {
-                    Span::styled(
-                        format!("[已完成 {} 步]", total_steps),
-                        Style::default().fg(agent_color),
-                    )
+                    ""
                 };
-                let task_label: String = task_preview.chars().take(40).collect();
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("● 🤖 {}  「{}」  ", agent_id, task_label),
-                        Style::default().fg(agent_color).add_modifier(Modifier::BOLD),
-                    ),
-                    status_span,
-                ]));
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  {}{}", task_label, suffix),
+                    Style::default().fg(theme::MUTED),
+                )]));
+            } else {
+                // 展开状态：名称 + 任务描述
+                let task_label: String = task_preview.chars().take(50).collect();
+                let suffix = if task_preview.chars().count() > 50 {
+                    "…"
+                } else {
+                    ""
+                };
+                lines.push(Line::from(vec![Span::styled(
+                    format!("● 🤖 {}", agent_id),
+                    Style::default()
+                        .fg(agent_color)
+                        .add_modifier(Modifier::BOLD),
+                )]));
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  {}{}", task_label, suffix),
+                    Style::default().fg(theme::MUTED),
+                )]));
 
                 // 嵌套消息（不渲染序号）
                 for inner_vm in recent_messages.iter() {
@@ -247,39 +246,14 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
                         lines.push(Line::from(new_spans));
                     }
                 }
-
-                // 步数超过 4 时显示提示
-                if *total_steps > 4 {
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(
-                            format!("[仅显示最近 4/{} 步]", total_steps),
-                            Style::default().fg(theme::MUTED),
-                        ),
-                    ]));
-                }
-
-                // 完成后显示结果摘要
-                if !is_running {
-                    if let Some(result) = final_result {
-                        let result_preview: String = result.chars().take(100).collect();
-                        let suffix = if result.chars().count() > 100 { "…" } else { "" };
-                        lines.push(Line::from(vec![
-                            Span::raw("  "),
-                            Span::styled(
-                                format!("结果: {}{}", result_preview, suffix),
-                                Style::default().fg(agent_color),
-                            ),
-                        ]));
-                    }
-                }
             }
 
             lines
         }
         MessageViewModel::SystemNote { content } => {
             let mut lines = Vec::new();
-            let is_error = content.contains("❌") || content.contains("失败") || content.contains("错误");
+            let is_error =
+                content.contains("❌") || content.contains("失败") || content.contains("错误");
             let is_warn = content.contains("⚠") || content.contains("已中断");
             let (icon, icon_color, text_color) = if is_error {
                 ("✗ ", theme::ERROR, theme::ERROR)
@@ -296,28 +270,28 @@ pub fn render_view_model(vm: &MessageViewModel, _index: Option<usize>, _width: u
             }
             lines
         }
-        MessageViewModel::ToolCallGroup { tools, collapsed, .. } => {
+        MessageViewModel::ToolCallGroup {
+            tools, collapsed, ..
+        } => {
             let count = tools.len();
             let mut lines = Vec::new();
             let summary = ToolCategory::summary_for_tools(tools);
 
             if *collapsed {
                 // 折叠：单行摘要 + ▶ 展开提示
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("  ▶ {}", summary),
-                        Style::default().fg(theme::MUTED),
-                    ),
-                ]));
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  ▶ {}", summary),
+                    Style::default().fg(theme::MUTED),
+                )]));
             } else {
                 // 展开：标题 + 每个工具的参数
                 let arrow = if count == 1 { " " } else { " " };
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("  {}{}", arrow, summary),
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-                    ),
-                ]));
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  {}{}", arrow, summary),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )]));
                 for entry in tools {
                     let mut detail = String::new();
                     if let Some(args) = &entry.args_display {
