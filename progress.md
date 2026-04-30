@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第17轮
+
+Anthropic Prompt Caching 审查：发现 apply_cache_to_messages 将 cache_control 标记放在最后一条 user 消息上，但 ReAct 循环中该消息每轮变化导致缓存失效命中率为零。改为在第一条 user 消息上加 cache_control（稳定边界），与 system 缓存共同构成稳定缓存段，后续轮次持续命中。新增 5 个测试覆盖边界行为（首条/跳过assistant/多block/空block/无user消息）。823 测试通过。
+
 ## 2026-04-30 第16轮
 
 Token 追踪模块审查：发现 ContextBudget 虽在 token.rs 完整定义了 auto_compact/warning 阈值计算逻辑（含测试），但 executor 从未使用——而是硬编码 80% 作为上下文警告阈值，且与 CompactConfig 的 70% 默认 warning_threshold 不一致，定义层与执行层脱节。为 ReActAgent 新增 context_budget 字段和 with_context_budget() builder 方法，execute 循环改为优先使用 ContextBudget::should_warn()，无配置时回退硬编码逻辑。新增 2 个测试。818 测试通过。
