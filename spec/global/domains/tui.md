@@ -360,3 +360,11 @@ submit_message(text)
 - → [agent.md#20260322_F001_agent-storage-refactor](./agent.md#20260322_F001_agent-storage-refactor) — SQLite 持久化，TUI 消息渲染依赖此存储
 - → [langfuse.md#feature_20260324_F001_langfuse-tui-monitoring](./langfuse.md#feature_20260324_F001_langfuse-tui-monitoring) — Langfuse 追踪集成在 TUI 的 app/agent.rs
 - → [agent.md#feature_20260328_F001_ask-user-question-align](./agent.md#feature_20260328_F001_ask-user-question-align) — AskUser 弹窗展示更新（header + description），TUI 弹窗同步更新
+- → [tui-widgets.md](./tui-widgets.md) — perihelion-widgets 独立 widget crate 和 Spinner/ToolCall/MessageBlock 组件
+- → [code-highlight.md](./code-highlight.md) — syntect 代码高亮集成到 Markdown 渲染
+- → [mouse-selection.md](./mouse-selection.md) — 鼠标拖拽文字选区和剪贴板复制
+- → [skill-trigger.md](./skill-trigger.md) — Skills 触发键从 # 统一到 / 前缀
+- → [hitl-permissions.md](./hitl-permissions.md) — 5 级权限模式 Shift+Tab 切换
+- → [model-config.md](./model-config.md) — /login 面板 Provider CRUD
+- → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一消息管线
+- → [compact.md](./compact.md) — Micro/Full Compact 策略增强

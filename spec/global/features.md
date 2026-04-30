@@ -11,6 +11,9 @@
 - **MessageAdapter 双向转换:** `OpenAiAdapter` / `AnthropicAdapter` 实现 `MessageAdapter` trait，`BaseMessage` ↔ Provider 原生 JSON
 - **ContentBlock 完整支持:** Text / Image（Base64 & URL）/ Document / ToolUse / ToolResult / Reasoning / Unknown 透传
 - **Middleware Chain:** `Middleware<S>` trait，`before_agent` / `after_agent` / `before_tool` / `after_tool` / `collect_tools` 五个钩子
+- **系统提示词段落化:** 12 个 .md 段落文件（8 静态+4 feature-gated），PromptFeatures 条件注入，include_str! 编译时嵌入
+- **消息管线统一:** MessagePipeline 唯一入口，PipelineAction 枚举，ToolStart+ToolEnd 事件拆分
+- **尾部重建:** reconcile_tail() 方法，Done/Interrupted 时触发，RebuildAll 只替换尾部
 
 ## 中间件（rust-agent-middlewares）
 
@@ -22,6 +25,11 @@
 - **AgentsMdMiddleware:** `before_agent` 自动读取 `CLAUDE.md` / `AGENTS.md`，prepend System prompt
 - **TodoMiddleware:** `after_tool` 解析 `todo_write` 结果，推送 Todo 状态到渲染 channel
 - **AskUserTool:** `ask_user_question` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
+- **Token 追踪:** TokenTracker 累积追踪 input/output/cache tokens，ContextBudget 上下文窗口预算管理
+- **Micro-compact:** 零 API 调用轻量压缩，可压缩工具白名单 + 时间衰减清除，图片/文档替换
+- **Full Compact:** 9 段结构化摘要模板，工具对完整性保护，PTL 降级重试
+- **LLM 重试:** RetryableLLM<L> 装饰器，指数退避+25%随机抖动，LlmRetrying 事件通知
+- **进程内文件搜索:** grep+grep-regex crate 替代外部 rg 进程，WalkParallel 多线程并行，15 秒超时
 
 ## TUI 界面（rust-agent-tui）
 
@@ -49,6 +57,13 @@
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
 - **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头
 - **App 结构体拆分:** App 拆分为 AppCore/AgentComm/LangfuseState 三个子结构体（共 37 字段），对外 API 通过转发方法保持不变
+- **Widget 独立 crate:** perihelion-widgets 提供 11 个通用组件（BorderedPanel、ScrollableArea、SelectableList、InputField、TabBar、RadioGroup、CheckboxGroup、FormState、MarkdownRenderer、Spinner、ToolCall），零内部依赖
+- **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示
+- **智能折叠策略:** 只读工具默认折叠、写操作默认展开，SubAgent 步数超过 4 自动折叠
+- **syntect 代码高亮:** markdown-highlight feature flag 控制，base16-ocean.dark 主题，单行代码块不高亮
+- **鼠标文字选区:** TextSelection 模块管理拖拽状态，WrappedLineInfo 换行映射，Ctrl+C 优先级链（选区复制>中断>退出），REVERSED 反色高亮
+- **Skills / 触发:** Skills 触发键从 # 统一到 / 前缀，提示浮层合并命令组+Skills 组，命令优先
+- **5 级权限模式:** Default/AcceptEdits/Auto/BypassPermissions/DontAsk，Shift+Tab 循环切换，Arc<AtomicU8> 无锁共享，状态栏实时显示
 
 ## 基础设施
 
@@ -58,4 +73,4 @@
 - **配置持久化:** `~/.zen-code/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
 
 ---
-*最后更新: 2026-04-27 — 移除 Relay 功能特性和基础设施条目*
+*最后更新: 2026-04-30 — 由 15 个 feature 归档批量更新*

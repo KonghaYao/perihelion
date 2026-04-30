@@ -12,6 +12,21 @@
 
 | Feature ID | 摘要 | 领域 | 归档日期 |
 |-----------|------|------|----------|
+| [feature_20260430_F003_replace-grep-with-ripgrep](../archive/feature_20260430_F003_replace-grep-with-ripgrep/) | 用 grep+grep-regex crate 替换外部 rg 进程调用 | file-search | 2026-04-30 |
+| [feature_20260430_F002_reconcile-on-done-interrupted](../archive/feature_20260430_F002_reconcile-on-done-interrupted/) | Done/Interrupted 事件触发尾部重建确保流式与恢复路径一致 | message-pipeline | 2026-04-30 |
+| [feature_20260430_F001_system-prompt-restructure](../archive/feature_20260430_F001_system-prompt-restructure/) | 系统提示词拆分为独立段落文件并支持 Feature 条件注入 | system-prompt | 2026-04-30 |
+| [feature_20260429_F002_mouse-text-selection](../archive/feature_20260429_F002_mouse-text-selection/) | TUI 鼠标拖拽选中文本并复制到系统剪贴板 | mouse-selection | 2026-04-30 |
+| [feature_20260429_F001_syntect-codeblock-highlight](../archive/feature_20260429_F001_syntect-codeblock-highlight/) | 使用 syntect 为 Markdown 多行代码块添加语法高亮 | code-highlight | 2026-04-30 |
+| [feature_20260429_F001_skill-slash-trigger](../archive/feature_20260429_F001_skill-slash-trigger/) | Skills 触发键从 # 统一到 / 前缀 | skill-trigger | 2026-04-30 |
+| [feature_20260428_F002_message-pipeline-unify](../archive/feature_20260428_F002_message-pipeline-unify/) | 统一流式与历史恢复的消息显示管线 | message-pipeline | 2026-04-30 |
+| [feature_20260428_F001_llm-retry](../archive/feature_20260428_F001_llm-retry/) | LLM 暂时性错误自动重试（指数退避+抖动） | llm-retry | 2026-04-30 |
+| [feature_20260428_F001_compact-redesign](../archive/feature_20260428_F001_compact-redesign/) | 全面增强 Micro/Full Compact 策略与压缩后重新注入 | compact | 2026-04-30 |
+| [feature_20260427_F004_token-tracking-auto-compact](../archive/feature_20260427_F004_token-tracking-auto-compact/) | Token 累积追踪与上下文窗口感知的自动压缩机制 | token-tracking | 2026-04-30 |
+| [feature_20260427_F003_model-config-refactor](../archive/feature_20260427_F003_model-config-refactor/) | Provider 自包含三级别模型名，/login 与 /model 职责分离 | model-config | 2026-04-30 |
+| [feature_20260427_F002_permission-mode](../archive/feature_20260427_F002_permission-mode/) | 支持 5 级权限模式，Shift+Tab 循环切换 | hitl-permissions | 2026-04-30 |
+| [feature_20260427_F001_relay-removal](../archive/feature_20260427_F001_relay-removal/) | 完整删除废弃的 Relay Server 远程控制功能 | code-architecture | 2026-04-30 |
+| [feature_20260427_F001_ratatui-widget-lib](../archive/feature_20260427_F001_ratatui-widget-lib/) | 抽取 TUI 重复 UI 代码为独立可复用 ratatui widget crate | tui-widgets | 2026-04-30 |
+| [feature_20260427_F001_claude-code-info-display](../archive/feature_20260427_F001_claude-code-info-display/) | 对标 Claude Code 新增 Spinner、工具调用、消息块三个 widget | tui-widgets | 2026-04-30 |
 | [20260408_F001_askuser-dialog-height](../archive/feature_20260408_F001_askuser-dialog-height/) | AskUser 弹窗高度计算修复，滚动可见高度动态化 | tui | 2026-04-27 |
 | [20260331_F001_history-workspace-tag](../archive/feature_20260331_F001_history-workspace-tag/) | /history 面板按 cwd 过滤只显示当前工作区对话 | tui | 2026-04-27 |
 | [20260330_F005_tui-setup-wizard](../archive/feature_20260330_F005_tui-setup-wizard/) | 首次启动三步引导（Provider → API Key → Model Alias） | tui | 2026-04-27 |
@@ -81,6 +96,19 @@
 - [tui](./domains/tui.md) — TUI 界面（渲染、交互、命令、面板）— 26 features
 - [relay-server](./domains/relay-server.md) — Relay Server（WebSocket 中继、远程控制）— 12 features
 - [langfuse](./domains/langfuse.md) — 可观测性（Langfuse 全链路追踪、Session/Trace/Generation/Tool 层级）— 8 features
+- [model-config](./domains/model-config.md) — 模型配置（Provider 自包含模型名、/login 与 /model 分离）— 1 feature
+- [token-tracking](./domains/token-tracking.md) — Token 追踪与压缩（累积追踪、上下文窗口感知、自动压缩）— 1 feature
+- [llm-retry](./domains/llm-retry.md) — LLM 重试（暂时性错误自动重试、指数退避）— 1 feature
+- [message-pipeline](./domains/message-pipeline.md) — 消息管线（统一流式与历史恢复、PipelineAction）— 2 features
+- [skill-trigger](./domains/skill-trigger.md) — Skills 触发（从 # 统一到 / 前缀）— 1 feature
+- [code-highlight](./domains/code-highlight.md) — 代码高亮（syntect 语法高亮）— 1 feature
+- [mouse-selection](./domains/mouse-selection.md) — 鼠标选区（拖拽选中文本、剪贴板复制）— 1 feature
+- [system-prompt](./domains/system-prompt.md) — 系统提示词（段落化、Feature 条件注入）— 1 feature
+- [file-search](./domains/file-search.md) — 文件搜索（grep crate 进程内搜索）— 1 feature
+- [hitl-permissions](./domains/hitl-permissions.md) — HITL 权限（5 级权限模式）— 1 feature
+- [tui-widgets](./domains/tui-widgets.md) — TUI 组件（Spinner/ToolCall/MessageBlock widget + widget 库抽取）— 2 features
+- [compact](./domains/compact.md) — 上下文压缩增强（Micro/Full Compact 策略）— 1 feature
+- [code-architecture](./domains/code-architecture.md) — 代码架构（Relay 移除等结构性变更）— 1 feature
 
 ---
-*最后更新: 2026-04-27 — 由 13 个 feature 归档批量更新*
+*最后更新: 2026-04-30 — 由 15 个 feature 归档批量更新*

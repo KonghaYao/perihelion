@@ -5,7 +5,7 @@
 | 组件 | 类型 | 职责 |
 |------|------|------|
 | `rust-create-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
-| `rust-agent-middlewares` | 中间件库 | 文件系统、终端、HITL、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、PrependSystem、AskUser 等具体实现 |
+| `rust-agent-middlewares` | 中间件库 | 文件系统、终端、HITL（含 SharedPermissionMode/Auto 分类器）、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、PrependSystem、AskUser、CronMiddleware、grep 进程内搜索 等具体实现 |
 | `rust-agent-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板、Langfuse 追踪 |
 
 ## Workspace 依赖关系
@@ -15,7 +15,9 @@ rust-create-agent           ← 零内部依赖，纯核心框架
     ↑
 rust-agent-middlewares      ← 依赖 rust-create-agent
     ↑
-rust-agent-tui              ← 依赖 rust-agent-middlewares
+perihelion-widgets          ← 零内部依赖，仅依赖 ratatui + pulldown-cmark
+    ↑
+rust-agent-tui              ← 依赖 perihelion-widgets + rust-agent-middlewares
 ```
 
 ## 模块划分
@@ -28,12 +30,20 @@ src/
 │   ├── react.rs          — ReAct 循环主体：max_iterations(50)、工具并发分发、事件发射
 │   ├── executor.rs       — ReActAgent：组装 middleware chain + LLM + 取消令牌
 │   ├── state.rs          — AgentState：消息历史（只追加）、cwd、工具注册表
+│   ├── token.rs          — TokenTracker / ContextBudget（Token 累积追踪与上下文窗口预算）
+│   ├── compact/          — Micro/Full Compact 实现
+│   │   ├── config.rs     — CompactConfig（阈值、策略配置）
+│   │   ├── micro.rs      — Micro-compact：清除可压缩工具结果/图片/文档
+│   │   ├── full.rs       — Full Compact：LLM 生成 9 段摘要替换历史
+│   │   ├── re_inject.rs  — 重新注入最近文件 + Skills
+│   │   └── invariant.rs  — Compact 不变量校验
 │   └── events.rs         — AgentEvent 枚举（11 种变体，见下方事件系统）
 ├── llm/
 │   ├── adapter.rs        — BaseModel trait 定义（invoke → LlmResponse）
 │   ├── anthropic.rs      — ChatAnthropic：Prompt Cache + Extended Thinking + system blocks
 │   ├── openai.rs         — ChatOpenAI：SSE streaming + reasoning_content（DeepSeek-R1/o系列）
 │   ├── react_adapter.rs  — BaseModelReactLLM：BaseModel → ReactLLM trait 适配
+│   ├── retry.rs          — RetryableLLM<L> 装饰器（指数退避+随机抖动）
 │   └── types.rs          — TokenUsage、LlmRequest/LlmResponse 类型定义
 ├── middleware/
 │   ├── trait.rs          — Middleware<S> trait（5 个钩子：before/after_agent、before/after_tool、collect_tools）
@@ -53,7 +63,7 @@ src/
 │   └── types.rs          — ThreadId（UUID v7）、ThreadMeta
 ├── hitl/                 — HitlDecision 枚举（Approve/Edit/Reject/Respond）、HitlHandler trait、BatchItem
 ├── ask_user/             — AskUserInvoker trait、AskUserBatchRequest、AskUserQuestionData、AskUserOption
-├── error.rs              — AgentError / AgentResult 统一错误类型
+├── error.rs              — AgentError / AgentResult 统一错误类型、LlmHttpError（携带 HTTP status code）
 └── telemetry/
     ├── subscriber.rs     — tracing-subscriber 初始化（env-filter + fmt + json）
     └── otel.rs           — OpenTelemetry OTLP HTTP 导出，tracing-opentelemetry 桥接
@@ -68,7 +78,10 @@ src/
 │   ├── terminal.rs       — TerminalMiddleware（bash 工具，120s 超时，跨平台）
 │   ├── prepend_system.rs — PrependSystemMiddleware（before_agent 注入 system prompt）
 │   └── todo.rs           — TodoMiddleware（after_tool 解析 todo_write，推送 channel）
-├── hitl/                 — HumanInTheLoopMiddleware（before_tool 拦截 + requires_approval 判断）
+├── hitl/
+│   ├── mod.rs            — HumanInTheLoopMiddleware（before_tool 拦截 + requires_approval 判断）
+│   ├── shared_mode.rs    — SharedPermissionMode (Arc<AtomicU8> 无锁共享权限模式)
+│   └── auto_classifier.rs — LlmAutoClassifier (Auto 模式分类器)
 ├── subagent/
 │   ├── mod.rs            — SubAgentMiddleware（挂载 launch_agent 工具 + LLM 工厂 + system builder）
 │   ├── tool.rs           — SubAgentTool（读 agent 定义、创建子 Agent、工具过滤/防递归）
@@ -86,7 +99,7 @@ src/
     │   ├── write.rs      — WriteFileTool
     │   ├── edit.rs       — EditFileTool
     │   ├── glob.rs       — GlobFilesTool
-    │   ├── grep.rs       — SearchFilesRgTool
+    │   ├── grep.rs       — GrepTool（进程内搜索，grep+grep-regex crate）
     │   └── folder.rs     — FolderOperationsTool
     ├── ask_user_tool.rs  — AskUserTool（oneshot channel 挂起等待用户输入）
     ├── todo.rs           — TodoWriteTool + TodoItem / TodoStatus
@@ -102,6 +115,8 @@ src/
 │   ├── mod.rs            — App 结构体：消息列表、loading、弹窗状态、渲染缓存、Langfuse session
 │   ├── agent.rs          — run_universal_agent()：组装 Agent + 中间件链 + event handler
 │   ├── events.rs         — TUI 层 AgentEvent（包装核心 AgentEvent + Done/Error/Approval 等 TUI 专有事件）
+│   ├── message_pipeline.rs — MessagePipeline 统一消息管线
+│   ├── text_selection.rs — TextSelection 鼠标文字选区
 │   ├── hitl.rs           — ApprovalEvent / BatchApprovalRequest 定义
 │   ├── hitl_prompt.rs    — HitlBatchPrompt 弹窗状态（工具名/参数/选中项/滚动）
 │   ├── hitl_ops.rs       — HITL 弹窗操作逻辑（confirm/navigate/edit）
@@ -114,7 +129,8 @@ src/
 │   ├── panel_ops.rs      — 通用面板操作（打开/关闭/导航）
 │   ├── thread_ops.rs     — 线程操作（新建/打开/删除会话）
 │   ├── agent_ops.rs      — Agent 启动/停止操作
-│   └── hint_ops.rs       — Skills 提示浮层操作（# 触发）
+│   ├── hint_ops.rs       — Skills 提示浮层操作（# 触发）
+│   └── login_panel.rs    — /login 面板（Provider CRUD）
 ├── ui/
 │   ├── main_ui.rs        — 主 render() 入口：区域布局 + 分发到子组件
 │   ├── main_ui/
@@ -152,7 +168,7 @@ src/
 │   ├── help.rs           — /help 命令处理
 │   └── agent.rs          — agent 相关命令
 ├── event.rs              — crossterm 事件适配（键盘/鼠标/粘贴 → Action 枚举）
-└── prompt.rs             — 系统提示词构建（组合 CLAUDE.md + Skills + AgentDefine）
+└── prompt.rs             — 系统提示词构建（段落化 sections/ + PromptFeatures 条件注入）
 ```
 
 ## 事件系统
@@ -170,6 +186,7 @@ src/
 | `MessageAdded` | 增量消息 | 单条 BaseMessage（用于持久化和遥测） |
 | `LlmCallStart` | LLM 调用开始 | step + messages 快照 + tools 定义（Langfuse） |
 | `LlmCallEnd` | LLM 调用结束 | step + model + output + TokenUsage（Langfuse） |
+| `LlmRetrying` | LLM 重试中 | attempt, max_attempts, delay_ms, error |
 
 ### TUI AgentEvent（应用层，扩展变体）
 
@@ -260,6 +277,17 @@ LangfuseSession（Thread 级别，跨多轮复用）
                       └─ ...
 ```
 
+### 上下文压缩流程
+
+```
+LlmCallEnd 携带 usage
+  → TokenTracker.accumulate()
+  → context_usage_percent() > threshold
+  → Micro-compact: 清除可压缩工具结果/图片/文档
+  → Full Compact: LLM 生成 9 段摘要替换历史
+  → re_inject: 重新注入最近文件 + Skills
+```
+
 ## 中间件链执行顺序
 
 中间件按注册顺序执行，典型组装顺序：
@@ -321,4 +349,4 @@ rust-create-agent（tracing spans）
 ```
 
 ---
-*最后更新: 2026-04-27 — 移除 rust-relay-server crate 及 Relay 集成*
+*最后更新: 2026-04-30 — 由 15 个 feature 归档批量更新*

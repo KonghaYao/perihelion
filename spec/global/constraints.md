@@ -10,6 +10,9 @@
 - **序列化:** serde 1.x + serde_json 1.x
 - **数据库:** rusqlite 0.31（bundled SQLite，WAL 模式）
 - **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic）
+- **perihelion-widgets**（独立 widget crate，BorderedPanel/ScrollableArea/SelectableList/MarkdownRenderer 等 11 组件）
+- **syntect 5**（代码语法高亮，feature flag `markdown-highlight` 控制）
+- **grep 0.4 + grep-regex**（进程内文件内容搜索，替代外部 rg 进程）
 - **定时任务:** croner 2（cron 表达式解析与下次触发时间计算，仅 rust-agent-middlewares）
 - **错误处理:** thiserror 2.0（库 crate）/ anyhow 1.0（应用层）
 - **日志/追踪:** tracing 0.1 + tracing-subscriber 0.3 + opentelemetry 0.31 + tracing-opentelemetry 0.32
@@ -27,6 +30,12 @@
 - **消息不可变历史:** `AgentState` 消息列表只追加，不修改历史，保证 LLM 上下文一致性
 - **事件驱动 TUI 通信:** Agent task 与 TUI 渲染线程通过有界 mpsc channel + oneshot 通信，禁止共享可变状态
 - **线程持久化事件驱动:** 持久化由 `StateSnapshot` 事件触发增量写入，不做全量序列化
+- **Widget 独立 crate:** perihelion-widgets 零内部依赖，仅依赖 ratatui + pulldown-cmark，TUI 通过 feature flag 引入
+- **权限模式系统:** 5 级 PermissionMode（Default/AcceptEdits/Auto/BypassPermissions/DontAsk），Arc<AtomicU8> 无锁共享，HITL middleware 根据 mode 决定放行/拦截
+- **LLM 重试装饰器:** RetryableLLM<L> 装饰器模式，对 executor 零改动，指数退避+25%随机抖动
+- **消息管线统一:** MessagePipeline 成为消息状态管理唯一入口，PipelineAction 枚举统一描述所有 UI 变更
+- **系统提示词段落化:** include_str! 编译时嵌入 sections/ 目录下的 12 个 .md 段落，PromptFeatures 条件注入
+- **进程内搜索:** 使用 grep+grep-regex crate 替代外部 rg 进程，WalkParallel 多线程并行
 
 ## API 风格
 
@@ -57,4 +66,4 @@
 - **SubAgent 防递归:** `launch_agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 
 ---
-*最后更新: 2026-04-27 — 移除 Relay Server 相关技术栈、架构决策和 API 风格条目*
+*最后更新: 2026-04-30 — 由 15 个 feature 归档批量更新*

@@ -220,3 +220,11 @@ launch_agent 工具调用
 - → [relay-server.md#feature_20260326_F009_relay-message-id-propagation](./relay-server.md) — message_id 透传到 Web 前端
 - → [langfuse.md#feature_20260325_F003_langfuse-observation-types](./langfuse.md#feature_20260325_F003_langfuse-observation-types) — Langfuse 观测依赖 AgentEvent LlmCallStart/End 钩子
 - → [tui.md#feature_20260328_F003_test-coverage-improvement](./tui.md#feature_20260328_F003_test-coverage-improvement) — ask_user_tool 10 个单元测试（MockBroker 参数解析和返回格式）
+- → [hitl-permissions.md](./hitl-permissions.md) — 5 级权限模式 HITL middleware 集成
+- → [llm-retry.md](./llm-retry.md) — RetryableLLM 装饰器包装 ReactLLM
+- → [system-prompt.md](./system-prompt.md) — 系统提示词段落化 PromptFeatures 条件注入
+- → [file-search.md](./file-search.md) — grep crate 进程内文件搜索
+- → [token-tracking.md](./token-tracking.md) — TokenTracker Token 累积追踪
+- → [compact.md](./compact.md) — Micro/Full Compact 核心层消息操作
+- → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一管线
+- → [code-architecture.md](./code-architecture.md) — Relay Server 移除
