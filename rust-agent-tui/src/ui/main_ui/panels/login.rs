@@ -89,9 +89,9 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
             }
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled(" Space", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(" Enter", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
                 Span::styled(":选中  ", Style::default().fg(theme::MUTED)),
-                Span::styled("Enter", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
+                Span::styled("Tab", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
                 Span::styled(":编辑  ", Style::default().fg(theme::MUTED)),
                 Span::styled("Ctrl+N", Style::default().fg(theme::SAGE).add_modifier(Modifier::BOLD)),
                 Span::styled(":新建  ", Style::default().fg(theme::MUTED)),

@@ -735,6 +735,9 @@ fn handle_login_panel(app: &mut App, input: Input) {
                 app.core.login_panel.as_mut().unwrap().move_cursor(1);
             }
             Input { key: Key::Enter, .. } => {
+                app.login_panel_select_provider();
+            }
+            Input { key: Key::Tab, shift: false, .. } => {
                 app.core.login_panel.as_mut().unwrap().enter_edit();
             }
             Input { key: Key::Char('n'), ctrl: true, .. } => {
@@ -742,9 +745,6 @@ fn handle_login_panel(app: &mut App, input: Input) {
             }
             Input { key: Key::Char('d'), ctrl: true, .. } => {
                 app.core.login_panel.as_mut().unwrap().request_delete();
-            }
-            Input { key: Key::Char(' '), .. } => {
-                app.login_panel_select_provider();
             }
             _ => {}
         },
