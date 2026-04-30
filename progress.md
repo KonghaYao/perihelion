@@ -1,5 +1,9 @@
 # Design Review Progress
 
+## 2026-04-30 第15轮
+
+SubAgent 模块审查优化：发现 invoke 方法中 agent 定义文件被 parse_agent_file 解析后又通过 load_overrides 重新读取解析同一文件，造成冗余 I/O。新增 overrides_from_agent_def 从已解析数据直接提取 AgentOverrides 消除二重解析。同时发现子 agent execute 调用始终传入 None 取消令牌——用户 Ctrl+C 无法中断子 agent 执行。为 SubAgentTool/SubAgentMiddleware 新增 cancel 令牌传递链路，TUI 注入父 agent 取消令牌。新增 4 个测试覆盖 overrides 提取和取消中断。816 测试全部通过。
+
 ## 2026-04-30 第14轮
 
 业务逻辑层审查优化：发现 HITL 中间件 process_batch 批量审批方法已定义但 ReActExecutor 从未调用——每个敏感工具单独触发弹窗打断用户。新增 Middleware trait before_tools_batch 钩子（默认逐条回退），MiddlewareChain 新增 run_before_tools_batch 链式批量执行，HITL 覆盖该钩子调用已有 process_batch。Executor 阶段一从逐个 before_tool 改为批量调用。多个敏感工具现在合并为一次审批弹窗。新增 3 个测试覆盖混合审批、批量等价性、端到端执行。812 测试全部通过。
