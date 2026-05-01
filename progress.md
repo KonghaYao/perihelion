@@ -1,5 +1,41 @@
 # Design Review Progress
 
+## 2026-04-30 第30轮
+
+Thread Browser空列表添加引导提示：对话列表为空时只显示"新建对话"选项无引导说明，添加"暂无历史对话，发送消息后自动保存"提示文字，与Cron面板和Agent面板的空列表引导保持一致（第4轮/第5轮已有同类修复），消除新用户首次打开/history时的困惑。290测试通过。
+
+## 2026-04-30 第29轮
+
+Thread Browser新建对话添加反馈消息：new_thread()清空消息并关闭面板后无系统反馈，用户不确定操作是否成功。与打开对话（"已加载「标题」"）和删除对话（"已删除对话: xxx"）的反馈不一致。在RenderEvent::Clear之后追加"已创建新对话"系统消息，用户明确知道已切换到空白对话。290测试通过。
+
+## 2026-04-30 第28轮
+
+修复Agent面板描述和Cron面板prompt截断的字节/字符混淆bug：截断判断用.len()（字节数）而非.chars().count()（字符数），中文30/50字符时字节长度远超阈值，导致所有中文内容都错误添加…后缀。Agent面板改为.chars().count()>50，Cron面板改为.chars().count()>30。290测试通过。
+
+## 2026-04-30 第27轮
+
+Thread Browser确认删除时面板高度不足导致提示被截断：active_panel_height计算未考虑confirm_delete状态多出的2行（空行+确认提示文本），对话数较少时确认提示可能不可见。修正为confirm_delete时额外+2行，确保用户始终能看到"确认删除？"提示。290测试通过。
+
+## 2026-04-30 第26轮
+
+Thread Browser Ctrl+D删除对话从立即执行改为两步确认：先进入确认状态显示"⚠ 确认删除？Enter:确认 其他键:取消"，Enter确认删除、其他键取消。新增confirm_delete字段。与Cron面板（第22轮）和Login面板（第3轮）的删除确认保持一致，防止误删对话历史这种不可恢复的数据。290测试通过。
+
+## 2026-04-30 第25轮
+
+Cron面板确认删除最后一个任务后面板关闭时补充清理panel_selection和panel_area，防止过期面板区域导致后续鼠标点击被错误拦截（第22轮验证agent指出的遗留问题）。Setup wizard保存失败错误消息从英文"Setup save failed"改为中文"配置保存失败"，与TUI其他部分语言一致。290测试通过。
+
+## 2026-04-30 第24轮
+
+Welcome Card新增Provider/Model信息行（如"test / test-model"），用户开始对话前即可确认当前配置；Thread Browser对话列表每项末尾追加消息数量标签（如"(12)"），帮助用户快速识别对话规模，标题截断留空从5列增至14列以容纳计数。新增1个headless测试验证Welcome Card模型信息渲染。290测试通过。
+
+## 2026-04-30 第23轮
+
+补全面板操作成功反馈：Model面板切换模型后显示"模型已切换为: Sonnet (Thinking)"；Login面板激活Provider后显示"已激活 Provider: xxx"；Login面板编辑/新建保存后显示"已保存/新建 Provider: xxx"。反馈消息与保存结果解耦——始终先显示操作结果，保存失败作为额外追加警告，避免用户在保存失败时无法得知操作已生效。新增2个headless测试，289测试通过。
+
+## 2026-04-30 第22轮
+
+三项用户交互体验优化：Model面板Space键在模型行（Opus/Sonnet/Haiku）选中对应模型而非静默无响应，Thinking行保持切换，Login行打开配置，状态栏提示改为"选择/切换"；Cron面板Ctrl+D删除增加确认步骤（request→confirm两段式），渲染显示"确认删除？"提示，Enter确认/其他键取消；面板粘贴事件统一拦截，ThreadBrowser/AgentPanel/CronPanel打开时拦截Paste防止文本进入后台textarea。新增3个测试，287测试通过（1个预先存在的失败）。
+
 ## 2026-04-30 第21轮
 
 Cron 缓冲消息合并缺陷：多个 cron 触发在 agent 执行期间被缓冲到 pending_messages，但 Done/Error 处理器用 \n\n 连接后作为单条消息提交——独立的 cron 任务提示被合并为语义混淆的组合请求。改为 flush_pending_messages 每次只提交第一条、保留其余至后续 Done 周期逐一发送，保证各 cron 任务独立到达 LLM。833 测试全通过。

@@ -35,7 +35,7 @@ impl App {
                 "模型已切换为: {}{}",
                 alias_label, thinking_info
             )));
-        if let Err(e) = crate::config::save(cfg) {
+        if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
             self.core
                 .view_messages
                 .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
@@ -84,7 +84,7 @@ impl App {
                     selected_name
                 )));
         }
-        if let Err(e) = crate::config::save(cfg) {
+        if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
             self.core
                 .view_messages
                 .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
@@ -124,7 +124,7 @@ impl App {
                 "已{} Provider: {}",
                 action, display
             )));
-        if let Err(e) = crate::config::save(cfg) {
+        if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
             self.core
                 .view_messages
                 .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
@@ -157,7 +157,7 @@ impl App {
                     deleted_name
                 )));
         }
-        if let Err(e) = crate::config::save(cfg) {
+        if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
             self.core
                 .view_messages
                 .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
@@ -281,6 +281,10 @@ impl App {
                 .expect("无法创建测试用 SQLite 数据库"),
         );
 
+        // 将配置路径重定向到临时目录，防止测试污染全局 ~/.zen-code/settings.json
+        let test_config_path =
+            std::env::temp_dir().join(format!("zen-config-test-{}/settings.json", uuid::Uuid::now_v7()));
+
         let core = super::AppCore::new(
             "/tmp".to_string(),
             render_tx,
@@ -310,6 +314,7 @@ impl App {
             spinner_state: perihelion_widgets::SpinnerState::new(
                 perihelion_widgets::SpinnerMode::Idle,
             ),
+            config_path_override: Some(test_config_path),
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

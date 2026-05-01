@@ -1,6 +1,6 @@
 use super::types::ZenConfig;
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 配置文件路径：~/.zen-code/settings.json
 pub fn config_path() -> PathBuf {
@@ -12,19 +12,26 @@ pub fn config_path() -> PathBuf {
 
 /// 加载配置，文件不存在时返回默认空配置
 pub fn load() -> Result<ZenConfig> {
-    let path = config_path();
+    load_from(&config_path())
+}
+
+/// 从指定路径加载配置
+pub fn load_from(path: &Path) -> Result<ZenConfig> {
     if !path.exists() {
         return Ok(ZenConfig::default());
     }
-    let content = std::fs::read_to_string(&path)?;
+    let content = std::fs::read_to_string(path)?;
     let cfg: ZenConfig = serde_json::from_str(&content)?;
     Ok(cfg)
 }
 
 /// 原子写回配置文件（先写临时文件，再 rename，避免写入中断导致文件损坏）
 pub fn save(cfg: &ZenConfig) -> Result<()> {
-    let path = config_path();
+    save_to(cfg, &config_path())
+}
 
+/// 将配置写入指定路径
+pub fn save_to(cfg: &ZenConfig, path: &Path) -> Result<()> {
     // 确保目录存在
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -35,7 +42,7 @@ pub fn save(cfg: &ZenConfig) -> Result<()> {
     // atomic write
     let tmp_path = path.with_extension("json.tmp");
     std::fs::write(&tmp_path, content)?;
-    std::fs::rename(&tmp_path, &path)?;
+    std::fs::rename(&tmp_path, path)?;
 
     Ok(())
 }

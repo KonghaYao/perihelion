@@ -471,6 +471,7 @@ ReActAgent::new(llm)
   - **高亮渲染**：`highlight_line_spans()` 将 `Span` 在字符边界拆分并追加 `Modifier::REVERSED`。所有 `String` 切割通过 `char_indices().nth()` 转换为 byte 索引，保证 Unicode 安全。
   - **剪贴板**：使用 `arboard::Clipboard` 写入系统剪贴板。
   - **面板渲染签名**：支持选区的面板（thread_browser / agent / cron）签名需为 `&mut App`（非 `&App`），因为渲染时需写入 `panel_area` / `panel_plain_lines` / `panel_scroll_offset` 元数据。
+- **测试隔离——禁止写入全局配置**：`config::save()` 默认写入 `~/.zen-code/settings.json`。Headless 测试（`new_headless`）通过 `App.config_path_override` 将保存路径重定向到临时目录。新增面板操作方法若需持久化配置，必须调用 `App::save_config(cfg, self.config_path_override.as_deref())` 而非直接调用 `crate::config::save(cfg)`，否则测试会覆盖用户的真实 Provider/API Key 配置。
 
 ## 面板快捷键设计规范
 
