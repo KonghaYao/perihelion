@@ -1212,7 +1212,7 @@ fn handle_mcp_panel(app: &mut App, input: Input) {
     let is_server_list = app
         .mcp_panel
         .as_ref()
-        .map_or(true, |p| matches!(p.view, crate::app::McpPanelView::ServerList));
+        .map_or(true, |p| p.view.is_server_list());
 
     match input {
         Input {

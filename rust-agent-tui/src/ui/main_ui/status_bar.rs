@@ -380,8 +380,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                             ]
                         }
                     }
-                    crate::app::McpPanelView::ToolList { .. }
-                    | crate::app::McpPanelView::ResourceList { .. } => {
+                    crate::app::McpPanelView::ServerDetail { .. } => {
                         vec![
                             Span::styled("↑↓", Style::default().fg(theme::WARNING).add_modifier(Modifier::BOLD)),
                             Span::styled(":移动  ", Style::default().fg(theme::MUTED)),

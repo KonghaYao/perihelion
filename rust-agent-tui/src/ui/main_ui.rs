@@ -157,8 +157,13 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
     } else if let Some(panel) = &app.mcp_panel {
         let item_count = match &panel.view {
             crate::app::McpPanelView::ServerList => panel.servers.len(),
-            crate::app::McpPanelView::ToolList { tools, .. } => tools.len(),
-            crate::app::McpPanelView::ResourceList { resources, .. } => resources.len(),
+            crate::app::McpPanelView::ServerDetail { tools, resources, active_tab, .. } => {
+                match *active_tab {
+                    0 => tools.len(),
+                    1 => resources.len(),
+                    _ => 0,
+                }
+            }
         };
         (item_count as u16 + 4).max(6)
     } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.agent.interaction_prompt {
