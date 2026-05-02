@@ -133,12 +133,48 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | 按键 | 行为 |
 |------|------|
 | `↑/↓` | 上下移动光标 |
-| `Enter` | 确认选择（Opus/Sonnet/Haiku 行切换模型） |
-| `Space` | 切换 Thinking 开关 |
+| `Enter` / `Space` | 确认选择（模型行切换模型并保存） |
+| `Enter` / `Space` | 切换 effort 等级（Effort 行） |
+| `←/→` | 循环切换 effort 等级（Low/Medium/High） |
 | `Esc` | 关闭面板 |
-| 普通字符 | 编辑当前行字段 |
-| `Backspace` | 删除当前字段末字符 |
-| `Ctrl+V` | 粘贴到当前字段 |
+
+#### /model 面板样式
+
+布局（12 行含边框）：
+
+```
+───────────── Select model ──────────────────
+  Switch between models. Applies to this session.
+
+  ❯ 1. Opus  ✔   claude-opus-4-7
+    2. Sonnet      claude-sonnet-4-6
+    3. Haiku       claude-haiku-4-5
+
+    ● High effort ← → to adjust
+
+  Enter to confirm · Esc to exit
+──────────────────────────────────────────────
+```
+
+颜色规则：
+
+| 元素 | 颜色 | 说明 |
+|------|------|------|
+| 边框 | BORDER (`#505050`) | 中性灰，不用紫色 |
+| 标题 "Select model" | THINKING + BOLD | 标准紫 |
+| 描述文字 | MUTED | 灰色 |
+| 光标箭头 `❯` | THINKING | 标准紫 |
+| 选中项标签（✔ 所在行） | SAGE + BOLD | 绿色，优先级高于紫色 |
+| 光标行标签（非选中项） | THINKING + BOLD | 标准紫 |
+| 普通行标签 | TEXT + BOLD | 白色 |
+| 对勾 `✔` | SAGE | 绿色 |
+| 模型名称（右侧） | MUTED | 始终灰色，不变色 |
+| Effort 圆点 `●` | ACCENT | 暖橙品牌色 |
+| Effort 文字 | MUTED + BOLD | 灰色 |
+| Effort 箭头提示 | MUTED | 灰色 |
+| 底部快捷键 | WARNING (键) + MUTED (说明) | 统一风格 |
+
+列对齐：编号列、标签列、对勾列固定宽度，模型名称左对齐。默认 effort 为 "high"。
 
 ### /agents 面板
 
@@ -184,7 +220,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 ### 选中行样式
 
-所有面板/弹窗的选中行统一使用 `fg(THINKING) #AF87FF` 紫色文字，**不使用底色**。光标指示器使用 `❯` 符号（ACCENT 色）。
+所有面板/弹窗的选中行统一使用 `fg(THINKING) #A2A9E4` 标准紫文字，**不使用底色**。光标指示器使用 `❯` 符号（THINKING 色）。/model 面板例外：选中项（✔）标签使用 SAGE 绿色，优先级高于紫色。
 
 ### 边框颜色规则
 
@@ -214,7 +250,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | SAGE | `#4EBA65` | 明亮绿：成功状态、Read/Glob/Grep 工具名、SubAgent、只读工具摘要 |
 | WARNING | `#FFC107` | 明亮琥珀：Write/Edit 工具名、次要强调、快捷键高亮 |
 | ERROR | `#FF6B80` | 明亮红：错误/拒绝、失败工具结果边框 |
-| THINKING | `#AF87FF` | 电光紫：Agent/AskUser/Todo 工具名、推理/CoT 思考内容 |
+| THINKING | `#A2A9E4` | 标准紫：推理/CoT 思考内容、面板选中行、/model 面板光标 |
 | LOADING | `#93A5FF` | 浅蓝紫：Loading spinner、AUTO 权限模式 |
 | BASH_BORDER | `#FD5DB1` | 粉红：Bash 工具名和结果边框（Claude bashBorder） |
 | MODEL_INFO | `#A0825F` | 棕金：状态栏模型名（不抢眼） |

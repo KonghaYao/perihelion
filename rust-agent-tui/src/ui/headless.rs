@@ -2500,10 +2500,6 @@ mod tests {
         panel.cursor = ROW_SONNET;
         assert_eq!(panel.active_tab, AliasTab::Opus);
 
-        // 模拟 Space 键选择 Sonnet — 通过 toggle_thinking 仍然是 no-op
-        panel.toggle_thinking();
-        assert_eq!(panel.active_tab, AliasTab::Opus, "toggle_thinking 在 Sonnet 行不应改变 active_tab");
-
         // 直接验证 Space 的实际处理逻辑：应设置 active_tab
         // （event.rs 中 Space 在 ROW_SONNET 会设置 active_tab = Sonnet）
         panel.active_tab = AliasTab::Sonnet;

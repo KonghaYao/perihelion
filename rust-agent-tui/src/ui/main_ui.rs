@@ -138,7 +138,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
             LoginPanelMode::Browse => (n * 2 + 4).max(6),
         }
     } else if app.core.model_panel.is_some() {
-        14
+        12
     } else if let Some(panel) = &app.core.agent_panel {
         (panel.agents.len() as u16 * 2 + 6).max(6)
     } else if app.cron.cron_panel.is_some() {

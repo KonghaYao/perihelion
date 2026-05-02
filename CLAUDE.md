@@ -151,14 +151,15 @@ submit_message()
 
 `ThinkingConfig`（`rust-agent-tui/src/config/types.rs`）控制是否向 LLM 发送推理参数。
 
-**默认行为**：`AppConfig.thinking = None`，不传递任何 thinking/reasoning 参数。用户在 `/model` 面板手动开启后才生效。
+**默认行为**：`AppConfig.thinking = None`，不传递任何 thinking/reasoning 参数。用户在 `/model` 面板确认后自动创建 `ThinkingConfig { enabled: true, budget_tokens: 8000, effort: "high" }`。
 
 **配置字段**：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `enabled` | `bool` | 是否启用（默认 `false`） |
-| `budget_tokens` | `u32` | 推理预算，默认 `8000` |
+| `enabled` | `bool` | 是否启用（默认 `true`） |
+| `budget_tokens` | `u32` | 推理预算，默认 `8000`（固定，不可编辑） |
+| `effort` | `String` | 思考强度 `"low"` / `"medium"` / `"high"`，默认 `"high"` |
 
 **Provider 映射**：
 
@@ -169,7 +170,7 @@ submit_message()
 
 **Anthropic 要求**：`budget_tokens` 最小 1024（`with_extended_thinking` 强制）；`max_tokens` 必须 > `budget_tokens`（自动调整为 `budget + 4096`）。
 
-**配置流**：用户 `/model` 面板 → `apply_to_config()` 写入 `ZenConfig` → `LlmProvider::from_config()` 提取（`filter(|t| t.enabled)`）→ `into_model()` 调用 `with_extended_thinking()` / `with_reasoning_effort()`。
+**配置流**：用户 `/model` 面板 → `apply_to_config()` 写入 `ZenConfig`（始终写入 thinking 配置）→ `LlmProvider::from_config()` 提取（`filter(|t| t.enabled)`）→ `into_model()` 调用 `with_extended_thinking()` / `with_reasoning_effort()`。
 
 ### HITL & 权限模式
 
@@ -349,7 +350,7 @@ Final response text here
 | 命令 | 说明 |
 |------|------|
 | `/login` | 管理 Provider 配置（新建/编辑/删除），表单包含 API Key/Base URL/三级别模型名 |
-| `/model` | 打开模型选择面板（Provider 选择 + 级别切换 + Thinking 配置） |
+| `/model` | 打开模型选择面板（模型切换 + Effort 等级调节） |
 | `/model <alias>` | 直接切换激活别名（`opus` / `sonnet` / `haiku`） |
 | `/history` | 打开历史对话浏览面板（↑↓ 导航，`d` 删除，`Enter` 打开） |
 | `/agents` | 打开 SubAgent 定义管理面板 |

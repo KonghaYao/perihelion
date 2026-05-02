@@ -16,24 +16,27 @@ impl App {
         self.core.model_panel = None;
     }
 
-    /// 确认选择并保存（Enter 键）：写入 active_provider_id + active_alias + thinking，更新状态栏
+    /// 确认选择并保存（Enter 键）：写入 active_alias + effort，更新状态栏
     pub fn model_panel_confirm(&mut self) {
         let Some(panel) = self.core.model_panel.as_ref() else {
             return;
         };
         let alias_label = panel.active_tab.label().to_string();
-        let thinking_on = panel.buf_thinking_enabled;
+        let effort = panel.buf_thinking_effort.clone();
         let Some(cfg) = self.zen_config.as_mut() else {
             return;
         };
         panel.apply_to_config(cfg);
-        // 始终显示切换反馈（与保存结果无关）
-        let thinking_info = if thinking_on { " (Thinking)" } else { "" };
+        let effort_display = match effort.as_str() {
+            "low" => "Low",
+            "high" => "High",
+            _ => "Medium",
+        };
         self.core
             .view_messages
             .push(MessageViewModel::system(format!(
-                "模型已切换为: {}{}",
-                alias_label, thinking_info
+                "模型已切换为: {} ({} effort)",
+                alias_label, effort_display
             )));
         if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
             self.core

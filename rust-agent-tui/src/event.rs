@@ -6,7 +6,7 @@ use ratatui::crossterm::event::{
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
-use crate::app::model_panel::{AliasTab, ROW_HAIKU, ROW_LOGIN, ROW_OPUS, ROW_SONNET, ROW_THINKING};
+use crate::app::model_panel::{AliasTab, ROW_EFFORT, ROW_HAIKU, ROW_OPUS, ROW_SONNET};
 use crate::app::{App, MessageViewModel, PendingAttachment};
 use crate::ui::render_thread::RenderEvent;
 use rust_create_agent::messages::BaseMessage;
@@ -539,9 +539,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
-            // model_panel 打开时粘贴到面板当前字段
+            // model_panel 打开时拦截粘贴（面板无文本输入字段）
             if app.core.model_panel.is_some() {
-                app.core.model_panel.as_mut().unwrap().paste_text(&text);
                 return Ok(Some(Action::Redraw));
             }
 
@@ -1091,10 +1090,9 @@ fn handle_model_panel(app: &mut App, input: Input) {
             app.core.model_panel.as_mut().unwrap().move_cursor(1);
         }
         Input {
-            key: Key::Char(' '),
+            key: Key::Char(' ') | Key::Enter,
             ..
         } => {
-            // Space 在模型行选中模型，在 Thinking 行切换开关，在 Login 行打开配置
             let cursor = app.core.model_panel.as_ref().unwrap().cursor;
             match cursor {
                 ROW_OPUS => {
@@ -1109,59 +1107,11 @@ fn handle_model_panel(app: &mut App, input: Input) {
                     app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Haiku;
                     app.model_panel_confirm();
                 }
-                ROW_THINKING => {
-                    app.core.model_panel.as_mut().unwrap().toggle_thinking();
-                }
-                ROW_LOGIN => {
-                    app.close_model_panel();
-                    app.open_login_panel();
+                ROW_EFFORT => {
+                    app.core.model_panel.as_mut().unwrap().cycle_effort(false);
                 }
                 _ => {}
             }
-        }
-        Input {
-            key: Key::Enter, ..
-        } => {
-            let cursor = app.core.model_panel.as_ref().unwrap().cursor;
-            match cursor {
-                ROW_LOGIN => {
-                    app.close_model_panel();
-                    app.open_login_panel();
-                }
-                ROW_THINKING => {
-                    app.core.model_panel.as_mut().unwrap().toggle_thinking();
-                }
-                ROW_OPUS => {
-                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Opus;
-                    app.model_panel_confirm();
-                }
-                ROW_SONNET => {
-                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Sonnet;
-                    app.model_panel_confirm();
-                }
-                ROW_HAIKU => {
-                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Haiku;
-                    app.model_panel_confirm();
-                }
-                _ => {}
-            }
-        }
-        Input {
-            key: Key::Char('v'),
-            ctrl: true,
-            ..
-        } => {
-            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                if let Ok(text) = clipboard.get_text() {
-                    app.core.model_panel.as_mut().unwrap().paste_text(&text);
-                }
-            }
-        }
-        Input {
-            key: Key::Backspace,
-            ..
-        } => {
-            app.core.model_panel.as_mut().unwrap().pop_char();
         }
         Input {
             key: Key::Left, ..
@@ -1173,25 +1123,7 @@ fn handle_model_panel(app: &mut App, input: Input) {
         } => {
             app.core.model_panel.as_mut().unwrap().cycle_effort(false);
         }
-        Input {
-            key: Key::Char(c),
-            ctrl: false,
-            alt: false,
-            ..
-        } => {
-            app.core.model_panel.as_mut().unwrap().push_char(c);
-        }
-        _ => {
-            // Thinking 行：用公共函数处理 Delete/Home/End/Ctrl+K/U
-            if app.core.model_panel.as_ref().map_or(false, |p| p.cursor == ROW_THINKING) {
-                let panel = app.core.model_panel.as_mut().unwrap();
-                crate::app::handle_edit_key(
-                    &mut panel.buf_thinking_budget,
-                    &mut panel.cur_thinking_budget,
-                    input,
-                );
-            }
-        }
+        _ => {}
     }
 }
 

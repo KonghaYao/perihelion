@@ -63,7 +63,7 @@ fn default_budget_tokens() -> u32 {
 }
 
 fn default_effort() -> String {
-    "medium".to_string()
+    "high".to_string()
 }
 
 impl ThinkingConfig {

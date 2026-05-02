@@ -8,7 +8,7 @@ use ratatui::{
 
 use perihelion_widgets::BorderedPanel;
 
-use crate::app::model_panel::{AliasTab, ROW_HAIKU, ROW_LOGIN, ROW_OPUS, ROW_SONNET, ROW_THINKING};
+use crate::app::model_panel::{AliasTab, ROW_EFFORT, ROW_HAIKU, ROW_OPUS, ROW_SONNET};
 use crate::app::App;
 use crate::ui::theme;
 
@@ -18,12 +18,12 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let inner = BorderedPanel::new(Span::styled(
-        " /model — 模型选择 ",
+        " Select model ",
         Style::default()
-            .fg(theme::MUTED)
+            .fg(theme::THINKING)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::MUTED))
+    .border_style(Style::default().fg(theme::BORDER))
     .render(f, area);
 
     let active_alias = app
@@ -45,227 +45,121 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
 
     let mut lines: Vec<Line> = Vec::new();
 
-    // Provider header
-    if panel.provider_name.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  未配置 Provider",
-            Style::default().fg(theme::WARNING),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  请选择下方 /login 或输入 /login 命令配置",
-            Style::default().fg(theme::MUTED),
-        )));
-    } else {
-        lines.push(Line::from(vec![
-            Span::styled("  Provider: ", Style::default().fg(theme::MUTED)),
-            Span::styled(
-                panel.provider_name.clone(),
-                Style::default()
-                    .fg(theme::TEXT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
-    }
+    // Description
+    lines.push(Line::from(Span::styled(
+        "  Switch between models. Applies to this session.",
+        Style::default().fg(theme::MUTED),
+    )));
     lines.push(Line::from(""));
 
     // Model rows: Opus / Sonnet / Haiku
-    let rows: [(usize, &AliasTab, &str); 3] = [
-        (ROW_OPUS, &AliasTab::Opus, "Opus"),
-        (ROW_SONNET, &AliasTab::Sonnet, "Sonnet"),
-        (ROW_HAIKU, &AliasTab::Haiku, "Haiku"),
+    let rows: [(usize, &AliasTab, &str, &str); 3] = [
+        (ROW_OPUS, &AliasTab::Opus, "Opus", "1"),
+        (ROW_SONNET, &AliasTab::Sonnet, "Sonnet", "2"),
+        (ROW_HAIKU, &AliasTab::Haiku, "Haiku", "3"),
     ];
 
-    for (row_idx, alias, label) in &rows {
+    for (row_idx, alias, label, num) in &rows {
         let is_active = alias.to_key() == active_alias;
         let is_cursor = panel.cursor == *row_idx;
         let model_name = models
             .and_then(|m| m.get_model(alias.to_key()))
             .unwrap_or("");
 
-        let bullet = if is_active { "●" } else { "○" };
-        let cursor_char = if is_cursor { "❯" } else { " " };
+        let check = if is_active { "\u{2714}" } else { " " };
+        let cursor_char = if is_cursor { "\u{276f}" } else { " " };
 
-        let row_style = if is_cursor {
-            Style::default().fg(theme::THINKING)
-        } else if is_active {
-            Style::default().fg(theme::ACCENT)
+        let label_style = if is_active {
+            Style::default()
+                .fg(theme::SAGE)
+                .add_modifier(Modifier::BOLD)
+        } else if is_cursor {
+            Style::default()
+                .fg(theme::THINKING)
+                .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD)
         };
 
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {} {} ", cursor_char, bullet), row_style),
-            Span::styled(
-                format!("{:8} ", label),
-                row_style.add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                model_name.to_string(),
-                row_style.fg(if is_cursor {
-                    theme::THINKING
-                } else {
-                    theme::MUTED
-                }),
-            ),
-        ]));
-    }
+        let model_style = Style::default().fg(theme::MUTED);
 
-    // Thinking row — 开关 + budget
-    {
-        let is_cursor = panel.cursor == ROW_THINKING;
-        let dot = if panel.buf_thinking_enabled { "●" } else { "○" };
-        let budget_display = if is_cursor {
-            let (before, after) = crate::app::edit_display_parts(&panel.buf_thinking_budget, panel.cur_thinking_budget);
-            format!("{}█{}", before, after)
+        let check_style = if is_active {
+            Style::default().fg(theme::SAGE)
         } else {
-            panel.buf_thinking_budget.clone()
-        };
-        let row_style = if is_cursor {
-            Style::default().fg(theme::THINKING)
-        } else {
-            Style::default().fg(theme::TEXT)
-        };
-        let dot_color = if panel.buf_thinking_enabled {
-            theme::THINKING
-        } else {
-            theme::MUTED
+            Style::default().fg(theme::MUTED)
         };
 
         lines.push(Line::from(vec![
-            Span::styled(if is_cursor { " ❯   " } else { "     " }, row_style),
             Span::styled(
-                format!("{} ", dot),
-                if is_cursor {
-                    Style::default().fg(dot_color)
-                } else {
-                    Style::default().fg(dot_color)
-                },
+                format!(" {} ", cursor_char),
+                Style::default().fg(theme::THINKING),
             ),
-            Span::styled("Thinking", row_style.add_modifier(Modifier::BOLD)),
-            Span::styled(
-                format!("   budget: {}", budget_display),
-                if is_cursor {
-                    Style::default().fg(theme::THINKING)
-                } else {
-                    Style::default().fg(theme::TEXT)
-                },
-            ),
+            Span::styled(format!("{}. ", num), label_style),
+            Span::styled(format!("{:8}", label), label_style),
+            Span::styled(format!(" {}  ", check), check_style),
+            Span::styled(model_name.to_string(), model_style),
         ]));
     }
 
-    // Thinking effort row
+    lines.push(Line::from(""));
+
+    // Effort row
     {
-        let is_cursor = panel.cursor == ROW_THINKING;
-        let effort_color = if panel.buf_thinking_enabled {
-            theme::THINKING
-        } else {
-            theme::MUTED
+        let is_cursor = panel.cursor == ROW_EFFORT;
+        let effort_label = match panel.buf_thinking_effort.as_str() {
+            "low" => "Low",
+            "high" => "High",
+            _ => "Medium",
         };
-        let effort_style = if is_cursor {
-            Style::default().fg(effort_color)
-        } else {
-            Style::default().fg(effort_color)
-        };
+
+        let radio_color = theme::ACCENT;
+        let effort_style = Style::default()
+            .fg(theme::MUTED)
+            .add_modifier(Modifier::BOLD);
 
         let mut spans = vec![
-            Span::styled(if is_cursor { "     " } else { "     " }, effort_style),
             Span::styled(
-                "   effort: ",
-                if is_cursor {
-                    Style::default().fg(theme::THINKING)
-                } else {
-                    Style::default().fg(theme::TEXT)
-                },
+                "    \u{25cf} ",
+                Style::default().fg(radio_color),
             ),
+            Span::styled(format!("{} effort", effort_label), effort_style),
         ];
 
         if is_cursor {
-            spans.push(Span::styled("◀ ", effort_style));
             spans.push(Span::styled(
-                panel.buf_thinking_effort.to_uppercase(),
-                effort_style.add_modifier(Modifier::BOLD),
-            ));
-            spans.push(Span::styled(" ▶", effort_style));
-        } else {
-            spans.push(Span::styled(
-                panel.buf_thinking_effort.to_uppercase(),
-                effort_style,
+                " \u{2190} \u{2192} to adjust",
+                Style::default().fg(theme::MUTED),
             ));
         }
 
         lines.push(Line::from(spans));
     }
 
-    // /login row
-    {
-        let is_cursor = panel.cursor == ROW_LOGIN;
-        let row_style = if is_cursor {
-            Style::default()
-                .fg(theme::THINKING)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme::WARNING)
-        };
-
-        lines.push(Line::from(vec![
-            Span::styled(
-                if is_cursor { " ❯   " } else { "     " },
-                if is_cursor {
-                    row_style
-                } else {
-                    Style::default().fg(theme::MUTED)
-                },
-            ),
-            Span::styled("/login", row_style),
-            Span::styled(
-                "  管理 Provider…",
-                if is_cursor {
-                    Style::default().fg(theme::THINKING)
-                } else {
-                    Style::default().fg(theme::MUTED)
-                },
-            ),
-        ]));
-    }
-
-    // Help line
     lines.push(Line::from(""));
+
+    // Footer
     lines.push(Line::from(vec![
         Span::styled(
-            " ↑↓",
+            "  Enter",
             Style::default()
                 .fg(theme::WARNING)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(":导航  ", Style::default().fg(theme::MUTED)),
+        Span::styled(" to confirm ", Style::default().fg(theme::MUTED)),
         Span::styled(
-            "Enter",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
+            "\u{00b7}",
+            Style::default().fg(theme::MUTED),
         ),
-        Span::styled(":确认  ", Style::default().fg(theme::MUTED)),
-        Span::styled(
-            "Space",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":Thinking开关  ", Style::default().fg(theme::MUTED)),
-        Span::styled(
-            "←→",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":effort  ", Style::default().fg(theme::MUTED)),
+        Span::styled(" ", Style::default().fg(theme::MUTED)),
         Span::styled(
             "Esc",
             Style::default()
                 .fg(theme::WARNING)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(":关闭", Style::default().fg(theme::MUTED)),
+        Span::styled(" to exit", Style::default().fg(theme::MUTED)),
     ]));
 
     lines.truncate(inner.height as usize);
@@ -284,9 +178,6 @@ mod tests {
             provider_name: String::new(),
             cursor: ROW_OPUS,
             active_tab: AliasTab::Opus,
-            buf_thinking_enabled: false,
-            buf_thinking_budget: String::new(),
-            cur_thinking_budget: 0,
             buf_thinking_effort: "medium".to_string(),
         });
         handle
@@ -297,13 +188,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_model_no_provider_shows_guide() {
+    async fn test_model_panel_renders_select_model_title() {
         let (_, handle) = render_headless_model_no_provider();
         let snap = handle.snapshot().join("\n");
-        // 无 Provider 时应显示 /login 引导
         assert!(
-            snap.contains("login"),
-            "无 Provider 应显示 login 引导，实际:\n{}",
+            snap.contains("Select model"),
+            "Panel should show 'Select model' title, got:\n{}",
+            snap
+        );
+    }
+
+    #[tokio::test]
+    async fn test_model_panel_shows_effort() {
+        let (_, handle) = render_headless_model_no_provider();
+        let snap = handle.snapshot().join("\n");
+        assert!(
+            snap.contains("effort"),
+            "Panel should show effort setting, got:\n{}",
             snap
         );
     }

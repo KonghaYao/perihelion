@@ -21,8 +21,8 @@ pub const WARNING: Color = Color::Rgb(255, 193, 7);
 /// 明亮红 — 错误/拒绝 #FF6B80
 pub const ERROR: Color = Color::Rgb(255, 107, 128);
 
-/// 电光紫 — 推理/CoT 思考内容 #AF87FF
-pub const THINKING: Color = Color::Rgb(175, 135, 255);
+/// 标准紫 — 推理/CoT 思考内容 #A2A9E4
+pub const THINKING: Color = Color::Rgb(162, 169, 228);
 
 // ── 文字层级（三级亮度）──────────────────────────────────────────────────────
 
