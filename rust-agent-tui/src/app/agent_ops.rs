@@ -66,7 +66,11 @@ impl App {
             }
         };
 
-        let (tx, rx) = mpsc::channel(32);
+        // 防御性重置：上次 agent 任务若 SubAgentEnd 因通道溢出被丢弃，
+        // subagent_depth 会永久 > 0，导致所有后续 TokenUsageUpdate 被过滤（ctx 显示为 0）
+        self.agent.subagent_depth = 0;
+
+        let (tx, rx) = mpsc::channel(64);
         self.agent.agent_rx = Some(rx);
 
         // 创建取消令牌（Ctrl+C 触发中断）
@@ -872,6 +876,8 @@ impl App {
                 Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
                     // 清理 pipeline 状态（残留 SubAgent 栈等）
                     self.core.pipeline.done();
+                    // 重置 subagent_depth，防止残留计数过滤后续 TokenUsageUpdate
+                    self.agent.subagent_depth = 0;
 
                     let vm = MessageViewModel::tool_block(
                         "error".to_string(),

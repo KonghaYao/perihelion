@@ -1,0 +1,325 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use thiserror::Error;
+use tokio::sync::oneshot;
+use tracing::{info, warn};
+
+use super::auth_store::{FileCredentialStore, PerServerCredentialStore};
+use super::callback_server::{CallbackError, OAuthCallbackServer};
+use super::config::OAuthConfig;
+use rmcp::transport::auth::{AuthError, OAuthState};
+
+/// OAuth 回调结果（从 TUI 传回后台 OAuth 流程）
+pub struct OAuthCallbackResult {
+    /// 授权码
+    pub code: String,
+    /// CSRF state 参数
+    pub state: String,
+}
+
+/// OAuth 流程编排错误
+#[derive(Debug, Error)]
+pub enum OAuthFlowError {
+    #[error("OAuth 流程失败: {0}")]
+    FlowFailed(String),
+    #[error("OAuth 回调服务器错误: {0}")]
+    CallbackError(#[from] CallbackError),
+    #[error("OAuth 授权错误: {0}")]
+    AuthError(#[from] AuthError),
+    #[error("OAuth 授权被用户取消")]
+    Cancelled,
+    #[error("OAuth 回调等待超时")]
+    CallbackTimeout,
+}
+
+/// OAuth 流程事件（由后台产生，需转发到 TUI 层）
+pub enum OAuthFlowEvent {
+    /// 需要用户浏览器授权
+    AuthorizationNeeded {
+        server_name: String,
+        authorization_url: String,
+        /// 回调通道：TUI 收集用户输入后通过此通道传回授权码
+        callback_tx: oneshot::Sender<OAuthCallbackResult>,
+    },
+    /// OAuth 授权完成
+    AuthorizationCompleted {
+        server_name: String,
+    },
+    /// OAuth 授权失败
+    AuthorizationFailed {
+        server_name: String,
+        error: String,
+    },
+}
+
+/// OAuth 流程编排器
+///
+/// 为每个需要 OAuth 的 MCP 服务器管理独立的 OAuthState 状态机。
+/// 通过回调函数将事件转发给调用方（client.rs），由调用方决定如何通知 TUI。
+pub struct OAuthFlowManager {
+    /// 共享的 Token 文件存储
+    token_store: Arc<FileCredentialStore>,
+    /// 按 server_name 管理的 OAuth 状态机
+    states: HashMap<String, OAuthState>,
+    /// 事件回调（由 client.rs 在创建时注入）
+    event_callback: Box<dyn Fn(OAuthFlowEvent) + Send + Sync>,
+}
+
+impl OAuthFlowManager {
+    /// 创建 OAuth 流程管理器
+    ///
+    /// `token_store`: 共享的 Token 文件存储实例
+    /// `event_callback`: 事件回调函数，用于将 OAuth 事件转发给 TUI
+    pub fn new<F>(token_store: Arc<FileCredentialStore>, event_callback: F) -> Self
+    where
+        F: Fn(OAuthFlowEvent) + Send + Sync + 'static,
+    {
+        Self {
+            token_store,
+            states: HashMap::new(),
+            event_callback: Box::new(event_callback),
+        }
+    }
+
+    /// 对指定服务器执行完整 OAuth 授权流程
+    pub async fn run_oauth_flow(
+        &mut self,
+        server_name: &str,
+        server_url: &str,
+        oauth_config: &OAuthConfig,
+    ) -> Result<(), OAuthFlowError> {
+        info!(server = %server_name, "开始 OAuth 授权流程");
+
+        // 1. 创建或复用 OAuthState
+        let state = if let Some(existing) = self.states.remove(server_name) {
+            existing
+        } else {
+            let credential_store = PerServerCredentialStore::new(
+                self.token_store.clone(),
+                server_name.to_string(),
+            );
+            let mut mgr_state = OAuthState::new(server_url, None).await?;
+            if let OAuthState::Unauthorized(ref mut manager) = mgr_state {
+                manager.set_credential_store(credential_store);
+            }
+            mgr_state
+        };
+
+        let mut state = state;
+
+        // 2. 尝试从存储恢复已有凭证（快速路径）
+        if let OAuthState::Unauthorized(manager) = &mut state {
+            let has_creds = manager.initialize_from_store().await?;
+            if has_creds {
+                info!(server = %server_name, "从存储恢复已有凭证，跳过浏览器授权");
+                self.states.insert(server_name.to_string(), state);
+                self.emit_event(OAuthFlowEvent::AuthorizationCompleted {
+                    server_name: server_name.to_string(),
+                });
+                return Ok(());
+            }
+        }
+        if let OAuthState::Authorized(_) = &state {
+            info!(server = %server_name, "已处于授权状态，跳过浏览器授权");
+            self.states.insert(server_name.to_string(), state);
+            self.emit_event(OAuthFlowEvent::AuthorizationCompleted {
+                server_name: server_name.to_string(),
+            });
+            return Ok(());
+        }
+
+        // 3. 绑定回调服务器
+        let (callback_server, redirect_uri) = OAuthCallbackServer::bind(String::new()).await?;
+
+        // 4. 启动授权（DCR + PKCE + metadata 发现）
+        let scopes: Vec<&str> = oauth_config
+            .scopes
+            .as_ref()
+            .map(|s| s.iter().map(|ss| ss.as_str()).collect())
+            .unwrap_or_default();
+
+        let client_name = Some("perihelion-mcp-client");
+        state.start_authorization(&scopes, &redirect_uri, client_name).await?;
+
+        // 5. 获取授权 URL
+        let authorization_url = state.get_authorization_url().await?;
+
+        // 6. 创建 oneshot 通道，通知 TUI 等待用户交互
+        let (callback_tx, callback_rx) = oneshot::channel::<OAuthCallbackResult>();
+
+        self.emit_event(OAuthFlowEvent::AuthorizationNeeded {
+            server_name: server_name.to_string(),
+            authorization_url: authorization_url.clone(),
+            callback_tx,
+        });
+
+        // 7. 并发等待回调（本地服务器 + TUI 手动粘贴），取先到达的
+        let callback_result = tokio::select! {
+            result = callback_server.wait_for_code() => {
+                match result {
+                    Ok((code, state_param)) => Ok(OAuthCallbackResult { code, state: state_param }),
+                    Err(CallbackError::Timeout) => Err(OAuthFlowError::CallbackTimeout),
+                    Err(e) => Err(OAuthFlowError::CallbackError(e)),
+                }
+            }
+            result = callback_rx => {
+                match result {
+                    Ok(result) => Ok(result),
+                    Err(_) => Err(OAuthFlowError::Cancelled),
+                }
+            }
+        };
+
+        let callback_data = match callback_result {
+            Ok(data) => data,
+            Err(e) => {
+                self.emit_event(OAuthFlowEvent::AuthorizationFailed {
+                    server_name: server_name.to_string(),
+                    error: e.to_string(),
+                });
+                return Err(e);
+            }
+        };
+
+        // 8. 处理回调，完成授权
+        state.handle_callback(&callback_data.code, &callback_data.state).await?;
+
+        // 9. 保存状态到 states map
+        self.states.insert(server_name.to_string(), state);
+
+        // 10. 通知 TUI 授权完成
+        self.emit_event(OAuthFlowEvent::AuthorizationCompleted {
+            server_name: server_name.to_string(),
+        });
+
+        info!(server = %server_name, "OAuth 授权流程完成");
+        Ok(())
+    }
+
+    /// 获取指定服务器的 AuthorizationManager（用于构建 AuthClient 传输层）
+    pub fn get_authorization_manager(
+        &mut self,
+        server_name: &str,
+    ) -> Option<rmcp::transport::auth::AuthorizationManager> {
+        let state = self.states.remove(server_name)?;
+        match state {
+            OAuthState::Authorized(manager) => Some(manager),
+            OAuthState::Unauthorized(manager) => {
+                self.states
+                    .insert(server_name.to_string(), OAuthState::Unauthorized(manager));
+                None
+            }
+            _ => {
+                warn!(
+                    server = %server_name,
+                    "OAuth 状态不是 Authorized，无法提取 AuthorizationManager"
+                );
+                None
+            }
+        }
+    }
+
+    /// 判断指定服务器是否已完成 OAuth 授权
+    pub fn is_authorized(&self, server_name: &str) -> bool {
+        matches!(
+            self.states.get(server_name),
+            Some(OAuthState::Authorized(_)) | Some(OAuthState::AuthorizedHttpClient(_))
+        )
+    }
+
+    /// 发送事件给调用方
+    fn emit_event(&self, event: OAuthFlowEvent) {
+        (self.event_callback)(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oauth_flow_error_display() {
+        let err = OAuthFlowError::FlowFailed("test".to_string());
+        assert!(err.to_string().contains("OAuth 流程失败"));
+
+        let err = OAuthFlowError::Cancelled;
+        assert!(err.to_string().contains("取消"));
+    }
+
+    #[test]
+    fn test_oauth_flow_event_types() {
+        let event1 = OAuthFlowEvent::AuthorizationNeeded {
+            server_name: "srv".to_string(),
+            authorization_url: "http://example.com".to_string(),
+            callback_tx: oneshot::channel().0,
+        };
+        if let OAuthFlowEvent::AuthorizationNeeded { server_name, .. } = event1 {
+            assert_eq!(server_name, "srv");
+        }
+
+        let event2 = OAuthFlowEvent::AuthorizationCompleted {
+            server_name: "srv".to_string(),
+        };
+        if let OAuthFlowEvent::AuthorizationCompleted { server_name, .. } = event2 {
+            assert_eq!(server_name, "srv");
+        }
+
+        let event3 = OAuthFlowEvent::AuthorizationFailed {
+            server_name: "srv".to_string(),
+            error: "fail".to_string(),
+        };
+        if let OAuthFlowEvent::AuthorizationFailed { error, .. } = event3 {
+            assert_eq!(error, "fail");
+        }
+    }
+
+    #[test]
+    fn test_oauth_callback_result_fields() {
+        let result = OAuthCallbackResult {
+            code: "abc".to_string(),
+            state: "xyz".to_string(),
+        };
+        assert_eq!(result.code, "abc");
+        assert_eq!(result.state, "xyz");
+    }
+
+    #[tokio::test]
+    async fn test_oauth_flow_manager_new() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        let store = Arc::new(FileCredentialStore::with_path(path));
+        let manager = OAuthFlowManager::new(store, |_| {});
+        assert!(!manager.is_authorized("nonexistent"));
+    }
+
+    #[tokio::test]
+    async fn test_oauth_flow_manager_is_authorized_empty() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        let store = Arc::new(FileCredentialStore::with_path(path));
+        let manager = OAuthFlowManager::new(store, |_| {});
+        assert!(!manager.is_authorized("any-server"));
+    }
+
+    #[tokio::test]
+    async fn test_oauth_flow_manager_emit_event() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        let store = Arc::new(FileCredentialStore::with_path(path));
+        let mut manager =
+            OAuthFlowManager::new(store, move |_| { counter_clone.fetch_add(1, Ordering::SeqCst); });
+
+        manager.emit_event(OAuthFlowEvent::AuthorizationCompleted {
+            server_name: "test".to_string(),
+        });
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+}

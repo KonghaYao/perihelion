@@ -43,7 +43,7 @@ pub use middleware::PrependSystemMiddleware;
 pub use skills::{
     list_skills, load_global_skills_dir, load_skill_metadata, SkillMetadata, SkillsMiddleware,
 };
-pub use subagent::{SkillPreloadMiddleware, SubAgentMiddleware, SubAgentTool};
+pub use subagent::{scan_agents, SkillPreloadMiddleware, SubAgentMiddleware, SubAgentTool};
 pub use tools::{ArcToolWrapper, AskUserTool, BoxToolWrapper};
 
 /// Prelude - 常用类型一次性导入

@@ -119,7 +119,11 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
 
             // 映射为 TUI AgentEvent
             if let Some(msg) = map_executor_event(event, &cwd_for_handler) {
-                let _ = tx_event.try_send(msg);
+                if let Err(e) = tx_event.try_send(msg) {
+                    if matches!(e, tokio::sync::mpsc::error::TrySendError::Full(_)) {
+                        tracing::debug!("AgentEvent channel full, dropping event");
+                    }
+                }
             }
         }));
 
@@ -212,7 +216,11 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         crate::prompt::build_system_prompt(overrides, cwd, crate::prompt::PromptFeatures::detect())
     });
 
-    // SubAgent 中间件
+    // Parent message snapshot shared reference: written by SubAgentMiddleware::before_agent, read by Fork child agent
+    let parent_messages: Arc<parking_lot::RwLock<Vec<BaseMessage>>> =
+        Arc::new(parking_lot::RwLock::new(Vec::new()));
+
+    // SubAgent middleware
     let subagent = SubAgentMiddleware::new(
         parent_tools,
         Some(Arc::clone(&handler)
@@ -222,7 +230,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         llm_factory,
     )
     .with_system_builder(system_builder)
-    .with_cancel(cancel.clone());
+    .with_cancel(cancel.clone())
+    .with_parent_messages(parent_messages);
 
     // 构建 ReActAgent
     // FilesystemMiddleware 和 TerminalMiddleware 通过 collect_tools 自动提供工具

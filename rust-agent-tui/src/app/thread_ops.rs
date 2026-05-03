@@ -187,7 +187,7 @@ impl App {
         let config = self.get_compact_config();
         let cwd = self.cwd.clone();
 
-        let (tx, rx) = mpsc::channel::<AgentEvent>(8);
+        let (tx, rx) = mpsc::channel::<AgentEvent>(64);
         self.agent.agent_rx = Some(rx);
 
         // 创建取消令牌，使 Ctrl+C 可以中断 compact 任务

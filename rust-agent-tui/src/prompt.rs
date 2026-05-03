@@ -55,6 +55,24 @@ impl PromptEnv {
     }
 }
 
+/// 扫描 `.claude/agents/` 目录，格式化为 agent 列表字符串。
+///
+/// 格式：`- **{name}** (`{agent_id}`): {description}`
+/// 无 agent 时返回提示信息。
+fn format_available_agents(cwd: &str) -> String {
+    let agents = rust_agent_middlewares::scan_agents(cwd);
+    if agents.is_empty() {
+        return "No agents currently configured. You can add agent definitions in `.claude/agents/`.".to_string();
+    }
+    agents
+        .iter()
+        .map(|(agent_id, name, description)| {
+            format!("- **{}** (`{}`): {}", name, agent_id, description)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// 构建系统提示词。
 ///
 /// 从 `prompts/sections/` 目录加载静态段落（01-08），根据 `PromptFeatures`
@@ -125,6 +143,7 @@ pub fn build_system_prompt(
         .replace("{{platform}}", &env.platform)
         .replace("{{os_version}}", &env.os_version)
         .replace("{{date}}", &env.date)
+        .replace("{{available_agents}}", &format_available_agents(&env.cwd))
 }
 
 /// 将 `AgentOverrides` 拼成注入到提示词顶部的覆盖块。
@@ -353,5 +372,111 @@ mod tests {
         assert_eq!(features.subagent_enabled, true);
         assert_eq!(features.cron_enabled, true);
         assert_eq!(features.skills_enabled, true);
+    }
+
+    // ─── available_agents tests ──────────────────────────────────────────────
+
+    /// Helper: create a unique temp directory under /tmp
+    fn tmp_dir(prefix: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("{}_{}", prefix, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_available_agents_placeholder_replaced() {
+        let dir = tmp_dir("prompt_test_agent_replaced");
+        let agents_dir = dir.join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("tester.md"),
+            "---\nname: tester\ndescription: A test agent\n---\n\nYou are a test agent.\n",
+        )
+        .unwrap();
+
+        let features = PromptFeatures {
+            subagent_enabled: true,
+            ..PromptFeatures::none()
+        };
+        let result = build_system_prompt(None, dir.to_str().unwrap(), features);
+        assert!(
+            result.contains("- **tester** (`tester`): A test agent"),
+            "Should contain formatted agent entry, got: {}",
+            result
+        );
+        assert!(
+            !result.contains("{{available_agents}}"),
+            "Placeholder should be replaced"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_available_agents_placeholder_empty_dir() {
+        let dir = tmp_dir("prompt_test_agent_empty");
+        // No .claude/agents/ directory at all
+        let features = PromptFeatures {
+            subagent_enabled: true,
+            ..PromptFeatures::none()
+        };
+        let result = build_system_prompt(None, dir.to_str().unwrap(), features);
+        assert!(
+            result.contains("No agents currently configured"),
+            "Should contain no-agents message"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_available_agents_not_replaced_when_subagent_disabled() {
+        let dir = tmp_dir("prompt_test_agent_disabled");
+        let features = PromptFeatures::none();
+        let result = build_system_prompt(None, dir.to_str().unwrap(), features);
+        assert!(
+            !result.contains("SubAgent Delegation"),
+            "SubAgent section should not be included when disabled"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_format_available_agents_with_agents() {
+        let dir = tmp_dir("prompt_test_format_agents");
+        let agents_dir = dir.join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("reviewer.md"),
+            "---\nname: code-reviewer\ndescription: Reviews code\n---\n\nReview code.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            agents_dir.join("analyst.md"),
+            "---\nname: data-analyst\ndescription: Analyzes data\n---\n\nAnalyze data.\n",
+        )
+        .unwrap();
+
+        let result = format_available_agents(dir.to_str().unwrap());
+        assert!(
+            result.contains("- **code-reviewer** (`reviewer`): Reviews code"),
+            "Should contain reviewer entry"
+        );
+        assert!(
+            result.contains("- **data-analyst** (`analyst`): Analyzes data"),
+            "Should contain analyst entry"
+        );
+        // Verify each agent is on its own line
+        let lines: Vec<&str> = result.lines().filter(|l| l.starts_with("- **")).collect();
+        assert_eq!(lines.len(), 2, "Should have 2 agent entries");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_format_available_agents_empty_dir() {
+        let result = format_available_agents("/nonexistent/path/that/does/not/exist");
+        assert!(
+            result.contains("No agents currently configured"),
+            "Should return no-agents message for nonexistent path"
+        );
     }
 }

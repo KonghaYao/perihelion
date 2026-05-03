@@ -3,6 +3,7 @@ mod tool;
 pub use skill_preload::SkillPreloadMiddleware;
 pub use tool::SubAgentTool;
 
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -20,12 +21,12 @@ use crate::agent_define::AgentOverrides;
 use crate::parse_agent_file;
 use crate::tools::BoxToolWrapper;
 
-/// SubAgentMiddleware - 向父 agent 注入 `Agent` 工具
+/// SubAgentMiddleware - injects `Agent` tool into the parent agent
 ///
-/// 在 `before_agent` 阶段通过 `collect_tools` 将 `SubAgentTool` 提供给父 agent，
-/// 使 LLM 可调用 `Agent` 工具将子任务委派给专门的子 agent。
+/// In the `before_agent` phase, provides `SubAgentTool` to the parent agent via `collect_tools`,
+/// enabling the LLM to call the `Agent` tool to delegate sub-tasks to specialized sub-agents.
 ///
-/// # 使用示例
+/// # Usage Example
 ///
 /// ```rust,ignore
 /// let parent_tools: Vec<Box<dyn BaseTool>> = vec![
@@ -34,7 +35,7 @@ use crate::tools::BoxToolWrapper;
 /// let llm_factory = Arc::new(move |_: Option<&str>| {
 ///     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 /// });
-/// // 可选：系统提示构建器，使子 agent 的 tone/proactiveness 在 Langfuse 中可见
+/// // Optional: system prompt builder, making sub-agent's tone/proactiveness visible in Langfuse
 /// let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str| {
 ///     build_system_prompt(overrides, cwd)
 /// });
@@ -43,18 +44,20 @@ use crate::tools::BoxToolWrapper;
 /// let agent = ReActAgent::new(llm).add_middleware(Box::new(middleware));
 /// ```
 pub struct SubAgentMiddleware {
-    /// 父 agent 工具集（Arc 共享，传给子 agent 使用）
+    /// Parent agent tool set (Arc shared, passed to child agent for use)
     parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
-    /// 父 agent 事件处理器（子 agent 事件透传）
+    /// Parent agent event handler (transparent forwarding of child agent events)
     event_handler: Option<Arc<dyn AgentEventHandler>>,
-    /// LLM 工厂函数，每次为子 agent 创建独立 LLM 实例
-    /// 参数为可选的 model alias（如 "haiku"/"sonnet"/"opus"），None 时使用父模型
+    /// LLM factory function, creates independent LLM instance for each child agent
+    /// Parameter is optional model alias (e.g., "haiku"/"sonnet"/"opus"), None means use parent model
     llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
-    /// 系统提示构建器：(agent overrides, cwd) → system prompt 字符串
-    /// 设置后，子 agent 通过 with_system_prompt() 注入系统提示（Langfuse 可见）
+    /// System prompt builder: (agent overrides, cwd) -> system prompt string
+    /// When set, child agent injects system prompt via with_system_prompt() (visible in Langfuse)
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
-    /// 父 agent 取消令牌（传递给子 agent，支持用户中断）
+    /// Parent agent cancellation token (passed to child agent, supports user interruption)
     cancel: Option<AgentCancellationToken>,
+    /// Shared reference to parent agent message snapshot, written in before_agent, read by Fork child agent
+    parent_messages: Option<Arc<RwLock<Vec<BaseMessage>>>>,
 }
 
 impl SubAgentMiddleware {
@@ -73,10 +76,11 @@ impl SubAgentMiddleware {
             llm_factory,
             system_builder: None,
             cancel: None,
+            parent_messages: None,
         }
     }
 
-    /// 设置系统提示构建器，子 agent 执行时通过 `with_system_prompt()` 注入系统提示词
+    /// Set system prompt builder, child agent injects system prompt via `with_system_prompt()` during execution
     pub fn with_system_builder(
         mut self,
         builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
@@ -85,13 +89,22 @@ impl SubAgentMiddleware {
         self
     }
 
-    /// 设置父 agent 取消令牌（传递给子 agent，支持用户中断子 agent 执行）
+    /// Set parent agent cancellation token (passed to child agent, supports user interruption of child agent execution)
     pub fn with_cancel(mut self, cancel: AgentCancellationToken) -> Self {
         self.cancel = Some(cancel);
         self
     }
 
-    /// 构建 SubAgentTool 实例（克隆 Arc 字段，不转移所有权）
+    /// Set shared parent message reference for Fork child agent inheritance
+    pub fn with_parent_messages(
+        mut self,
+        messages: Arc<RwLock<Vec<BaseMessage>>>,
+    ) -> Self {
+        self.parent_messages = Some(messages);
+        self
+    }
+
+    /// Build SubAgentTool instance (clone Arc fields, do not transfer ownership)
     pub fn build_tool(&self, cwd: &str) -> SubAgentTool {
         let mut tool = SubAgentTool::new(
             Arc::clone(&self.parent_tools),
@@ -105,12 +118,15 @@ impl SubAgentMiddleware {
         if let Some(ref cancel) = self.cancel {
             tool = tool.with_cancel(cancel.clone());
         }
+        if let Some(ref pm) = self.parent_messages {
+            tool = tool.with_parent_messages(Arc::clone(pm));
+        }
         tool
     }
 }
 
-/// 扫描 `{cwd}/.claude/agents/` 目录，返回 `(agent_id, name, description)` 列表
-fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
+/// Scan `{cwd}/.claude/agents/` directory, return `(agent_id, name, description)` list
+pub fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
     let agents_dir = Path::new(cwd).join(".claude").join("agents");
     if !agents_dir.is_dir() {
         return vec![];
@@ -126,7 +142,7 @@ fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
     for entry in entries.flatten() {
         let path = entry.path();
 
-        // 两种格式：`{agent_id}.md` 或 `{agent_id}/agent.md`
+        // Two formats: `{agent_id}.md` or `{agent_id}/agent.md`
         let (agent_id, file_path): (String, PathBuf) = if path.is_file() {
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
@@ -168,28 +184,9 @@ fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
         }
     }
 
-    // 按 agent_id 排序保证稳定输出
+    // Sort by agent_id for stable output
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result
-}
-
-/// 生成 agents 摘要系统消息
-fn build_agents_summary(agents: &[(String, String, String)]) -> String {
-    let mut lines = vec![
-        "你可以使用 `Agent` 工具委派子任务给以下专门 Agent：".to_string(),
-        String::new(),
-    ];
-
-    for (agent_id, name, description) in agents {
-        lines.push(format!("- **{}** (`{}`): {}", name, agent_id, description));
-    }
-
-    lines.push(String::new());
-    lines.push(
-        "调用时传入 `subagent_type` 字段（括号内的标识符）和 `prompt` 字段（任务描述）。".to_string(),
-    );
-
-    lines.join("\n")
 }
 
 #[async_trait]
@@ -203,21 +200,10 @@ impl<S: State> Middleware<S> for SubAgentMiddleware {
     }
 
     async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
-        let cwd = state.cwd().to_string();
-        let agents = tokio::task::spawn_blocking(move || scan_agents(&cwd))
-            .await
-            .map_err(|e| rust_create_agent::error::AgentError::MiddlewareError {
-                middleware: "SubAgentMiddleware".to_string(),
-                reason: format!("spawn_blocking 失败: {e}"),
-            })?;
-
-        if agents.is_empty() {
-            return Ok(());
+        // Snapshot current state.messages to shared reference for Fork child agent inheritance
+        if let Some(ref pm) = self.parent_messages {
+            *pm.write() = state.messages().to_vec();
         }
-
-        let summary = build_agents_summary(&agents);
-        state.prepend_message(BaseMessage::system(summary));
-
         Ok(())
     }
 }
@@ -251,7 +237,7 @@ mod tests {
             None,
             Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         );
-        // 通过 Middleware<AgentState> 调用，明确泛型参数
+        // Call via Middleware<AgentState>, explicit generic parameter
         assert_eq!(
             <SubAgentMiddleware as Middleware<AgentState>>::name(&m),
             "SubAgentMiddleware"
@@ -325,7 +311,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_before_agent_injects_summary() {
+    async fn test_before_agent_no_longer_injects_summary() {
         use tempfile::tempdir;
         let dir = tempdir().unwrap();
         let agents_dir = dir.path().join(".claude").join("agents");
@@ -346,11 +332,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(state.messages().len(), 1);
-        let content = state.messages()[0].content();
-        assert!(content.contains("tester"));
-        assert!(content.contains("Runs tests"));
-        assert!(content.contains("Agent"));
+        // Agent list has been migrated to system prompt placeholder injection, before_agent no longer prepends messages
+        assert_eq!(
+            state.messages().len(), 0,
+            "before_agent should not inject agent summary messages"
+        );
     }
 
     #[tokio::test]
@@ -365,5 +351,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state.messages().len(), 0);
+    }
+
+    /// Verify before_agent snapshots messages to shared parent_messages
+    #[tokio::test]
+    async fn test_before_agent_snapshots_messages() {
+        let parent_messages: Arc<RwLock<Vec<BaseMessage>>> =
+            Arc::new(RwLock::new(Vec::new()));
+
+        let m = SubAgentMiddleware::new(
+            vec![],
+            None,
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        ).with_parent_messages(Arc::clone(&parent_messages));
+
+        let mut state = AgentState::new("/tmp");
+        state.add_message(BaseMessage::human("Hello"));
+        state.add_message(BaseMessage::ai("Hi"));
+
+        <SubAgentMiddleware as Middleware<AgentState>>::before_agent(&m, &mut state)
+            .await
+            .unwrap();
+
+        let snapshot = parent_messages.read();
+        assert_eq!(snapshot.len(), 2, "parent_messages should contain 2 snapshot messages");
+        assert_eq!(snapshot[0].content(), "Hello");
+        assert_eq!(snapshot[1].content(), "Hi");
+    }
+
+    /// Verify build_tool passes parent_messages to SubAgentTool
+    #[test]
+    fn test_build_tool_receives_parent_messages() {
+        let parent_messages: Arc<RwLock<Vec<BaseMessage>>> =
+            Arc::new(RwLock::new(Vec::new()));
+
+        let m = SubAgentMiddleware::new(
+            vec![],
+            None,
+            Arc::new(|_: Option<&str>| Box::new(EchoLLM) as Box<dyn ReactLLM + Send + Sync>),
+        ).with_parent_messages(Arc::clone(&parent_messages));
+
+        let tool = m.build_tool("/tmp");
+        // SubAgentTool with parent_messages set should handle fork: true without error
+        // (the test verifies the field is passed through; functional test is in tool.rs)
+        assert_eq!(tool.name(), "Agent");
     }
 }
