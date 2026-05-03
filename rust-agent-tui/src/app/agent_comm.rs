@@ -52,6 +52,10 @@ pub struct AgentComm {
     pub retry_status: Option<RetryStatus>,
     /// SubAgent 执行深度计数器（>0 表示当前在 SubAgent 内，忽略其 TokenUsageUpdate）
     pub subagent_depth: u32,
+    /// 会话开始时间（首次 submit_message 时记录）
+    pub session_start_time: Option<std::time::Instant>,
+    /// 会话级工具调用次数（统计 ToolStart 事件数）
+    pub tool_call_count: u32,
 }
 
 impl Default for AgentComm {
@@ -74,6 +78,8 @@ impl Default for AgentComm {
             pre_compact_token_snapshot: None,
             retry_status: None,
             subagent_depth: 0,
+            session_start_time: None,
+            tool_call_count: 0,
         }
     }
 }

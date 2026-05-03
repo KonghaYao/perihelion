@@ -397,7 +397,7 @@ Final response text here
 
 ## TUI 命令
 
-输入 `/` 前缀触发统一浮层（命令组 + Skills 组），Tab 导航，Enter 补全。命令优先于 Skills。支持前缀唯一匹配（如 `/m` 匹配 `/model`）：
+输入 `/` 前缀触发统一浮层（命令组 + Skills 组），Tab 导航，Enter 补全。命令优先于 Skills。支持前缀唯一匹配（如 `/m` 匹配 `/model`）。Command trait 的 `aliases()` 方法有默认实现返回空 Vec，新增命令时按需覆盖即可；dispatch 匹配优先级为：name 精确 → aliases 精确 → name+aliases 前缀唯一。
 
 | 命令 | 说明 |
 |------|------|
@@ -501,6 +501,27 @@ ReActAgent::new(llm)
 
 运行时 `Shift+Tab` 循环切换 5 级权限模式。
 
+## ACP 远程传输（Streamable HTTP & WebSocket）
+
+ACP 远程传输规范（RFD）定义了 `/acp` 单端点的两种连接模式：
+
+- **Streamable HTTP**：POST 发送消息（`initialize` 返回 200，其余返回 202）、GET 长连接 SSE 流接收所有 server→client 消息、DELETE 断开连接。要求 HTTP/2。
+- **WebSocket**：GET + `Upgrade: websocket` 升级为全双工通道。
+- 客户端必须同时支持两种模式，服务端可选择只支持 WebSocket。
+- 身份模型：`Acp-Connection-Id`（HTTP header，连接级）+ `Acp-Session-Id`（HTTP header，会话级）+ `sessionId`（JSON-RPC body）。
+
+**当前状态**：不支持。现有 ACP 实现（`rust-agent-tui/src/acp/`）仅通过 stdio 传输（`Stdio::new()`），无 HTTP server、WebSocket、SSE server 依赖。
+
+**缺失组件**：
+- HTTP 服务器框架（axum / actix / hyper server）
+- WebSocket 库（tokio-tungstenite）
+- SSE 服务端实现（长连接 GET 流）
+- HTTP/2 支持
+- Cookie 管理
+- `agent-client-protocol-tokio` 尚未内置 StreamableHTTP/WebSocket transport
+
+**待上游支持**：`agent-client-protocol` SDK（Phase 3）计划在 Rust SDK 中新增 Streamable HTTP 和 WebSocket transport，届时可替换 `Stdio::new()` 直接接入。
+
 ## 编码规范
 
 - Rust 2021 edition，tokio async/await + async-trait
@@ -539,3 +560,10 @@ ReActAgent::new(llm)
 | `Space` | 选中/切换（Browse 模式激活 Provider，Edit 模式切换 Type） |
 | `Esc` | 关闭/取消（关闭面板、退出编辑回到 Browse、取消确认） |
 | `Ctrl+V` | 粘贴剪贴板内容到当前编辑字段 |
+
+**快捷键提示显示位置——统一由状态栏第二行负责**：
+
+- 面板内部**禁止**渲染快捷键提示行（如 `↑↓:导航 Enter:确认 Esc:关闭`）
+- 状态栏 `render_second_row` 根据 `App` 当前激活的面板和面板内部状态（如确认删除模式、编辑模式）切换显示对应的快捷键
+- 需要状态栏感知的面板状态包括：`agent_panel`、`cron_panel`（含 `confirm_delete`）、`login_panel`（含 `LoginPanelMode` 四种变体）、`mcp_panel`（含 `McpPanelView` + `confirm_delete`）、`model_panel`、`thread_browser`（含 `confirm_delete`）、`interaction_prompt`（Questions/Approval）
+- 新增面板时，需同步在 `status_bar.rs` 的 `render_second_row` 分支中添加对应的快捷键显示逻辑

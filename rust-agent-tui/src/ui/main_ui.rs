@@ -85,6 +85,9 @@ pub fn render(f: &mut Frame, app: &mut App) {
         if app.core.model_panel.is_some() {
             panels::model::render_model_panel(f, app, panel_area);
         }
+        if app.core.config_panel.is_some() {
+            panels::config::render_config_panel(f, app, panel_area);
+        }
         if app.core.agent_panel.is_some() {
             panels::agent::render_agent_panel(f, app, panel_area);
         }
@@ -96,6 +99,12 @@ pub fn render(f: &mut Frame, app: &mut App) {
         }
         if app.mcp_panel.is_some() {
             panels::mcp::render_mcp_panel(f, app, panel_area);
+        }
+        if app.status_panel.is_some() {
+            panels::status::render_status_panel(f, app, panel_area);
+        }
+        if app.memory_panel.is_some() {
+            panels::memory::render_memory_panel(f, app, panel_area);
         }
     }
 
@@ -142,6 +151,8 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         }
     } else if app.core.model_panel.is_some() {
         12
+    } else if app.core.config_panel.is_some() {
+        14
     } else if let Some(panel) = &app.core.agent_panel {
         (panel.agents.len() as u16 * 2 + 6).max(6)
     } else if app.cron.cron_panel.is_some() {
@@ -166,6 +177,15 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
             }
         };
         (item_count as u16 + 4).max(6)
+    } else if app.status_panel.is_some() {
+        14
+    } else if app.memory_panel.is_some() {
+        let items = app
+            .memory_panel
+            .as_ref()
+            .map(|p| p.entries.len())
+            .unwrap_or(0);
+        (items as u16 * 2 + 4).max(6)
     } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.agent.interaction_prompt {
         (p.items.len() as u16 * 2 + 5).max(5)
     } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt

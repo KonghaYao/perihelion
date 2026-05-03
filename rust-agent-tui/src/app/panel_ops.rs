@@ -7,8 +7,11 @@ impl App {
     pub fn open_model_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
         self.core.model_panel = Some(ModelPanel::from_config(cfg));
-        // 互斥：关闭 login 面板
+        // 互斥：关闭其他面板
         self.core.login_panel = None;
+        self.core.config_panel = None;
+        self.status_panel = None;
+        self.memory_panel = None;
     }
 
     /// 关闭 /model 面板（不保存）
@@ -56,8 +59,11 @@ impl App {
     pub fn open_login_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
         self.core.login_panel = Some(login_panel::LoginPanel::from_config(cfg));
-        // 互斥：关闭 model 面板
+        // 互斥：关闭其他面板
         self.core.model_panel = None;
+        self.core.config_panel = None;
+        self.status_panel = None;
+        self.memory_panel = None;
     }
 
     /// 关闭 /login 面板（不保存）
@@ -169,6 +175,139 @@ impl App {
             self.provider_name = p.display_name().to_string();
             self.model_name = p.model_name().to_string();
         }
+    }
+
+    // ─── Config 面板操作 ───────────────────────────────────────────────────────
+
+    /// 打开 /config 面板
+    pub fn open_config_panel(&mut self) {
+        let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
+        self.core.config_panel = Some(config_panel::ConfigPanel::from_config(cfg));
+        // 互斥：关闭其他面板
+        self.core.login_panel = None;
+        self.core.model_panel = None;
+    }
+
+    /// 关闭 /config 面板
+    pub fn close_config_panel(&mut self) {
+        self.core.config_panel = None;
+    }
+
+    /// 保存 Config 面板编辑并关闭
+    pub fn config_panel_apply(&mut self) {
+        let Some(panel) = self.core.config_panel.as_mut() else {
+            return;
+        };
+        let Some(cfg) = self.zen_config.as_mut() else {
+            return;
+        };
+        panel.apply_edit(cfg);
+        if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
+            self.core.view_messages.push(MessageViewModel::system(
+                format!("配置保存失败: {}", e),
+            ));
+        } else {
+            self.core.view_messages.push(MessageViewModel::system(
+                "配置已保存".to_string(),
+            ));
+        }
+        self.core.config_panel = None;
+    }
+
+    // ─── Status 面板操作 ───────────────────────────────────────────────────────
+
+    /// 打开状态面板并激活指定 Tab
+    pub fn open_status_panel(&mut self, tab: usize) {
+        self.status_panel = Some(status_panel::StatusPanel::new(tab));
+        // 互斥
+        self.core.config_panel = None;
+        self.core.login_panel = None;
+        self.core.model_panel = None;
+    }
+
+    /// 关闭状态面板
+    pub fn close_status_panel(&mut self) {
+        self.status_panel = None;
+    }
+
+    // ─── Memory 面板操作 ───────────────────────────────────────────────────────
+
+    /// 打开 /memory 面板
+    pub fn open_memory_panel(&mut self) {
+        let home_dir = dirs_next::home_dir();
+        let mut panel = crate::app::memory_panel::MemoryPanel::new(&self.cwd, home_dir);
+        panel.refresh_exists();
+        self.memory_panel = Some(panel);
+        // 互斥
+        self.core.config_panel = None;
+        self.core.login_panel = None;
+        self.core.model_panel = None;
+        self.status_panel = None;
+    }
+
+    /// 关闭 /memory 面板
+    pub fn close_memory_panel(&mut self) {
+        self.memory_panel = None;
+    }
+
+    /// 打开外部编辑器编辑选中的 memory 文件
+    pub fn memory_panel_open_editor(&mut self) -> anyhow::Result<()> {
+        let entry = self
+            .memory_panel
+            .as_ref()
+            .and_then(|p| p.entries.get(p.cursor))
+            .cloned();
+        let Some(entry) = entry else {
+            return Ok(());
+        };
+
+        // 文件不存在时创建空文件
+        if !entry.path.exists() {
+            if let Some(parent) = entry.path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::File::create(&entry.path)?;
+            // 刷新面板中的 exists 状态
+            if let Some(ref mut panel) = self.memory_panel {
+                panel.refresh_exists();
+            }
+        }
+
+        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+        tracing::info!("Opening memory file with {}: {:?}", editor, entry.path);
+
+        // 挂起 TUI: 离开 alternate screen + 恢复 raw mode
+        ratatui::crossterm::execute!(
+            std::io::stdout(),
+            ratatui::crossterm::terminal::LeaveAlternateScreen
+        )?;
+        ratatui::crossterm::terminal::disable_raw_mode()?;
+
+        // 启动编辑器
+        let status = std::process::Command::new(&editor)
+            .arg(&entry.path)
+            .status();
+
+        // 恢复 TUI: 重新进入 alternate screen + raw mode
+        ratatui::crossterm::terminal::enable_raw_mode()?;
+        ratatui::crossterm::execute!(
+            std::io::stdout(),
+            ratatui::crossterm::terminal::EnterAlternateScreen
+        )?;
+
+        match status {
+            Ok(s) if s.success() => {
+                tracing::info!("Editor exited successfully");
+            }
+            Ok(s) => {
+                tracing::warn!("Editor exited with status: {}", s);
+            }
+            Err(e) => {
+                tracing::error!("Failed to launch editor: {}", e);
+            }
+        }
+
+        Ok(())
     }
 
     // ─── Agent 面板操作 ───────────────────────────────────────────────────────
@@ -322,6 +461,8 @@ impl App {
             mcp_init_rx: None,
             mcp_panel: None,
             mcp_ready_shown_until: std::cell::Cell::new(None),
+            status_panel: None,
+            memory_panel: None,
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

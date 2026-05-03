@@ -1,11 +1,14 @@
 pub mod agent;
 pub mod agent_panel;
+pub mod config_panel;
 pub mod events;
 pub mod interaction_broker;
 pub mod login_panel;
+pub mod memory_panel;
 pub mod model_panel;
 mod provider;
 pub mod setup_wizard;
+pub mod status_panel;
 pub mod text_selection;
 pub mod tool_display;
 
@@ -100,6 +103,10 @@ pub struct App {
     pub mcp_panel: Option<McpPanel>,
     /// MCP 就绪提示显示截止时间（首次 Ready 时设置，3 秒后消失）
     pub mcp_ready_shown_until: std::cell::Cell<Option<std::time::Instant>>,
+    /// /cost & /context 状态面板
+    pub status_panel: Option<status_panel::StatusPanel>,
+    /// /memory 记忆文件面板状态
+    pub memory_panel: Option<crate::app::memory_panel::MemoryPanel>,
 }
 
 impl App {
@@ -193,6 +200,8 @@ impl App {
             mcp_init_rx: None,
             mcp_panel: None,
             mcp_ready_shown_until: std::cell::Cell::new(None),
+            status_panel: None,
+            memory_panel: None,
         }
     }
 

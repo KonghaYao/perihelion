@@ -1,6 +1,9 @@
 pub mod agent;
+pub mod config;
 pub mod cron;
 pub mod login;
 pub mod mcp;
+pub mod memory;
 pub mod model;
+pub mod status;
 pub mod thread_browser;

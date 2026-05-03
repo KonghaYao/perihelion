@@ -114,6 +114,18 @@ pub struct AppConfig {
     /// Compact 系统配置（缺失时使用 CompactConfig::default()）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact: Option<rust_create_agent::agent::compact::CompactConfig>,
+    /// UI 语言，"auto" 自动探测系统语言
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// 系统提示词 persona 覆盖
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
+    /// 系统提示词 tone 覆盖
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
+    /// 主动性级别（low/medium/high）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proactiveness: Option<String>,
     /// 保留未知字段，写回时不丢失
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -394,5 +406,47 @@ mod tests {
             !out.contains("compact"),
             "compact should be absent when None"
         );
+    }
+
+    // ── AppConfig new fields (language/persona/tone/proactiveness) ──────────
+
+    #[test]
+    fn test_app_config_new_fields_optional() {
+        let json = r#"{"active_alias": "opus", "providers": []}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert!(cfg.language.is_none());
+        assert!(cfg.persona.is_none());
+        assert!(cfg.tone.is_none());
+        assert!(cfg.proactiveness.is_none());
+    }
+
+    #[test]
+    fn test_app_config_language_serde_roundtrip() {
+        let cfg = AppConfig {
+            language: Some("zh-CN".to_string()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.language.as_deref(), Some("zh-CN"));
+    }
+
+    #[test]
+    fn test_app_config_proactiveness_serde_roundtrip() {
+        let cfg = AppConfig {
+            proactiveness: Some("low".to_string()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.proactiveness.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn test_app_config_persona_tone_skip_when_none() {
+        let cfg = AppConfig::default();
+        let out = serde_json::to_string(&cfg).unwrap();
+        assert!(!out.contains("persona"), "persona should be absent when None");
+        assert!(!out.contains("tone"), "tone should be absent when None");
     }
 }

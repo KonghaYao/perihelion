@@ -205,6 +205,24 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // /config 配置面板优先处理
+            if app.core.config_panel.is_some() {
+                handle_config_panel(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
+            // /cost & /context 状态面板优先处理
+            if app.status_panel.is_some() {
+                handle_status_panel(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
+            // /memory 面板优先处理
+            if app.memory_panel.is_some() {
+                handle_memory_panel(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
             // AskUser 批量弹窗
             if matches!(
                 &app.agent.interaction_prompt,
@@ -549,12 +567,22 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // config_panel 打开时粘贴到当前编辑字段
+            if app.core.config_panel.is_some() {
+                if let Some(panel) = app.core.config_panel.as_mut() {
+                    panel.paste_text(&text);
+                }
+                return Ok(Some(Action::Redraw));
+            }
+
             // thread_browser / agent_panel / cron_panel 打开时拦截粘贴，
             // 防止文本进入后台 textarea（这些面板无文本输入字段）
             if app.core.thread_browser.is_some()
                 || app.core.agent_panel.is_some()
                 || app.cron.cron_panel.is_some()
                 || app.mcp_panel.is_some()
+                || app.status_panel.is_some()
+                || app.memory_panel.is_some()
             {
                 return Ok(Some(Action::Redraw));
             }
@@ -1128,6 +1156,140 @@ fn handle_model_panel(app: &mut App, input: Input) {
             key: Key::Right, ..
         } => {
             app.core.model_panel.as_mut().unwrap().cycle_effort(false);
+        }
+        _ => {}
+    }
+}
+
+fn handle_config_panel(app: &mut App, input: Input) {
+    use crate::app::config_panel::{ConfigEditField, ConfigPanel, ConfigPanelMode};
+    let Some(panel) = app.core.config_panel.as_mut() else {
+        return;
+    };
+    match panel.mode {
+        ConfigPanelMode::Browse => match input {
+            Input { key: Key::Up, .. } => {
+                if panel.cursor > 0 {
+                    panel.cursor -= 1;
+                } else {
+                    panel.cursor = ConfigPanel::field_count() - 1;
+                }
+            }
+            Input { key: Key::Down, .. } => {
+                panel.cursor = (panel.cursor + 1) % ConfigPanel::field_count();
+            }
+            Input { key: Key::Enter, .. } => {
+                panel.enter_edit();
+            }
+            Input { key: Key::Esc, .. } => {
+                app.core.config_panel = None;
+            }
+            _ => {}
+        },
+        ConfigPanelMode::Edit => match input {
+            Input { key: Key::Esc, .. } => {
+                panel.mode = ConfigPanelMode::Browse;
+            }
+            Input { key: Key::Enter, .. } => {
+                app.config_panel_apply();
+            }
+            Input { key: Key::Up, .. } => {
+                panel.field_prev();
+            }
+            Input { key: Key::Down, .. } => {
+                panel.field_next();
+            }
+            Input {
+                key: Key::Char(' '),
+                ctrl: false,
+                ..
+            } => match panel.edit_field {
+                ConfigEditField::Autocompact => panel.cycle_autocompact(),
+                ConfigEditField::Proactiveness => panel.cycle_proactiveness(),
+                _ => {
+                    if let Some((buf, cursor)) = panel.active_field() {
+                        crate::app::handle_edit_key(
+                            buf,
+                            cursor,
+                            Input {
+                                key: Key::Char(' '),
+                                ctrl: false,
+                                alt: false,
+                                shift: false,
+                            },
+                        );
+                    }
+                }
+            },
+            Input {
+                key: Key::Left,
+                ctrl: false,
+                ..
+            }
+            | Input {
+                key: Key::Right,
+                ctrl: false,
+                ..
+            } => match panel.edit_field {
+                ConfigEditField::Autocompact => panel.cycle_autocompact(),
+                ConfigEditField::Proactiveness => panel.cycle_proactiveness(),
+                _ => {
+                    if let Some((buf, cursor)) = panel.active_field() {
+                        crate::app::handle_edit_key(buf, cursor, input);
+                    }
+                }
+            },
+            _ => {
+                if let Some((buf, cursor)) = panel.active_field() {
+                    crate::app::handle_edit_key(buf, cursor, input);
+                }
+            }
+        },
+    }
+}
+
+fn handle_status_panel(app: &mut App, input: Input) {
+    match input {
+        Input { key: Key::Esc, .. } => {
+            app.status_panel = None;
+        }
+        Input { key: Key::Left, .. } => {
+            if let Some(panel) = &mut app.status_panel {
+                panel.tab.prev();
+            }
+        }
+        Input { key: Key::Right, .. } => {
+            if let Some(panel) = &mut app.status_panel {
+                panel.tab.next();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_memory_panel(app: &mut App, input: Input) {
+    let Some(panel) = app.memory_panel.as_mut() else {
+        return;
+    };
+    match input {
+        Input { key: Key::Up, .. } => {
+            panel.move_cursor_up();
+        }
+        Input { key: Key::Down, .. } => {
+            panel.move_cursor_down();
+        }
+        Input { key: Key::Enter, .. } => {
+            // 标记需要打开编辑器 — 需要特别处理
+            // 在 handle_memory_panel 返回后由 main loop 处理
+            // 这里先 drop borrow
+            drop(panel);
+            if let Err(e) = app.memory_panel_open_editor() {
+                tracing::error!("Failed to open editor: {}", e);
+            }
+            return;
+        }
+        Input { key: Key::Esc, .. } => {
+            app.memory_panel = None;
         }
         _ => {}
     }

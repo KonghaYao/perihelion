@@ -46,6 +46,9 @@ impl App {
         // 开始计时新任务
         self.agent.task_start_time = Some(std::time::Instant::now());
         self.agent.last_task_duration = None;
+        if self.agent.session_start_time.is_none() {
+            self.agent.session_start_time = Some(std::time::Instant::now());
+        }
 
         let provider = match self
             .zen_config
@@ -381,6 +384,7 @@ impl App {
                 input,
             } => {
                 self.agent.retry_status = None;
+                self.agent.tool_call_count += 1;
                 // 跨切面：spinner
                 self.spinner_state
                     .set_mode(perihelion_widgets::SpinnerMode::ToolUse);

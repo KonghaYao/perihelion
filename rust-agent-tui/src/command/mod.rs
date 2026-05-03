@@ -1,18 +1,23 @@
 pub mod agents;
 pub mod clear;
 pub mod compact;
+pub mod config;
+pub mod context_cmd;
+pub mod cost;
 pub mod cron;
 pub mod help;
 pub mod mcp;
 pub mod history;
 pub mod login;
 pub mod loop_cmd;
+pub mod memory;
 pub mod model;
 
 /// 注册所有内置命令，返回配置好的 CommandRegistry
 pub fn default_registry() -> CommandRegistry {
     let mut r = CommandRegistry::new();
     r.register(Box::new(agents::AgentsCommand));
+    r.register(Box::new(config::ConfigCommand));
     r.register(Box::new(login::LoginCommand));
     r.register(Box::new(model::ModelCommand));
     r.register(Box::new(clear::ClearCommand));
@@ -22,6 +27,9 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(loop_cmd::LoopCommand));
     r.register(Box::new(cron::CronCommand));
     r.register(Box::new(mcp::McpCommand));
+    r.register(Box::new(memory::MemoryCommand));
+    r.register(Box::new(cost::CostCommand));
+    r.register(Box::new(context_cmd::ContextCommand));
     r
 }
 
@@ -34,6 +42,10 @@ pub trait Command: Send + Sync {
     fn name(&self) -> &str;
     /// 单行描述，用于 /help 展示
     fn description(&self) -> &str;
+    /// 命令别名列表（不含 /），默认为空
+    fn aliases(&self) -> Vec<&str> {
+        vec![]
+    }
     /// 执行命令，args 是命令名之后的参数字符串（已 trim）
     fn execute(&self, app: &mut App, args: &str);
 }
@@ -56,7 +68,7 @@ impl CommandRegistry {
 
     /// 解析并执行命令。
     /// 输入格式："/name args..."
-    /// 匹配优先级：精确匹配 > 前缀唯一匹配（支持 /m → /model）
+    /// 匹配优先级：精确匹配 > 别名精确匹配 > 前缀唯一匹配（支持 /m → /model）
     /// 返回 true 表示找到命令并执行，false 表示未知命令或有歧义。
     pub fn dispatch(&self, app: &mut App, input: &str) -> bool {
         let input = input.trim_start_matches('/');
@@ -71,11 +83,23 @@ impl CommandRegistry {
             return true;
         }
 
-        // 2. 前缀唯一匹配（快捷命令）
+        // 2. 别名精确匹配
+        if let Some(cmd) = self
+            .commands
+            .iter()
+            .find(|c| c.aliases().iter().any(|a| *a == name))
+        {
+            cmd.execute(app, args);
+            return true;
+        }
+
+        // 3. 前缀唯一匹配（同时对 name 和 aliases）
         let matches: Vec<_> = self
             .commands
             .iter()
-            .filter(|c| c.name().starts_with(name))
+            .filter(|c| {
+                c.name().starts_with(name) || c.aliases().iter().any(|a| a.starts_with(name))
+            })
             .collect();
         if matches.len() == 1 {
             matches[0].execute(app, args);
@@ -85,20 +109,23 @@ impl CommandRegistry {
         false
     }
 
-    /// 返回所有已注册命令的 (name, description) 列表
-    pub fn list(&self) -> Vec<(&str, &str)> {
+    /// 返回所有已注册命令的 (name, description, aliases) 列表
+    pub fn list(&self) -> Vec<(&str, &str, Vec<&str>)> {
         self.commands
             .iter()
-            .map(|c| (c.name(), c.description()))
+            .map(|c| (c.name(), c.description(), c.aliases()))
             .collect()
     }
 
     /// 按前缀匹配命令，返回匹配的 (name, description) 列表
     /// prefix 不含 /，如 "mo" 匹配 "model"
+    /// 同时匹配 name 和 aliases
     pub fn match_prefix(&self, prefix: &str) -> Vec<(&str, &str)> {
         self.commands
             .iter()
-            .filter(|c| c.name().starts_with(prefix))
+            .filter(|c| {
+                c.name().starts_with(prefix) || c.aliases().iter().any(|a| a.starts_with(prefix))
+            })
             .map(|c| (c.name(), c.description()))
             .collect()
     }
@@ -120,6 +147,7 @@ mod tests {
         n: &'static str,
         called: Arc<AtomicBool>,
         last_args: Arc<parking_lot::Mutex<String>>,
+        aliases_vec: Vec<&'static str>,
     }
 
     impl Command for StubCommand {
@@ -128,6 +156,9 @@ mod tests {
         }
         fn description(&self) -> &str {
             "stub"
+        }
+        fn aliases(&self) -> Vec<&str> {
+            self.aliases_vec.clone()
         }
         fn execute(&self, _app: &mut App, args: &str) {
             self.called.store(true, Ordering::Relaxed);
@@ -142,6 +173,17 @@ mod tests {
         Arc<AtomicBool>,
         Arc<parking_lot::Mutex<String>>,
     ) {
+        make_stub_with_aliases(name, vec![])
+    }
+
+    fn make_stub_with_aliases(
+        name: &'static str,
+        aliases: Vec<&'static str>,
+    ) -> (
+        StubCommand,
+        Arc<AtomicBool>,
+        Arc<parking_lot::Mutex<String>>,
+    ) {
         let called = Arc::new(AtomicBool::new(false));
         let last_args = Arc::new(parking_lot::Mutex::new(String::new()));
         (
@@ -149,6 +191,7 @@ mod tests {
                 n: name,
                 called: called.clone(),
                 last_args: last_args.clone(),
+                aliases_vec: aliases,
             },
             called,
             last_args,
@@ -272,5 +315,106 @@ mod tests {
             !r.dispatch(&mut app, "/"),
             "empty prefix should return false when ambiguous"
         );
+    }
+
+    // ── 别名匹配 ──
+
+    #[tokio::test]
+    async fn test_alias_exact_match() {
+        let mut r = CommandRegistry::new();
+        let (stub, called, _) = make_stub_with_aliases("clear", vec!["reset", "new"]);
+        r.register(Box::new(stub));
+        let mut app = headless_app();
+        assert!(
+            r.dispatch(&mut app, "/reset"),
+            "alias exact match should return true"
+        );
+        assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn test_alias_no_match() {
+        let mut r = CommandRegistry::new();
+        let (stub, _, _) = make_stub("model");
+        r.register(Box::new(stub));
+        let mut app = headless_app();
+        assert!(
+            !r.dispatch(&mut app, "/reset"),
+            "no alias should return false"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_name_priority_over_alias() {
+        let mut r = CommandRegistry::new();
+        let (s1, called1, _) = make_stub("reset");
+        let (s2, called2, _) = make_stub_with_aliases("clear", vec!["reset"]);
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        let mut app = headless_app();
+        assert!(r.dispatch(&mut app, "/reset"));
+        assert!(called1.load(Ordering::Relaxed), "name exact should win");
+        assert!(!called2.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn test_alias_prefix_match() {
+        let mut r = CommandRegistry::new();
+        let (stub, called, _) = make_stub_with_aliases("clear", vec!["reset"]);
+        r.register(Box::new(stub));
+        let mut app = headless_app();
+        assert!(
+            r.dispatch(&mut app, "/res"),
+            "alias prefix unique match should return true"
+        );
+        assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn test_alias_prefix_ambiguous() {
+        let mut r = CommandRegistry::new();
+        let (s1, called1, _) = make_stub_with_aliases("clear", vec!["reset"]);
+        let (s2, called2, _) = make_stub("real");
+        r.register(Box::new(s1));
+        r.register(Box::new(s2));
+        let mut app = headless_app();
+        assert!(
+            !r.dispatch(&mut app, "/re"),
+            "ambiguous alias prefix should return false"
+        );
+        assert!(!called1.load(Ordering::Relaxed));
+        assert!(!called2.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_match_prefix_covers_aliases() {
+        let mut r = CommandRegistry::new();
+        let (s, _, _) = make_stub_with_aliases("clear", vec!["reset"]);
+        r.register(Box::new(s));
+        let matches = r.match_prefix("res");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "clear");
+    }
+
+    #[test]
+    fn test_list_includes_aliases() {
+        let mut r = CommandRegistry::new();
+        let (s, _, _) = make_stub_with_aliases("clear", vec!["reset", "new"]);
+        r.register(Box::new(s));
+        let list = r.list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].0, "clear");
+        assert_eq!(list[0].2, vec!["reset", "new"]);
+    }
+
+    #[test]
+    fn test_no_alias_backward_compat() {
+        let mut r = CommandRegistry::new();
+        let (s, _, _) = make_stub("model");
+        r.register(Box::new(s));
+        let list = r.list();
+        assert_eq!(list[0].2, Vec::<&str>::new());
+        let matches = r.match_prefix("mo");
+        assert_eq!(matches.len(), 1);
     }
 }

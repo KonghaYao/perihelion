@@ -33,7 +33,7 @@ pub struct AppCore {
     pub render_notify: Arc<Notify>,
     pub last_render_version: u64,
     pub command_registry: CommandRegistry,
-    pub command_help_list: Vec<(String, String)>,
+    pub command_help_list: Vec<(String, String, Vec<String>)>,
     pub skills: Vec<SkillMetadata>,
     pub hint_cursor: Option<usize>,
     pub pending_attachments: Vec<PendingAttachment>,
@@ -41,6 +41,7 @@ pub struct AppCore {
     pub model_panel: Option<ModelPanel>,
     pub login_panel: Option<LoginPanel>,
     pub agent_panel: Option<AgentPanel>,
+    pub config_panel: Option<crate::app::config_panel::ConfigPanel>,
     pub thread_browser: Option<ThreadBrowser>,
     /// 输入历史（已发送消息的文本，最新的在前面）
     pub input_history: Vec<String>,
@@ -77,10 +78,16 @@ impl AppCore {
         command_registry: CommandRegistry,
         skills: Vec<SkillMetadata>,
     ) -> Self {
-        let command_help_list: Vec<(String, String)> = command_registry
+        let command_help_list: Vec<(String, String, Vec<String>)> = command_registry
             .list()
             .into_iter()
-            .map(|(n, d)| (n.to_string(), d.to_string()))
+            .map(|(n, d, a)| {
+                (
+                    n.to_string(),
+                    d.to_string(),
+                    a.into_iter().map(String::from).collect(),
+                )
+            })
             .collect();
         Self {
             view_messages: Vec::new(),
@@ -105,6 +112,7 @@ impl AppCore {
             model_panel: None,
             login_panel: None,
             agent_panel: None,
+            config_panel: None,
             thread_browser: None,
             input_history: Vec::new(),
             history_index: None,

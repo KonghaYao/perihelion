@@ -258,8 +258,22 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     }
                 });
                 view_label.unwrap_or_default()
+            } else if app.core.config_panel.is_some() {
+                let panel = app.core.config_panel.as_ref().unwrap();
+                match panel.mode {
+                    crate::app::config_panel::ConfigPanelMode::Browse => {
+                        key!["↑↓" => ":导航  ", "Enter" => ":编辑  ", "Esc" => ":关闭"]
+                    }
+                    crate::app::config_panel::ConfigPanelMode::Edit => {
+                        key!["↑↓" => ":切换字段  ", "←→/Space" => ":切换  ", "Enter" => ":保存  ", "Ctrl+V" => ":粘贴  ", "Esc" => ":取消"]
+                    }
+                }
             } else if app.core.model_panel.is_some() {
                 key!["↑↓" => ":导航  ", "Enter" => ":确认  ", "Space" => ":选择/切换  ", "Esc" => ":关闭"]
+            } else if app.status_panel.is_some() {
+                key!["←→" => ":切换Tab  ", "Esc" => ":关闭"]
+            } else if app.memory_panel.is_some() {
+                key!["↑↓" => ":选择  ", "Enter" => ":编辑  ", "Esc" => ":关闭"]
             } else if let Some(browser) = &app.core.thread_browser {
                 if browser.confirm_delete {
                     key!["Enter" => ":确认  ", "其他键" => ":取消"]

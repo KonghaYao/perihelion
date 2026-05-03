@@ -15,8 +15,13 @@ impl Command for HelpCommand {
     fn execute(&self, app: &mut App, _args: &str) {
         // 使用启动时预计算的列表（command_registry 在 dispatch 时已被 std::mem::take 取出）
         let mut lines = vec!["可用命令：".to_string()];
-        for (name, desc) in &app.core.command_help_list {
-            lines.push(format!("  /{:<10} {}", name, desc));
+        for (name, desc, aliases) in &app.core.command_help_list {
+            let alias_str = if aliases.is_empty() {
+                String::new()
+            } else {
+                format!(" (别名: /{})", aliases.join(", /"))
+            };
+            lines.push(format!("  /{:<10} {}{}", name, desc, alias_str));
         }
 
         // Skills 说明

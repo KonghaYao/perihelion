@@ -12,6 +12,10 @@ impl Command for ClearCommand {
         "清空消息列表"
     }
 
+    fn aliases(&self) -> Vec<&str> {
+        vec!["reset", "new"]
+    }
+
     fn execute(&self, app: &mut App, _args: &str) {
         app.new_thread();
     }
