@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod agent_panel;
+pub mod chat_session;
 pub mod config_panel;
 pub mod events;
 pub mod interaction_broker;
@@ -31,10 +32,13 @@ mod panel_ops;
 mod thread_ops;
 
 pub use ask_user_prompt::AskUserBatchPrompt;
+pub use chat_session::ChatSession;
 pub use events::AgentEvent;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
 pub use interaction_broker::TuiInteractionBroker;
 pub use oauth_prompt::OAuthPrompt;
+
+use ratatui::layout::Rect;
 
 /// 统一交互弹窗枚举：同一时刻只允许一种弹窗激活
 pub enum InteractionPrompt {
@@ -51,6 +55,7 @@ use rust_create_agent::agent::AgentCancellationToken;
 use rust_create_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
+use tracing::Instrument;
 
 use crate::config::ZenConfig;
 use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, ThreadStore};
@@ -63,7 +68,6 @@ pub use agent_panel::AgentPanel;
 pub use model_panel::ModelPanel;
 pub use setup_wizard::SetupWizardPanel;
 use std::sync::Arc;
-use tracing::Instrument;
 
 use crate::ui::render_thread::RenderEvent;
 
@@ -78,17 +82,18 @@ pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 pub struct App {
-    pub core: AppCore,
-    pub agent: AgentComm,
-    pub langfuse: LangfuseState,
-    // 不变字段（跨子结构体的"胶水"字段）
+    /// 所有聊天会话（每个 session 独立拥有 UI 状态、Agent 通道、线程上下文）
+    pub sessions: Vec<ChatSession>,
+    /// 当前激活（键盘焦点）的 session 索引
+    pub active: usize,
+    /// 各 session 列区域（供鼠标点击判断）
+    pub session_areas: Vec<Rect>,
+    // ─── 共享字段（跨 session 全局）─────────────────────────────────────────
     pub cwd: String,
     pub provider_name: String,
     pub model_name: String,
     pub zen_config: Option<ZenConfig>,
     pub thread_store: Arc<dyn ThreadStore>,
-    pub current_thread_id: Option<ThreadId>,
-    pub todo_items: Vec<TodoItem>,
     pub cron: CronState,
     pub setup_wizard: Option<SetupWizardPanel>,
     pub permission_mode: Arc<rust_agent_middlewares::prelude::SharedPermissionMode>,
@@ -96,7 +101,6 @@ pub struct App {
     pub mode_highlight_until: Option<std::time::Instant>,
     /// 模型切换后的闪烁高亮截止时间，None 表示不闪烁
     pub model_highlight_until: Option<std::time::Instant>,
-    pub spinner_state: perihelion_widgets::SpinnerState,
     /// 测试时覆盖配置文件路径，防止污染全局 ~/.zen-code/settings.json
     pub config_path_override: Option<PathBuf>,
     /// MCP 连接池：首次 agent 启动时惰性初始化，App 退出时 shutdown
@@ -104,7 +108,6 @@ pub struct App {
     /// MCP 后台初始化状态接收端
     pub mcp_init_rx:
         Option<tokio::sync::watch::Receiver<rust_agent_middlewares::mcp::McpInitStatus>>,
-    /// MCP 管理面板状态
     /// OAuth 授权弹窗状态（None 表示无弹窗）
     pub oauth_prompt: Option<OAuthPrompt>,
     pub mcp_panel: Option<McpPanel>,
@@ -117,8 +120,6 @@ pub struct App {
     pub status_panel: Option<status_panel::StatusPanel>,
     /// /memory 记忆文件面板状态
     pub memory_panel: Option<crate::app::memory_panel::MemoryPanel>,
-    /// 当前运行中的后台任务数量（状态栏指示器使用）
-    pub background_task_count: usize,
 }
 
 impl Default for App {
@@ -162,10 +163,6 @@ impl App {
                     .expect("无法创建临时 SQLite 数据库")
             }));
 
-        // 启动渲染线程（初始宽度 80，resize 事件后会更新）
-        let (render_tx, render_cache, render_notify) =
-            crate::ui::render_thread::spawn_render_thread(80);
-
         // 预计算命令帮助列表
         let command_registry = crate::command::default_registry();
         let skills = {
@@ -188,24 +185,18 @@ impl App {
 
         let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(32);
 
+        let initial_session =
+            ChatSession::new(cwd.clone(), command_registry, skills);
+
         Self {
-            core: AppCore::new(
-                cwd.clone(),
-                render_tx,
-                render_cache,
-                render_notify,
-                command_registry,
-                skills,
-            ),
-            agent: AgentComm::default(),
-            langfuse: LangfuseState::default(),
+            sessions: vec![initial_session],
+            active: 0,
+            session_areas: Vec::new(),
             cwd,
             provider_name,
             model_name,
             zen_config,
             thread_store,
-            current_thread_id: None,
-            todo_items: Vec::new(),
             cron: cron_state,
             setup_wizard: None,
             permission_mode: rust_agent_middlewares::prelude::SharedPermissionMode::new(
@@ -213,9 +204,6 @@ impl App {
             ),
             mode_highlight_until: None,
             model_highlight_until: None,
-            spinner_state: perihelion_widgets::SpinnerState::new(
-                perihelion_widgets::SpinnerMode::Idle,
-            ),
             config_path_override: None,
             mcp_pool: None,
             mcp_init_rx: None,
@@ -226,8 +214,88 @@ impl App {
             mcp_ready_shown_until: std::cell::Cell::new(None),
             status_panel: None,
             memory_panel: None,
-            background_task_count: 0,
         }
+    }
+
+    // ─── Session 访问器 ─────────────────────────────────────────────────────
+
+    /// 获取当前激活 session 的不可变引用
+    pub fn active(&self) -> &ChatSession {
+        &self.sessions[self.active]
+    }
+
+    /// 获取当前激活 session 的可变引用
+    pub fn active_mut(&mut self) -> &mut ChatSession {
+        &mut self.sessions[self.active]
+    }
+
+    /// 获取指定 session 的不可变引用
+    pub fn session_at(&self, idx: usize) -> Option<&ChatSession> {
+        self.sessions.get(idx)
+    }
+
+    /// 获取指定 session 的可变引用
+    pub fn session_at_mut(&mut self, idx: usize) -> Option<&mut ChatSession> {
+        self.sessions.get_mut(idx)
+    }
+
+    /// 创建新 session 并切换到它
+    pub fn new_session(&mut self) {
+        let command_registry = crate::command::default_registry();
+        let skills = {
+            let mut dirs = Vec::new();
+            if let Some(home) = dirs_next::home_dir() {
+                dirs.push(home.join(".claude").join("skills"));
+            }
+            if let Some(global_dir) = rust_agent_middlewares::skills::load_global_skills_dir() {
+                dirs.push(global_dir);
+            }
+            if let Ok(cwd) = std::env::current_dir() {
+                dirs.push(cwd.join(".claude").join("skills"));
+            }
+            rust_agent_middlewares::skills::list_skills(&dirs)
+        };
+        let session = ChatSession::new(self.cwd.clone(), command_registry, skills);
+        self.sessions.push(session);
+        self.active = self.sessions.len() - 1;
+    }
+
+    /// 关闭当前 session（保留 ≥1），返回被关闭 session 的 index
+    pub fn close_session(&mut self) -> Option<usize> {
+        if self.sessions.len() <= 1 {
+            return None;
+        }
+        let idx = self.active;
+        // 如果有运行中的 agent，取消它
+        if let Some(token) = &self.sessions[idx].agent.cancel_token {
+            token.cancel();
+        }
+        self.sessions.remove(idx);
+        // 调整 active index
+        if self.active >= self.sessions.len() {
+            self.active = self.sessions.len() - 1;
+        }
+        Some(idx)
+    }
+
+    /// 切换到下一个 session（循环）
+    pub fn switch_next_session(&mut self) {
+        if self.sessions.len() <= 1 {
+            return;
+        }
+        self.active = (self.active + 1) % self.sessions.len();
+    }
+
+    /// 切换到上一个 session（循环）
+    pub fn switch_prev_session(&mut self) {
+        if self.sessions.len() <= 1 {
+            return;
+        }
+        self.active = if self.active == 0 {
+            self.sessions.len() - 1
+        } else {
+            self.active - 1
+        };
     }
 
     /// 后台初始化 MCP 连接池（不阻塞 UI），在 run_app 中 App::new() 之后调用
@@ -257,9 +325,6 @@ impl App {
                         callback_tx,
                     });
                 }
-                // AuthorizationCompleted / AuthorizationFailed 在 run_initialize 中
-                // 由 connect_result 的 Ok/Err 分支自然反映到 server_infos()，
-                // 无需额外事件转发。
             });
         tokio::spawn(async move {
             McpClientPool::run_initialize(
@@ -283,75 +348,75 @@ impl App {
         }
     }
 
-    // ─── 转发访问器（保持 app.xxx 调用方式不变）─────────────────────────────────
+    // ─── 转发访问器（通过 active session 路由）──────────────────────────────
 
     /// 中断正在运行的 Agent（Ctrl+C during loading）
-    ///
-    /// 有 cancel_token 时正常取消；无 cancel_token（如 compact 任务）时
-    /// 强制清理 loading 状态，避免用户被卡住无法操作。
     pub fn interrupt(&mut self) {
-        if let Some(token) = &self.agent.cancel_token {
+        if let Some(token) = &self.sessions[self.active].agent.cancel_token {
             token.cancel();
-        } else if self.core.loading {
+        } else if self.sessions[self.active].core.loading {
             tracing::warn!("interrupt: 无 cancel_token 但 loading=true，强制清理");
             self.set_loading(false);
-            self.agent.agent_rx = None;
-            self.agent.interaction_prompt = None;
-            self.agent.pending_hitl_items = None;
-            self.agent.pending_ask_user = None;
-            if let Some(start) = self.agent.task_start_time {
-                self.agent.last_task_duration = Some(start.elapsed());
+            self.sessions[self.active].agent.agent_rx = None;
+            self.sessions[self.active].agent.interaction_prompt = None;
+            self.sessions[self.active].agent.pending_hitl_items = None;
+            self.sessions[self.active].agent.pending_ask_user = None;
+            if let Some(start) = self.sessions[self.active].agent.task_start_time {
+                self.sessions[self.active].agent.last_task_duration = Some(start.elapsed());
             }
             let vm = MessageViewModel::system("⚠ 已强制中断（后台任务可能仍在运行）".to_string());
-            self.core.view_messages.push(vm.clone());
-            let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+            self.sessions[self.active].core.view_messages.push(vm.clone());
+            let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
         }
     }
 
     pub fn set_loading(&mut self, loading: bool) {
-        self.core.loading = loading;
+        let s = self.active_mut();
+        s.core.loading = loading;
         if loading {
-            self.core.textarea = build_textarea(true);
-            self.spinner_state
+            s.core.textarea = build_textarea(true);
+            s.spinner_state
                 .set_mode(perihelion_widgets::SpinnerMode::Responding);
         } else {
-            self.spinner_state
+            s.spinner_state
                 .set_mode(perihelion_widgets::SpinnerMode::Idle);
-            self.agent.cancel_token = None;
+            s.agent.cancel_token = None;
         }
     }
 
     /// 更新输入框标题以反映缓冲消息数量
     pub fn update_textarea_hint(&mut self) {
-        let count = self.core.pending_messages.len();
+        let s = self.active_mut();
+        let count = s.core.pending_messages.len();
         let hint = if count > 0 {
             format!("已缓冲 {} 条消息，完成后自动发送…", count)
         } else {
             String::new()
         };
-        self.core.textarea = build_textarea_with_hint(self.core.loading, &hint);
+        s.core.textarea = build_textarea_with_hint(s.core.loading, &hint);
     }
 
     /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
     pub fn set_agent_id(&mut self, id: Option<String>) {
-        self.agent.agent_id = id;
+        self.sessions[self.active].agent.agent_id = id;
     }
 
     /// 获取当前 Agent 的 ID
     pub fn get_agent_id(&self) -> Option<&String> {
-        self.agent.agent_id.as_ref()
+        self.active().agent.agent_id.as_ref()
     }
 
     /// 获取当前任务运行时长（运行中）或上次任务时长（已完成）
     pub fn get_current_task_duration(&self) -> Option<std::time::Duration> {
-        if let Some(start) = self.agent.task_start_time {
-            if self.core.loading {
+        let s = self.active();
+        if let Some(start) = s.agent.task_start_time {
+            if s.core.loading {
                 Some(start.elapsed())
             } else {
-                self.agent.last_task_duration
+                s.agent.last_task_duration
             }
         } else {
-            self.agent.last_task_duration
+            s.agent.last_task_duration
         }
     }
 

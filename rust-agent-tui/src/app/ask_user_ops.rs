@@ -2,19 +2,19 @@ use super::*;
 
 impl App {
     pub fn ask_user_next_tab(&mut self) {
-        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.sessions[self.active].agent.interaction_prompt.as_mut() {
             p.next_tab();
         }
     }
 
     pub fn ask_user_prev_tab(&mut self) {
-        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.sessions[self.active].agent.interaction_prompt.as_mut() {
             p.prev_tab();
         }
     }
 
     pub fn ask_user_move(&mut self, delta: isize) {
-        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.sessions[self.active].agent.interaction_prompt.as_mut() {
             p.current().move_option_cursor(delta);
             // 光标跟随滚动
             let cursor_row = p.current().option_cursor.max(0) as u16;
@@ -23,13 +23,13 @@ impl App {
     }
 
     pub fn ask_user_toggle(&mut self) {
-        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.sessions[self.active].agent.interaction_prompt.as_mut() {
             p.current().toggle_current();
         }
     }
 
     pub fn ask_user_edit_key(&mut self, input: tui_textarea::Input) {
-        if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.as_mut() {
+        if let Some(InteractionPrompt::Questions(p)) = self.sessions[self.active].agent.interaction_prompt.as_mut() {
             let q = p.current();
             if q.in_custom_input {
                 crate::app::handle_edit_key(&mut q.custom_input, &mut q.custom_cursor, input);
@@ -41,7 +41,7 @@ impl App {
     /// 若当前问题没有选中任何选项（且不在自定义输入模式），自动选中光标所在选项。
     pub fn ask_user_confirm(&mut self) {
         let all_done = {
-            let p = match self.agent.interaction_prompt.as_mut() {
+            let p = match self.sessions[self.active].agent.interaction_prompt.as_mut() {
                 Some(InteractionPrompt::Questions(p)) => p,
                 _ => return,
             };
@@ -57,8 +57,8 @@ impl App {
         };
 
         if all_done {
-            self.agent.pending_ask_user = None;
-            if let Some(InteractionPrompt::Questions(p)) = self.agent.interaction_prompt.take() {
+            self.sessions[self.active].agent.pending_ask_user = None;
+            if let Some(InteractionPrompt::Questions(p)) = self.sessions[self.active].agent.interaction_prompt.take() {
                 // 在消息流中显示用户的回答
                 let answers: Vec<(String, String)> = p
                     .questions
@@ -70,8 +70,8 @@ impl App {
                     .map(|(header, answer)| format!("[{}] {}", header, answer))
                     .collect();
                 let vm = MessageViewModel::user(answer_lines.join("\n"));
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.sessions[self.active].core.view_messages.push(vm.clone());
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
                 p.confirm();
             }
         }

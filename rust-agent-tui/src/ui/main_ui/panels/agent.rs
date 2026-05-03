@@ -13,7 +13,9 @@ use crate::ui::theme;
 
 /// /agents 面板渲染（底部展开区）
 pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(panel) = &app.core.agent_panel else {
+    // 先克隆面板数据，避免 immutable → mutable borrow 冲突
+    let panel = app.sessions[app.active].core.agent_panel.clone();
+    let Some(panel) = panel else {
         return;
     };
 
@@ -121,25 +123,28 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 存储面板元数据供鼠标选区使用
-    app.core.panel_area = Some(inner);
-    app.core.panel_scroll_offset = panel.scroll_offset;
-    app.core.panel_plain_lines = lines
+    let scroll_offset = panel.scroll_offset;
+    let panel_selection_active = app.sessions[app.active].core.panel_selection.is_active();
+    let panel_selection = app.sessions[app.active].core.panel_selection.clone();
+
+    app.sessions[app.active].core.panel_area = Some(inner);
+    app.sessions[app.active].core.panel_scroll_offset = scroll_offset;
+    app.sessions[app.active].core.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
 
     // 应用面板选区高亮
-    if app.core.panel_selection.is_active() {
-        let sel = &app.core.panel_selection;
+    if panel_selection_active {
+        let sel = &panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
             let ((sr, sc), (er, ec)) = if start <= end {
                 (start, end)
             } else {
                 (end, start)
             };
-            let scroll = app.core.panel_scroll_offset as usize;
-            let visible_start = scroll;
-            let visible_end = scroll + inner.height as usize;
+            let visible_start = scroll_offset as usize;
+            let visible_end = scroll_offset as usize + inner.height as usize;
             for line_idx in sr as usize..=er as usize {
                 if line_idx < visible_start || line_idx >= visible_end {
                     continue;
@@ -163,7 +168,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    let mut scroll_state = ScrollState::with_offset(panel.scroll_offset);
+    let mut scroll_state = ScrollState::with_offset(scroll_offset);
     ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
         .render(f, inner, &mut scroll_state);
@@ -176,7 +181,7 @@ mod tests {
 
     fn render_headless_agent_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        app.core.agent_panel = Some(AgentPanel::new(vec![], None));
+        app.sessions[app.active].core.agent_panel = Some(AgentPanel::new(vec![], None));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))

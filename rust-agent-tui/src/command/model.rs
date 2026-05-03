@@ -19,7 +19,7 @@ impl Command for ModelCommand {
                 let cfg = app.zen_config.get_or_insert_with(Default::default);
                 cfg.config.active_alias = alias.clone();
                 if let Err(e) = App::save_config(cfg, app.config_path_override.as_deref()) {
-                    app.core
+                    app.sessions[app.active].core
                         .view_messages
                         .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
                 }

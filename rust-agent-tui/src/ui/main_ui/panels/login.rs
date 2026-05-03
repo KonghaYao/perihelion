@@ -14,7 +14,7 @@ use crate::ui::theme;
 
 /// /login 面板渲染（底部展开区）
 pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.core.login_panel else {
+    let Some(panel) = &app.sessions[app.active].core.login_panel else {
         return;
     };
 
@@ -280,7 +280,7 @@ mod tests {
 
     fn render_headless_login_browse() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        app.core.login_panel = Some(LoginPanel {
+        app.sessions[app.active].core.login_panel = Some(LoginPanel {
             providers: vec![ProviderConfig {
                 id: "test".to_string(),
                 provider_type: "openai".to_string(),
@@ -336,7 +336,7 @@ mod tests {
 
     fn render_headless_login_edit() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        app.core.login_panel = Some(LoginPanel {
+        app.sessions[app.active].core.login_panel = Some(LoginPanel {
             providers: vec![],
             mode: LoginPanelMode::New,
             cursor: 0,

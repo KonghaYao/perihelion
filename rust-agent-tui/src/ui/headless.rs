@@ -132,8 +132,8 @@ mod tests {
         let notified = handle.render_notify.notified();
         // 使用 ASCII 内容避免 CJK 宽字符在 buffer 中的空格填充问题
         let vm = MessageViewModel::user("hello from user".into());
-        app.core.view_messages.push(vm.clone());
-        let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
+        app.sessions[app.active].core.view_messages.push(vm.clone());
+        let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(vm));
         notified.await;
         handle
             .terminal
@@ -162,17 +162,17 @@ mod tests {
         tokio::join!(n1, n2);
 
         // 验证 RenderCache 有内容
-        let lines_before = app.core.render_cache.read().total_lines;
+        let lines_before = app.sessions[app.active].core.render_cache.read().total_lines;
         assert!(lines_before > 0, "清空前应有内容");
 
         // 注册监听后发送 Clear，确保不错过通知
         let notified_clear = handle.render_notify.notified();
-        app.core.view_messages.clear();
-        let _ = app.core.render_tx.send(RenderEvent::Clear);
+        app.sessions[app.active].core.view_messages.clear();
+        let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::Clear);
         notified_clear.await;
 
         // 验证 RenderCache 已清空
-        let cache = app.core.render_cache.read();
+        let cache = app.sessions[app.active].core.render_cache.read();
         assert_eq!(cache.total_lines, 0, "清空后 RenderCache 应为空");
     }
 
@@ -529,7 +529,7 @@ mod tests {
         );
 
         // 验证 SubAgentGroup 已完成（is_running=false）
-        if let Some(vm) = app.core.view_messages.last() {
+        if let Some(vm) = app.sessions[app.active].core.view_messages.last() {
             assert!(vm.is_subagent_group(), "最后一条消息应为 SubAgentGroup");
             if let crate::app::MessageViewModel::SubAgentGroup {
                 is_running,
@@ -574,7 +574,7 @@ mod tests {
             recent_messages,
             is_running,
             ..
-        }) = app.core.view_messages.last()
+        }) = app.sessions[app.active].core.view_messages.last()
         {
             assert_eq!(*total_steps, 6, "total_steps 应为 6，实际: {}", total_steps);
             assert!(
@@ -610,7 +610,7 @@ mod tests {
             recent_messages,
             final_result,
             ..
-        }) = app.core.view_messages.last()
+        }) = app.sessions[app.active].core.view_messages.last()
         {
             let has_assistant = recent_messages.iter().any(|m| m.is_assistant());
             assert!(has_assistant, "recent_messages 应包含 AssistantBubble");
@@ -673,9 +673,9 @@ mod tests {
 
         // view_messages 应为空（没有创建空白气泡）
         assert!(
-            app.core.view_messages.is_empty(),
+            app.sessions[app.active].core.view_messages.is_empty(),
             "空 AssistantChunk 不应创建 AssistantBubble，实际: {:?}",
-            app.core.view_messages.len()
+            app.sessions[app.active].core.view_messages.len()
         );
 
         // 发送多个空 chunk，仍不应创建气泡
@@ -684,7 +684,7 @@ mod tests {
         app.process_pending_events();
 
         assert!(
-            app.core.view_messages.is_empty(),
+            app.sessions[app.active].core.view_messages.is_empty(),
             "多个空 AssistantChunk 仍不应创建 AssistantBubble"
         );
     }
@@ -719,9 +719,9 @@ mod tests {
             .unwrap();
 
         // Done 触发 reconcile_tail 从 completed 重建，应包含 Human + AI 两条消息
-        assert_eq!(app.core.view_messages.len(), 2, "应有 2 条消息（Human+AI）");
+        assert_eq!(app.sessions[app.active].core.view_messages.len(), 2, "应有 2 条消息（Human+AI）");
         assert!(
-            app.core.view_messages[1].is_assistant(),
+            app.sessions[app.active].core.view_messages[1].is_assistant(),
             "第二条应为 AssistantBubble"
         );
         assert!(handle.contains("Hello"), "应显示 Hello 内容");
@@ -751,13 +751,13 @@ mod tests {
 
         // 应该有 1 个 ToolBlock，不应有空白 AssistantBubble
         assert_eq!(
-            app.core.view_messages.len(),
+            app.sessions[app.active].core.view_messages.len(),
             1,
             "应有 1 条消息（ToolBlock）"
         );
         // 确保不是 AssistantBubble（空白气泡）
         assert!(
-            !app.core.view_messages[0].is_assistant(),
+            !app.sessions[app.active].core.view_messages[0].is_assistant(),
             "不应创建 AssistantBubble，应为 ToolBlock"
         );
     }
@@ -867,7 +867,7 @@ mod tests {
         // 无消息时 sticky header 应完全隐藏
         let (mut app, mut handle) = App::new_headless(80, 24);
         assert!(
-            app.core.last_human_message.is_none(),
+            app.sessions[app.active].core.last_human_message.is_none(),
             "默认应无 last_human_message"
         );
         handle
@@ -893,13 +893,13 @@ mod tests {
         for i in 0..30 {
             let notified = handle.render_notify.notified();
             let vm = MessageViewModel::user(format!("message line {}", i));
-            app.core.view_messages.push(vm.clone());
-            let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
+            app.sessions[app.active].core.view_messages.push(vm.clone());
+            let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(vm));
             notified.await;
         }
 
         // 设置 last_human_message（模拟 submit_message 的效果）
-        app.core.last_human_message = Some("hello from user".to_string());
+        app.sessions[app.active].core.last_human_message = Some("hello from user".to_string());
 
         handle
             .terminal
@@ -921,9 +921,9 @@ mod tests {
         let (mut app, mut handle) = App::new_headless(80, 24);
 
         // 模拟已有消息
-        app.core.last_human_message = Some("some message".to_string());
+        app.sessions[app.active].core.last_human_message = Some("some message".to_string());
         assert!(
-            app.core.last_human_message.is_some(),
+            app.sessions[app.active].core.last_human_message.is_some(),
             "应有 last_human_message"
         );
 
@@ -933,7 +933,7 @@ mod tests {
         notified.await;
 
         assert!(
-            app.core.last_human_message.is_none(),
+            app.sessions[app.active].core.last_human_message.is_none(),
             "/clear 后 last_human_message 应为 None"
         );
 
@@ -959,15 +959,15 @@ mod tests {
         for i in 0..30 {
             let notified = handle.render_notify.notified();
             let vm = MessageViewModel::user(format!("padding line {}", i));
-            app.core.view_messages.push(vm.clone());
-            let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
+            app.sessions[app.active].core.view_messages.push(vm.clone());
+            let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(vm));
             notified.await;
         }
 
         // 模拟第一条消息
-        app.core.last_human_message = Some("first message".to_string());
+        app.sessions[app.active].core.last_human_message = Some("first message".to_string());
         // 模拟第二条消息（覆盖）
-        app.core.last_human_message = Some("second message".to_string());
+        app.sessions[app.active].core.last_human_message = Some("second message".to_string());
 
         handle
             .terminal
@@ -997,8 +997,8 @@ mod tests {
         for i in 0..30 {
             let notified = handle.render_notify.notified();
             let vm = MessageViewModel::user(format!("padding {}", i));
-            app.core.view_messages.push(vm.clone());
-            let _ = app.core.render_tx.send(RenderEvent::AddMessage(vm));
+            app.sessions[app.active].core.view_messages.push(vm.clone());
+            let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(vm));
             notified.await;
         }
 
@@ -1006,7 +1006,7 @@ mod tests {
         let long_msg =
             "hello this is a very long message that definitely exceeds header capacity".to_string();
         assert!(long_msg.chars().count() > 40);
-        app.core.last_human_message = Some(long_msg.clone());
+        app.sessions[app.active].core.last_human_message = Some(long_msg.clone());
 
         handle
             .terminal
@@ -1074,7 +1074,7 @@ mod tests {
         // BorderedPanel 集成冒烟测试：渲染 agent panel 验证无 panic 且输出正确
         let (mut app, mut handle) = App::new_headless(120, 30);
 
-        app.core.agent_panel = Some(crate::app::AgentPanel::new(vec![], None));
+        app.sessions[app.active].core.agent_panel = Some(crate::app::AgentPanel::new(vec![], None));
 
         handle
             .terminal
@@ -1125,7 +1125,7 @@ mod tests {
             },
         ]);
         let prompt = AskUserBatchPrompt::from_request(req);
-        app.agent.interaction_prompt = Some(crate::app::InteractionPrompt::Questions(prompt));
+        app.sessions[app.active].agent.interaction_prompt = Some(crate::app::InteractionPrompt::Questions(prompt));
 
         handle
             .terminal
@@ -1664,11 +1664,11 @@ mod tests {
     async fn test_spinner_shows_verb_in_status_bar() {
         let (mut app, mut handle) = crate::app::App::new_headless(120, 30);
         // 添加一条消息，否则 render_messages 会走 welcome 分支提前 return
-        app.core
+        app.sessions[app.active].core
             .view_messages
             .push(crate::app::MessageViewModel::user("hello".into()));
-        app.spinner_state.set_verb(Some("Searching code"));
-        app.core.loading = true;
+        app.sessions[app.active].spinner_state.set_verb(Some("Searching code"));
+        app.sessions[app.active].core.loading = true;
 
         handle
             .terminal
@@ -1714,7 +1714,7 @@ mod tests {
         let (mut app, mut handle) = App::new_headless(120, 30);
 
         // 直接设置 retry_status 并渲染
-        app.agent.retry_status = Some(crate::app::RetryStatus {
+        app.sessions[app.active].agent.retry_status = Some(crate::app::RetryStatus {
             attempt: 2,
             max_attempts: 5,
             delay_ms: 2000,
@@ -1763,7 +1763,7 @@ mod tests {
         notified.await;
 
         // view_messages 应包含压缩提示、摘要和重新注入信息
-        let msgs = &app.core.view_messages;
+        let msgs = &app.sessions[app.active].core.view_messages;
         assert!(msgs.len() >= 2, "应有至少 2 条消息，实际: {}", msgs.len());
         let has_compact = msgs.iter().any(|m| {
             if let MessageViewModel::SystemNote { content } = m {
@@ -1791,7 +1791,7 @@ mod tests {
         app.process_pending_events();
         notified.await;
 
-        let msgs = &app.core.view_messages;
+        let msgs = &app.sessions[app.active].core.view_messages;
         assert!(!msgs.is_empty(), "应有至少 1 条消息");
         let has_summary = msgs.iter().any(|m| {
             if let MessageViewModel::AssistantBubble { blocks, .. } = m {
@@ -1853,8 +1853,8 @@ mod tests {
 
         // 模拟用户发送消息
         let user_vm = MessageViewModel::user("my question".into());
-        app.core.view_messages.push(user_vm.clone());
-        let _ = app.core.render_tx.send(RenderEvent::AddMessage(user_vm));
+        app.sessions[app.active].core.view_messages.push(user_vm.clone());
+        let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(user_vm));
 
         let n1 = handle.render_notify.notified();
         let n2 = handle.render_notify.notified();
@@ -1874,9 +1874,9 @@ mod tests {
 
         // view_messages 应包含用户消息 + AI 消息
         assert!(
-            app.core.view_messages.len() >= 2,
+            app.sessions[app.active].core.view_messages.len() >= 2,
             "应有至少 2 条消息（用户+AI），实际: {}",
-            app.core.view_messages.len()
+            app.sessions[app.active].core.view_messages.len()
         );
         assert!(
             handle.contains("my question"),
@@ -1899,10 +1899,10 @@ mod tests {
 
         // 第一轮：用户 → AI
         // 模拟 submit_message：先记录 round_start_vm_idx，再 push Human VM
-        app.core.round_start_vm_idx = app.core.view_messages.len();
+        app.sessions[app.active].core.round_start_vm_idx = app.sessions[app.active].core.view_messages.len();
         let user1 = MessageViewModel::user("turn1".into());
-        app.core.view_messages.push(user1.clone());
-        let _ = app.core.render_tx.send(RenderEvent::AddMessage(user1));
+        app.sessions[app.active].core.view_messages.push(user1.clone());
+        let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(user1));
 
         let n1 = handle.render_notify.notified();
         let n2 = handle.render_notify.notified();
@@ -1917,10 +1917,10 @@ mod tests {
 
         // 第二轮：用户 → AI
         // 模拟 submit_message：先记录 round_start_vm_idx，再 push Human VM
-        app.core.round_start_vm_idx = app.core.view_messages.len();
+        app.sessions[app.active].core.round_start_vm_idx = app.sessions[app.active].core.view_messages.len();
         let user2 = MessageViewModel::user("turn2".into());
-        app.core.view_messages.push(user2.clone());
-        let _ = app.core.render_tx.send(RenderEvent::AddMessage(user2));
+        app.sessions[app.active].core.view_messages.push(user2.clone());
+        let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(user2));
 
         let n3 = handle.render_notify.notified();
         let n4 = handle.render_notify.notified();
@@ -1942,10 +1942,10 @@ mod tests {
 
         // 应累积 4 条消息
         assert_eq!(
-            app.core.view_messages.len(),
+            app.sessions[app.active].core.view_messages.len(),
             4,
             "两轮对话应有 4 条消息，实际: {}",
-            app.core.view_messages.len()
+            app.sessions[app.active].core.view_messages.len()
         );
         assert!(handle.contains("turn1"), "第一轮用户消息应可见");
         assert!(handle.contains("turn2"), "第二轮用户消息应可见");
@@ -1968,7 +1968,7 @@ mod tests {
         app.process_pending_events();
 
         // 统计包含 "unique text" 的 assistant bubble 数量
-        let assistant_count = app
+        let assistant_count = app.sessions[app.active]
             .core
             .view_messages
             .iter()
@@ -2034,12 +2034,12 @@ mod tests {
             .unwrap();
 
         // ToolBlock 和 AssistantBubble 都应存在
-        let has_tool = app
+        let has_tool = app.sessions[app.active]
             .core
             .view_messages
             .iter()
             .any(|m| matches!(m, MessageViewModel::ToolBlock { .. }));
-        let has_assistant = app.core.view_messages.iter().any(|m| m.is_assistant());
+        let has_assistant = app.sessions[app.active].core.view_messages.iter().any(|m| m.is_assistant());
         assert!(has_tool, "应有 ToolBlock");
         assert!(has_assistant, "应有 AssistantBubble");
         assert!(handle.contains("result is here"), "应显示 AI 回复");
@@ -2053,16 +2053,16 @@ mod tests {
         let (mut app, mut handle) = App::new_headless(120, 30);
 
         // 设置输入框内容为 /
-        app.core.textarea = crate::app::build_textarea(false);
-        app.core.textarea.insert_str("/");
+        app.sessions[app.active].core.textarea = crate::app::build_textarea(false);
+        app.sessions[app.active].core.textarea.insert_str("/");
 
         // 注入 2 个 Skills
-        app.core.skills.push(SkillMetadata {
+        app.sessions[app.active].core.skills.push(SkillMetadata {
             name: "commit".into(),
             description: "commit changes".into(),
             path: "/tmp/commit.md".into(),
         });
-        app.core.skills.push(SkillMetadata {
+        app.sessions[app.active].core.skills.push(SkillMetadata {
             name: "review".into(),
             description: "review code".into(),
             path: "/tmp/review.md".into(),
@@ -2100,10 +2100,10 @@ mod tests {
         use rust_agent_middlewares::skills::loader::SkillMetadata;
         let (mut app, mut handle) = App::new_headless(120, 30);
 
-        app.core.textarea = crate::app::build_textarea(false);
-        app.core.textarea.insert_str("/mo");
+        app.sessions[app.active].core.textarea = crate::app::build_textarea(false);
+        app.sessions[app.active].core.textarea.insert_str("/mo");
 
-        app.core.skills.push(SkillMetadata {
+        app.sessions[app.active].core.skills.push(SkillMetadata {
             name: "commit".into(),
             description: "commit changes".into(),
             path: "/tmp/commit.md".into(),
@@ -2135,10 +2135,10 @@ mod tests {
         use rust_agent_middlewares::skills::loader::SkillMetadata;
         let (mut app, mut handle) = App::new_headless(120, 30);
 
-        app.core.textarea = crate::app::build_textarea(false);
-        app.core.textarea.insert_str("#skill");
+        app.sessions[app.active].core.textarea = crate::app::build_textarea(false);
+        app.sessions[app.active].core.textarea.insert_str("#skill");
 
-        app.core.skills.push(SkillMetadata {
+        app.sessions[app.active].core.skills.push(SkillMetadata {
             name: "skill".into(),
             description: "a skill".into(),
             path: "/tmp/skill.md".into(),
@@ -2166,23 +2166,23 @@ mod tests {
         use rust_agent_middlewares::skills::loader::SkillMetadata;
         let (mut app, _handle) = App::new_headless(120, 30);
 
-        app.core.textarea = crate::app::build_textarea(false);
-        app.core.textarea.insert_str("/review");
-        app.core.skills.push(SkillMetadata {
+        app.sessions[app.active].core.textarea = crate::app::build_textarea(false);
+        app.sessions[app.active].core.textarea.insert_str("/review");
+        app.sessions[app.active].core.skills.push(SkillMetadata {
             name: "review".into(),
             description: "code review".into(),
             path: "/tmp/review.md".into(),
         });
 
         // 模拟 Enter 事件处理
-        let text: String = app.core.textarea.lines().join("\n");
+        let text: String = app.sessions[app.active].core.textarea.lines().join("\n");
         let text = text.trim().to_string();
         assert!(text.starts_with('/'));
 
         // 验证命令 dispatch 不匹配后 Skill fallback
-        let registry = std::mem::take(&mut app.core.command_registry);
+        let registry = std::mem::take(&mut app.sessions[app.active].core.command_registry);
         let known = registry.dispatch(&mut app, &text);
-        app.core.command_registry = registry;
+        app.sessions[app.active].core.command_registry = registry;
         assert!(!known, "review 不应是已知命令");
 
         // 验证 Skill 匹配
@@ -2192,7 +2192,7 @@ mod tests {
             .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
             .collect();
         assert_eq!(skill_name, "review");
-        let skill_found = app.core.skills.iter().find(|s| s.name == skill_name);
+        let skill_found = app.sessions[app.active].core.skills.iter().find(|s| s.name == skill_name);
         assert!(skill_found.is_some(), "应找到 review Skill");
     }
 
@@ -2200,15 +2200,15 @@ mod tests {
     async fn test_enter_unknown_command_shows_error() {
         let (mut app, _handle) = App::new_headless(120, 30);
 
-        app.core.textarea = crate::app::build_textarea(false);
-        app.core.textarea.insert_str("/nonexistent");
+        app.sessions[app.active].core.textarea = crate::app::build_textarea(false);
+        app.sessions[app.active].core.textarea.insert_str("/nonexistent");
 
         // 模拟 Enter 处理逻辑
-        let text: String = app.core.textarea.lines().join("\n");
+        let text: String = app.sessions[app.active].core.textarea.lines().join("\n");
         let text = text.trim().to_string();
-        let registry = std::mem::take(&mut app.core.command_registry);
+        let registry = std::mem::take(&mut app.sessions[app.active].core.command_registry);
         let known = registry.dispatch(&mut app, &text);
-        app.core.command_registry = registry;
+        app.sessions[app.active].core.command_registry = registry;
         assert!(!known, "nonexistent 不应是已知命令");
 
         // Skill fallback 也应失败
@@ -2217,7 +2217,7 @@ mod tests {
             .chars()
             .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
             .collect();
-        let skill_found = app.core.skills.iter().find(|s| s.name == skill_name);
+        let skill_found = app.sessions[app.active].core.skills.iter().find(|s| s.name == skill_name);
         assert!(skill_found.is_none(), "不应找到 nonexistent Skill");
     }
 
@@ -2227,16 +2227,16 @@ mod tests {
         let (mut app, _handle) = App::new_headless(120, 30);
 
         // 注入名为 help 的 Skill
-        app.core.skills.push(SkillMetadata {
+        app.sessions[app.active].core.skills.push(SkillMetadata {
             name: "help".into(),
             description: "help skill".into(),
             path: "/tmp/help.md".into(),
         });
 
         // /help 应被命令 dispatch 拦截，不走 Skill fallback
-        let registry = std::mem::take(&mut app.core.command_registry);
+        let registry = std::mem::take(&mut app.sessions[app.active].core.command_registry);
         let known = registry.dispatch(&mut app, "/help");
-        app.core.command_registry = registry;
+        app.sessions[app.active].core.command_registry = registry;
         assert!(known, "/help 应是已知命令，优先于同名 Skill");
     }
 
@@ -2282,13 +2282,13 @@ mod tests {
     async fn test_ambiguous_command_shows_candidates() {
         let (mut app, _handle) = App::new_headless(120, 30);
         // /c 前缀匹配 clear/compact/cron
-        let registry = &app.core.command_registry;
+        let registry = &app.sessions[app.active].core.command_registry;
         let matches = registry.match_prefix("c");
         assert!(matches.len() >= 2, "/c 应匹配多个命令，实际: {:?}", matches);
         // dispatch 应返回 false（歧义）
-        let registry = std::mem::take(&mut app.core.command_registry);
+        let registry = std::mem::take(&mut app.sessions[app.active].core.command_registry);
         let known = registry.dispatch(&mut app, "/c");
-        app.core.command_registry = registry;
+        app.sessions[app.active].core.command_registry = registry;
         assert!(!known, "歧义前缀 dispatch 应返回 false");
     }
 
@@ -2321,7 +2321,7 @@ mod tests {
         let (mut app, _handle) = App::new_headless(120, 30);
         // 空消息时调用 compact 应提示无上下文
         app.start_compact(String::new());
-        let msgs = &app.core.view_messages;
+        let msgs = &app.sessions[app.active].core.view_messages;
         let has_hint = msgs.iter().any(|vm| {
             if let crate::ui::message_view::MessageViewModel::SystemNote { content } = vm {
                 content.contains("无可压缩")
@@ -2627,12 +2627,12 @@ mod tests {
             },
         };
         app.zen_config = Some(cfg);
-        app.core.model_panel = Some(ModelPanel::from_config(app.zen_config.as_ref().unwrap()));
-        app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Sonnet;
+        app.sessions[app.active].core.model_panel = Some(ModelPanel::from_config(app.zen_config.as_ref().unwrap()));
+        app.sessions[app.active].core.model_panel.as_mut().unwrap().active_tab = AliasTab::Sonnet;
 
         app.model_panel_confirm();
 
-        let last_msg = app.core.view_messages.last();
+        let last_msg = app.sessions[app.active].core.view_messages.last();
         assert!(last_msg.is_some(), "Model 面板确认后应有反馈消息");
         let msg_text = match last_msg.unwrap() {
             MessageViewModel::SystemNote { content, .. } => content.clone(),
@@ -2643,7 +2643,7 @@ mod tests {
             "反馈消息应包含模型名 'Sonnet'，实际: {}",
             msg_text
         );
-        assert!(app.core.model_panel.is_none(), "确认后面板应关闭");
+        assert!(app.sessions[app.active].core.model_panel.is_none(), "确认后面板应关闭");
     }
 
     /// Login 面板激活 Provider 后应显示"已激活"反馈消息
@@ -2674,13 +2674,13 @@ mod tests {
             },
         };
         app.zen_config = Some(cfg);
-        app.core.login_panel = Some(LoginPanel::from_config(app.zen_config.as_ref().unwrap()));
+        app.sessions[app.active].core.login_panel = Some(LoginPanel::from_config(app.zen_config.as_ref().unwrap()));
         // 光标移到第二个 Provider
-        app.core.login_panel.as_mut().unwrap().cursor = 1;
+        app.sessions[app.active].core.login_panel.as_mut().unwrap().cursor = 1;
 
         app.login_panel_select_provider();
 
-        let last_msg = app.core.view_messages.last();
+        let last_msg = app.sessions[app.active].core.view_messages.last();
         assert!(last_msg.is_some(), "Login 面板激活后应有反馈消息");
         let msg_text = match last_msg.unwrap() {
             MessageViewModel::SystemNote { content, .. } => content.clone(),
@@ -2691,7 +2691,7 @@ mod tests {
             "反馈消息应包含 Provider 名 'Provider2'，实际: {}",
             msg_text
         );
-        assert!(app.core.login_panel.is_none(), "激活后面板应关闭");
+        assert!(app.sessions[app.active].core.login_panel.is_none(), "激活后面板应关闭");
     }
 
     // ─── Design Review 第24轮：Welcome Card 模型信息 + Thread Browser 消息数 ────
@@ -2720,7 +2720,7 @@ mod tests {
         let (mut app, handle) = App::new_headless(120, 30);
 
         // 先设置后台任务计数
-        app.background_task_count = 1;
+        app.sessions[app.active].background_task_count = 1;
 
         let notified = handle.render_notify.notified();
 
@@ -2745,13 +2745,13 @@ mod tests {
 
         // 断言：后台任务计数递减
         assert_eq!(
-            app.background_task_count, 0,
+            app.sessions[app.active].background_task_count, 0,
             "BackgroundTaskCompleted should decrement background_task_count"
         );
 
         // 断言：view_messages 包含后台任务 ToolBlock 通知
         use crate::ui::message_view::MessageViewModel;
-        let has_notification = app
+        let has_notification = app.sessions[app.active]
             .core
             .view_messages
             .iter()
@@ -2767,7 +2767,7 @@ mod tests {
     async fn test_background_task_status_bar() {
         let (mut app, mut handle) = App::new_headless(120, 30);
 
-        app.background_task_count = 2;
+        app.sessions[app.active].background_task_count = 2;
 
         let notified = handle.render_notify.notified();
         // Trigger a render

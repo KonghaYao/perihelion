@@ -26,51 +26,96 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
     let area = f.area();
 
-    // 动态输入框高度：行数 + 边框（上下各 1），最少 3 行，最多 40%
-    let line_count = app.core.textarea.lines().len() as u16;
+    if app.sessions.len() > 1 {
+        // ── 多 Session 分栏布局 ──
+        // 外层：水平切分（各 session 列）+ 底部共享状态栏
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(1),       // session 列区域
+                Constraint::Length(3),    // 共享状态栏
+            ])
+            .split(area);
+
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(50); app.sessions.len()])
+            .split(outer[0]);
+
+        app.session_areas = cols.iter().copied().collect();
+
+        for (i, col_area) in cols.iter().enumerate() {
+            let is_active = i == app.active;
+            // 渲染 session 列（内部垂直布局）
+            render_session_column(f, app, i, *col_area, is_active);
+        }
+
+        status_bar::render_status_bar(f, app, outer[1]);
+    } else {
+        // ── 单 Session 布局（原有行为）──
+        render_session_column(f, app, 0, area, true);
+    }
+}
+
+/// 渲染单个 session 列（含垂直布局拆分）
+fn render_session_column(
+    f: &mut Frame,
+    app: &mut App,
+    session_idx: usize,
+    area: Rect,
+    is_active: bool,
+) {
+    // 临时切换 active 以便现有 render 函数使用 app.sessions[app.active]
+    let prev_active = app.active;
+    app.active = session_idx;
+
+    // 动态输入框高度
+    let line_count = app.sessions[session_idx].core.textarea.lines().len() as u16;
     let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
 
-    // 附件栏高度：无附件时为 0，有附件时固定 3 行
-    let attachment_height: u16 = if app.core.pending_attachments.is_empty() {
+    // 附件栏高度
+    let attachment_height: u16 = if app.sessions[session_idx].core.pending_attachments.is_empty() {
         0
     } else {
         3
     };
 
-    // 底部展开区高度（替代居中弹窗）
+    // 底部展开区高度
     let panel_height = active_panel_height(app, area.height, area.width);
 
-    // Sticky header 高度：有消息时动态高度（1-3 行），无消息时 0
-    let sticky_header_height: u16 = app
+    // Sticky header 高度
+    let sticky_header_height: u16 = app.sessions[session_idx]
         .core
         .last_human_message
         .as_ref()
         .map(|msg| {
             let width = area.width.saturating_sub(2).max(1);
             let lines = sticky_header::estimate_header_lines(msg, width);
-            lines as u16 // 1-3 行，无分隔线
+            lines as u16
         })
         .unwrap_or(0);
+
+    let status_bar_height = if app.sessions.len() > 1 { 0 } else { 3 };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(sticky_header_height), // [0] sticky header
-            Constraint::Min(1),                       // [1] 聊天区（可滚动）
-            Constraint::Length(attachment_height),    // [2] 附件栏（动态）
-            Constraint::Length(panel_height),         // [3] 底部展开区（动态）
-            Constraint::Length(input_height),         // [4] 输入框（动态）
-            Constraint::Length(3),                    // [5] 状态栏（两行 + 空行缓冲）
+            Constraint::Length(sticky_header_height),
+            Constraint::Min(1),
+            Constraint::Length(attachment_height),
+            Constraint::Length(panel_height),
+            Constraint::Length(input_height),
+            Constraint::Length(status_bar_height),
         ])
         .split(area);
 
     render_messages(f, app, chunks[0], chunks[1]);
     render_attachment_bar(f, app, chunks[2]);
 
-    // 底部展开区（HITL / AskUser / 配置面板）
+    // 底部展开区
     if panel_height > 0 {
         let panel_area = chunks[3];
-        match &app.agent.interaction_prompt {
+        match &app.sessions[session_idx].agent.interaction_prompt {
             Some(crate::app::InteractionPrompt::Approval(_)) => {
                 popups::hitl::render_hitl_popup(f, app, panel_area);
             }
@@ -79,23 +124,22 @@ pub fn render(f: &mut Frame, app: &mut App) {
             }
             None => {}
         }
-        // OAuth 授权面板（与 HITL/AskUser 同级渲染）
         if app.oauth_prompt.is_some() {
             popups::oauth::render_oauth_popup(f, app, panel_area);
         }
-        if app.core.login_panel.is_some() {
+        if app.sessions[session_idx].core.login_panel.is_some() {
             panels::login::render_login_panel(f, app, panel_area);
         }
-        if app.core.model_panel.is_some() {
+        if app.sessions[session_idx].core.model_panel.is_some() {
             panels::model::render_model_panel(f, app, panel_area);
         }
-        if app.core.config_panel.is_some() {
+        if app.sessions[session_idx].core.config_panel.is_some() {
             panels::config::render_config_panel(f, app, panel_area);
         }
-        if app.core.agent_panel.is_some() {
+        if app.sessions[session_idx].core.agent_panel.is_some() {
             panels::agent::render_agent_panel(f, app, panel_area);
         }
-        if app.core.thread_browser.is_some() {
+        if app.sessions[session_idx].core.thread_browser.is_some() {
             panels::thread_browser::render_thread_browser(f, app, panel_area);
         }
         if app.cron.cron_panel.is_some() {
@@ -112,33 +156,55 @@ pub fn render(f: &mut Frame, app: &mut App) {
         }
     }
 
-    // 输入框前缀 ❯ + 文本区
-    f.render_widget(&app.core.textarea, chunks[4]);
-    app.core.textarea_area = Some(chunks[4]);
+    // 输入框（所有 session 都显示，active 有光标；多 session 时 active 紫色边框）
+    {
+        let textarea = &app.sessions[session_idx].core.textarea;
+        let border_color = if is_active && app.sessions.len() > 1 { theme::THINKING } else { theme::MUTED };
+        let mut ta = textarea.clone();
+        ta.set_block(
+            ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
+                .border_style(Style::default().fg(border_color))
+                .padding(ratatui::widgets::Padding::new(2, 0, 0, 0)),
+        );
+        if !is_active {
+            ta.set_cursor_style(Style::default().fg(theme::MUTED));
+        }
+        f.render_widget(&ta, chunks[4]);
+        app.sessions[session_idx].core.textarea_area = Some(chunks[4]);
+    }
 
-    // ❯ 前缀：渲染在输入框文字前面（叠加在 textarea 第一行起始位置）
+    // ❯ 前缀
     let prompt_x = chunks[4].x;
-    let prompt_y = chunks[4].y + 1; // 跳过顶部边框行
+    let prompt_y = chunks[4].y + 1;
     let prompt_area = Rect {
         x: prompt_x,
         y: prompt_y,
         width: 2,
         height: 1,
     };
-    let prompt_style = Style::default()
-        .fg(theme::TEXT)
-        .add_modifier(Modifier::BOLD);
+    let prompt_color = if is_active { theme::TEXT } else { theme::MUTED };
+    let prompt_style = Style::default().fg(prompt_color).add_modifier(Modifier::BOLD);
     f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
-    status_bar::render_status_bar(f, app, chunks[5]);
 
-    // 统一命令/Skills 提示条（浮动在输入框上方）
-    popups::hints::render_unified_hint(f, app, chunks[4]);
+    if is_active {
+        // 统一命令/Skills 提示条
+        popups::hints::render_unified_hint(f, app, chunks[4]);
+    }
+
+    // 单 session 模式下渲染状态栏
+    if app.sessions.len() == 1 {
+        status_bar::render_status_bar(f, app, chunks[5]);
+    }
+
+    // 恢复原始 active
+    app.active = prev_active;
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
 fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 {
     let max_h = screen_height * 3 / 5; // 最多占 60% 屏高
-    let raw = if let Some(panel) = &app.core.thread_browser {
+    let raw = if let Some(panel) = &app.sessions[app.active].core.thread_browser {
         // 搜索框 3 行 + 空行 1 + items * 3 (标题+元数据+空行) + 快捷键 1 + 边框 2
         let items = panel.total() as u16;
         let base = (items * 3 + 7).max(9);
@@ -147,7 +213,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         } else {
             base
         }
-    } else if let Some(panel) = &app.core.login_panel {
+    } else if let Some(panel) = &app.sessions[app.active].core.login_panel {
         let n = panel.providers.len() as u16;
         match panel.mode {
             // Edit/New: 1 top pad + 7 fields + 1 blank + 1 help + 2 borders = 12
@@ -157,11 +223,11 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
             // Browse: n * 2 (name + models) + (n-1) spacing + 2 help/blank + 2 borders
             LoginPanelMode::Browse => (n * 3 + 3).max(6),
         }
-    } else if app.core.model_panel.is_some() {
+    } else if app.sessions[app.active].core.model_panel.is_some() {
         12
-    } else if app.core.config_panel.is_some() {
+    } else if app.sessions[app.active].core.config_panel.is_some() {
         14
-    } else if let Some(panel) = &app.core.agent_panel {
+    } else if let Some(panel) = &app.sessions[app.active].core.agent_panel {
         (panel.agents.len() as u16 * 2 + 6).max(6)
     } else if app.cron.cron_panel.is_some() {
         let base = (app
@@ -202,11 +268,11 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
             .map(|p| p.entries.len())
             .unwrap_or(0);
         (items as u16 * 2 + 4).max(6)
-    } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.agent.interaction_prompt {
+    } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.sessions[app.active].agent.interaction_prompt {
         (p.items.len() as u16 * 2 + 5).max(5)
     } else if app.oauth_prompt.is_some() {
         9 // 标题1 + 提示1 + URL1 + 空行1 + 输入框1 + 错误1 + 快捷键1 + 边框2
-    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt
+    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.sessions[app.active].agent.interaction_prompt
     {
         let cur = &p.questions[p.active_tab];
         // 自适应高度：考虑文本自动换行
@@ -247,23 +313,23 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
 
 fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_area: Rect) {
     // Welcome Card 或消息列表
-    if app.core.view_messages.is_empty() {
+    if app.sessions[app.active].core.view_messages.is_empty() {
         welcome::render_welcome(f, app, messages_area);
         return;
     }
 
     let inner = messages_area;
-    app.core.messages_area = Some(inner);
+    app.sessions[app.active].core.messages_area = Some(inner);
     let visible_height = inner.height;
 
     // 计算 loading spinner 行（Claude Code 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
     // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
-    let spinner_line: Option<Line<'static>> = if app.core.loading {
-        let frame = perihelion_widgets::spinner::animation::tick_to_frame(app.spinner_state.tick());
-        let verb = app.spinner_state.verb();
+    let spinner_line: Option<Line<'static>> = if app.sessions[app.active].core.loading {
+        let frame = perihelion_widgets::spinner::animation::tick_to_frame(app.sessions[app.active].spinner_state.tick());
+        let verb = app.sessions[app.active].spinner_state.verb();
         let elapsed =
-            perihelion_widgets::spinner::animation::format_elapsed(app.spinner_state.elapsed_ms());
-        let tokens = app.spinner_state.displayed_tokens();
+            perihelion_widgets::spinner::animation::format_elapsed(app.sessions[app.active].spinner_state.elapsed_ms());
+        let tokens = app.sessions[app.active].spinner_state.displayed_tokens();
 
         let is_compact = verb.starts_with("压缩上下文");
         let accent = if is_compact {
@@ -282,9 +348,9 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         }
         parts.push(Span::styled(")", gray));
         Some(Line::from(parts))
-    } else if app.spinner_state.last_summary_elapsed_ms() > 0 {
+    } else if app.sessions[app.active].spinner_state.last_summary_elapsed_ms() > 0 {
         let elapsed = perihelion_widgets::spinner::animation::format_elapsed(
-            app.spinner_state.last_summary_elapsed_ms(),
+            app.sessions[app.active].spinner_state.last_summary_elapsed_ms(),
         );
         Some(Line::from(Span::styled(
             format!("  ✻  Brewed for {elapsed}"),
@@ -295,16 +361,15 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     };
 
     // 从 RenderCache 读取已渲染好的行（浅克隆 Vec 头，开销极小）
-    let (mut all_lines, _total_lines, max_scroll, offset) = {
-        let cache = app.core.render_cache.read();
-        app.core.last_render_version = cache.version;
+    let (mut all_lines, _total_lines, max_scroll, offset, scroll_follow, last_render_version) = {
+        let cache = app.sessions[app.active].core.render_cache.read();
 
         // total_lines 已是 wrap 后的真实视觉行数（由渲染线程通过 Paragraph::line_count 计算）
         let total_lines = cache.total_lines;
         let spinner_extra: u16 = if spinner_line.is_some() {
             let base = 1; // spinner summary line
-            if app.core.loading {
-                base + 1 + app.todo_items.len() as u16 // tip + todo items
+            if app.sessions[app.active].core.loading {
+                base + 1 + app.sessions[app.active].todo_items.len() as u16 // tip + todo items
             } else {
                 base
             }
@@ -313,31 +378,34 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         };
         let visual_total = (total_lines as u16).saturating_add(spinner_extra);
         let max_scroll = visual_total.saturating_sub(visible_height);
-        let offset = if app.core.scroll_follow {
-            max_scroll
+        let scroll_follow = app.sessions[app.active].core.scroll_follow;
+        let scroll_offset = app.sessions[app.active].core.scroll_offset;
+        let (new_follow, off, ver) = if scroll_follow {
+            (scroll_follow, max_scroll, cache.version)
         } else {
-            let off = app.core.scroll_offset.min(max_scroll);
-            // 用户手动滚到底部时，自动恢复吸底
-            if off >= max_scroll {
-                app.core.scroll_follow = true;
-            }
-            off
+            let off = scroll_offset.min(max_scroll);
+            let new_follow = off >= max_scroll;
+            (new_follow, off, cache.version)
         };
 
         // Vec::clone() 是浅克隆，只复制指针+容量+长度头（3个 usize），不复制 Line 内容
-        (cache.lines.clone(), total_lines, max_scroll, offset)
+        (cache.lines.clone(), total_lines, max_scroll, off, new_follow, ver)
     };
+    // 在 cache read guard 释放后写入
+    app.sessions[app.active].core.last_render_version = last_render_version;
+    app.sessions[app.active].core.scroll_follow = scroll_follow;
+    app.sessions[app.active].core.scroll_offset = offset;
     if let Some(line) = spinner_line {
         all_lines.push(line);
         // Tip + TODO 仅在活跃 loading 时显示
-        if app.core.loading {
-            let tip = crate::ui::tips::pick_tip(app.spinner_state.raw_tick());
+        if app.sessions[app.active].core.loading {
+            let tip = crate::ui::tips::pick_tip(app.sessions[app.active].spinner_state.raw_tick());
             all_lines.push(Line::from(vec![
                 Span::styled("  ⎿  Tip: ", Style::default().fg(theme::MUTED)),
                 Span::styled(tip, Style::default().fg(theme::MUTED)),
             ]));
             all_lines.push(Line::from(""));
-            for item in &app.todo_items {
+            for item in &app.sessions[app.active].todo_items {
                 let (icon, icon_style, text_style) = match item.status {
                     TodoStatus::InProgress => (
                         "  ◼  ",
@@ -377,15 +445,14 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
             }
         }
     }
-    app.core.scroll_offset = offset;
 
     // 字符级选区高亮
-    if app.core.text_selection.is_active() {
-        let ts = &app.core.text_selection;
+    if app.sessions[app.active].core.text_selection.is_active() {
+        let ts = &app.sessions[app.active].core.text_selection;
         if let (Some(start), Some(end)) = (ts.start, ts.end) {
-            let cache = app.core.render_cache.read();
+            let cache = app.sessions[app.active].core.render_cache.read();
             let wrap_map = &cache.wrap_map;
-            let usable_width = app
+            let usable_width = app.sessions[app.active]
                 .core
                 .messages_area
                 .map(|a| a.width.saturating_sub(1))
@@ -471,7 +538,7 @@ fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
 
     // 第 1 行：所有附件标签
-    let tags: String = app
+    let tags: String = app.sessions[app.active]
         .core
         .pending_attachments
         .iter()

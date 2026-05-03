@@ -13,7 +13,7 @@ use crate::app::App;
 use crate::ui::theme;
 
 pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.core.model_panel else {
+    let Some(panel) = &app.sessions[app.active].core.model_panel else {
         return;
     };
 
@@ -139,7 +139,7 @@ mod tests {
 
     fn render_headless_model_no_provider() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30);
-        app.core.model_panel = Some(ModelPanel {
+        app.sessions[app.active].core.model_panel = Some(ModelPanel {
             provider_name: String::new(),
             cursor: ROW_OPUS,
             active_tab: AliasTab::Opus,

@@ -52,11 +52,11 @@ pub(crate) fn render_status_panel(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn build_cost_lines(app: &App) -> Vec<Line<'static>> {
-    let tracker = &app.agent.session_token_tracker;
+    let tracker = &app.sessions[app.active].agent.session_token_tracker;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // 会话时长
-    let duration_str = match app.agent.session_start_time {
+    let duration_str = match app.sessions[app.active].agent.session_start_time {
         Some(start) => {
             let s = start.elapsed().as_secs();
             if s >= 3600 {
@@ -110,8 +110,8 @@ fn build_cost_lines(app: &App) -> Vec<Line<'static>> {
 }
 
 fn build_context_lines(app: &App) -> Vec<Line<'static>> {
-    let tracker = &app.agent.session_token_tracker;
-    let context_window = app.agent.context_window;
+    let tracker = &app.sessions[app.active].agent.session_token_tracker;
+    let context_window = app.sessions[app.active].agent.context_window;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // 上下文窗口大小
@@ -134,13 +134,13 @@ fn build_context_lines(app: &App) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
 
     // 消息数
-    let msg_count = app.agent.agent_state_messages.len();
+    let msg_count = app.sessions[app.active].agent.agent_state_messages.len();
     lines.push(label_value("消息数", &msg_count.to_string()));
 
     // 工具调用次数
     lines.push(label_value(
         "工具调用次数",
-        &app.agent.tool_call_count.to_string(),
+        &app.sessions[app.active].agent.tool_call_count.to_string(),
     ));
     lines.push(Line::from(""));
 
@@ -182,7 +182,7 @@ fn format_number(n: u64) -> String {
 
 /// 基于模型 alias 的简化费用估算
 fn estimate_cost(app: &App) -> f64 {
-    let tracker = &app.agent.session_token_tracker;
+    let tracker = &app.sessions[app.active].agent.session_token_tracker;
     let alias = app
         .zen_config
         .as_ref()

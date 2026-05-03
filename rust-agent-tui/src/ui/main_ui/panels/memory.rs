@@ -70,9 +70,9 @@ pub(crate) fn render_memory_panel(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 存储面板元数据
-    app.core.panel_area = Some(inner);
-    app.core.panel_scroll_offset = panel.scroll_offset;
-    app.core.panel_plain_lines = lines
+    app.sessions[app.active].core.panel_area = Some(inner);
+    app.sessions[app.active].core.panel_scroll_offset = panel.scroll_offset;
+    app.sessions[app.active].core.panel_plain_lines = lines
         .iter()
         .map(|l| {
             l.spans

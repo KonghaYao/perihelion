@@ -34,15 +34,15 @@ pub enum Action {
 
 /// 将选区文本复制到系统剪贴板并更新 UI 提示。返回 true 表示成功复制。
 fn copy_selection_to_clipboard(app: &mut App) -> bool {
-    if let Some(text) = app.core.text_selection.selected_text.take() {
+    if let Some(text) = app.sessions[app.active].core.text_selection.selected_text.take() {
         let char_count = text.chars().count();
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
             let _ = clipboard.set_text(&text);
         }
-        app.core.copy_char_count = char_count;
-        app.core.copy_message_until =
+        app.sessions[app.active].core.copy_char_count = char_count;
+        app.sessions[app.active].core.copy_message_until =
             Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
-        app.core.text_selection.clear();
+        app.sessions[app.active].core.text_selection.clear();
         return true;
     }
     false
@@ -50,15 +50,15 @@ fn copy_selection_to_clipboard(app: &mut App) -> bool {
 
 /// 将面板选区文本复制到系统剪贴板。返回 true 表示成功复制。
 fn copy_panel_selection_to_clipboard(app: &mut App) -> bool {
-    if let Some(text) = app.core.panel_selection.selected_text.take() {
+    if let Some(text) = app.sessions[app.active].core.panel_selection.selected_text.take() {
         let char_count = text.chars().count();
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
             let _ = clipboard.set_text(&text);
         }
-        app.core.copy_char_count = char_count;
-        app.core.copy_message_until =
+        app.sessions[app.active].core.copy_char_count = char_count;
+        app.sessions[app.active].core.copy_message_until =
             Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
-        app.core.panel_selection.clear();
+        app.sessions[app.active].core.panel_selection.clear();
         return true;
     }
     false
@@ -73,8 +73,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
     match ev {
         Event::Resize(w, _) => {
-            let _ = app.core.render_tx.send(RenderEvent::Resize(w));
-            app.core.text_selection.clear();
+            let _ = app.sessions[app.active].core.render_tx.send(RenderEvent::Resize(w));
+            app.sessions[app.active].core.text_selection.clear();
         }
         Event::Key(key_event) => {
             // 只处理 Press 事件，忽略 Release（防止按键重复触发）
@@ -105,7 +105,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     let next = aliases[(idx + 1) % aliases.len()];
                     cfg.config.active_alias = next.to_string();
                     if let Err(e) = App::save_config(cfg, app.config_path_override.as_deref()) {
-                        app.core
+                        app.sessions[app.active].core
                             .view_messages
                             .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
                     }
@@ -140,19 +140,19 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 if copy_panel_selection_to_clipboard(app) {
                     return Ok(Some(Action::Redraw));
                 }
-                if app.core.textarea.is_selecting() {
-                    app.core.textarea.copy();
-                    let text = app.core.textarea.yank_text();
+                if app.sessions[app.active].core.textarea.is_selecting() {
+                    app.sessions[app.active].core.textarea.copy();
+                    let text = app.sessions[app.active].core.textarea.yank_text();
                     if !text.is_empty() {
                         if let Ok(mut clipboard) = arboard::Clipboard::new() {
                             let _ = clipboard.set_text(&text);
                         }
                         let char_count = text.chars().count();
-                        app.core.copy_char_count = char_count;
-                        app.core.copy_message_until = Some(
+                        app.sessions[app.active].core.copy_char_count = char_count;
+                        app.sessions[app.active].core.copy_message_until = Some(
                             std::time::Instant::now() + std::time::Duration::from_millis(2000),
                         );
-                        app.core.textarea.cancel_selection();
+                        app.sessions[app.active].core.textarea.cancel_selection();
                         return Ok(Some(Action::Redraw));
                     }
                 }
@@ -178,7 +178,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                             &[],
                                         );
                                         let _ =
-                                            app.core.render_tx.send(RenderEvent::AddMessage(msg));
+                                            app.sessions[app.active].core.render_tx.send(RenderEvent::AddMessage(msg));
                                     }
                                 }
                             }
@@ -193,7 +193,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // Thread 浏览面板优先处理
-            if app.core.thread_browser.is_some() {
+            if app.sessions[app.active].core.thread_browser.is_some() {
                 handle_thread_browser(app, input);
                 return Ok(Some(Action::Redraw));
             }
@@ -217,25 +217,25 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // /agents 面板优先处理
-            if app.core.agent_panel.is_some() {
+            if app.sessions[app.active].core.agent_panel.is_some() {
                 handle_agent_panel(app, input);
                 return Ok(Some(Action::Redraw));
             }
 
             // /login 面板优先处理
-            if app.core.login_panel.is_some() {
+            if app.sessions[app.active].core.login_panel.is_some() {
                 handle_login_panel(app, input);
                 return Ok(Some(Action::Redraw));
             }
 
             // /model 面板优先处理
-            if app.core.model_panel.is_some() {
+            if app.sessions[app.active].core.model_panel.is_some() {
                 handle_model_panel(app, input);
                 return Ok(Some(Action::Redraw));
             }
 
             // /config 配置面板优先处理
-            if app.core.config_panel.is_some() {
+            if app.sessions[app.active].core.config_panel.is_some() {
                 handle_config_panel(app, input);
                 return Ok(Some(Action::Redraw));
             }
@@ -266,7 +266,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
             // AskUser 批量弹窗
             if matches!(
-                &app.agent.interaction_prompt,
+                &app.sessions[app.active].agent.interaction_prompt,
                 Some(crate::app::InteractionPrompt::Questions(_))
             ) {
                 match input {
@@ -308,7 +308,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
             // HITL 批量弹窗激活时，优先处理弹窗按键
             if matches!(
-                &app.agent.interaction_prompt,
+                &app.sessions[app.active].agent.interaction_prompt,
                 Some(crate::app::InteractionPrompt::Approval(_))
             ) {
                 match input {
@@ -346,30 +346,30 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     ctrl: true,
                     ..
                 } => {
-                    if app.core.loading {
+                    if app.sessions[app.active].core.loading {
                         app.interrupt();
                     } else {
                         return Ok(Some(Action::Quit));
                     }
                 }
-                Input { key: Key::Esc, .. } if !app.core.loading => return Ok(Some(Action::Quit)),
+                Input { key: Key::Esc, .. } if !app.sessions[app.active].core.loading => return Ok(Some(Action::Quit)),
 
                 // Up：浮层导航 > 历史恢复（仅首行）> textarea 光标
-                Input { key: Key::Up, .. } if !app.core.loading => {
+                Input { key: Key::Up, .. } if !app.sessions[app.active].core.loading => {
                     let hint_count = app.hint_candidates_count();
                     if hint_count > 0 {
-                        let cur = app.core.hint_cursor.unwrap_or(0);
-                        app.core.hint_cursor = if cur == 0 {
+                        let cur = app.sessions[app.active].core.hint_cursor.unwrap_or(0);
+                        app.sessions[app.active].core.hint_cursor = if cur == 0 {
                             Some(hint_count - 1)
                         } else {
                             Some(cur - 1)
                         };
                     } else {
-                        let (row, _col) = app.core.textarea.cursor();
+                        let (row, _col) = app.sessions[app.active].core.textarea.cursor();
                         if row == 0 {
                             app.history_up();
                         } else {
-                            app.core.textarea.input(Input {
+                            app.sessions[app.active].core.textarea.input(Input {
                                 key: Key::Up,
                                 ctrl: false,
                                 alt: false,
@@ -380,24 +380,24 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 }
 
                 // Down：浮层导航 > 历史恢复（仅末行）> textarea 光标
-                Input { key: Key::Down, .. } if !app.core.loading => {
+                Input { key: Key::Down, .. } if !app.sessions[app.active].core.loading => {
                     let hint_count = app.hint_candidates_count();
                     if hint_count > 0 {
-                        let cur = app.core.hint_cursor.unwrap_or(hint_count - 1);
-                        app.core.hint_cursor = if cur + 1 >= hint_count {
+                        let cur = app.sessions[app.active].core.hint_cursor.unwrap_or(hint_count - 1);
+                        app.sessions[app.active].core.hint_cursor = if cur + 1 >= hint_count {
                             Some(0)
                         } else {
                             Some(cur + 1)
                         };
-                    } else if app.core.history_index.is_some() {
+                    } else if app.sessions[app.active].core.history_index.is_some() {
                         app.history_down();
                     } else {
-                        let (row, _col) = app.core.textarea.cursor();
-                        let last_row = app.core.textarea.lines().len().saturating_sub(1);
+                        let (row, _col) = app.sessions[app.active].core.textarea.cursor();
+                        let last_row = app.sessions[app.active].core.textarea.lines().len().saturating_sub(1);
                         if row >= last_row {
                             app.history_down();
                         } else {
-                            app.core.textarea.input(Input {
+                            app.sessions[app.active].core.textarea.input(Input {
                                 key: Key::Down,
                                 ctrl: false,
                                 alt: false,
@@ -412,12 +412,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     key: Key::Char('v'),
                     ctrl: true,
                     ..
-                } if !app.core.loading => {
+                } if !app.sessions[app.active].core.loading => {
                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
                         if let Ok(img) = clipboard.get_image() {
                             let (w, h) = (img.width as u32, img.height as u32);
                             if let Ok((b64, sz)) = rgba_to_png_base64(w, h, &img.bytes) {
-                                let n = app.core.pending_attachments.len() + 1;
+                                let n = app.sessions[app.active].core.pending_attachments.len() + 1;
                                 app.add_pending_attachment(PendingAttachment {
                                     label: format!("clipboard_{}.png", n),
                                     media_type: "image/png".to_string(),
@@ -427,7 +427,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             }
                         } else if let Ok(text) = clipboard.get_text() {
                             let text = text.replace('\r', "\n");
-                            app.core.textarea.insert_str(&text);
+                            app.sessions[app.active].core.textarea.insert_str(&text);
                         }
                     }
                 }
@@ -437,20 +437,20 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     key: Key::Tab,
                     shift: false,
                     ..
-                } if !app.core.loading => {
+                } if !app.sessions[app.active].core.loading => {
                     let count = app.hint_candidates_count();
                     if count > 0 {
-                        match app.core.hint_cursor {
+                        match app.sessions[app.active].core.hint_cursor {
                             Some(cur) if cur + 1 < count => {
-                                app.core.hint_cursor = Some(cur + 1);
+                                app.sessions[app.active].core.hint_cursor = Some(cur + 1);
                             }
                             Some(_) => {
                                 // 已在最后一个，循环到第一个
-                                app.core.hint_cursor = Some(0);
+                                app.sessions[app.active].core.hint_cursor = Some(0);
                             }
                             None => {
                                 // 首次按 Tab，选中第一个
-                                app.core.hint_cursor = Some(0);
+                                app.sessions[app.active].core.hint_cursor = Some(0);
                             }
                         }
                     }
@@ -459,9 +459,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 // Enter 在有候选项时：确认选中（无选中则默认第一项）
                 Input {
                     key: Key::Enter, ..
-                } if !app.core.loading && app.hint_candidates_count() > 0 => {
-                    if app.core.hint_cursor.is_none() {
-                        app.core.hint_cursor = Some(0);
+                } if !app.sessions[app.active].core.loading && app.hint_candidates_count() > 0 => {
+                    if app.sessions[app.active].core.hint_cursor.is_none() {
+                        app.sessions[app.active].core.hint_cursor = Some(0);
                     }
                     app.hint_complete();
                 }
@@ -472,7 +472,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     alt: true,
                     ..
                 } => {
-                    app.core.textarea.input(Input {
+                    app.sessions[app.active].core.textarea.input(Input {
                         key: Key::Enter,
                         ctrl: false,
                         alt: false,
@@ -484,19 +484,19 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 Input {
                     key: Key::Enter, ..
                 } => {
-                    let text = app.core.textarea.lines().join("\n");
+                    let text = app.sessions[app.active].core.textarea.lines().join("\n");
                     let text = text.trim().to_string();
                     if !text.is_empty() {
-                        if app.core.loading {
+                        if app.sessions[app.active].core.loading {
                             // Loading 状态：缓冲消息
-                            app.core.pending_messages.push(text);
+                            app.sessions[app.active].core.pending_messages.push(text);
                             app.update_textarea_hint();
                         } else if text.starts_with('/') {
-                            app.core.textarea = crate::app::build_textarea(false);
+                            app.sessions[app.active].core.textarea = crate::app::build_textarea(false);
                             // 命令模式：取出 registry 避免借用冲突
-                            let registry = std::mem::take(&mut app.core.command_registry);
+                            let registry = std::mem::take(&mut app.sessions[app.active].core.command_registry);
                             let known = registry.dispatch(app, &text);
-                            app.core.command_registry = registry;
+                            app.sessions[app.active].core.command_registry = registry;
                             if known {
                                 // 命令命中，结束
                             } else {
@@ -507,41 +507,37 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                                     .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
                                     .collect();
                                 if let Some(_skill) =
-                                    app.core.skills.iter().find(|s| s.name == skill_name)
+                                    app.sessions[app.active].core.skills.iter().find(|s| s.name == skill_name)
                                 {
                                     // Skill 命中：将整条消息提交给 agent
                                     return Ok(Some(Action::Submit(text)));
                                 } else {
                                     // 区分"前缀歧义"和"完全未知"
-                                    let registry = &app.core.command_registry;
-                                    let prefix = text.trim_start_matches('/');
-                                    let cmd_matches = registry.match_prefix(prefix);
-                                    if cmd_matches.len() > 1 {
+                                    let prefix = text.trim_start_matches('/').to_string();
+                                    let cmd_matches = app.sessions[app.active].core.command_registry.match_prefix(&prefix);
+                                    let error_msg = if cmd_matches.len() > 1 {
                                         let names: Vec<&str> =
                                             cmd_matches.iter().map(|(n, _)| *n).collect();
-                                        app.core.view_messages.push(MessageViewModel::system(
-                                            format!(
-                                                "命令 '{}' 匹配多个: {}  （请输入完整命令名）",
-                                                text,
-                                                names
-                                                    .iter()
-                                                    .map(|n| format!("/{}", n))
-                                                    .collect::<Vec<_>>()
-                                                    .join(", ")
-                                            ),
-                                        ));
+                                        format!(
+                                            "命令 '{}' 匹配多个: {}  （请输入完整命令名）",
+                                            text,
+                                            names
+                                                .iter()
+                                                .map(|n| format!("/{}", n))
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                        )
                                     } else {
-                                        app.core.view_messages.push(MessageViewModel::system(
-                                            format!(
-                                                "未知命令或 Skill: {}  （输入 /help 查看可用命令）",
-                                                text
-                                            ),
-                                        ));
-                                    }
+                                        format!(
+                                            "未知命令或 Skill: {}  （输入 /help 查看可用命令）",
+                                            text
+                                        )
+                                    };
+                                    app.sessions[app.active].core.view_messages.push(MessageViewModel::system(error_msg));
                                 }
                             }
                         } else {
-                            app.core.textarea = crate::app::build_textarea(false);
+                            app.sessions[app.active].core.textarea = crate::app::build_textarea(false);
                             return Ok(Some(Action::Submit(text)));
                         }
                     }
@@ -565,20 +561,50 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 // Del：删除最后一个待发送附件（有附件时优先消费 Del）
                 Input {
                     key: Key::Delete, ..
-                } if !app.core.loading && !app.core.pending_attachments.is_empty() => {
+                } if !app.sessions[app.active].core.loading && !app.sessions[app.active].core.pending_attachments.is_empty() => {
                     app.pop_pending_attachment();
+                }
+
+                // Ctrl+N/P：切换 session 焦点
+                Input {
+                    key: Key::Char('n'),
+                    ctrl: true,
+                    ..
+                } => {
+                    app.switch_next_session();
+                }
+                Input {
+                    key: Key::Char('p'),
+                    ctrl: true,
+                    ..
+                } => {
+                    app.switch_prev_session();
+                }
+
+                // Ctrl+W：关闭当前 session
+                input @ Input {
+                    key: Key::Char('w'),
+                    ctrl: true,
+                    ..
+                } => {
+                    if app.close_session().is_some() {
+                        // session 已关闭，不继续处理
+                    } else {
+                        // 只有一个 session，fallback 到 textarea
+                        app.sessions[app.active].core.textarea.input(input);
+                    }
                 }
 
                 // 拦截普通 Enter，避免 textarea 默认换行；允许 loading 时输入
                 input if input.key != Key::Enter => {
                     // 退出历史浏览
-                    if app.core.history_index.is_some() {
+                    if app.sessions[app.active].core.history_index.is_some() {
                         app.exit_history();
                     }
-                    app.core.textarea.input(input);
+                    app.sessions[app.active].core.textarea.input(input);
                     // 输入内容变化时：重置光标（不预选，等用户按 Tab/上下键激活）
-                    if !app.core.loading {
-                        app.core.hint_cursor = None;
+                    if !app.sessions[app.active].core.loading {
+                        app.sessions[app.active].core.hint_cursor = None;
                     }
                 }
 
@@ -598,19 +624,19 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // login_panel 打开时粘贴到面板当前字段
-            if app.core.login_panel.is_some() {
-                app.core.login_panel.as_mut().unwrap().paste_text(&text);
+            if app.sessions[app.active].core.login_panel.is_some() {
+                app.sessions[app.active].core.login_panel.as_mut().unwrap().paste_text(&text);
                 return Ok(Some(Action::Redraw));
             }
 
             // model_panel 打开时拦截粘贴（面板无文本输入字段）
-            if app.core.model_panel.is_some() {
+            if app.sessions[app.active].core.model_panel.is_some() {
                 return Ok(Some(Action::Redraw));
             }
 
             // config_panel 打开时粘贴到当前编辑字段
-            if app.core.config_panel.is_some() {
-                if let Some(panel) = app.core.config_panel.as_mut() {
+            if app.sessions[app.active].core.config_panel.is_some() {
+                if let Some(panel) = app.sessions[app.active].core.config_panel.as_mut() {
                     panel.paste_text(&text);
                 }
                 return Ok(Some(Action::Redraw));
@@ -618,8 +644,8 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
             // thread_browser / agent_panel / cron_panel 打开时拦截粘贴，
             // 防止文本进入后台 textarea（这些面板无文本输入字段）
-            if app.core.thread_browser.is_some()
-                || app.core.agent_panel.is_some()
+            if app.sessions[app.active].core.thread_browser.is_some()
+                || app.sessions[app.active].core.agent_panel.is_some()
                 || app.cron.cron_panel.is_some()
                 || app.mcp_panel.is_some()
                 || app.status_panel.is_some()
@@ -629,12 +655,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
 
             // 其他情况粘贴到 textarea
-            app.core.textarea.insert_str(&text);
+            app.sessions[app.active].core.textarea.insert_str(&text);
         }
         Event::Mouse(mouse) => match mouse.kind {
             MouseEventKind::ScrollUp => {
                 // MCP 面板区域滚轮滚动面板，否则滚动消息区
-                if let Some(area) = app.core.panel_area {
+                if let Some(area) = app.sessions[app.active].core.panel_area {
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
@@ -648,7 +674,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 app.scroll_up();
             }
             MouseEventKind::ScrollDown => {
-                if let Some(area) = app.core.panel_area {
+                if let Some(area) = app.sessions[app.active].core.panel_area {
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
@@ -662,34 +688,48 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 app.scroll_down();
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                // 多 session：点击非 active session 列区域时切换焦点
+                if app.sessions.len() > 1 {
+                    for (i, area) in app.session_areas.iter().enumerate() {
+                        if mouse.column >= area.x
+                            && mouse.column < area.x + area.width
+                            && mouse.row >= area.y
+                            && mouse.row < area.y + area.height
+                            && i != app.active
+                        {
+                            app.active = i;
+                            return Ok(Some(Action::Redraw));
+                        }
+                    }
+                }
                 // 面板区域：开始面板选区
-                if let Some(area) = app.core.panel_area {
+                if let Some(area) = app.sessions[app.active].core.panel_area {
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
                     {
-                        let content_row = mouse.row - area.y + app.core.panel_scroll_offset;
+                        let content_row = mouse.row - area.y + app.sessions[app.active].core.panel_scroll_offset;
                         let col = mouse.column - area.x;
-                        app.core.panel_selection.start_drag(content_row, col);
-                        app.core.text_selection.clear();
+                        app.sessions[app.active].core.panel_selection.start_drag(content_row, col);
+                        app.sessions[app.active].core.text_selection.clear();
                         // 不再处理其他区域的选区
                         return Ok(Some(Action::Redraw));
                     }
                 }
-                if let Some(area) = app.core.messages_area {
+                if let Some(area) = app.sessions[app.active].core.messages_area {
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
                     {
-                        let visual_row = mouse.row - area.y + app.core.scroll_offset;
+                        let visual_row = mouse.row - area.y + app.sessions[app.active].core.scroll_offset;
                         let visual_col = mouse.column - area.x;
-                        app.core.text_selection.start_drag(visual_row, visual_col);
+                        app.sessions[app.active].core.text_selection.start_drag(visual_row, visual_col);
                     }
                 }
                 // 输入框区域：开始 textarea 选区
-                if let Some(area) = app.core.textarea_area {
+                if let Some(area) = app.sessions[app.active].core.textarea_area {
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
@@ -697,42 +737,42 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                     {
                         let row = (mouse.row - area.y).saturating_sub(1) as usize; // 跳过顶部边框
                         let col = mouse.column.saturating_sub(area.x) as usize;
-                        app.core
+                        app.sessions[app.active].core
                             .textarea
                             .move_cursor(tui_textarea::CursorMove::Jump(row as u16, col as u16));
-                        app.core.textarea.start_selection();
+                        app.sessions[app.active].core.textarea.start_selection();
                     }
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
                 // 面板选区拖拽
-                if app.core.panel_selection.dragging {
-                    if let Some(area) = app.core.panel_area {
+                if app.sessions[app.active].core.panel_selection.dragging {
+                    if let Some(area) = app.sessions[app.active].core.panel_area {
                         let content_row = mouse
                             .row
                             .saturating_sub(area.y)
-                            .saturating_add(app.core.panel_scroll_offset);
+                            .saturating_add(app.sessions[app.active].core.panel_scroll_offset);
                         let col = mouse.column.saturating_sub(area.x);
-                        app.core.panel_selection.update_drag(content_row, col);
+                        app.sessions[app.active].core.panel_selection.update_drag(content_row, col);
                     }
                 }
-                if app.core.text_selection.dragging {
-                    if let Some(area) = app.core.messages_area {
+                if app.sessions[app.active].core.text_selection.dragging {
+                    if let Some(area) = app.sessions[app.active].core.messages_area {
                         let visual_row = mouse
                             .row
                             .saturating_sub(area.y)
-                            .saturating_add(app.core.scroll_offset);
+                            .saturating_add(app.sessions[app.active].core.scroll_offset);
                         let visual_col = mouse.column.saturating_sub(area.x);
-                        app.core.text_selection.update_drag(visual_row, visual_col);
+                        app.sessions[app.active].core.text_selection.update_drag(visual_row, visual_col);
                     }
                 }
                 // 输入框区域：扩展 textarea 选区
-                if app.core.textarea.is_selecting() {
-                    if let Some(area) = app.core.textarea_area {
+                if app.sessions[app.active].core.textarea.is_selecting() {
+                    if let Some(area) = app.sessions[app.active].core.textarea_area {
                         if mouse.row >= area.y && mouse.row < area.y + area.height {
                             let row = (mouse.row - area.y).saturating_sub(1) as usize;
                             let col = mouse.column.saturating_sub(area.x) as usize;
-                            app.core
+                            app.sessions[app.active].core
                                 .textarea
                                 .move_cursor(tui_textarea::CursorMove::Jump(
                                     row as u16, col as u16,
@@ -743,28 +783,28 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 // 面板选区松开
-                if app.core.panel_selection.dragging {
-                    app.core.panel_selection.end_drag();
-                    let sel = &app.core.panel_selection;
+                if app.sessions[app.active].core.panel_selection.dragging {
+                    app.sessions[app.active].core.panel_selection.end_drag();
+                    let sel = &app.sessions[app.active].core.panel_selection;
                     if let (Some(start), Some(end)) = (sel.start, sel.end) {
                         let text = crate::app::text_selection::extract_panel_text(
                             start,
                             end,
-                            &app.core.panel_plain_lines,
+                            &app.sessions[app.active].core.panel_plain_lines,
                         );
-                        app.core.panel_selection.set_selected_text(text);
+                        app.sessions[app.active].core.panel_selection.set_selected_text(text);
                     }
                 }
-                if app.core.text_selection.dragging {
-                    app.core.text_selection.end_drag();
-                    let ts = &app.core.text_selection;
+                if app.sessions[app.active].core.text_selection.dragging {
+                    app.sessions[app.active].core.text_selection.end_drag();
+                    let ts = &app.sessions[app.active].core.text_selection;
                     if let (Some(start), Some(end)) = (ts.start, ts.end) {
                         let usable_width = app
-                            .core
+                            .sessions[app.active].core
                             .messages_area
                             .map(|a| a.width.saturating_sub(1))
                             .unwrap_or(0);
-                        let cache = app.core.render_cache.read();
+                        let cache = app.sessions[app.active].core.render_cache.read();
                         let text = crate::app::text_selection::extract_selected_text(
                             start,
                             end,
@@ -772,7 +812,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             usable_width,
                         );
                         drop(cache);
-                        app.core.text_selection.set_selected_text(text);
+                        app.sessions[app.active].core.text_selection.set_selected_text(text);
                     }
                 }
                 // textarea 选区在 mouse up 时不做额外处理，保持 tui_textarea 的选区状态
@@ -789,7 +829,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
 
 fn handle_thread_browser(app: &mut App, input: Input) {
     // 确认删除模式下只处理 Enter（确认）和其他键（取消）
-    if app
+    if app.sessions[app.active]
         .core
         .thread_browser
         .as_ref()
@@ -799,17 +839,17 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             Input {
                 key: Key::Enter, ..
             } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.confirm_delete = false;
                     if let Some(title) = b.delete_selected() {
-                        app.core
+                        app.sessions[app.active].core
                             .view_messages
                             .push(MessageViewModel::system(format!("已删除对话: {}", title)));
                     }
                 }
             }
             _ => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.confirm_delete = false;
                 }
             }
@@ -818,7 +858,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
     }
 
     // 搜索框聚焦时的输入处理
-    let search_focused = app
+    let search_focused = app.sessions[app.active]
         .core
         .thread_browser
         .as_ref()
@@ -832,16 +872,16 @@ fn handle_thread_browser(app: &mut App, input: Input) {
                 ..
             } => {}
             Input { key: Key::Esc, .. } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     if !b.search_query.value().is_empty() {
                         // 清空搜索
                         b.search_query.set_value(String::new());
                         b.refresh_filter();
                     } else {
                         // 关闭面板
-                        app.core.thread_browser = None;
-                        app.core.panel_selection.clear();
-                        app.core.panel_area = None;
+                        app.sessions[app.active].core.thread_browser = None;
+                        app.sessions[app.active].core.panel_selection.clear();
+                        app.sessions[app.active].core.panel_area = None;
                     }
                 }
             }
@@ -851,7 +891,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
                 ..
             } => {
                 if let Ok(text) = arboard::Clipboard::new().and_then(|mut cb| cb.get_text()) {
-                    if let Some(b) = app.core.thread_browser.as_mut() {
+                    if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                         b.search_query.paste(&text);
                         b.refresh_filter();
                     }
@@ -860,7 +900,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             Input {
                 key: Key::Char(c), ..
             } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_query.insert(c);
                     b.refresh_filter();
                 }
@@ -869,7 +909,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
                 key: Key::Backspace,
                 ..
             } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_query.backspace();
                     b.refresh_filter();
                 }
@@ -877,36 +917,36 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             Input {
                 key: Key::Delete, ..
             } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_query.delete();
                     b.refresh_filter();
                 }
             }
             Input { key: Key::Left, .. } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_query.cursor_left();
                 }
             }
             Input {
                 key: Key::Right, ..
             } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_query.cursor_right();
                 }
             }
             Input { key: Key::Home, .. } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_query.cursor_home();
                 }
             }
             Input { key: Key::End, .. } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_query.cursor_end();
                 }
             }
             // ↓ / Tab 切换到列表模式
             Input { key: Key::Down, .. } | Input { key: Key::Tab, .. } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     b.search_focused = false;
                 }
             }
@@ -914,7 +954,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             Input {
                 key: Key::Enter, ..
             } => {
-                if let Some(b) = app.core.thread_browser.as_mut() {
+                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                     if let Some(id) = b.selected_id().cloned() {
                         app.open_thread_with_feedback(id);
                     }
@@ -934,34 +974,39 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         } => {}
         Input { key: Key::Esc, .. } => {
             // Esc 关闭面板
-            app.core.thread_browser = None;
-            app.core.panel_selection.clear();
-            app.core.panel_area = None;
+            app.sessions[app.active].core.thread_browser = None;
+            app.sessions[app.active].core.panel_selection.clear();
+            app.sessions[app.active].core.panel_area = None;
         }
         Input { key: Key::Up, .. } => {
-            if let Some(b) = app.core.thread_browser.as_mut() {
+            let visible = app.sessions[app.active]
+                .core
+                .panel_area
+                .map(|a| a.height.saturating_sub(1))
+                .unwrap_or(10);
+            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                 b.move_cursor(-1);
                 // 每个 item 占 3 视觉行（标题 + 元数据 + 空行）
                 let visual_row = b.cursor as u16 * 3;
                 // panel_area 已经是 list_area（不含搜索框），减去快捷键 1 行
-                let visible = app
-                    .core
-                    .panel_area
-                    .map(|a| a.height.saturating_sub(1))
-                    .unwrap_or(10);
                 b.scroll_offset =
                     crate::app::ensure_cursor_visible(visual_row, b.scroll_offset, visible);
             }
         }
         Input { key: Key::Down, .. } => {
-            if let Some(b) = app.core.thread_browser.as_mut() {
+            let visible = app.sessions[app.active]
+                .core
+                .panel_area
+                .map(|a| a.height.saturating_sub(1))
+                .unwrap_or(10);
+            let visible = app.sessions[app.active]
+                .core
+                .panel_area
+                .map(|a| a.height.saturating_sub(1))
+                .unwrap_or(10);
+            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                 b.move_cursor(1);
                 let visual_row = b.cursor as u16 * 3;
-                let visible = app
-                    .core
-                    .panel_area
-                    .map(|a| a.height.saturating_sub(1))
-                    .unwrap_or(10);
                 b.scroll_offset =
                     crate::app::ensure_cursor_visible(visual_row, b.scroll_offset, visible);
             }
@@ -969,7 +1014,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
         Input {
             key: Key::Enter, ..
         } => {
-            if let Some(b) = app.core.thread_browser.as_mut() {
+            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                 if let Some(id) = b.selected_id().cloned() {
                     app.open_thread_with_feedback(id);
                 }
@@ -980,7 +1025,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             ctrl: true,
             ..
         } => {
-            if let Some(b) = app.core.thread_browser.as_mut() {
+            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                 if b.total() > 0 {
                     b.confirm_delete = true;
                 }
@@ -992,7 +1037,7 @@ fn handle_thread_browser(app: &mut App, input: Input) {
             ..
         }
         | Input { key: Key::Tab, .. } => {
-            if let Some(b) = app.core.thread_browser.as_mut() {
+            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
                 b.search_focused = true;
             }
         }
@@ -1011,8 +1056,8 @@ fn handle_agent_panel(app: &mut App, input: Input) {
         } => {}
         Input { key: Key::Esc, .. } => {
             app.close_agent_panel();
-            app.core.panel_selection.clear();
-            app.core.panel_area = None;
+            app.sessions[app.active].core.panel_selection.clear();
+            app.sessions[app.active].core.panel_area = None;
         }
         Input { key: Key::Up, .. } => {
             app.agent_panel_move_up();
@@ -1035,7 +1080,7 @@ fn handle_agent_panel(app: &mut App, input: Input) {
 fn handle_login_panel(app: &mut App, input: Input) {
     use crate::app::login_panel::LoginPanelMode;
 
-    let mode = match app.core.login_panel.as_ref() {
+    let mode = match app.sessions[app.active].core.login_panel.as_ref() {
         Some(p) => p.mode.clone(),
         None => return,
     };
@@ -1046,10 +1091,10 @@ fn handle_login_panel(app: &mut App, input: Input) {
                 app.close_login_panel();
             }
             Input { key: Key::Up, .. } => {
-                app.core.login_panel.as_mut().unwrap().move_cursor(-1);
+                app.sessions[app.active].core.login_panel.as_mut().unwrap().move_cursor(-1);
             }
             Input { key: Key::Down, .. } => {
-                app.core.login_panel.as_mut().unwrap().move_cursor(1);
+                app.sessions[app.active].core.login_panel.as_mut().unwrap().move_cursor(1);
             }
             Input {
                 key: Key::Enter, ..
@@ -1061,31 +1106,31 @@ fn handle_login_panel(app: &mut App, input: Input) {
                 shift: false,
                 ..
             } => {
-                app.core.login_panel.as_mut().unwrap().enter_edit();
+                app.sessions[app.active].core.login_panel.as_mut().unwrap().enter_edit();
             }
             Input {
                 key: Key::Char('n'),
                 ctrl: true,
                 ..
             } => {
-                app.core.login_panel.as_mut().unwrap().enter_new();
+                app.sessions[app.active].core.login_panel.as_mut().unwrap().enter_new();
             }
             Input {
                 key: Key::Char('d'),
                 ctrl: true,
                 ..
             } => {
-                app.core.login_panel.as_mut().unwrap().request_delete();
+                app.sessions[app.active].core.login_panel.as_mut().unwrap().request_delete();
             }
             _ => {}
         },
         LoginPanelMode::Edit | LoginPanelMode::New => {
-            let is_type_field = app.core.login_panel.as_ref().unwrap().edit_field
+            let is_type_field = app.sessions[app.active].core.login_panel.as_ref().unwrap().edit_field
                 == crate::app::login_panel::LoginEditField::Type;
 
             match input {
                 Input { key: Key::Esc, .. } => {
-                    app.core.login_panel.as_mut().unwrap().mode = LoginPanelMode::Browse;
+                    app.sessions[app.active].core.login_panel.as_mut().unwrap().mode = LoginPanelMode::Browse;
                 }
                 Input {
                     key: Key::Char('v'),
@@ -1094,44 +1139,44 @@ fn handle_login_panel(app: &mut App, input: Input) {
                 } => {
                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
                         if let Ok(text) = clipboard.get_text() {
-                            app.core.login_panel.as_mut().unwrap().paste_text(&text);
+                            app.sessions[app.active].core.login_panel.as_mut().unwrap().paste_text(&text);
                         }
                     }
                 }
                 Input { key: Key::Up, .. } => {
-                    app.core.login_panel.as_mut().unwrap().field_prev();
+                    app.sessions[app.active].core.login_panel.as_mut().unwrap().field_prev();
                 }
                 Input { key: Key::Down, .. } => {
-                    app.core.login_panel.as_mut().unwrap().field_next();
+                    app.sessions[app.active].core.login_panel.as_mut().unwrap().field_next();
                 }
                 Input {
                     key: Key::Tab,
                     shift: false,
                     ..
                 } => {
-                    app.core.login_panel.as_mut().unwrap().field_next();
+                    app.sessions[app.active].core.login_panel.as_mut().unwrap().field_next();
                 }
                 Input {
                     key: Key::Tab,
                     shift: true,
                     ..
                 } => {
-                    app.core.login_panel.as_mut().unwrap().field_prev();
+                    app.sessions[app.active].core.login_panel.as_mut().unwrap().field_prev();
                 }
                 Input { key: Key::Left, .. }
                 | Input {
                     key: Key::Right, ..
                 } if is_type_field => {
-                    app.core.login_panel.as_mut().unwrap().cycle_type();
+                    app.sessions[app.active].core.login_panel.as_mut().unwrap().cycle_type();
                 }
                 Input {
                     key: Key::Char(' '),
                     ..
                 } => {
                     if is_type_field {
-                        app.core.login_panel.as_mut().unwrap().cycle_type();
+                        app.sessions[app.active].core.login_panel.as_mut().unwrap().cycle_type();
                     } else if let Some((buf, cursor)) =
-                        app.core.login_panel.as_mut().unwrap().active_field()
+                        app.sessions[app.active].core.login_panel.as_mut().unwrap().active_field()
                     {
                         crate::app::handle_edit_key(
                             buf,
@@ -1153,7 +1198,7 @@ fn handle_login_panel(app: &mut App, input: Input) {
                 _ => {
                     if !is_type_field {
                         if let Some((buf, cursor)) =
-                            app.core.login_panel.as_mut().unwrap().active_field()
+                            app.sessions[app.active].core.login_panel.as_mut().unwrap().active_field()
                         {
                             crate::app::handle_edit_key(buf, cursor, input);
                         }
@@ -1168,7 +1213,7 @@ fn handle_login_panel(app: &mut App, input: Input) {
                 app.login_panel_confirm_delete();
             }
             Input { key: Key::Esc, .. } => {
-                app.core.login_panel.as_mut().unwrap().cancel_delete();
+                app.sessions[app.active].core.login_panel.as_mut().unwrap().cancel_delete();
             }
             _ => {}
         },
@@ -1183,42 +1228,42 @@ fn handle_model_panel(app: &mut App, input: Input) {
             app.close_model_panel();
         }
         Input { key: Key::Up, .. } => {
-            app.core.model_panel.as_mut().unwrap().move_cursor(-1);
+            app.sessions[app.active].core.model_panel.as_mut().unwrap().move_cursor(-1);
         }
         Input { key: Key::Down, .. } => {
-            app.core.model_panel.as_mut().unwrap().move_cursor(1);
+            app.sessions[app.active].core.model_panel.as_mut().unwrap().move_cursor(1);
         }
         Input {
             key: Key::Char(' ') | Key::Enter,
             ..
         } => {
-            let cursor = app.core.model_panel.as_ref().unwrap().cursor;
+            let cursor = app.sessions[app.active].core.model_panel.as_ref().unwrap().cursor;
             match cursor {
                 ROW_OPUS => {
-                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Opus;
+                    app.sessions[app.active].core.model_panel.as_mut().unwrap().active_tab = AliasTab::Opus;
                     app.model_panel_confirm();
                 }
                 ROW_SONNET => {
-                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Sonnet;
+                    app.sessions[app.active].core.model_panel.as_mut().unwrap().active_tab = AliasTab::Sonnet;
                     app.model_panel_confirm();
                 }
                 ROW_HAIKU => {
-                    app.core.model_panel.as_mut().unwrap().active_tab = AliasTab::Haiku;
+                    app.sessions[app.active].core.model_panel.as_mut().unwrap().active_tab = AliasTab::Haiku;
                     app.model_panel_confirm();
                 }
                 ROW_EFFORT => {
-                    app.core.model_panel.as_mut().unwrap().cycle_effort(false);
+                    app.sessions[app.active].core.model_panel.as_mut().unwrap().cycle_effort(false);
                 }
                 _ => {}
             }
         }
         Input { key: Key::Left, .. } => {
-            app.core.model_panel.as_mut().unwrap().cycle_effort(true);
+            app.sessions[app.active].core.model_panel.as_mut().unwrap().cycle_effort(true);
         }
         Input {
             key: Key::Right, ..
         } => {
-            app.core.model_panel.as_mut().unwrap().cycle_effort(false);
+            app.sessions[app.active].core.model_panel.as_mut().unwrap().cycle_effort(false);
         }
         _ => {}
     }
@@ -1226,7 +1271,7 @@ fn handle_model_panel(app: &mut App, input: Input) {
 
 fn handle_config_panel(app: &mut App, input: Input) {
     use crate::app::config_panel::{ConfigEditField, ConfigPanel, ConfigPanelMode};
-    let Some(panel) = app.core.config_panel.as_mut() else {
+    let Some(panel) = app.sessions[app.active].core.config_panel.as_mut() else {
         return;
     };
     match panel.mode {
@@ -1247,7 +1292,7 @@ fn handle_config_panel(app: &mut App, input: Input) {
                 panel.enter_edit();
             }
             Input { key: Key::Esc, .. } => {
-                app.core.config_panel = None;
+                app.sessions[app.active].core.config_panel = None;
             }
             _ => {}
         },
@@ -1401,8 +1446,8 @@ fn handle_cron_panel(app: &mut App, input: Input) {
         }
         Input { key: Key::Esc, .. } => {
             app.cron_panel_close();
-            app.core.panel_selection.clear();
-            app.core.panel_area = None;
+            app.sessions[app.active].core.panel_selection.clear();
+            app.sessions[app.active].core.panel_area = None;
         }
         Input {
             key: Key::Char('d'),
@@ -1462,8 +1507,8 @@ fn handle_mcp_panel(app: &mut App, input: Input) {
         Input { key: Key::Esc, .. } => {
             if is_server_list {
                 app.mcp_panel_close();
-                app.core.panel_selection.clear();
-                app.core.panel_area = None;
+                app.sessions[app.active].core.panel_selection.clear();
+                app.sessions[app.active].core.panel_area = None;
             } else {
                 app.mcp_panel_back();
             }

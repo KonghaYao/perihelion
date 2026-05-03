@@ -14,7 +14,7 @@ use crate::ui::theme;
 
 /// /config 面板渲染
 pub(crate) fn render_config_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.core.config_panel else {
+    let Some(panel) = &app.sessions[app.active].core.config_panel else {
         return;
     };
 

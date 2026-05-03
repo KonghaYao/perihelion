@@ -77,12 +77,35 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled(format!(" {}", app.model_name), style));
     }
 
+    // Session 标签页指示器
+    if app.sessions.len() > 1 {
+        spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
+        for (i, _) in app.sessions.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(" "));
+            }
+            let is_active = i == app.active;
+            let style = if is_active {
+                Style::default()
+                    .fg(theme::THINKING)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            } else {
+                Style::default().fg(theme::MUTED)
+            };
+            spans.push(Span::styled(format!("{}", i + 1), style));
+        }
+        spans.push(Span::styled(
+            " Ctrl+N/P:切换 Ctrl+W:关闭",
+            Style::default().fg(theme::MUTED),
+        ));
+    }
+
     // 上下文使用率
     {
-        let tracker = &app.agent.session_token_tracker;
-        if let Some(pct) = tracker.context_usage_percent(app.agent.context_window) {
+        let tracker = &app.sessions[app.active].agent.session_token_tracker;
+        if let Some(pct) = tracker.context_usage_percent(app.sessions[app.active].agent.context_window) {
             let used = tracker.estimated_context_tokens().unwrap_or(0);
-            let total = app.agent.context_window;
+            let total = app.sessions[app.active].agent.context_window;
             let color = if pct >= 85.0 {
                 theme::ERROR
             } else if pct >= 70.0 {
@@ -104,7 +127,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 重试状态
-    if let Some(ref retry) = app.agent.retry_status {
+    if let Some(ref retry) = app.sessions[app.active].agent.retry_status {
         let delay_sec = retry.delay_ms as f64 / 1000.0;
         spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         spans.push(Span::styled(
@@ -157,7 +180,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 任务运行时长（仅在 loading 时显示）
-    if app.core.loading {
+    if app.sessions[app.active].core.loading {
         if let Some(duration) = app.get_current_task_duration() {
             let secs = duration.as_secs();
             let time_str = if secs >= 60 {
@@ -182,10 +205,10 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     let mut has_content = false;
 
     // 复制成功提示
-    if let Some(until) = app.core.copy_message_until {
+    if let Some(until) = app.sessions[app.active].core.copy_message_until {
         if std::time::Instant::now() < until {
             left_spans.push(Span::styled(
-                format!(" 已复制 {} 个字符", app.core.copy_char_count),
+                format!(" 已复制 {} 个字符", app.sessions[app.active].core.copy_char_count),
                 Style::default().fg(theme::MUTED),
             ));
             has_content = true;
@@ -193,19 +216,19 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 后台任务指示器
-    if app.background_task_count > 0 {
+    if app.sessions[app.active].background_task_count > 0 {
         if has_content {
             left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         }
         left_spans.push(Span::styled(
-            format!("[BG: {}]", app.background_task_count),
+            format!("[BG: {}]", app.sessions[app.active].background_task_count),
             Style::default().fg(theme::WARNING),
         ));
         has_content = true;
     }
 
     // Agent 面板信息（仅面板激活时）
-    if let Some(panel) = &app.core.agent_panel {
+    if let Some(panel) = &app.sessions[app.active].core.agent_panel {
         if has_content {
             left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         }
@@ -235,7 +258,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
 
     macro_rules! key { ($($key:expr => $desc:expr),+ $(,)?) => { vec![$( Span::styled($key, key_style), Span::styled($desc, desc_style) ),+] } }
 
-    let right_spans: Vec<Span> = match &app.agent.interaction_prompt {
+    let right_spans: Vec<Span> = match &app.sessions[app.active].agent.interaction_prompt {
         Some(_) if app.oauth_prompt.is_some() => {
             key!["Ctrl+O" => ":打开浏览器  ", "Enter" => ":提交  ", "Esc" => ":取消"]
         }
@@ -246,7 +269,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
             key![" ↑↓" => ":移动  ", "Space" => ":切换  ", "Enter" => ":确认"]
         }
         None => {
-            if app.core.agent_panel.is_some() {
+            if app.sessions[app.active].core.agent_panel.is_some() {
                 key!["↑↓" => ":选择  ", "Enter" => ":确认  ", "Esc" => ":取消"]
             } else if let Some(cron_panel) = &app.cron.cron_panel {
                 if cron_panel.confirm_delete {
@@ -254,7 +277,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 } else {
                     key!["↑↓" => ":移动  ", "Enter" => ":切换  ", "Ctrl+D" => ":删除  ", "Esc" => ":关闭"]
                 }
-            } else if let Some(login_panel) = &app.core.login_panel {
+            } else if let Some(login_panel) = &app.sessions[app.active].core.login_panel {
                 use crate::app::login_panel::LoginPanelMode;
                 match login_panel.mode {
                     LoginPanelMode::ConfirmDelete => {
@@ -281,8 +304,8 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     }
                 });
                 view_label.unwrap_or_default()
-            } else if app.core.config_panel.is_some() {
-                let panel = app.core.config_panel.as_ref().unwrap();
+            } else if app.sessions[app.active].core.config_panel.is_some() {
+                let panel = app.sessions[app.active].core.config_panel.as_ref().unwrap();
                 match panel.mode {
                     crate::app::config_panel::ConfigPanelMode::Browse => {
                         key!["↑↓" => ":导航  ", "Enter" => ":编辑  ", "Esc" => ":关闭"]
@@ -291,13 +314,13 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                         key!["↑↓" => ":切换字段  ", "←→/Space" => ":切换  ", "Enter" => ":保存  ", "Ctrl+V" => ":粘贴  ", "Esc" => ":取消"]
                     }
                 }
-            } else if app.core.model_panel.is_some() {
+            } else if app.sessions[app.active].core.model_panel.is_some() {
                 key!["↑↓" => ":导航  ", "Enter" => ":确认  ", "Space" => ":选择/切换  ", "Esc" => ":关闭"]
             } else if app.status_panel.is_some() {
                 key!["←→" => ":切换Tab  ", "Esc" => ":关闭"]
             } else if app.memory_panel.is_some() {
                 key!["↑↓" => ":选择  ", "Enter" => ":编辑  ", "Esc" => ":关闭"]
-            } else if let Some(browser) = &app.core.thread_browser {
+            } else if let Some(browser) = &app.sessions[app.active].core.thread_browser {
                 if browser.confirm_delete {
                     key!["Enter" => ":确认  ", "其他键" => ":取消"]
                 } else {

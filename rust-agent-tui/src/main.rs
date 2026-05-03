@@ -191,16 +191,24 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
     app.spawn_mcp_init();
 
     // Spinner tick 驱动：每次渲染前推进一帧
-    app.spinner_state.advance_tick();
+    app.sessions[app.active].spinner_state.advance_tick();
 
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
 
     'event_loop: loop {
-        // 推进 Spinner 动画帧
-        app.spinner_state.advance_tick();
-        // 轮询后台 agent 结果
-        let agent_updated = app.poll_agent();
+        // 推进所有 session 的 Spinner 动画帧
+        for i in 0..app.sessions.len() {
+            app.sessions[i].spinner_state.advance_tick();
+        }
+        // 轮询所有 session 的 agent 结果
+        let mut agent_updated = false;
+        for i in 0..app.sessions.len() {
+            let prev_active = app.active;
+            app.active = i;
+            agent_updated |= app.poll_agent();
+            app.active = prev_active;
+        }
         // 轮询后台事件（MCP OAuth 等）
         let bg_updated = app.poll_background_events();
         // 检查 cron 定时触发
@@ -221,9 +229,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             None => {
                 // 无用户事件（poll 超时）：在阻塞结束后重新读取缓存版本
                 // 这样能捕获渲染线程在等待期间发出的更新
-                let cache_version = app.core.render_cache.read().version;
-                let cache_updated = cache_version != app.core.last_render_version;
-                if cache_updated || agent_updated || bg_updated || app.core.loading {
+                let cache_version = app.sessions[app.active].core.render_cache.read().version;
+                let cache_updated = cache_version != app.sessions[app.active].core.last_render_version;
+                if cache_updated || agent_updated || bg_updated || app.sessions[app.active].core.loading {
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
                 }
             }
@@ -238,7 +246,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
     }
 
     // 等待最后一次 Langfuse flush 完成，防止 runtime drop 前 batcher 数据丢失
-    if let Some(handle) = app.langfuse.langfuse_flush_handle.take() {
+    if let Some(handle) = app.sessions[app.active].langfuse.langfuse_flush_handle.take() {
         let _ = handle.await;
     }
 

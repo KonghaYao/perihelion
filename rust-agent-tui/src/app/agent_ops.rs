@@ -26,7 +26,7 @@ impl App {
         self.push_input_history(input.clone());
 
         // 消费待发送附件
-        let attachments = std::mem::take(&mut self.core.pending_attachments);
+        let attachments = std::mem::take(&mut self.sessions[self.active].core.pending_attachments);
 
         // 构建用于显示的文字（附件摘要追加在末尾）
         let display = if attachments.is_empty() {
@@ -34,20 +34,20 @@ impl App {
         } else {
             format!("{} [🖼 {} 张图片]", input, attachments.len())
         };
-        self.core.round_start_vm_idx = self.core.view_messages.len();
+        self.sessions[self.active].core.round_start_vm_idx = self.sessions[self.active].core.view_messages.len();
         let user_vm = MessageViewModel::user(display.clone());
         self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
-        self.core.last_human_message = Some(display);
+        self.sessions[self.active].core.last_human_message = Some(display);
         self.set_loading(true);
-        self.core.scroll_offset = u16::MAX;
-        self.core.scroll_follow = true;
-        self.todo_items.clear();
+        self.sessions[self.active].core.scroll_offset = u16::MAX;
+        self.sessions[self.active].core.scroll_follow = true;
+        self.sessions[self.active].todo_items.clear();
 
         // 开始计时新任务
-        self.agent.task_start_time = Some(std::time::Instant::now());
-        self.agent.last_task_duration = None;
-        if self.agent.session_start_time.is_none() {
-            self.agent.session_start_time = Some(std::time::Instant::now());
+        self.sessions[self.active].agent.task_start_time = Some(std::time::Instant::now());
+        self.sessions[self.active].agent.last_task_duration = None;
+        if self.sessions[self.active].agent.session_start_time.is_none() {
+            self.sessions[self.active].agent.session_start_time = Some(std::time::Instant::now());
         }
 
         let provider = match self
@@ -68,17 +68,17 @@ impl App {
 
         // 防御性重置：上次 agent 任务若 SubAgentEnd 因通道溢出被丢弃，
         // subagent_depth 会永久 > 0，导致所有后续 TokenUsageUpdate 被过滤（ctx 显示为 0）
-        self.agent.subagent_depth = 0;
+        self.sessions[self.active].agent.subagent_depth = 0;
         // 清理后台任务 continuation 状态（用户主动发消息时覆盖自动 continuation）
-        self.agent.agent_done_pending_bg = false;
-        self.agent.pending_bg_continuation = None;
+        self.sessions[self.active].agent.agent_done_pending_bg = false;
+        self.sessions[self.active].agent.pending_bg_continuation = None;
 
         let (tx, rx) = mpsc::channel(64);
-        self.agent.agent_rx = Some(rx);
+        self.sessions[self.active].agent.agent_rx = Some(rx);
 
         // 创建取消令牌（Ctrl+C 触发中断）
         let cancel = AgentCancellationToken::new();
-        self.agent.cancel_token = Some(cancel.clone());
+        self.sessions[self.active].agent.cancel_token = Some(cancel.clone());
 
         // 注意：HITL 审批和 AskUser 问答现在统一通过 TuiInteractionBroker 路由到 tx channel，
         // YOLO 模式由 HumanInTheLoopMiddleware::from_env() 内部处理（自动放行）。
@@ -106,7 +106,7 @@ impl App {
         let thread_id = self.ensure_thread_id();
 
         // 懒加载 Thread 级 LangfuseSession（首轮创建，后续复用；未配置环境变量时静默跳过）
-        if self.langfuse.langfuse_session.is_none() {
+        if self.sessions[self.active].langfuse.langfuse_session.is_none() {
             tracing::debug!(thread_id = %thread_id, "langfuse: session is None, attempting to create");
             if let Some(cfg) = crate::langfuse::LangfuseConfig::from_env() {
                 tracing::debug!(host = %cfg.host, "langfuse: config found, creating session");
@@ -120,7 +120,7 @@ impl App {
                 } else {
                     tracing::warn!(thread_id = %thread_id, "langfuse: session creation failed (None)");
                 }
-                self.langfuse.langfuse_session = session.map(Arc::new);
+                self.sessions[self.active].langfuse.langfuse_session = session.map(Arc::new);
             } else {
                 tracing::debug!("langfuse: no config found in env, skipping session creation");
             }
@@ -129,20 +129,20 @@ impl App {
         }
 
         // 构造当前轮次的 Langfuse Tracer（同步，复用共享 Session）
-        let langfuse_tracer = self.langfuse.langfuse_session.clone().map(|session| {
+        let langfuse_tracer = self.sessions[self.active].langfuse.langfuse_session.clone().map(|session| {
             let mut t = crate::langfuse::LangfuseTracer::new(session);
             t.on_trace_start(input.trim());
             Arc::new(parking_lot::Mutex::new(t))
         });
-        self.langfuse.langfuse_tracer = langfuse_tracer.clone();
+        self.sessions[self.active].langfuse.langfuse_tracer = langfuse_tracer.clone();
 
         let span = tracing::info_span!(
             "thread.run",
             thread.id = %thread_id,
             thread.cwd = %cwd,
         );
-        let history = self.agent.agent_state_messages.clone();
-        let agent_id = self.agent.agent_id.clone();
+        let history = self.sessions[self.active].agent.agent_state_messages.clone();
+        let agent_id = self.sessions[self.active].agent.agent_id.clone();
         let thread_store = self.thread_store.clone();
         let thread_id_for_agent = thread_id.clone();
         let zen_config_for_agent = Arc::new(self.zen_config.clone().unwrap_or_default());
@@ -200,8 +200,8 @@ impl App {
     /// 发送缓冲的 cron 消息（每次只发一条，其余留待后续 Done 周期发送）
     /// 多条独立 cron 任务不应合并为一个 LLM 消息，避免语义混淆
     fn flush_pending_messages(&mut self) {
-        if let Some(msg) = self.core.pending_messages.first().cloned() {
-            self.core.pending_messages.remove(0);
+        if let Some(msg) = self.sessions[self.active].core.pending_messages.first().cloned() {
+            self.sessions[self.active].core.pending_messages.remove(0);
             self.submit_message(msg);
         }
     }
@@ -211,11 +211,11 @@ impl App {
         match action {
             PipelineAction::None => {}
             PipelineAction::AddMessage(vm) => {
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.sessions[self.active].core.view_messages.push(vm.clone());
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
             }
             PipelineAction::AppendChunk(chunk) => {
-                match self.core.view_messages.last_mut() {
+                match self.sessions[self.active].core.view_messages.last_mut() {
                     Some(m) if m.is_assistant() => {
                         m.append_chunk(&chunk);
                     }
@@ -223,28 +223,28 @@ impl App {
                         // 首个 chunk：创建带内容的 assistant bubble，通过 AddMessage 通知渲染线程
                         let mut vm = MessageViewModel::assistant();
                         vm.append_chunk(&chunk);
-                        self.core.view_messages.push(vm.clone());
-                        let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                        self.sessions[self.active].core.view_messages.push(vm.clone());
+                        let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
                         return;
                     }
                 }
-                let _ = self.core.render_tx.send(RenderEvent::AppendChunk(chunk));
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AppendChunk(chunk));
             }
             PipelineAction::UpdateLast(vm) => {
-                if let Some(last) = self.core.view_messages.last_mut() {
+                if let Some(last) = self.sessions[self.active].core.view_messages.last_mut() {
                     *last = vm.clone();
                 } else {
-                    self.core.view_messages.push(vm.clone());
+                    self.sessions[self.active].core.view_messages.push(vm.clone());
                 }
-                let _ = self.core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::UpdateLastMessage(vm));
             }
             PipelineAction::RemoveLast => {
-                self.core.view_messages.pop();
-                let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
+                self.sessions[self.active].core.view_messages.pop();
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::RemoveLastMessage);
             }
             PipelineAction::UpdateToolResult { tool_call_id, vm } => {
                 // 按 tool_call_id 精确查找 ToolBlock（并行工具调用时避免 UpdateLast 互相覆盖）
-                let idx = self.core.view_messages.iter().position(|m| {
+                let idx = self.sessions[self.active].core.view_messages.iter().position(|m| {
                     if let MessageViewModel::ToolBlock {
                         tool_call_id: tc_id,
                         ..
@@ -256,32 +256,32 @@ impl App {
                     }
                 });
                 if let Some(idx) = idx {
-                    self.core.view_messages[idx] = (*vm).clone();
+                    self.sessions[self.active].core.view_messages[idx] = (*vm).clone();
                 } else {
-                    self.core.view_messages.push((*vm).clone());
+                    self.sessions[self.active].core.view_messages.push((*vm).clone());
                 }
                 // 刷新渲染（用 LoadHistory 保证渲染线程同步）
-                let msgs = self.core.view_messages.clone();
-                let _ = self.core.render_tx.send(RenderEvent::LoadHistory(msgs));
+                let msgs = self.sessions[self.active].core.view_messages.clone();
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::LoadHistory(msgs));
             }
             PipelineAction::RemoveLastN(n) => {
                 for _ in 0..n {
-                    self.core.view_messages.pop();
+                    self.sessions[self.active].core.view_messages.pop();
                 }
                 for _ in 0..n {
-                    let _ = self.core.render_tx.send(RenderEvent::RemoveLastMessage);
+                    let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::RemoveLastMessage);
                 }
             }
             PipelineAction::RebuildAll {
                 prefix_len,
                 tail_vms,
             } => {
-                self.core.view_messages.truncate(prefix_len);
-                self.core.view_messages.extend(tail_vms.clone());
-                let _ = self
+                self.sessions[self.active].core.view_messages.truncate(prefix_len);
+                self.sessions[self.active].core.view_messages.extend(tail_vms.clone());
+                let _ = self.sessions[self.active]
                     .core
                     .render_tx
-                    .send(RenderEvent::LoadHistory(self.core.view_messages.clone()));
+                    .send(RenderEvent::LoadHistory(self.sessions[self.active].core.view_messages.clone()));
             }
         }
     }
@@ -295,15 +295,15 @@ impl App {
                 is_background,
             } => {
                 if is_background {
-                    self.background_task_count += 1;
+                    self.sessions[self.active].background_task_count += 1;
                 }
-                self.agent.subagent_depth += 1;
+                self.sessions[self.active].agent.subagent_depth += 1;
                 // 跨切面：Langfuse
-                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
+                if let Some(ref tracer) = self.sessions[self.active].langfuse.langfuse_tracer {
                     tracer.lock().on_subagent_start(&agent_id, &task_preview);
                 }
                 // Pipeline：创建 SubAgentGroup VM
-                let actions = self.core.pipeline.handle_event(AgentEvent::SubAgentStart {
+                let actions = self.sessions[self.active].core.pipeline.handle_event(AgentEvent::SubAgentStart {
                     agent_id,
                     task_preview,
                     is_background,
@@ -314,13 +314,13 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::SubAgentEnd { result, is_error } => {
-                self.agent.subagent_depth = self.agent.subagent_depth.saturating_sub(1);
+                self.sessions[self.active].agent.subagent_depth = self.sessions[self.active].agent.subagent_depth.saturating_sub(1);
                 // 跨切面：Langfuse
-                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
+                if let Some(ref tracer) = self.sessions[self.active].langfuse.langfuse_tracer {
                     tracer.lock().on_subagent_end(&result, is_error);
                 }
                 // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
-                let actions = self
+                let actions = self.sessions[self.active]
                     .core
                     .pipeline
                     .handle_event(AgentEvent::SubAgentEnd { result, is_error });
@@ -342,8 +342,8 @@ impl App {
                 if !compact_config.auto_compact_enabled {
                     return (true, false, false);
                 }
-                if self.agent.auto_compact_failures < compact_config.max_consecutive_failures {
-                    self.agent.needs_auto_compact = true;
+                if self.sessions[self.active].agent.auto_compact_failures < compact_config.max_consecutive_failures {
+                    self.sessions[self.active].agent.needs_auto_compact = true;
                 }
                 (true, false, false)
             }
@@ -372,8 +372,8 @@ impl App {
                         .unwrap_or_default();
                 }
                 let vm = MessageViewModel::system(format!("[i] OAuth 授权完成: {}", server_name));
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.sessions[self.active].core.view_messages.push(vm.clone());
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
                 (true, false, false)
             }
             AgentEvent::OAuthAuthorizationFailed { server_name, error } => {
@@ -390,8 +390,8 @@ impl App {
                     "[i] OAuth 授权失败: {} - {}",
                     server_name, error
                 ));
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.sessions[self.active].core.view_messages.push(vm.clone());
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
                 (true, false, false)
             }
             AgentEvent::McpActionCompleted {
@@ -417,8 +417,8 @@ impl App {
                     (_, false) => format!("[i] Action failed: {}", server_name),
                 };
                 let vm = MessageViewModel::system(msg);
-                self.core.view_messages.push(vm.clone());
-                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                self.sessions[self.active].core.view_messages.push(vm.clone());
+                let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
                 (true, false, false)
             }
             AgentEvent::TokenUsageUpdate {
@@ -427,15 +427,15 @@ impl App {
             } => {
                 // SubAgent 的 TokenUsageUpdate 不应污染父 agent 的 tracker
                 // （SubAgent 上下文远小于父 agent，会覆盖 last_usage 导致 ctx 突降）
-                if self.agent.subagent_depth > 0 {
+                if self.sessions[self.active].agent.subagent_depth > 0 {
                     return (true, false, false);
                 }
                 // 累积到会话追踪器
-                self.agent.session_token_tracker.accumulate(&usage);
+                self.sessions[self.active].agent.session_token_tracker.accumulate(&usage);
                 // 更新 spinner 的 token 显示
-                let total = self.agent.session_token_tracker.total_input_tokens
-                    + self.agent.session_token_tracker.total_output_tokens;
-                self.spinner_state.set_token_count(total as usize);
+                let total = self.sessions[self.active].agent.session_token_tracker.total_input_tokens
+                    + self.sessions[self.active].agent.session_token_tracker.total_output_tokens;
+                self.sessions[self.active].spinner_state.set_token_count(total as usize);
                 // compact 被完全禁用
                 if std::env::var("DISABLE_COMPACT").is_ok() {
                     return (true, false, false);
@@ -447,13 +447,13 @@ impl App {
                     return (true, false, false);
                 }
                 // circuit breaker: 连续失败达到上限后不再自动触发
-                if self.agent.auto_compact_failures < compact_config.max_consecutive_failures {
+                if self.sessions[self.active].agent.auto_compact_failures < compact_config.max_consecutive_failures {
                     let budget = rust_create_agent::agent::token::ContextBudget::new(
-                        self.agent.context_window,
+                        self.sessions[self.active].agent.context_window,
                     )
                     .with_auto_compact_threshold(compact_config.auto_compact_threshold);
-                    if budget.should_auto_compact(&self.agent.session_token_tracker) {
-                        self.agent.needs_auto_compact = true;
+                    if budget.should_auto_compact(&self.sessions[self.active].agent.session_token_tracker) {
+                        self.sessions[self.active].agent.needs_auto_compact = true;
                     }
                 }
                 (true, false, false)
@@ -465,10 +465,10 @@ impl App {
                 args,
                 input,
             } => {
-                self.agent.retry_status = None;
-                self.agent.tool_call_count += 1;
+                self.sessions[self.active].agent.retry_status = None;
+                self.sessions[self.active].agent.tool_call_count += 1;
                 // 跨切面：spinner
-                self.spinner_state
+                self.sessions[self.active].spinner_state
                     .set_mode(perihelion_widgets::SpinnerMode::ToolUse);
                 let verb_text = if !args.is_empty() {
                     let summary: String = args.chars().take(40).collect();
@@ -476,9 +476,9 @@ impl App {
                 } else {
                     format!("{}…", display)
                 };
-                self.spinner_state.set_verb(Some(&verb_text));
+                self.sessions[self.active].spinner_state.set_verb(Some(&verb_text));
                 // Pipeline：创建 ToolBlock / 路由进 SubAgentGroup
-                let actions = self.core.pipeline.handle_event(AgentEvent::ToolStart {
+                let actions = self.sessions[self.active].core.pipeline.handle_event(AgentEvent::ToolStart {
                     tool_call_id,
                     name,
                     display,
@@ -497,7 +497,7 @@ impl App {
                 is_error,
             } => {
                 // Pipeline：更新 ToolBlock 结果 / SubAgentGroup 完成
-                let actions = self.core.pipeline.handle_event(AgentEvent::ToolEnd {
+                let actions = self.sessions[self.active].core.pipeline.handle_event(AgentEvent::ToolEnd {
                     tool_call_id,
                     name,
                     output,
@@ -509,12 +509,12 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::AssistantChunk(chunk) => {
-                self.agent.retry_status = None;
+                self.sessions[self.active].agent.retry_status = None;
                 // 跨切面：spinner
-                self.spinner_state
+                self.sessions[self.active].spinner_state
                     .set_mode(perihelion_widgets::SpinnerMode::Responding);
                 // Pipeline：路由到 SubAgentGroup 或父 Agent AssistantBubble
-                let actions = self
+                let actions = self.sessions[self.active]
                     .core
                     .pipeline
                     .handle_event(AgentEvent::AssistantChunk(chunk));
@@ -524,40 +524,41 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Done => {
-                self.agent.retry_status = None;
+                self.sessions[self.active].agent.retry_status = None;
                 // Pipeline：finalize 当前 AI 消息 + reconcile 重建 view_messages
-                let actions = self.core.pipeline.handle_event(AgentEvent::Done);
+                let actions = self.sessions[self.active].core.pipeline.handle_event(AgentEvent::Done);
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
                 // reconcile 尾部重建：确保流式最终状态与恢复路径一致
-                let (prefix_len, tail_vms) = self
+                let (prefix_len, tail_vms) = self.sessions[self.active]
                     .core
                     .pipeline
-                    .reconcile_tail(self.core.round_start_vm_idx);
+                    .reconcile_tail(self.sessions[self.active].core.round_start_vm_idx);
                 self.apply_pipeline_action(PipelineAction::RebuildAll {
                     prefix_len,
                     tail_vms,
                 });
                 // 跨切面：Langfuse
-                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
-                    self.langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
+                let langfuse_tracer = self.sessions[self.active].langfuse.langfuse_tracer.take();
+                if let Some(ref tracer) = langfuse_tracer {
+                    self.sessions[self.active].langfuse.langfuse_flush_handle = Some(tracer.lock().on_trace_end(None));
                 }
-                self.langfuse.langfuse_tracer = None;
+                self.sessions[self.active].langfuse.langfuse_tracer = None;
                 self.set_loading(false);
                 // 如果仍有后台任务在运行，保持 agent_rx 存活以接收 BackgroundTaskCompleted 事件
-                if self.background_task_count > 0 {
-                    self.agent.agent_done_pending_bg = true;
+                if self.sessions[self.active].background_task_count > 0 {
+                    self.sessions[self.active].agent.agent_done_pending_bg = true;
                     tracing::info!(
-                        count = self.background_task_count,
+                        count = self.sessions[self.active].background_task_count,
                         "agent done but background tasks still running, keeping channel alive"
                     );
                 } else {
-                    self.agent.agent_rx = None;
+                    self.sessions[self.active].agent.agent_rx = None;
                 }
                 // Auto-compact 两级策略
-                if self.agent.needs_auto_compact {
-                    self.agent.needs_auto_compact = false;
+                if self.sessions[self.active].agent.needs_auto_compact {
+                    self.sessions[self.active].agent.needs_auto_compact = false;
                     tracing::info!(
                         "auto-compact: context threshold reached, triggering full compact"
                     );
@@ -566,41 +567,41 @@ impl App {
                 } else {
                     let compact_config = self.get_compact_config();
                     let budget = rust_create_agent::agent::token::ContextBudget::new(
-                        self.agent.context_window,
+                        self.sessions[self.active].agent.context_window,
                     )
                     .with_warning_threshold(compact_config.micro_compact_threshold);
-                    if budget.should_warn(&self.agent.session_token_tracker) {
+                    if budget.should_warn(&self.sessions[self.active].agent.session_token_tracker) {
                         self.start_micro_compact();
                     }
                 }
                 // 清理残留弹窗状态
-                self.agent.interaction_prompt = None;
-                self.agent.pending_hitl_items = None;
-                self.agent.pending_ask_user = None;
+                self.sessions[self.active].agent.interaction_prompt = None;
+                self.sessions[self.active].agent.pending_hitl_items = None;
+                self.sessions[self.active].agent.pending_ask_user = None;
                 // circuit breaker 渐进恢复：每轮成功对话将 failure 计数减半
-                if self.agent.auto_compact_failures > 0 {
-                    self.agent.auto_compact_failures /= 2;
+                if self.sessions[self.active].agent.auto_compact_failures > 0 {
+                    self.sessions[self.active].agent.auto_compact_failures /= 2;
                 }
-                if let Some(start) = self.agent.task_start_time {
-                    self.agent.last_task_duration = Some(start.elapsed());
+                if let Some(start) = self.sessions[self.active].agent.task_start_time {
+                    self.sessions[self.active].agent.last_task_duration = Some(start.elapsed());
                 }
                 // 检查缓冲消息，合并发送
-                if !self.core.pending_messages.is_empty() {
+                if !self.sessions[self.active].core.pending_messages.is_empty() {
                     self.flush_pending_messages();
                 }
                 (true, false, true)
             }
             AgentEvent::Interrupted => {
                 // Pipeline：finalize 当前状态
-                let actions = self.core.pipeline.handle_event(AgentEvent::Interrupted);
+                let actions = self.sessions[self.active].core.pipeline.handle_event(AgentEvent::Interrupted);
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
                 // reconcile 尾部重建：中断场景同样需要确保一致性
-                let (prefix_len, tail_vms) = self
+                let (prefix_len, tail_vms) = self.sessions[self.active]
                     .core
                     .pipeline
-                    .reconcile_tail(self.core.round_start_vm_idx);
+                    .reconcile_tail(self.sessions[self.active].core.round_start_vm_idx);
                 self.apply_pipeline_action(PipelineAction::RebuildAll {
                     prefix_len,
                     tail_vms,
@@ -613,9 +614,9 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::Error(ref e) => {
-                self.agent.retry_status = None;
+                self.sessions[self.active].agent.retry_status = None;
                 // 清理 pipeline 状态（残留 SubAgent 栈等），防止下一个任务 UI 损坏
-                self.core.pipeline.done();
+                self.sessions[self.active].core.pipeline.done();
 
                 let mut vm = MessageViewModel::tool_block(
                     "error".to_string(),
@@ -633,27 +634,28 @@ impl App {
                 }
                 self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 // Langfuse：错误路径也需结束 Trace
-                if let Some(ref tracer) = self.langfuse.langfuse_tracer {
-                    self.langfuse.langfuse_flush_handle =
+                let langfuse_tracer = self.sessions[self.active].langfuse.langfuse_tracer.take();
+                if let Some(ref tracer) = langfuse_tracer {
+                    self.sessions[self.active].langfuse.langfuse_flush_handle =
                         Some(tracer.lock().on_trace_end(Some(&format!("ERROR: {}", e))));
                 }
-                self.langfuse.langfuse_tracer = None;
+                self.sessions[self.active].langfuse.langfuse_tracer = None;
                 self.set_loading(false);
                 // Error 路径同样需要保持通道给后台任务
-                if self.background_task_count > 0 {
-                    self.agent.agent_done_pending_bg = true;
+                if self.sessions[self.active].background_task_count > 0 {
+                    self.sessions[self.active].agent.agent_done_pending_bg = true;
                 } else {
-                    self.agent.agent_rx = None;
+                    self.sessions[self.active].agent.agent_rx = None;
                 }
                 // Agent 出错时清理残留弹窗状态，避免 UI 卡在弹窗
-                self.agent.interaction_prompt = None;
-                self.agent.pending_hitl_items = None;
-                self.agent.pending_ask_user = None;
-                if let Some(start) = self.agent.task_start_time {
-                    self.agent.last_task_duration = Some(start.elapsed());
+                self.sessions[self.active].agent.interaction_prompt = None;
+                self.sessions[self.active].agent.pending_hitl_items = None;
+                self.sessions[self.active].agent.pending_ask_user = None;
+                if let Some(start) = self.sessions[self.active].agent.task_start_time {
+                    self.sessions[self.active].agent.last_task_duration = Some(start.elapsed());
                 }
                 // 检查缓冲消息，合并发送
-                if !self.core.pending_messages.is_empty() {
+                if !self.sessions[self.active].core.pending_messages.is_empty() {
                     self.flush_pending_messages();
                 }
                 (true, false, true)
@@ -698,7 +700,7 @@ impl App {
                                     .send(InteractionResponse::Decisions(approval_decisions));
                             }
                         });
-                        self.agent.interaction_prompt = Some(InteractionPrompt::Approval(
+                        self.sessions[self.active].agent.interaction_prompt = Some(InteractionPrompt::Approval(
                             HitlBatchPrompt::new(batch_items, bridge_tx),
                         ));
                         (true, true, false) // 暂停消费，等待用户确认
@@ -738,7 +740,7 @@ impl App {
                                     .send(InteractionResponse::Answers(question_answers));
                             }
                         });
-                        self.agent.pending_ask_user = Some(false);
+                        self.sessions[self.active].agent.pending_ask_user = Some(false);
                         {
                             let q_lines: Vec<String> = requests
                                 .iter()
@@ -762,7 +764,7 @@ impl App {
                             questions: batch_req.questions,
                             response_tx: bridge_tx,
                         };
-                        self.agent.interaction_prompt = Some(InteractionPrompt::Questions(
+                        self.sessions[self.active].agent.interaction_prompt = Some(InteractionPrompt::Questions(
                             AskUserBatchPrompt::from_request(batch_req_bridged),
                         ));
                         (true, true, false) // 暂停消费，等待用户输入
@@ -770,7 +772,7 @@ impl App {
                 }
             }
             AgentEvent::TodoUpdate(todos) => {
-                self.todo_items = todos;
+                self.sessions[self.active].todo_items = todos;
                 (true, false, false)
             }
             AgentEvent::StateSnapshot(msgs) => {
@@ -794,9 +796,9 @@ impl App {
                         _ => {}
                     }
                 }
-                self.agent.agent_state_messages.extend(msgs.clone());
+                self.sessions[self.active].agent.agent_state_messages.extend(msgs.clone());
                 // Pipeline：更新 completed 状态（用于后续 reconcile）
-                let actions = self
+                let actions = self.sessions[self.active]
                     .core
                     .pipeline
                     .handle_event(AgentEvent::StateSnapshot(msgs));
@@ -859,13 +861,14 @@ impl App {
                         });
                 });
 
-                self.current_thread_id = Some(new_tid.clone());
-                self.agent.agent_state_messages = new_messages;
+                self.sessions[self.active].current_thread_id = Some(new_tid.clone());
+                self.sessions[self.active].agent.agent_state_messages = new_messages;
 
-                self.core.pipeline.clear();
-                self.core
+                self.sessions[self.active].core.pipeline.clear();
+                let state_msgs = self.sessions[self.active].agent.agent_state_messages.clone();
+                self.sessions[self.active].core
                     .pipeline
-                    .restore_completed(self.agent.agent_state_messages.clone());
+                    .restore_completed(state_msgs);
 
                 let compact_vm =
                     MessageViewModel::system("上下文已压缩（从旧对话迁移到新 Thread）".to_string());
@@ -875,7 +878,7 @@ impl App {
                 );
                 let mut view_msgs = vec![compact_vm, summary_vm];
 
-                let inject_count = self.agent.agent_state_messages.len() - 1;
+                let inject_count = self.sessions[self.active].agent.agent_state_messages.len() - 1;
                 if inject_count > 0 {
                     let inject_vm = MessageViewModel::system(format!(
                         "已重新注入 {} 条上下文（文件/Skills）",
@@ -889,13 +892,13 @@ impl App {
                 });
 
                 self.set_loading(false);
-                self.agent.agent_rx = None;
+                self.sessions[self.active].agent.agent_rx = None;
 
-                self.langfuse.langfuse_session = None;
-                self.agent.auto_compact_failures = 0;
-                self.agent.pre_compact_token_snapshot = None;
+                self.sessions[self.active].langfuse.langfuse_session = None;
+                self.sessions[self.active].agent.auto_compact_failures = 0;
+                self.sessions[self.active].agent.pre_compact_token_snapshot = None;
 
-                if !self.core.pending_messages.is_empty() {
+                if !self.sessions[self.active].core.pending_messages.is_empty() {
                     self.flush_pending_messages();
                 }
 
@@ -905,15 +908,15 @@ impl App {
                 let vm = MessageViewModel::system(format!("❌ 压缩失败: {}", msg));
                 self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 self.set_loading(false);
-                self.agent.agent_rx = None;
-                self.agent.auto_compact_failures += 1;
+                self.sessions[self.active].agent.agent_rx = None;
+                self.sessions[self.active].agent.auto_compact_failures += 1;
 
                 // 恢复 compact 前的 token tracker 快照，使 auto-compact 仍能感知上下文大小
-                if let Some(snapshot) = self.agent.pre_compact_token_snapshot.take() {
-                    self.agent.session_token_tracker = snapshot;
+                if let Some(snapshot) = self.sessions[self.active].agent.pre_compact_token_snapshot.take() {
+                    self.sessions[self.active].agent.session_token_tracker = snapshot;
                 }
 
-                if !self.core.pending_messages.is_empty() {
+                if !self.sessions[self.active].core.pending_messages.is_empty() {
                     self.flush_pending_messages();
                 }
 
@@ -925,7 +928,7 @@ impl App {
                 delay_ms,
                 error: _,
             } => {
-                self.agent.retry_status = Some(super::agent_comm::RetryStatus {
+                self.sessions[self.active].agent.retry_status = Some(super::agent_comm::RetryStatus {
                     attempt,
                     max_attempts,
                     delay_ms,
@@ -933,7 +936,7 @@ impl App {
                 (true, false, false)
             }
             AgentEvent::AiReasoning(text) => {
-                let actions = self
+                let actions = self.sessions[self.active]
                     .core
                     .pipeline
                     .handle_event(AgentEvent::AiReasoning(text));
@@ -951,7 +954,7 @@ impl App {
                 duration_ms,
             } => {
                 // 递减后台任务计数
-                self.background_task_count = self.background_task_count.saturating_sub(1);
+                self.sessions[self.active].background_task_count = self.sessions[self.active].background_task_count.saturating_sub(1);
 
                 // 用于 LLM 上下文的纯文本通知
                 let state_notification = if success {
@@ -973,7 +976,7 @@ impl App {
                 };
 
                 // 将通知加入 agent_state_messages，使下一轮 agent 执行可见
-                self.agent.agent_state_messages.push(
+                self.sessions[self.active].agent.agent_state_messages.push(
                     rust_create_agent::messages::BaseMessage::human(state_notification.as_str()),
                 );
 
@@ -1006,10 +1009,10 @@ impl App {
                 self.apply_pipeline_action(PipelineAction::AddMessage(vm));
 
                 // 如果 agent 已完成（Done）且所有后台任务都已完成，关闭通道并自动提交 continuation
-                if self.agent.agent_done_pending_bg && self.background_task_count == 0 {
+                if self.sessions[self.active].agent.agent_done_pending_bg && self.sessions[self.active].background_task_count == 0 {
                     tracing::info!("all background tasks completed, auto-submitting continuation");
-                    self.agent.agent_done_pending_bg = false;
-                    self.agent.agent_rx = None;
+                    self.sessions[self.active].agent.agent_done_pending_bg = false;
+                    self.sessions[self.active].agent.agent_rx = None;
                     // 截断显示文本（完整数据已在 agent_state_messages 中供 LLM 使用）
                     let display_notification = if success {
                         let output_preview: String = output
@@ -1040,7 +1043,7 @@ impl App {
                             err_preview,
                         )
                     };
-                    self.agent.pending_bg_continuation = Some(display_notification);
+                    self.sessions[self.active].agent.pending_bg_continuation = Some(display_notification);
                     return (true, false, true);
                 }
 
@@ -1052,22 +1055,22 @@ impl App {
     /// 每帧调用：消费 channel 事件，返回是否有 UI 更新
     pub fn poll_agent(&mut self) -> bool {
         // 优先处理延迟的后台任务 continuation（由 BackgroundTaskCompleted 处理器设置）
-        if let Some(continuation) = self.agent.pending_bg_continuation.take() {
-            if !self.core.loading {
+        if let Some(continuation) = self.sessions[self.active].agent.pending_bg_continuation.take() {
+            if !self.sessions[self.active].core.loading {
                 tracing::info!("auto-submitting background task continuation");
                 self.submit_message(continuation);
                 return true;
             }
         }
 
-        if self.agent.agent_rx.is_none() {
+        if self.sessions[self.active].agent.agent_rx.is_none() {
             return false;
         }
 
         let mut updated = false;
 
         loop {
-            let result = self.agent.agent_rx.as_mut().map(|rx| rx.try_recv());
+            let result = self.sessions[self.active].agent.agent_rx.as_mut().map(|rx| rx.try_recv());
             match result {
                 Some(Ok(event)) => {
                     let (ev_updated, should_break, should_return) = self.handle_agent_event(event);
@@ -1084,33 +1087,34 @@ impl App {
                 Some(Err(mpsc::error::TryRecvError::Empty)) | None => break,
                 Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
                     // 清理 pipeline 状态（残留 SubAgent 栈等）
-                    self.core.pipeline.done();
+                    self.sessions[self.active].core.pipeline.done();
                     // 重置 subagent_depth，防止残留计数过滤后续 TokenUsageUpdate
-                    self.agent.subagent_depth = 0;
+                    self.sessions[self.active].agent.subagent_depth = 0;
 
                     // 后台任务场景：spawn closure 结束后丢弃最后一个 sender 导致通道关闭。
                     // 如果有后台任务，说明 BackgroundTaskCompleted 已处理或通道竞态关闭，
                     // 不应显示 "连接异常断开" 错误。静默清理并结束 loading 状态。
-                    if self.agent.agent_done_pending_bg || self.background_task_count > 0 {
+                    if self.sessions[self.active].agent.agent_done_pending_bg || self.sessions[self.active].background_task_count > 0 {
                         tracing::info!(
-                            agent_done = self.agent.agent_done_pending_bg,
-                            bg_count = self.background_task_count,
+                            agent_done = self.sessions[self.active].agent.agent_done_pending_bg,
+                            bg_count = self.sessions[self.active].background_task_count,
                             "channel disconnected during background task flow, suppressing error"
                         );
-                        self.agent.agent_done_pending_bg = false;
-                        self.background_task_count = 0;
-                        self.agent.agent_rx = None;
-                        if let Some(ref tracer) = self.langfuse.langfuse_tracer {
-                            self.langfuse.langfuse_flush_handle =
+                        self.sessions[self.active].agent.agent_done_pending_bg = false;
+                        self.sessions[self.active].background_task_count = 0;
+                        self.sessions[self.active].agent.agent_rx = None;
+                        let langfuse_tracer = self.sessions[self.active].langfuse.langfuse_tracer.take();
+                        if let Some(ref tracer) = langfuse_tracer {
+                            self.sessions[self.active].langfuse.langfuse_flush_handle =
                                 Some(tracer.lock().on_trace_end(None));
                         }
-                        self.langfuse.langfuse_tracer = None;
+                        self.sessions[self.active].langfuse.langfuse_tracer = None;
                         self.set_loading(false);
-                        self.agent.interaction_prompt = None;
-                        self.agent.pending_hitl_items = None;
-                        self.agent.pending_ask_user = None;
-                        if let Some(start) = self.agent.task_start_time {
-                            self.agent.last_task_duration = Some(start.elapsed());
+                        self.sessions[self.active].agent.interaction_prompt = None;
+                        self.sessions[self.active].agent.pending_hitl_items = None;
+                        self.sessions[self.active].agent.pending_ask_user = None;
+                        if let Some(start) = self.sessions[self.active].agent.task_start_time {
+                            self.sessions[self.active].agent.last_task_duration = Some(start.elapsed());
                         }
                         return true;
                     }
@@ -1122,21 +1126,22 @@ impl App {
                         true,
                     );
                     self.apply_pipeline_action(PipelineAction::AddMessage(vm));
-                    if let Some(ref tracer) = self.langfuse.langfuse_tracer {
-                        self.langfuse.langfuse_flush_handle =
+                    let langfuse_tracer = self.sessions[self.active].langfuse.langfuse_tracer.take();
+                    if let Some(ref tracer) = langfuse_tracer {
+                        self.sessions[self.active].langfuse.langfuse_flush_handle =
                             Some(tracer.lock().on_trace_end(Some(
                                 "ERROR: agent channel disconnected unexpectedly",
                             )));
                     }
-                    self.langfuse.langfuse_tracer = None;
+                    self.sessions[self.active].langfuse.langfuse_tracer = None;
                     self.set_loading(false);
-                    self.agent.agent_rx = None;
+                    self.sessions[self.active].agent.agent_rx = None;
                     // 清理残留弹窗状态，避免 UI 卡在弹窗
-                    self.agent.interaction_prompt = None;
-                    self.agent.pending_hitl_items = None;
-                    self.agent.pending_ask_user = None;
-                    if let Some(start) = self.agent.task_start_time {
-                        self.agent.last_task_duration = Some(start.elapsed());
+                    self.sessions[self.active].agent.interaction_prompt = None;
+                    self.sessions[self.active].agent.pending_hitl_items = None;
+                    self.sessions[self.active].agent.pending_ask_user = None;
+                    if let Some(start) = self.sessions[self.active].agent.task_start_time {
+                        self.sessions[self.active].agent.last_task_duration = Some(start.elapsed());
                     }
                     return true;
                 }
@@ -1193,14 +1198,14 @@ impl App {
             })
             .unwrap_or_default();
         for trigger in cron_triggers {
-            if !self.core.loading {
+            if !self.sessions[self.active].core.loading {
                 self.submit_message(trigger.prompt);
             } else {
                 // Agent 正在执行，缓冲触发事件等待 Done 后自动发送
                 const MAX_PENDING: usize = 10;
-                if self.core.pending_messages.len() < MAX_PENDING {
+                if self.sessions[self.active].core.pending_messages.len() < MAX_PENDING {
                     tracing::debug!(prompt = %trigger.prompt, "cron trigger buffered (agent busy)");
-                    self.core.pending_messages.push(trigger.prompt);
+                    self.sessions[self.active].core.pending_messages.push(trigger.prompt);
                 } else {
                     tracing::warn!("pending_messages 已达上限 {}，丢弃 cron 触发", MAX_PENDING);
                 }
@@ -1212,14 +1217,15 @@ impl App {
     pub fn start_micro_compact(&mut self) {
         use rust_create_agent::agent::compact::micro_compact_enhanced;
         let config = self.get_compact_config();
-        let cleared = micro_compact_enhanced(&config, &mut self.agent.agent_state_messages);
+        let cleared = micro_compact_enhanced(&config, &mut self.sessions[self.active].agent.agent_state_messages);
         if cleared > 0 {
             tracing::info!(cleared, "micro-compact: enhanced compact completed");
             // 同步 pipeline.completed 与 agent_state_messages
-            self.core.pipeline.clear();
-            self.core
+            self.sessions[self.active].core.pipeline.clear();
+            let state_msgs = self.sessions[self.active].agent.agent_state_messages.clone();
+            self.sessions[self.active].core
                 .pipeline
-                .restore_completed(self.agent.agent_state_messages.clone());
+                .restore_completed(state_msgs);
             let vm =
                 MessageViewModel::system(format!("自动清理：释放了 {} 个工具调用结果", cleared));
             self.apply_pipeline_action(PipelineAction::AddMessage(vm));

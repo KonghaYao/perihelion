@@ -2,6 +2,7 @@ use crate::command::agents::AgentItem;
 
 // ─── AgentPanel ────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct AgentPanel {
     /// 可用 agent 列表
     pub agents: Vec<AgentItem>,

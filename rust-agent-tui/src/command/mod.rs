@@ -12,6 +12,7 @@ pub mod loop_cmd;
 pub mod mcp;
 pub mod memory;
 pub mod model;
+pub mod split;
 
 /// 注册所有内置命令，返回配置好的 CommandRegistry
 pub fn default_registry() -> CommandRegistry {
@@ -30,6 +31,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(memory::MemoryCommand));
     r.register(Box::new(cost::CostCommand));
     r.register(Box::new(context_cmd::ContextCommand));
+    r.register(Box::new(split::SplitCommand));
     r
 }
 

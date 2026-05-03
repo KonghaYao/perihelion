@@ -121,9 +121,13 @@ fn render_search_box(f: &mut Frame, browser: &ThreadBrowser, area: Rect) {
 
 /// Thread 浏览面板（底部展开区）
 pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(browser) = &app.core.thread_browser else {
+    // 先克隆面板数据，避免 immutable → mutable borrow 冲突
+    let browser = app.sessions[app.active].core.thread_browser.clone();
+    let Some(browser) = browser else {
         return;
     };
+
+    let current_thread_id = app.sessions[app.active].current_thread_id.clone();
 
     let popup_area = area;
 
@@ -157,7 +161,7 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     // ── 1. 渲染搜索框（固定位置，不滚动） ──
-    render_search_box(f, browser, search_area);
+    render_search_box(f, &browser, search_area);
 
     // ── 2. 构建列表内容（纯 thread 列表 + 快捷键，无搜索框占位） ──
     let mut lines: Vec<Line> = Vec::new();
@@ -180,7 +184,7 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
         lines.push(Line::from(""));
     }
 
-    let current_thread_id = app.current_thread_id.as_ref();
+    let current_thread_id = current_thread_id.as_ref();
     for (i, meta) in filtered.iter().enumerate() {
         let is_cursor = i == browser.cursor;
         let is_current = current_thread_id == Some(&meta.id);
@@ -243,25 +247,27 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 存储面板元数据供鼠标选区使用（仅列表区域）
+    let scroll_offset = browser.scroll_offset;
+    let panel_selection_active = app.sessions[app.active].core.panel_selection.is_active();
+    let panel_selection = app.sessions[app.active].core.panel_selection.clone();
 
-    // 存储面板元数据供鼠标选区使用（仅列表区域）
-    app.core.panel_area = Some(list_area);
-    app.core.panel_scroll_offset = browser.scroll_offset;
-    app.core.panel_plain_lines = lines
+    app.sessions[app.active].core.panel_area = Some(list_area);
+    app.sessions[app.active].core.panel_scroll_offset = scroll_offset;
+    app.sessions[app.active].core.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
 
     // 应用面板选区高亮
-    if app.core.panel_selection.is_active() {
-        let sel = &app.core.panel_selection;
+    if panel_selection_active {
+        let sel = &panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
             let ((sr, sc), (er, ec)) = if start <= end {
                 (start, end)
             } else {
                 (end, start)
             };
-            let scroll = app.core.panel_scroll_offset as usize;
+            let scroll = app.sessions[app.active].core.panel_scroll_offset as usize;
             let visible_start = scroll;
             let visible_end = scroll + list_area.height as usize;
             for line_idx in sr as usize..=er as usize {

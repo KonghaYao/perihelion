@@ -18,7 +18,7 @@ pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let msg = match &app.core.last_human_message {
+    let msg = match &app.sessions[app.active].core.last_human_message {
         Some(m) => m,
         None => return,
     };

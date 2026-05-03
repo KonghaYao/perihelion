@@ -107,9 +107,9 @@ fn render_server_list(f: &mut Frame, app: &mut App, area: Rect) {
     .render(f, area);
 
     // Phase 3: 写入元数据和渲染内容（可变借用 app）
-    app.core.panel_area = Some(inner);
-    app.core.panel_scroll_offset = 0;
-    app.core.panel_plain_lines = lines
+    app.sessions[app.active].core.panel_area = Some(inner);
+    app.sessions[app.active].core.panel_scroll_offset = 0;
+    app.sessions[app.active].core.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
@@ -348,9 +348,9 @@ fn render_server_detail(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 存储面板元数据
-    app.core.panel_area = Some(inner);
-    app.core.panel_scroll_offset = 0;
-    app.core.panel_plain_lines = lines
+    app.sessions[app.active].core.panel_area = Some(inner);
+    app.sessions[app.active].core.panel_scroll_offset = 0;
+    app.sessions[app.active].core.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
@@ -405,8 +405,8 @@ fn user_start_offset(servers: &[ServerInfo]) -> usize {
 }
 
 fn apply_panel_selection(app: &mut App, lines: &mut Vec<Line>, area: Rect) {
-    if app.core.panel_selection.is_active() {
-        let sel = &app.core.panel_selection;
+    if app.sessions[app.active].core.panel_selection.is_active() {
+        let sel = &app.sessions[app.active].core.panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
             let ((sr, sc), (er, ec)) = if start <= end {
                 (start, end)

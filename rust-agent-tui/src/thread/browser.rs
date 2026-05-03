@@ -3,6 +3,7 @@ use perihelion_widgets::InputState;
 use std::sync::Arc;
 
 /// TUI 内 Thread 历史浏览面板
+#[derive(Clone)]
 pub struct ThreadBrowser {
     /// 全量 thread 列表（按 updated_at 降序）
     pub threads: Vec<ThreadMeta>,

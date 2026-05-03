@@ -21,7 +21,7 @@ const MAX_VIEWPORT: usize = 10;
 
 /// 统一提示浮层：输入 / 前缀时展示命令和 Skills 候选（按字母顺序排列）
 pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
-    let first_line = app
+    let first_line = app.sessions[app.active]
         .core
         .textarea
         .lines()
@@ -33,8 +33,8 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     }
 
     let prefix = first_line.trim_start_matches('/');
-    let cmd_candidates: Vec<(&str, &str)> = app.core.command_registry.match_prefix(prefix);
-    let skill_candidates: Vec<_> = app
+    let cmd_candidates: Vec<(&str, &str)> = app.sessions[app.active].core.command_registry.match_prefix(prefix);
+    let skill_candidates: Vec<_> = app.sessions[app.active]
         .core
         .skills
         .iter()
@@ -59,7 +59,7 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     }
 
     let total = items.len();
-    let cursor = app.core.hint_cursor;
+    let cursor = app.sessions[app.active].core.hint_cursor;
 
     // 计算视口：根据光标位置确定滚动偏移
     let viewport = MAX_VIEWPORT.min(total);

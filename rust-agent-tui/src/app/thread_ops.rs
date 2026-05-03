@@ -4,7 +4,7 @@ use rust_create_agent::agent::AgentCancellationToken;
 impl App {
     /// 获取或新建当前 thread id（同步，block_in_place）
     pub(super) fn ensure_thread_id(&mut self) -> ThreadId {
-        if let Some(id) = &self.current_thread_id {
+        if let Some(id) = &self.sessions[self.active].current_thread_id {
             return id.clone();
         }
         let meta = ThreadMeta::new(&self.cwd);
@@ -17,36 +17,36 @@ impl App {
                     uuid::Uuid::now_v7().to_string()
                 })
         });
-        self.current_thread_id = Some(id.clone());
+        self.sessions[self.active].current_thread_id = Some(id.clone());
         id
     }
 
     pub fn scroll_up(&mut self) {
-        self.core.scroll_offset = self.core.scroll_offset.saturating_sub(3);
-        self.core.scroll_follow = false;
+        self.sessions[self.active].core.scroll_offset = self.sessions[self.active].core.scroll_offset.saturating_sub(3);
+        self.sessions[self.active].core.scroll_follow = false;
     }
 
     pub fn scroll_down(&mut self) {
-        self.core.scroll_offset = self.core.scroll_offset.saturating_add(3);
-        self.core.scroll_follow = false;
+        self.sessions[self.active].core.scroll_offset = self.sessions[self.active].core.scroll_offset.saturating_add(3);
+        self.sessions[self.active].core.scroll_follow = false;
     }
 
     /// 展开/折叠所有工具调用消息
     pub fn toggle_collapsed_messages(&mut self) {
-        self.core.show_tool_messages = !self.core.show_tool_messages;
-        let _ = self.core.render_tx.send(RenderEvent::ToggleToolMessages(
-            self.core.show_tool_messages,
+        self.sessions[self.active].core.show_tool_messages = !self.sessions[self.active].core.show_tool_messages;
+        let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::ToggleToolMessages(
+            self.sessions[self.active].core.show_tool_messages,
         ));
     }
 
     /// 添加一个图片附件到待发送列表
     pub fn add_pending_attachment(&mut self, att: PendingAttachment) {
-        self.core.pending_attachments.push(att);
+        self.sessions[self.active].core.pending_attachments.push(att);
     }
 
     /// 删除最后一个图片附件
     pub fn pop_pending_attachment(&mut self) {
-        self.core.pending_attachments.pop();
+        self.sessions[self.active].core.pending_attachments.pop();
     }
 
     // ─── Thread 操作 ──────────────────────────────────────────────────────────
@@ -54,20 +54,20 @@ impl App {
     /// 重置 AgentComm 会话状态（token tracker、重试、subagent 等）
     /// 在 open_thread / new_thread 时调用，确保切换 thread 后上下文干净
     fn reset_agent_session(&mut self) {
-        self.agent.session_token_tracker.reset();
-        self.agent.pre_compact_token_snapshot = None;
-        self.agent.needs_auto_compact = false;
-        self.agent.auto_compact_failures = 0;
-        self.agent.retry_status = None;
-        self.agent.subagent_depth = 0;
-        self.agent.task_start_time = None;
-        self.agent.last_task_duration = None;
-        self.agent.agent_id = None;
-        self.agent.interaction_prompt = None;
-        self.agent.pending_hitl_items = None;
-        self.agent.pending_ask_user = None;
-        self.agent.cancel_token = None;
-        self.agent.agent_rx = None;
+        self.sessions[self.active].agent.session_token_tracker.reset();
+        self.sessions[self.active].agent.pre_compact_token_snapshot = None;
+        self.sessions[self.active].agent.needs_auto_compact = false;
+        self.sessions[self.active].agent.auto_compact_failures = 0;
+        self.sessions[self.active].agent.retry_status = None;
+        self.sessions[self.active].agent.subagent_depth = 0;
+        self.sessions[self.active].agent.task_start_time = None;
+        self.sessions[self.active].agent.last_task_duration = None;
+        self.sessions[self.active].agent.agent_id = None;
+        self.sessions[self.active].agent.interaction_prompt = None;
+        self.sessions[self.active].agent.pending_hitl_items = None;
+        self.sessions[self.active].agent.pending_ask_user = None;
+        self.sessions[self.active].agent.cancel_token = None;
+        self.sessions[self.active].agent.agent_rx = None;
     }
 
     /// 恢复历史 thread：加载消息，关闭 browser
@@ -79,27 +79,27 @@ impl App {
                 .block_on(store.load_messages(&tid))
                 .unwrap_or_default()
         });
-        self.core.view_messages.clear();
-        self.agent.agent_state_messages = base_msgs.clone();
+        self.sessions[self.active].core.view_messages.clear();
+        self.sessions[self.active].agent.agent_state_messages = base_msgs.clone();
 
         // 使用统一管线转换：与流式路径共享同一个 messages_to_view_models()
-        self.core.view_messages =
+        self.sessions[self.active].core.view_messages =
             message_pipeline::MessagePipeline::messages_to_view_models(&base_msgs, &self.cwd);
 
         // 同步 Pipeline 内部状态，确保后续流式事件能正确续接
-        self.core.pipeline.clear();
-        self.core.pipeline.restore_completed(base_msgs.clone());
+        self.sessions[self.active].core.pipeline.clear();
+        self.sessions[self.active].core.pipeline.restore_completed(base_msgs.clone());
 
-        self.current_thread_id = Some(thread_id);
-        self.core.thread_browser = None;
-        self.core.pending_attachments.clear();
-        self.langfuse.langfuse_session = None;
-        self.todo_items.clear();
+        self.sessions[self.active].current_thread_id = Some(thread_id);
+        self.sessions[self.active].core.thread_browser = None;
+        self.sessions[self.active].core.pending_attachments.clear();
+        self.sessions[self.active].langfuse.langfuse_session = None;
+        self.sessions[self.active].todo_items.clear();
 
         self.reset_agent_session();
 
         // 恢复 sticky header：找到 thread 中最后一条 Human 消息
-        self.core.last_human_message = base_msgs
+        self.sessions[self.active].core.last_human_message = base_msgs
             .iter()
             .filter_map(|m| {
                 if let BaseMessage::Human { content, .. } = m {
@@ -116,10 +116,10 @@ impl App {
             .next_back();
 
         // 通知渲染线程加载历史消息
-        let _ = self
+        let _ = self.sessions[self.active]
             .core
             .render_tx
-            .send(RenderEvent::LoadHistory(self.core.view_messages.clone()));
+            .send(RenderEvent::LoadHistory(self.sessions[self.active].core.view_messages.clone()));
     }
 
     pub fn open_thread_with_feedback(&mut self, thread_id: ThreadId) {
@@ -128,22 +128,22 @@ impl App {
 
     /// 新建 thread：清空消息，关闭 browser（thread id 在首次发送时创建）
     pub fn new_thread(&mut self) {
-        self.core.view_messages.clear();
-        self.agent.agent_state_messages.clear();
-        self.core.pipeline.clear();
-        self.current_thread_id = None;
-        self.todo_items.clear();
-        self.core.pending_attachments.clear();
-        self.core.thread_browser = None;
-        self.langfuse.langfuse_session = None;
-        self.core.last_human_message = None;
+        self.sessions[self.active].core.view_messages.clear();
+        self.sessions[self.active].agent.agent_state_messages.clear();
+        self.sessions[self.active].core.pipeline.clear();
+        self.sessions[self.active].current_thread_id = None;
+        self.sessions[self.active].todo_items.clear();
+        self.sessions[self.active].core.pending_attachments.clear();
+        self.sessions[self.active].core.thread_browser = None;
+        self.sessions[self.active].langfuse.langfuse_session = None;
+        self.sessions[self.active].core.last_human_message = None;
 
         self.reset_agent_session();
 
-        let _ = self.core.render_tx.send(RenderEvent::Clear);
+        let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::Clear);
 
         // 清空后添加新建反馈（Clear 之后，消息会在下一帧渲染）
-        self.core
+        self.sessions[self.active].core
             .view_messages
             .push(crate::ui::message_view::MessageViewModel::system(
                 "已创建新对话".to_string(),
@@ -152,10 +152,10 @@ impl App {
 
     /// 压缩当前对话上下文：调用 LLM 生成摘要，替换 agent_state_messages
     pub fn start_compact(&mut self, instructions: String) {
-        if self.agent.agent_state_messages.is_empty() {
+        if self.sessions[self.active].agent.agent_state_messages.is_empty() {
             let vm = MessageViewModel::system("无可压缩的上下文（历史消息为空）".to_string());
-            self.core.view_messages.push(vm.clone());
-            let _ = self
+            self.sessions[self.active].core.view_messages.push(vm.clone());
+            let _ = self.sessions[self.active]
                 .core
                 .render_tx
                 .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
@@ -173,8 +173,8 @@ impl App {
                 let vm = MessageViewModel::system(
                     "❌ 压缩失败: 未配置 LLM Provider（请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY）".to_string(),
                 );
-                self.core.view_messages.push(vm.clone());
-                let _ = self
+                self.sessions[self.active].core.view_messages.push(vm.clone());
+                let _ = self.sessions[self.active]
                     .core
                     .render_tx
                     .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
@@ -182,28 +182,28 @@ impl App {
             }
         };
 
-        let messages = self.agent.agent_state_messages.clone();
+        let messages = self.sessions[self.active].agent.agent_state_messages.clone();
         let model = provider.into_model();
         let config = self.get_compact_config();
         let cwd = self.cwd.clone();
 
         let (tx, rx) = mpsc::channel::<AgentEvent>(64);
-        self.agent.agent_rx = Some(rx);
+        self.sessions[self.active].agent.agent_rx = Some(rx);
 
         // 创建取消令牌，使 Ctrl+C 可以中断 compact 任务
         let cancel = AgentCancellationToken::new();
-        self.agent.cancel_token = Some(cancel.clone());
+        self.sessions[self.active].agent.cancel_token = Some(cancel.clone());
 
         self.set_loading(true);
-        self.spinner_state.set_verb(Some("压缩上下文"));
+        self.sessions[self.active].spinner_state.set_verb(Some("压缩上下文"));
 
         let vm = MessageViewModel::system("正在压缩上下文…".to_string());
-        self.core.view_messages.push(vm.clone());
-        let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+        self.sessions[self.active].core.view_messages.push(vm.clone());
+        let _ = self.sessions[self.active].core.render_tx.send(RenderEvent::AddMessage(vm));
 
         // 保存快照：compact 失败时恢复，防止 tracker 失去对上下文大小的感知
-        self.agent.pre_compact_token_snapshot = Some(self.agent.session_token_tracker.clone());
-        self.agent.session_token_tracker.reset();
+        self.sessions[self.active].agent.pre_compact_token_snapshot = Some(self.sessions[self.active].agent.session_token_tracker.clone());
+        self.sessions[self.active].agent.session_token_tracker.reset();
 
         tokio::spawn(async move {
             agent::compact_task(messages, model, instructions, config, cwd, tx, cancel).await;
@@ -231,7 +231,7 @@ impl App {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .filter(|s| !s.is_empty());
 
-        self.core.thread_browser = Some(ThreadBrowser::new(
+        self.sessions[self.active].core.thread_browser = Some(ThreadBrowser::new(
             filtered,
             self.thread_store.clone(),
             branch,

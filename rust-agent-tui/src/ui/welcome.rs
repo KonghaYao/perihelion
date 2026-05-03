@@ -150,7 +150,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
-    let skills_count = app.core.skills.len();
+    let skills_count = app.sessions[app.active].core.skills.len();
     if skills_count > 0 {
         lines.push(Line::from(vec![
             Span::styled(" #", Style::default().fg(theme::WARNING)),

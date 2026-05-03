@@ -23,8 +23,8 @@ impl Command for McpCommand {
             let vm = crate::ui::message_view::MessageViewModel::system(
                 "无 MCP 服务器配置（请在 .mcp.json 或 settings.json 中添加）".to_string(),
             );
-            app.core.view_messages.push(vm.clone());
-            let _ = app
+            app.sessions[app.active].core.view_messages.push(vm.clone());
+            let _ = app.sessions[app.active]
                 .core
                 .render_tx
                 .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));

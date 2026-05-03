@@ -88,23 +88,23 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // 存储面板元数据供鼠标选区使用
-    app.core.panel_area = Some(inner);
-    app.core.panel_scroll_offset = panel.scroll_offset;
-    app.core.panel_plain_lines = lines
+    app.sessions[app.active].core.panel_area = Some(inner);
+    app.sessions[app.active].core.panel_scroll_offset = panel.scroll_offset;
+    app.sessions[app.active].core.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
 
     // 应用面板选区高亮
-    if app.core.panel_selection.is_active() {
-        let sel = &app.core.panel_selection;
+    if app.sessions[app.active].core.panel_selection.is_active() {
+        let sel = &app.sessions[app.active].core.panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
             let ((sr, sc), (er, ec)) = if start <= end {
                 (start, end)
             } else {
                 (end, start)
             };
-            let scroll = app.core.panel_scroll_offset as usize;
+            let scroll = app.sessions[app.active].core.panel_scroll_offset as usize;
             let visible_start = scroll;
             let visible_end = scroll + inner.height as usize;
             for line_idx in sr as usize..=er as usize {
