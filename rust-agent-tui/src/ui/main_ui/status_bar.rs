@@ -216,6 +216,9 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     macro_rules! key { ($($key:expr => $desc:expr),+ $(,)?) => { vec![$( Span::styled($key, key_style), Span::styled($desc, desc_style) ),+] } }
 
     let right_spans: Vec<Span> = match &app.agent.interaction_prompt {
+        Some(_) if app.oauth_prompt.is_some() => {
+            key!["Ctrl+O" => ":打开浏览器  ", "Enter" => ":提交  ", "Esc" => ":取消"]
+        }
         Some(crate::app::InteractionPrompt::Questions(_)) => {
             key![" Tab" => ":切换  ", "↑↓" => ":移动  ", "Space" => ":选择  ", "Enter" => ":确认"]
         }
@@ -250,7 +253,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                         if p.confirm_delete.is_some() {
                             key!["Enter" => ":确认  ", "其他键" => ":取消"]
                         } else {
-                            key!["↑↓" => ":移动  ", "Enter" => ":详情  ", "Ctrl+R" => ":重连  ", "Ctrl+D" => ":删除  ", "Esc" => ":关闭"]
+                            key!["↑↓" => ":移动  ", "Enter" => ":详情  ", "r" => ":授权  ", "Ctrl+R" => ":重连  ", "Ctrl+D" => ":删除  ", "Esc" => ":关闭"]
                         }
                     }
                     crate::app::McpPanelView::ServerDetail { .. } => {

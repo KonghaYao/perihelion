@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
 use tracing::{info, warn};
 
 const CALLBACK_TIMEOUT_SECS: u64 = 120;
@@ -22,22 +20,19 @@ pub enum CallbackError {
 }
 
 pub struct OAuthCallbackServer {
-    code_tx: Option<oneshot::Sender<(String, String)>>,
-    code_rx: oneshot::Receiver<(String, String)>,
     listener: TcpListener,
-    state_param: Arc<String>,
+    state_param: String,
 }
 
 impl OAuthCallbackServer {
-    pub async fn bind(state_param: String) -> Result<(Self, String), CallbackError> {
+    pub async fn bind() -> Result<(Self, String), CallbackError> {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| CallbackError::BindFailed(e.to_string()))?;
         let addr = listener.local_addr().map_err(|e| CallbackError::BindFailed(e.to_string()))?;
         let redirect_uri = format!("http://{}/callback", addr);
         info!("OAuth 回调服务器已启动: {}", redirect_uri);
-        let (code_tx, code_rx) = oneshot::channel();
-        Ok((Self { code_tx: Some(code_tx), code_rx, listener, state_param: Arc::new(state_param) }, redirect_uri))
+        Ok((Self { listener, state_param: String::new() }, redirect_uri))
     }
 
     pub async fn wait_for_code(mut self) -> Result<(String, String), CallbackError> {
@@ -79,11 +74,7 @@ impl OAuthCallbackServer {
         stream.write_all(&resp_vec).await.map_err(|e| CallbackError::IoError(e))?;
         stream.shutdown().await.map_err(|e| CallbackError::IoError(e))?;
 
-        let (code, state) = callback_result?;
-        if let Some(tx) = self.code_tx.take() {
-            let _ = tx.send((code, state));
-        }
-        self.code_rx.await.map_err(|_| CallbackError::ParseFailed("回调通道已关闭".into()))
+        callback_result
     }
 }
 
@@ -93,7 +84,7 @@ pub fn parse_callback_url(url_path: &str, expected_state: &str) -> Result<(Strin
     let pairs: HashMap<String, String> = parsed.query_pairs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     let code = pairs.get("code").ok_or_else(|| CallbackError::ParseFailed("回调 URL 缺少 code 参数".into()))?.clone();
     let state = pairs.get("state").ok_or_else(|| CallbackError::ParseFailed("回调 URL 缺少 state 参数".into()))?.clone();
-    if state != expected_state {
+    if !expected_state.is_empty() && state != expected_state {
         return Err(CallbackError::ParseFailed(format!("CSRF state 不匹配: 期望 {}, 收到 {}", expected_state, state)));
     }
     Ok((code, state))
@@ -120,7 +111,7 @@ mod tests {
     #[test]
     fn test_bind_returns_valid_redirect_uri() {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(OAuthCallbackServer::bind("test-state".to_string()));
+        let result = rt.block_on(OAuthCallbackServer::bind());
         assert!(result.is_ok());
         let (_server, uri) = result.unwrap();
         assert!(uri.starts_with("http://127.0.0.1:"));
@@ -168,15 +159,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_for_code_timeout() {
-        let (server, _uri) = OAuthCallbackServer::bind("state".to_string()).await.unwrap();
+        let (server, _uri) = OAuthCallbackServer::bind().await.unwrap();
         let result = tokio::time::timeout(std::time::Duration::from_millis(100), server.wait_for_code()).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_bind_multiple_servers() {
-        let (s1, uri1) = OAuthCallbackServer::bind("state1".to_string()).await.unwrap();
-        let (s2, uri2) = OAuthCallbackServer::bind("state2".to_string()).await.unwrap();
+        let (s1, uri1) = OAuthCallbackServer::bind().await.unwrap();
+        let (s2, uri2) = OAuthCallbackServer::bind().await.unwrap();
         assert_ne!(uri1, uri2);
         drop(s1);
         drop(s2);

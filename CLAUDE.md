@@ -204,6 +204,15 @@ submit_message()
 
 每个 skill 是子目录，内含 `SKILL.md`（YAML frontmatter: `name`, `description`）。输入 `/` 前缀触发 Skills 浮层，Tab 导航，Enter 补全为 `/skill-name`。
 
+### Fork 模式
+
+`SubAgentMiddleware` 支持 Fork 模式（`fork: true`），子 agent 继承父 agent 的完整消息历史 + system prompt + 工具集。
+
+- **消息快照**：`parent_messages: Arc<parking_lot::RwLock<Vec<BaseMessage>>>` 字段在 `before_agent` 中于 prepend agent summary 之前快照 `state.messages`
+- **防递归**：Fork 子 agent 注册全量父工具（包含 Agent 自身），通过 fork directive 规则约束防递归（非硬编码排除），保持 tools-block cache 命中
+- **Agent 列表注入**：从 `before_agent` prepend 迁移到 system prompt `{{available_agents}}` 占位符（`prompt.rs` 中 `format_available_agents()` + `.replace()`），`before_agent` 仅保留消息快照逻辑
+- **`scan_agents` 已公开**：`pub fn scan_agents(cwd)` 从 `rust-agent-middlewares` re-export，供 `rust-agent-tui` 的 `prompt.rs` 调用
+
 ### 中间件链执行顺序
 
 主 Agent 典型组装顺序：

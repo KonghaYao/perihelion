@@ -19,6 +19,34 @@ pub struct McpServerConfig {
     /// HTTP 请求的自定义头
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+    /// OAuth 2.0 配置
+    #[serde(default)]
+    pub oauth: Option<OAuthConfig>,
+}
+
+/// MCP 服务器 OAuth 2.0 配置
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthConfig {
+    /// 是否启用 OAuth（默认 true）
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// OAuth 客户端 ID
+    #[serde(default)]
+    pub client_id: Option<String>,
+    /// OAuth 客户端密钥（支持 ${VAR} 环境变量展开）
+    #[serde(default)]
+    pub client_secret: Option<String>,
+    /// OAuth 权限范围列表
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
+}
+
+impl OAuthConfig {
+    /// 判断 OAuth 是否启用，默认 true
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
 }
 
 /// MCP 配置文件顶层结构（.mcp.json / settings.json 中的 mcpServers 片段）
@@ -143,6 +171,12 @@ pub fn expand_server_config(config: &McpServerConfig) -> McpServerConfig {
             .headers
             .as_ref()
             .map(|map| map.iter().map(|(k, v)| (k.clone(), expand_env_vars(v))).collect()),
+        oauth: config.oauth.as_ref().map(|o| OAuthConfig {
+            enabled: o.enabled,
+            client_id: o.client_id.clone(),
+            client_secret: o.client_secret.as_ref().map(|s| expand_env_vars(s)),
+            scopes: o.scopes.clone(),
+        }),
     }
 }
 
@@ -308,6 +342,10 @@ fn remove_server_from_config_with_paths(
     Ok(())
 }
 
+fn test_config() -> McpServerConfig {
+    McpServerConfig { command: None, args: None, env: None, url: None, headers: None, oauth: None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,10 +369,7 @@ mod tests {
         let config = load_from_path(f.path()).unwrap();
         assert_eq!(config.mcp_servers.len(), 1);
         assert_eq!(config.mcp_servers["fs"].command.as_deref(), Some("npx"));
-        assert_eq!(
-            config.mcp_servers["fs"].args.as_ref().unwrap().len(),
-            2
-        );
+        assert_eq!(config.mcp_servers["fs"].args.as_ref().unwrap().len(), 2);
     }
 
     #[test]
@@ -355,10 +390,7 @@ mod tests {
         .unwrap();
         let config = load_global_config(f.path()).unwrap();
         assert_eq!(config.mcp_servers.len(), 1);
-        assert_eq!(
-            config.mcp_servers["gh"].url.as_deref(),
-            Some("https://api.github.com")
-        );
+        assert_eq!(config.mcp_servers["gh"].url.as_deref(), Some("https://api.github.com"));
     }
 
     #[test]
@@ -395,29 +427,70 @@ mod tests {
     }
 
     #[test]
+    fn test_oauth_config_default_enabled() {
+        let config = OAuthConfig::default();
+        assert!(config.is_enabled());
+    }
+
+    #[test]
+    fn test_oauth_config_explicitly_disabled() {
+        let config = OAuthConfig { enabled: Some(false), ..Default::default() };
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn test_oauth_config_deserialize() {
+        let json = r#"{"clientId":"my-app","clientSecret":"${MY_SECRET}","scopes":["read","write"]}"#;
+        let config: OAuthConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.client_id.as_deref(), Some("my-app"));
+        assert_eq!(config.client_secret.as_deref(), Some("${MY_SECRET}"));
+        assert_eq!(config.scopes.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_oauth_config_missing_fields() {
+        let json = r#"{"clientId":"my-app"}"#;
+        let config: OAuthConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.client_id.as_deref(), Some("my-app"));
+        assert!(config.client_secret.is_none());
+        assert!(config.scopes.is_none());
+        assert!(config.enabled.is_none());
+        assert!(config.is_enabled());
+    }
+
+    #[test]
+    fn test_mcp_server_config_oauth_field() {
+        let json = r#"{"url":"https://example.com","oauth":{"clientId":"app"}}"#;
+        let config: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert!(config.oauth.is_some());
+        assert_eq!(config.oauth.unwrap().client_id.as_deref(), Some("app"));
+    }
+
+    #[test]
+    fn test_mcp_server_config_oauth_default() {
+        let json = r#"{"command":"npx"}"#;
+        let config: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert!(config.oauth.is_none());
+    }
+
+    #[test]
+    fn test_expand_server_config_oauth_client_secret() {
+        std::env::set_var("TEST_OAUTH_SECRET", "secret123");
+        let config = McpServerConfig {
+            oauth: Some(OAuthConfig { client_secret: Some("${TEST_OAUTH_SECRET}".into()), ..Default::default() }),
+            ..test_config()
+        };
+        let expanded = expand_server_config(&config);
+        assert_eq!(expanded.oauth.unwrap().client_secret.as_deref(), Some("secret123"));
+        std::env::remove_var("TEST_OAUTH_SECRET");
+    }
+
+    #[test]
     fn test_merge_project_overrides_global() {
         let mut global = McpConfigFile::default();
-        global.mcp_servers.insert(
-            "fs".to_string(),
-            McpServerConfig {
-                command: Some("npx".to_string()),
-                args: None,
-                env: None,
-                url: None,
-                headers: None,
-            },
-        );
+        global.mcp_servers.insert("fs".to_string(), McpServerConfig { command: Some("npx".into()), ..test_config() });
         let mut project = McpConfigFile::default();
-        project.mcp_servers.insert(
-            "fs".to_string(),
-            McpServerConfig {
-                command: Some("uvx".to_string()),
-                args: None,
-                env: None,
-                url: None,
-                headers: None,
-            },
-        );
+        project.mcp_servers.insert("fs".to_string(), McpServerConfig { command: Some("uvx".into()), ..test_config() });
         let mut merged = global;
         for (name, server_config) in project.mcp_servers {
             merged.mcp_servers.insert(name, server_config);
@@ -428,27 +501,9 @@ mod tests {
     #[test]
     fn test_merge_project_adds_new_server() {
         let mut global = McpConfigFile::default();
-        global.mcp_servers.insert(
-            "fs".to_string(),
-            McpServerConfig {
-                command: Some("npx".to_string()),
-                args: None,
-                env: None,
-                url: None,
-                headers: None,
-            },
-        );
+        global.mcp_servers.insert("fs".to_string(), McpServerConfig { command: Some("npx".into()), ..test_config() });
         let mut project = McpConfigFile::default();
-        project.mcp_servers.insert(
-            "gh".to_string(),
-            McpServerConfig {
-                command: None,
-                args: None,
-                env: None,
-                url: Some("https://api.github.com".to_string()),
-                headers: None,
-            },
-        );
+        project.mcp_servers.insert("gh".to_string(), McpServerConfig { url: Some("https://api.github.com".into()), ..test_config() });
         let mut merged = global;
         for (name, server_config) in project.mcp_servers {
             merged.mcp_servers.insert(name, server_config);
@@ -488,7 +543,6 @@ mod tests {
         )
         .unwrap();
 
-        // 使用不含 .mcp.json 的 cwd，使函数回退到全局路径
         let empty_cwd = dir.path().join("empty_project");
         std::fs::create_dir_all(&empty_cwd).unwrap();
         remove_server_from_config_with_paths(&empty_cwd, &settings_path, "gh").unwrap();
@@ -524,17 +578,13 @@ mod tests {
     #[test]
     fn test_remove_server_nonexistent_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
-        // 空的 .mcp.json
         std::fs::write(dir.path().join(".mcp.json"), r#"{"mcpServers":{}}"#).unwrap();
-        // 空的 settings.json
         let settings_dir = dir.path().join(".zen-code");
         std::fs::create_dir_all(&settings_dir).unwrap();
         std::fs::write(settings_dir.join("settings.json"), r#"{}"#).unwrap();
 
-        // 删除不存在的 server 应该 Ok
         assert!(remove_server_from_config(dir.path(), "nonexistent").is_ok());
 
-        // 文件不变
         let content = std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
         assert_eq!(content, r#"{"mcpServers":{}}"#);
     }

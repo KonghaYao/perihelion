@@ -30,8 +30,10 @@ rmcp = { version = "1.6", features = [
     "client",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
+    "auth",
 ] }
 reqwest = "0.13"
+url = "2"
 
 [dev-dependencies]
 tokio-test = "0.4"

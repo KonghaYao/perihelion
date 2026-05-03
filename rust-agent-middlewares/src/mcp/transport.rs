@@ -14,6 +14,8 @@ pub enum TransportConfig {
     StreamableHttp {
         url: String,
         headers: HashMap<String, String>,
+        /// OAuth 配置（仅当服务器配置了 oauth 且 is_enabled() 时为 Some）
+        oauth: Option<super::config::OAuthConfig>,
     },
 }
 
@@ -41,6 +43,7 @@ impl TryFrom<&McpServerConfig> for TransportConfig {
             (_, Some(url)) => Ok(TransportConfig::StreamableHttp {
                 url: url.clone(),
                 headers: config.headers.clone().unwrap_or_default(),
+                oauth: config.oauth.as_ref().filter(|o| o.is_enabled()).cloned(),
             }),
             (None, None) => Err(TransportError::InvalidConfig),
         }
@@ -48,8 +51,6 @@ impl TryFrom<&McpServerConfig> for TransportConfig {
 }
 
 /// 构建 MCP Transport 实例
-/// stdio: 通过 TokioChildProcess 启动子进程
-/// HTTP: 通过 StreamableHttpClientTransport 建立 HTTP 连接
 pub fn build_transport(
     config: &McpServerConfig,
 ) -> Result<TransportConfig, TransportError> {
@@ -60,26 +61,24 @@ pub fn build_transport(
 mod tests {
     use super::*;
 
+    fn test_config() -> McpServerConfig {
+        McpServerConfig { command: None, args: None, env: None, url: None, headers: None, oauth: None }
+    }
+
     fn stdio_config() -> McpServerConfig {
         McpServerConfig {
             command: Some("echo".to_string()),
             args: Some(vec!["hello".to_string()]),
             env: Some(HashMap::from([("KEY".to_string(), "val".to_string())])),
-            url: None,
-            headers: None,
+            ..test_config()
         }
     }
 
     fn http_config() -> McpServerConfig {
         McpServerConfig {
-            command: None,
-            args: None,
-            env: None,
             url: Some("https://example.com/mcp".to_string()),
-            headers: Some(HashMap::from([(
-                "Auth".to_string(),
-                "Bearer token".to_string(),
-            )])),
+            headers: Some(HashMap::from([("Auth".to_string(), "Bearer token".to_string())])),
+            ..test_config()
         }
     }
 
@@ -102,9 +101,10 @@ mod tests {
         let config = http_config();
         let tc = TransportConfig::try_from(&config).unwrap();
         match tc {
-            TransportConfig::StreamableHttp { url, headers } => {
+            TransportConfig::StreamableHttp { url, headers, oauth } => {
                 assert_eq!(url, "https://example.com/mcp");
                 assert_eq!(headers.get("Auth").unwrap(), "Bearer token");
+                assert!(oauth.is_none());
             }
             _ => panic!("Expected StreamableHttp"),
         }
@@ -112,13 +112,7 @@ mod tests {
 
     #[test]
     fn test_try_from_empty_config() {
-        let config = McpServerConfig {
-            command: None,
-            args: None,
-            env: None,
-            url: None,
-            headers: None,
-        };
+        let config = test_config();
         let result = TransportConfig::try_from(&config);
         assert!(matches!(result, Err(TransportError::InvalidConfig)));
     }
@@ -127,10 +121,8 @@ mod tests {
     fn test_try_from_stdio_priority_over_url() {
         let config = McpServerConfig {
             command: Some("npx".to_string()),
-            args: None,
-            env: None,
             url: Some("https://example.com".to_string()),
-            headers: None,
+            ..test_config()
         };
         let tc = TransportConfig::try_from(&config).unwrap();
         assert!(matches!(tc, TransportConfig::Stdio { .. }));
@@ -140,10 +132,7 @@ mod tests {
     fn test_try_from_defaults() {
         let config = McpServerConfig {
             command: Some("cat".to_string()),
-            args: None,
-            env: None,
-            url: None,
-            headers: None,
+            ..test_config()
         };
         let tc = TransportConfig::try_from(&config).unwrap();
         match tc {
@@ -164,14 +153,40 @@ mod tests {
 
     #[test]
     fn test_build_transport_invalid() {
-        let config = McpServerConfig {
-            command: None,
-            args: None,
-            env: None,
-            url: None,
-            headers: None,
-        };
+        let config = test_config();
         let result = build_transport(&config);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_oauth_field_populated_when_enabled() {
+        let config = McpServerConfig {
+            url: Some("https://example.com".into()),
+            oauth: Some(super::super::config::OAuthConfig { client_id: Some("app".into()), ..Default::default() }),
+            ..test_config()
+        };
+        let tc = TransportConfig::try_from(&config).unwrap();
+        match tc {
+            TransportConfig::StreamableHttp { oauth, .. } => {
+                assert!(oauth.is_some());
+            }
+            _ => panic!("Expected StreamableHttp"),
+        }
+    }
+
+    #[test]
+    fn test_oauth_field_skipped_when_disabled() {
+        let config = McpServerConfig {
+            url: Some("https://example.com".into()),
+            oauth: Some(super::super::config::OAuthConfig { enabled: Some(false), ..Default::default() }),
+            ..test_config()
+        };
+        let tc = TransportConfig::try_from(&config).unwrap();
+        match tc {
+            TransportConfig::StreamableHttp { oauth, .. } => {
+                assert!(oauth.is_none());
+            }
+            _ => panic!("Expected StreamableHttp"),
+        }
     }
 }

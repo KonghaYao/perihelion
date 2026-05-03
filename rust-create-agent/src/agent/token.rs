@@ -36,12 +36,17 @@ impl TokenTracker {
     }
 
     pub fn estimated_context_tokens(&self) -> Option<u64> {
-        // input_tokens 已包含 cache_creation 和 cache_read 部分，
-        // 直接相加会导致重复计算，使 auto-compact 过早触发。
-        // 实际上下文 ≈ input_tokens + output_tokens
-        self.last_usage
-            .as_ref()
-            .map(|u| u.input_tokens as u64 + u.output_tokens as u64)
+        // Anthropic API 返回的 input_tokens 仅包含非缓存部分的 token，
+        // 缓存 token 需要从 cache_creation / cache_read 字段额外计入：
+        //   实际上下文 ≈ input_tokens + cache_creation + cache_read + output_tokens
+        // OpenAI 兼容 API 的 cache 字段为 None，公式退化为 input + output，不受影响。
+        self.last_usage.as_ref().map(|u| {
+            let input = u.input_tokens as u64;
+            let output = u.output_tokens as u64;
+            let cache_creation = u.cache_creation_input_tokens.unwrap_or(0) as u64;
+            let cache_read = u.cache_read_input_tokens.unwrap_or(0) as u64;
+            input + cache_creation + cache_read + output
+        })
     }
 
     pub fn context_usage_percent(&self, context_window: u32) -> Option<f64> {
@@ -173,7 +178,15 @@ mod tests {
     fn test_estimated_context_tokens_some() {
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(1000, 500, Some(200), Some(300)));
-        // input_tokens(1000) + output_tokens(500) = 1500（不含 cache 重复计算）
+        // input(1000) + cache_creation(200) + cache_read(300) + output(500) = 2000
+        assert_eq!(tracker.estimated_context_tokens(), Some(2000));
+    }
+
+    #[test]
+    fn test_estimated_context_tokens_no_cache() {
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(1000, 500, None, None));
+        // input(1000) + output(500) = 1500
         assert_eq!(tracker.estimated_context_tokens(), Some(1500));
     }
 
@@ -181,21 +194,21 @@ mod tests {
     fn test_context_usage_percent() {
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(50000, 25000, Some(12500), Some(12500)));
-        // 50000 + 25000 = 75000（不含 cache 重复计算）
+        // 50000 + 12500 + 12500 + 25000 = 100000 → 50%
         let pct = tracker.context_usage_percent(200_000).unwrap();
-        assert!((pct - 37.5).abs() < 0.01);
+        assert!((pct - 50.0).abs() < 0.01);
     }
 
     #[test]
     fn test_context_budget_should_auto_compact() {
         let budget = ContextBudget::new(200_000);
         let mut tracker = TokenTracker::default();
-        // 85% of 200K = 170K → input 100K + output 70K = 170K
-        tracker.accumulate(&make_usage(100000, 70000, Some(21250), Some(21250)));
+        // 85% of 200K = 170K → input 50K + cache_creation 40K + cache_read 40K + output 40K = 170K
+        tracker.accumulate(&make_usage(50000, 40000, Some(40000), Some(40000)));
         assert!(budget.should_auto_compact(&tracker));
-        // 80% = 160K → input 90K + output 70K = 160K
+        // 80% = 160K → input 50K + cache 30K + cache 30K + output 40K = 150K < 160K
         let mut tracker2 = TokenTracker::default();
-        tracker2.accumulate(&make_usage(90000, 70000, Some(20000), Some(20000)));
+        tracker2.accumulate(&make_usage(50000, 40000, Some(30000), Some(30000)));
         assert!(!budget.should_auto_compact(&tracker2));
     }
 
@@ -203,12 +216,12 @@ mod tests {
     fn test_context_budget_should_warn() {
         let budget = ContextBudget::new(200_000);
         let mut tracker = TokenTracker::default();
-        // 70% of 200K = 140K → input 80K + output 60K = 140K
-        tracker.accumulate(&make_usage(80000, 60000, Some(17500), Some(17500)));
+        // 70% of 200K = 140K → input 40K + cache 20K + cache 20K + output 60K = 140K
+        tracker.accumulate(&make_usage(40000, 60000, Some(20000), Some(20000)));
         assert!(budget.should_warn(&tracker));
-        // 60% = 120K → input 70K + output 50K = 120K
+        // 60% = 120K → input 30K + cache 20K + cache 20K + output 40K = 110K < 120K
         let mut tracker2 = TokenTracker::default();
-        tracker2.accumulate(&make_usage(70000, 50000, Some(15000), Some(15000)));
+        tracker2.accumulate(&make_usage(30000, 40000, Some(20000), Some(20000)));
         assert!(!budget.should_warn(&tracker2));
     }
 

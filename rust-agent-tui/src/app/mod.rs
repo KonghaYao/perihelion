@@ -24,6 +24,7 @@ mod mcp_panel;
 mod history_ops;
 mod hitl_ops;
 mod hitl_prompt;
+mod oauth_prompt;
 mod langfuse_state;
 pub mod message_pipeline;
 mod panel_ops;
@@ -33,6 +34,7 @@ pub use ask_user_prompt::AskUserBatchPrompt;
 pub use events::AgentEvent;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
 pub use interaction_broker::TuiInteractionBroker;
+pub use oauth_prompt::OAuthPrompt;
 
 /// 统一交互弹窗枚举：同一时刻只允许一种弹窗激活
 pub enum InteractionPrompt {
@@ -100,7 +102,12 @@ pub struct App {
     /// MCP 后台初始化状态接收端
     pub mcp_init_rx: Option<tokio::sync::watch::Receiver<rust_agent_middlewares::mcp::McpInitStatus>>,
     /// MCP 管理面板状态
+    /// OAuth 授权弹窗状态（None 表示无弹窗）
+    pub oauth_prompt: Option<OAuthPrompt>,
     pub mcp_panel: Option<McpPanel>,
+    /// 后台事件通道：供 spawn 的 MCP OAuth 等异步任务向 TUI 主循环发送事件
+    pub bg_event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
+    pub bg_event_rx: Option<tokio::sync::mpsc::Receiver<AgentEvent>>,
     /// MCP 就绪提示显示截止时间（首次 Ready 时设置，3 秒后消失）
     pub mcp_ready_shown_until: std::cell::Cell<Option<std::time::Instant>>,
     /// /cost & /context 状态面板
@@ -168,6 +175,8 @@ impl App {
         let (cron_state, scheduler_arc) = CronState::new();
         CronState::spawn_tick_task(scheduler_arc);
 
+        let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(32);
+
         Self {
             core: AppCore::new(
                 cwd.clone(),
@@ -199,6 +208,9 @@ impl App {
             mcp_pool: None,
             mcp_init_rx: None,
             mcp_panel: None,
+            oauth_prompt: None,
+            bg_event_tx,
+            bg_event_rx: Some(bg_event_rx),
             mcp_ready_shown_until: std::cell::Cell::new(None),
             status_panel: None,
             memory_panel: None,
@@ -217,7 +229,7 @@ impl App {
 
         let cwd = self.cwd.clone();
         tokio::spawn(async move {
-            McpClientPool::run_initialize(pool, std::path::Path::new(&cwd), init_tx).await;
+            McpClientPool::run_initialize(pool, std::path::Path::new(&cwd), init_tx, None).await;
         });
     }
 

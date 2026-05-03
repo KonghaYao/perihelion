@@ -201,6 +201,8 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
         app.spinner_state.advance_tick();
         // 轮询后台 agent 结果
         let agent_updated = app.poll_agent();
+        // 轮询后台事件（MCP OAuth 等）
+        let bg_updated = app.poll_background_events();
         // 检查 cron 定时触发
         app.poll_cron_triggers();
 
@@ -221,7 +223,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                 // 这样能捕获渲染线程在等待期间发出的更新
                 let cache_version = app.core.render_cache.read().version;
                 let cache_updated = cache_version != app.core.last_render_version;
-                if cache_updated || agent_updated || app.core.loading {
+                if cache_updated || agent_updated || bg_updated || app.core.loading {
                     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
                 }
             }

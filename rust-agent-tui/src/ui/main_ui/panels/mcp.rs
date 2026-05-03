@@ -53,20 +53,27 @@ fn render_server_list(f: &mut Frame, app: &mut App, inner: Rect) {
 
         let status_icon = match &server.status {
             rust_agent_middlewares::mcp::ClientStatus::Connected => "●",
+            _ if server.oauth_status == rust_agent_middlewares::mcp::OAuthStatus::NeedsAuthorization => "◎",
             _ => "○",
         };
         let status_style = match &server.status {
             rust_agent_middlewares::mcp::ClientStatus::Connected => {
                 Style::default().fg(theme::SAGE)
             }
+            _ if server.oauth_status == rust_agent_middlewares::mcp::OAuthStatus::NeedsAuthorization => {
+                Style::default().fg(theme::WARNING)
+            }
             _ => Style::default().fg(theme::ERROR),
         };
 
-        let status_text = match &server.status {
-            rust_agent_middlewares::mcp::ClientStatus::Connected => {
+        let status_text = match (&server.status, &server.oauth_status) {
+            (rust_agent_middlewares::mcp::ClientStatus::Connected, _) => {
                 "Connected".to_string()
             }
-            rust_agent_middlewares::mcp::ClientStatus::Failed(reason) => {
+            (_, rust_agent_middlewares::mcp::OAuthStatus::NeedsAuthorization) => {
+                "OAuth Required".to_string()
+            }
+            (rust_agent_middlewares::mcp::ClientStatus::Failed(reason), _) => {
                 let truncated: String = reason.chars().take(20).collect();
                 if reason.len() > 20 {
                     format!("Failed({})…", truncated)
@@ -74,7 +81,7 @@ fn render_server_list(f: &mut Frame, app: &mut App, inner: Rect) {
                     format!("Failed({})", truncated)
                 }
             }
-            rust_agent_middlewares::mcp::ClientStatus::Disconnected => {
+            (rust_agent_middlewares::mcp::ClientStatus::Disconnected, _) => {
                 "Disconnected".to_string()
             }
         };
@@ -87,6 +94,17 @@ fn render_server_list(f: &mut Frame, app: &mut App, inner: Rect) {
                 )
             }
             _ => "—".to_string(),
+        };
+
+        // OAuth 状态图标
+        let (oauth_icon, oauth_style) = match &server.oauth_status {
+            rust_agent_middlewares::mcp::OAuthStatus::None => ("", Style::default()),
+            rust_agent_middlewares::mcp::OAuthStatus::Authorized => {
+                ("\u{1f511}", Style::default().fg(theme::SAGE))
+            }
+            rust_agent_middlewares::mcp::OAuthStatus::NeedsAuthorization => {
+                ("\u{1f512}", Style::default().fg(theme::WARNING))
+            }
         };
 
         let name_style = if is_cursor {
@@ -114,6 +132,7 @@ fn render_server_list(f: &mut Frame, app: &mut App, inner: Rect) {
                 status_style,
             ),
             Span::styled(count_text, Style::default().fg(theme::MUTED)),
+            Span::styled(format!("{} ", oauth_icon), oauth_style),
         ]));
     }
 
@@ -315,6 +334,7 @@ mod tests {
             status,
             tool_count: 3,
             resource_count: 2,
+            oauth_status: Default::default(),
         }
     }
 

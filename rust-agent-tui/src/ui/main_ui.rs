@@ -79,6 +79,10 @@ pub fn render(f: &mut Frame, app: &mut App) {
             }
             None => {}
         }
+        // OAuth 授权面板（与 HITL/AskUser 同级渲染）
+        if app.oauth_prompt.is_some() {
+            popups::oauth::render_oauth_popup(f, app, panel_area);
+        }
         if app.core.login_panel.is_some() {
             panels::login::render_login_panel(f, app, panel_area);
         }
@@ -188,7 +192,9 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         (items as u16 * 2 + 4).max(6)
     } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.agent.interaction_prompt {
         (p.items.len() as u16 * 2 + 5).max(5)
-    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt
+    } else if app.oauth_prompt.is_some() {
+        9 // 标题1 + 提示1 + URL1 + 空行1 + 输入框1 + 错误1 + 快捷键1 + 边框2
+        } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.agent.interaction_prompt
     {
         let cur = &p.questions[p.active_tab];
         // 自适应高度：考虑文本自动换行

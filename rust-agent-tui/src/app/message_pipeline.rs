@@ -241,7 +241,10 @@ impl MessagePipeline {
             | AgentEvent::CompactError(_)
             | AgentEvent::TokenUsageUpdate { .. }
             | AgentEvent::LlmRetrying { .. }
-            | AgentEvent::ContextWarning { .. } => {
+            | AgentEvent::ContextWarning { .. }
+            | AgentEvent::OAuthAuthorizationNeeded { .. }
+            | AgentEvent::OAuthAuthorizationCompleted { .. }
+            | AgentEvent::OAuthAuthorizationFailed { .. } => {
                 vec![PipelineAction::None]
             }
         }

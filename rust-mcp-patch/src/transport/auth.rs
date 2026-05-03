@@ -388,6 +388,8 @@ pub struct AuthorizationMetadata {
 
 #[derive(Debug, Clone, Deserialize)]
 struct ResourceServerMetadata {
+    /// RFC 9728: The protected resource's identifier, used as the "resource" parameter in auth requests
+    resource: Option<String>,
     authorization_server: Option<String>,
     authorization_servers: Option<Vec<String>>,
     scopes_supported: Option<Vec<String>>,
@@ -613,6 +615,8 @@ pub struct AuthorizationManager {
     www_auth_scopes: RwLock<Vec<String>>,
     /// scopes_supported from protected resource metadata (RFC 9728)
     resource_scopes: RwLock<Vec<String>>,
+    /// RFC 9728: resource identifier from protected resource metadata, used as "resource" param
+    discovered_resource: RwLock<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -707,6 +711,7 @@ impl AuthorizationManager {
             scope_upgrade_config: ScopeUpgradeConfig::default(),
             www_auth_scopes: RwLock::new(Vec::new()),
             resource_scopes: RwLock::new(Vec::new()),
+            discovered_resource: RwLock::new(None),
         };
 
         Ok(manager)
@@ -988,10 +993,11 @@ impl AuthorizationManager {
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
         // build authorization request
+        // Note: do NOT send "resource" param in authorization URL — some AS (e.g. Sentry)
+        // reject it with invalid_target. The resource param is only needed in token exchange.
         let mut auth_request = oauth_client
             .authorize_url(CsrfToken::new_random)
-            .set_pkce_challenge(pkce_challenge)
-            .add_extra_param("resource", self.base_url.to_string());
+            .set_pkce_challenge(pkce_challenge);
 
         // add request scopes
         for scope in scopes {
@@ -1170,11 +1176,14 @@ impl AuthorizationManager {
             .map_err(|e| AuthError::InternalError(e.to_string()))?;
         debug!("client_id: {:?}", oauth_client.client_id());
 
-        // exchange token
+        // exchange token (RFC 9728: use discovered resource)
+        let resource_value = self.discovered_resource.read().await
+            .clone()
+            .unwrap_or_else(|| self.base_url.to_string());
         let token_result = match oauth_client
             .exchange_code(AuthorizationCode::new(code.to_string()))
             .set_pkce_verifier(pkce_verifier)
-            .add_extra_param("resource", self.base_url.to_string())
+            .add_extra_param("resource", resource_value)
             .request_async(&OAuthReqwestClient(http_client))
             .await
         {
@@ -1462,6 +1471,11 @@ impl AuthorizationManager {
             if !scopes.is_empty() {
                 *self.resource_scopes.write().await = scopes;
             }
+        }
+
+        // store the resource identifier from RFC 9728 protected resource metadata
+        if let Some(resource) = resource_metadata.resource {
+            *self.discovered_resource.write().await = Some(resource);
         }
 
         let mut candidates = Vec::new();

@@ -2,6 +2,8 @@ use rust_agent_middlewares::prelude::TodoItem;
 use rust_create_agent::interaction::{InteractionContext, InteractionResponse};
 use tokio::sync::oneshot;
 
+pub use rust_agent_middlewares::mcp::OAuthCallbackResult;
+
 /// TUI 与后台 Agent 任务之间的通信事件（通过 mpsc channel 传递）
 pub enum AgentEvent {
     /// 工具调用开始（参数已就绪）
@@ -69,5 +71,22 @@ pub enum AgentEvent {
         used_tokens: u64,
         total_tokens: u64,
         percentage: f64,
+    },
+    /// OAuth 授权需要用户交互（打开浏览器或手动粘贴回调 URL）
+    OAuthAuthorizationNeeded {
+        server_name: String,
+        /// 浏览器授权 URL
+        authorization_url: String,
+        /// 回调通道：用户粘贴的 URL 或授权结果通过此通道传回后台
+        callback_tx: oneshot::Sender<OAuthCallbackResult>,
+    },
+    /// OAuth 授权完成
+    OAuthAuthorizationCompleted {
+        server_name: String,
+    },
+    /// OAuth 授权失败
+    OAuthAuthorizationFailed {
+        server_name: String,
+        error: String,
     },
 }

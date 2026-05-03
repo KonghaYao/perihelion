@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use rmcp::transport::auth::{AuthError, CredentialStore, StoredCredentials};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -124,11 +126,11 @@ impl PerServerCredentialStore {
     }
 }
 
+#[async_trait]
 impl CredentialStore for PerServerCredentialStore {
-    async fn load(&self) -> Result<StoredCredentials, AuthError> {
+    async fn load(&self) -> Result<Option<StoredCredentials>, AuthError> {
         self.inner.load_server(&self.server_name).await
-            .map_err(|e| AuthError::InternalError(e.to_string()))?
-            .ok_or_else(|| AuthError::InternalError(format!("服务器 \"{}\" 的 Token 未找到", self.server_name)))
+            .map_err(|e| AuthError::InternalError(e.to_string()))
     }
 
     async fn save(&self, credentials: StoredCredentials) -> Result<(), AuthError> {
@@ -146,10 +148,10 @@ impl CredentialStore for PerServerCredentialStore {
 mod tests {
     use super::*;
 
-    fn temp_store() -> (Arc<FileCredentialStore>, tempfile::NamedTempFile) {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_path_buf();
-        (Arc::new(FileCredentialStore::with_path(path)), tmp)
+    fn temp_store() -> (Arc<FileCredentialStore>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("oauth_tokens.json");
+        (Arc::new(FileCredentialStore::with_path(path)), dir)
     }
 
     #[test]

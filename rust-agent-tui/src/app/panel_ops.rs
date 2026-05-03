@@ -436,6 +436,8 @@ impl App {
             Vec::new(),
         );
 
+        let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(32);
+
         let app = App {
             core,
             agent: super::AgentComm::default(),
@@ -463,6 +465,9 @@ impl App {
             mcp_ready_shown_until: std::cell::Cell::new(None),
             status_panel: None,
             memory_panel: None,
+            oauth_prompt: None,
+            bg_event_tx,
+            bg_event_rx: Some(bg_event_rx),
         };
 
         let handle = crate::ui::headless::HeadlessHandle {

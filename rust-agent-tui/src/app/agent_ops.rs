@@ -341,6 +341,30 @@ impl App {
                 }
                 (true, false, false)
             }
+            AgentEvent::OAuthAuthorizationNeeded {
+                server_name,
+                authorization_url,
+                callback_tx,
+            } => {
+                // 关闭 MCP 面板，避免与 OAuth 面板渲染冲突
+                self.mcp_panel = None;
+                self.oauth_prompt = Some(OAuthPrompt::new(server_name, authorization_url, callback_tx));
+                (true, true, false)
+            }
+            AgentEvent::OAuthAuthorizationCompleted { server_name } => {
+                self.oauth_prompt = None;
+                let vm = MessageViewModel::system(format!("[i] OAuth 授权完成: {}", server_name));
+                self.core.view_messages.push(vm.clone());
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                (true, false, false)
+            }
+            AgentEvent::OAuthAuthorizationFailed { server_name, error } => {
+                self.oauth_prompt = None;
+                let vm = MessageViewModel::system(format!("[i] OAuth 授权失败: {} - {}", server_name, error));
+                self.core.view_messages.push(vm.clone());
+                let _ = self.core.render_tx.send(RenderEvent::AddMessage(vm));
+                (true, false, false)
+            }
             AgentEvent::TokenUsageUpdate {
                 usage,
                 model: _model,
@@ -907,6 +931,38 @@ impl App {
             }
         }
 
+        updated
+    }
+
+    /// 每帧调用：消费后台事件通道（MCP OAuth 等异步任务发送的事件），返回是否有 UI 更新
+    pub fn poll_background_events(&mut self) -> bool {
+        let events: Vec<_> = match self.bg_event_rx.as_mut() {
+            Some(rx) => {
+                let mut evts = Vec::new();
+                loop {
+                    match rx.try_recv() {
+                        Ok(event) => evts.push(event),
+                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                        Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                            self.bg_event_rx = None;
+                            break;
+                        }
+                    }
+                }
+                evts
+            }
+            None => return false,
+        };
+        let mut updated = false;
+        for event in events {
+            let (ev_updated, _should_break, should_return) = self.handle_agent_event(event);
+            if ev_updated {
+                updated = true;
+            }
+            if should_return {
+                return true;
+            }
+        }
         updated
     }
 

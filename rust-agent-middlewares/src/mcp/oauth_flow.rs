@@ -130,7 +130,7 @@ impl OAuthFlowManager {
         }
 
         // 3. 绑定回调服务器
-        let (callback_server, redirect_uri) = OAuthCallbackServer::bind(String::new()).await?;
+        let (callback_server, redirect_uri) = OAuthCallbackServer::bind().await?;
 
         // 4. 启动授权（DCR + PKCE + metadata 发现）
         let scopes: Vec<&str> = oauth_config

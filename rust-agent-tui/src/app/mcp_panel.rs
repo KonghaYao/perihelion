@@ -228,7 +228,7 @@ impl crate::app::App {
             let name = panel.servers[panel.cursor].name.clone();
             if let Some(pool) = self.mcp_pool.clone() {
                 tokio::spawn(async move {
-                    let _ = pool.reconnect(&name).await;
+                    let _ = pool.reconnect(&name, None).await;
                 });
             }
             // 刷新列表以反映重连状态
@@ -237,6 +237,66 @@ impl crate::app::App {
                 .as_ref()
                 .map(|p| p.server_infos())
                 .unwrap_or_default();
+        }
+    }
+
+    /// 手动触发当前选中服务器的 OAuth 授权流程
+    pub fn mcp_panel_request_oauth(&mut self) {
+        if let Some(ref panel) = self.mcp_panel {
+            if !panel.view.is_server_list() {
+                return;
+            }
+            if panel.cursor >= panel.servers.len() {
+                return;
+            }
+            let server = &panel.servers[panel.cursor];
+            if server.transport_type != "http" {
+                return;
+            }
+            let name = server.name.clone();
+            if let Some(pool) = self.mcp_pool.clone() {
+                let tx = self.bg_event_tx.clone();
+                let err_tx = self.bg_event_tx.clone();
+                tokio::spawn(async move {
+                    let result = pool
+                        .start_oauth_flow(&name, Box::new(move |ev| {
+                            use rust_agent_middlewares::mcp::OAuthFlowEvent;
+                            let event = match ev {
+                                OAuthFlowEvent::AuthorizationNeeded {
+                                    server_name,
+                                    authorization_url,
+                                    callback_tx,
+                                } => {
+                                    super::events::AgentEvent::OAuthAuthorizationNeeded {
+                                        server_name,
+                                        authorization_url,
+                                        callback_tx,
+                                    }
+                                }
+                                OAuthFlowEvent::AuthorizationCompleted { server_name } => {
+                                    super::events::AgentEvent::OAuthAuthorizationCompleted {
+                                        server_name,
+                                    }
+                                }
+                                OAuthFlowEvent::AuthorizationFailed {
+                                    server_name,
+                                    error,
+                                } => super::events::AgentEvent::OAuthAuthorizationFailed {
+                                    server_name,
+                                    error,
+                                },
+                            };
+                            let _ = tx.try_send(event);
+                        }))
+                        .await;
+                    if let Err(e) = result {
+                        let _ = err_tx.try_send(super::events::AgentEvent::OAuthAuthorizationFailed {
+                            server_name: name,
+                            error: e.to_string(),
+                        });
+                    }
+                });
+            }
         }
     }
 
@@ -256,6 +316,7 @@ mod tests {
             status,
             tool_count: 0,
             resource_count: 0,
+            oauth_status: Default::default(),
         }
     }
 

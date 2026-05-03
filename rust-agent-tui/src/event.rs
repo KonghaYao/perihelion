@@ -181,6 +181,12 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
+            // OAuth 弹窗优先处理
+            if app.oauth_prompt.is_some() {
+                handle_oauth_prompt(app, input);
+                return Ok(Some(Action::Redraw));
+            }
+
             // MCP 面板优先处理
             if app.mcp_panel.is_some() {
                 handle_mcp_panel(app, input);
@@ -1416,6 +1422,15 @@ fn handle_mcp_panel(app: &mut App, input: Input) {
             }
         }
         Input {
+            key: Key::Char('r'),
+            ctrl: false,
+            ..
+        } => {
+            if is_server_list {
+                app.mcp_panel_request_oauth();
+            }
+        }
+        Input {
             key: Key::Char('d'),
             ctrl: true,
             ..
@@ -1430,5 +1445,37 @@ fn handle_mcp_panel(app: &mut App, input: Input) {
             }
         }
         _ => {}
+    }
+}
+
+fn handle_oauth_prompt(app: &mut App, input: Input) {
+    use crate::app::handle_edit_key;
+    let prompt = match app.oauth_prompt.as_mut() {
+        Some(p) => p,
+        None => return,
+    };
+    match input {
+        Input { key: Key::Enter, .. } => {
+            if prompt.submit() {
+                app.oauth_prompt = None;
+            }
+        }
+        Input { key: Key::Char('o'), ctrl: true, .. } => {
+            let url = prompt.authorization_url.clone();
+            #[cfg(unix)]
+            let _ = std::process::Command::new("open").arg(&url).spawn();
+            #[cfg(windows)]
+            let _ = std::process::Command::new("cmd").args(["/C", "start", &url]).spawn();
+        }
+        Input { key: Key::Esc, .. } => {
+            app.oauth_prompt = None;
+        }
+        Input { key: Key::Char('c'), ctrl: true, .. } => {
+            // Ctrl+C 在弹窗中不退出，忽略
+        }
+        _ => {
+            prompt.error_message = None;
+            handle_edit_key(&mut prompt.input, &mut prompt.cursor, input);
+        }
     }
 }
