@@ -525,6 +525,29 @@ fn validate_inputs(
             }
             result.insert(key.clone(), val.clone());
         } else if let Some(default) = &def.default {
+            // Validate default value matches declared type
+            match def.input_type {
+                crate::schema::InputType::Number => {
+                    if default.parse::<f64>().is_err() {
+                        anyhow::bail!(
+                            "input '{}' default value '{}' is not a valid number",
+                            key,
+                            default
+                        );
+                    }
+                }
+                crate::schema::InputType::Boolean => {
+                    let lower = default.to_lowercase();
+                    if !matches!(lower.as_str(), "true" | "false" | "1" | "0" | "yes" | "no") {
+                        anyhow::bail!(
+                            "input '{}' default value '{}' is not a valid boolean",
+                            key,
+                            default
+                        );
+                    }
+                }
+                crate::schema::InputType::String => {}
+            }
             result.insert(key.clone(), default.clone());
         } else if def.required {
             anyhow::bail!("required input '{}' not provided", key);
@@ -673,5 +696,88 @@ mod tests {
         provided.insert("val".to_string(), "-3.14".to_string());
         let result = validate_inputs(&declared, &Some(provided)).unwrap();
         assert_eq!(result.get("val").unwrap(), "-3.14");
+    }
+
+    #[test]
+    fn test_validate_inputs_default_number_invalid() {
+        let mut declared = HashMap::new();
+        declared.insert(
+            "count".to_string(),
+            make_input_def(InputType::Number, false, Some("not_a_number")),
+        );
+        let err = validate_inputs(&declared, &None).unwrap_err();
+        assert!(err.to_string().contains("not a valid number"));
+    }
+
+    #[test]
+    fn test_validate_inputs_default_boolean_invalid() {
+        let mut declared = HashMap::new();
+        declared.insert(
+            "flag".to_string(),
+            make_input_def(InputType::Boolean, false, Some("maybe")),
+        );
+        let err = validate_inputs(&declared, &None).unwrap_err();
+        assert!(err.to_string().contains("not a valid boolean"));
+    }
+
+    #[test]
+    fn test_validate_inputs_default_number_valid() {
+        let mut declared = HashMap::new();
+        declared.insert(
+            "count".to_string(),
+            make_input_def(InputType::Number, false, Some("42")),
+        );
+        let result = validate_inputs(&declared, &None).unwrap();
+        assert_eq!(result.get("count").unwrap(), "42");
+    }
+
+    #[test]
+    fn test_validate_inputs_default_boolean_valid() {
+        let mut declared = HashMap::new();
+        declared.insert(
+            "flag".to_string(),
+            make_input_def(InputType::Boolean, false, Some("true")),
+        );
+        let result = validate_inputs(&declared, &None).unwrap();
+        assert_eq!(result.get("flag").unwrap(), "true");
+    }
+
+    #[test]
+    fn test_validate_inputs_provided_overrides_default() {
+        let mut declared = HashMap::new();
+        declared.insert(
+            "env".to_string(),
+            make_input_def(InputType::String, false, Some("staging")),
+        );
+        let mut provided = HashMap::new();
+        provided.insert("env".to_string(), "production".to_string());
+        let result = validate_inputs(&declared, &Some(provided)).unwrap();
+        assert_eq!(result.get("env").unwrap(), "production");
+    }
+
+    #[test]
+    fn test_validate_inputs_number_zero() {
+        let mut declared = HashMap::new();
+        declared.insert(
+            "val".to_string(),
+            make_input_def(InputType::Number, true, None),
+        );
+        let mut provided = HashMap::new();
+        provided.insert("val".to_string(), "0".to_string());
+        let result = validate_inputs(&declared, &Some(provided)).unwrap();
+        assert_eq!(result.get("val").unwrap(), "0");
+    }
+
+    #[test]
+    fn test_validate_inputs_number_scientific() {
+        let mut declared = HashMap::new();
+        declared.insert(
+            "val".to_string(),
+            make_input_def(InputType::Number, true, None),
+        );
+        let mut provided = HashMap::new();
+        provided.insert("val".to_string(), "1e10".to_string());
+        let result = validate_inputs(&declared, &Some(provided)).unwrap();
+        assert_eq!(result.get("val").unwrap(), "1e10");
     }
 }

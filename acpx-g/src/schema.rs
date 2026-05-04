@@ -2,10 +2,52 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 /// Parse a workflow from YAML string.
+/// Validates that name, version are non-empty and nodes list is non-empty.
 pub fn parse_workflow(yaml: &str) -> anyhow::Result<Workflow> {
     let wf: Workflow =
         serde_yaml::from_str(yaml).map_err(|e| anyhow::anyhow!("failed to parse workflow: {e}"))?;
+    validate_workflow(&wf)?;
     Ok(wf)
+}
+
+/// Validate a parsed workflow has required fields and consistent structure.
+pub fn validate_workflow(wf: &Workflow) -> anyhow::Result<()> {
+    if wf.name.trim().is_empty() {
+        anyhow::bail!("workflow name must not be empty");
+    }
+    if wf.version.trim().is_empty() {
+        anyhow::bail!("workflow version must not be empty");
+    }
+    if wf.nodes.is_empty() {
+        anyhow::bail!("workflow must have at least one node");
+    }
+
+    // Validate node IDs are non-empty
+    for node in &wf.nodes {
+        let id = match node {
+            NodeDef::Shell(n) => &n.id,
+            NodeDef::Agent(n) => &n.id,
+            NodeDef::Reference(n) => &n.id,
+        };
+        if id.trim().is_empty() {
+            anyhow::bail!("node id must not be empty");
+        }
+    }
+
+    // Validate reference nodes have matching entries in references map
+    for node in &wf.nodes {
+        if let NodeDef::Reference(ref_node) = node {
+            if !wf.references.contains_key(&ref_node.r#ref) {
+                anyhow::bail!(
+                    "reference node '{}' references '{}' which is not defined in the references section",
+                    ref_node.id,
+                    ref_node.r#ref
+                );
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // ─── Top-Level Workflow ───────────────────────────────────────────
@@ -461,6 +503,135 @@ mod tests {
         let resolved = src.resolve(Platform::MacOs).unwrap();
         match resolved {
             ResolvedScript::File(p) => assert_eq!(p, "./script.sh"),
+            _ => panic!("expected File"),
+        }
+    }
+
+    #[test]
+    fn test_parse_workflow_valid() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes:
+  - id: greet
+    type: shell
+    run: echo hello
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        assert_eq!(wf.name, "test");
+        assert_eq!(wf.version, "1.0");
+        assert_eq!(wf.nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_workflow_empty_name() {
+        let yaml = r#"
+name: ""
+version: "1.0"
+nodes:
+  - id: greet
+    type: shell
+    run: echo hello
+"#;
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err.to_string().contains("name must not be empty"));
+    }
+
+    #[test]
+    fn test_parse_workflow_empty_version() {
+        let yaml = r#"
+name: test
+version: ""
+nodes:
+  - id: greet
+    type: shell
+    run: echo hello
+"#;
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err.to_string().contains("version must not be empty"));
+    }
+
+    #[test]
+    fn test_parse_workflow_no_nodes() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes: []
+"#;
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err.to_string().contains("at least one node"));
+    }
+
+    #[test]
+    fn test_parse_workflow_reference_missing_in_map() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes:
+  - id: call
+    type: reference
+    ref: nonexistent
+"#;
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("not defined in the references section"));
+    }
+
+    #[test]
+    fn test_parse_workflow_whitespace_name() {
+        let yaml = r#"
+name: "   "
+version: "1.0"
+nodes:
+  - id: greet
+    type: shell
+    run: echo hello
+"#;
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err.to_string().contains("name must not be empty"));
+    }
+
+    #[test]
+    fn test_parse_workflow_invalid_yaml() {
+        let yaml = "not: valid: yaml: {{{";
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err.to_string().contains("failed to parse"));
+    }
+
+    #[test]
+    fn test_prompt_source_inline() {
+        let src = PromptSource::Inline("review code".to_string());
+        let resolved = src.resolve(Platform::Linux).unwrap();
+        match resolved {
+            ResolvedPrompt::Inline(s) => assert_eq!(s, "review code"),
+            _ => panic!("expected Inline"),
+        }
+    }
+
+    #[test]
+    fn test_prompt_source_file() {
+        let src = PromptSource::File(FileSource {
+            file: "./prompt.txt".to_string(),
+        });
+        let resolved = src.resolve(Platform::Linux).unwrap();
+        match resolved {
+            ResolvedPrompt::File(p) => assert_eq!(p, "./prompt.txt"),
+            _ => panic!("expected File"),
+        }
+    }
+
+    #[test]
+    fn test_script_source_platform_resolve() {
+        let src = ScriptSource::Platform(PlatformFiles {
+            linux: Some("./linux.sh".to_string()),
+            macos: None,
+            windows: None,
+            default: None,
+        });
+        let resolved = src.resolve(Platform::Linux).unwrap();
+        match resolved {
+            ResolvedScript::File(p) => assert_eq!(p, "./linux.sh"),
             _ => panic!("expected File"),
         }
     }

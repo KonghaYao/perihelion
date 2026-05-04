@@ -232,6 +232,10 @@ async fn fetch_remote(url: &str) -> anyhow::Result<String> {
         .send()
         .await
         .with_context(|| format!("failed to fetch remote workflow: {url}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        anyhow::bail!("failed to fetch remote workflow {}: HTTP {}", url, status);
+    }
     let body = resp
         .text()
         .await
