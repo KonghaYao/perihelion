@@ -495,7 +495,7 @@ mod tests {
         );
         // Should use reference inputs for prefixed node
         assert_eq!(ctx.inputs.get("repo").unwrap(), "myrepo");
-        assert!(ctx.inputs.get("env").is_none());
+        assert!(!ctx.inputs.contains_key("env"));
     }
 
     #[test]
