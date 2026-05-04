@@ -8,7 +8,6 @@ use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
 /// BashTool - 终端命令执行工具，与 TypeScript TerminalMiddleware 对齐
-
 const BASH_DESCRIPTION: &str = r#"Executes a given shell command and returns its output.
 
 Usage:

@@ -52,9 +52,11 @@ pub struct SubAgentMiddleware {
     event_handler: Option<Arc<dyn AgentEventHandler>>,
     /// LLM factory function, creates independent LLM instance for each child agent
     /// Parameter is optional model alias (e.g., "haiku"/"sonnet"/"opus"), None means use parent model
+    #[allow(clippy::type_complexity)]
     llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     /// System prompt builder: (agent overrides, cwd) -> system prompt string
     /// When set, child agent injects system prompt via with_system_prompt() (visible in Langfuse)
+    #[allow(clippy::type_complexity)]
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
     /// Parent agent cancellation token (passed to child agent, supports user interruption)
     cancel: Option<AgentCancellationToken>,
@@ -65,6 +67,7 @@ pub struct SubAgentMiddleware {
 }
 
 impl SubAgentMiddleware {
+    #[allow(clippy::type_complexity)]
     pub fn new(
         parent_tools: Vec<Box<dyn BaseTool>>,
         event_handler: Option<Arc<dyn AgentEventHandler>>,
@@ -86,6 +89,7 @@ impl SubAgentMiddleware {
     }
 
     /// Set system prompt builder, child agent injects system prompt via `with_system_prompt()` during execution
+    #[allow(clippy::type_complexity)]
     pub fn with_system_builder(
         mut self,
         builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,

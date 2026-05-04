@@ -310,8 +310,7 @@ impl HumanInTheLoopMiddleware {
 
         let mut decision_iter = decisions.into_iter();
 
-        for idx in start_idx..calls.len() {
-            let call = &calls[idx];
+        for call in calls.iter().skip(start_idx) {
             if (self.requires_approval)(&call.name) {
                 let decision = decision_iter.next().unwrap_or(ApprovalDecision::Reject {
                     reason: "用户拒绝".to_string(),

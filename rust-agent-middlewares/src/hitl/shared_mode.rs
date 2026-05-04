@@ -44,18 +44,17 @@ impl PermissionMode {
 }
 
 /// TryFrom<u8> 实现：异常值（>4）回退到 Default
-impl TryFrom<u8> for PermissionMode {
-    type Error = std::convert::Infallible;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(match value {
+#[allow(clippy::fallible_impl_from)]
+impl From<u8> for PermissionMode {
+    fn from(value: u8) -> Self {
+        match value {
             0 => Self::Default,
             1 => Self::DontAsk,
             2 => Self::AcceptEdit,
             3 => Self::AutoMode,
             4 => Self::Bypass,
             _ => Self::Default,
-        })
+        }
     }
 }
 
@@ -75,7 +74,7 @@ impl SharedPermissionMode {
     /// 读取当前权限模式
     pub fn load(&self) -> PermissionMode {
         let v = self.inner.load(Ordering::Relaxed);
-        PermissionMode::try_from(v).unwrap_or(PermissionMode::Default)
+        PermissionMode::from(v)
     }
 
     /// 设置权限模式
@@ -87,7 +86,7 @@ impl SharedPermissionMode {
     pub fn cycle(&self) -> PermissionMode {
         loop {
             let current = self.inner.load(Ordering::Relaxed);
-            let current_mode = PermissionMode::try_from(current).unwrap_or(PermissionMode::Default);
+            let current_mode = PermissionMode::from(current);
             let next_mode = current_mode.next();
             let next = next_mode as u8;
             match self
@@ -130,36 +129,18 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_u8_valid() {
-        assert_eq!(
-            PermissionMode::try_from(0).unwrap(),
-            PermissionMode::Default
-        );
-        assert_eq!(
-            PermissionMode::try_from(1).unwrap(),
-            PermissionMode::DontAsk
-        );
-        assert_eq!(
-            PermissionMode::try_from(2).unwrap(),
-            PermissionMode::AcceptEdit
-        );
-        assert_eq!(
-            PermissionMode::try_from(3).unwrap(),
-            PermissionMode::AutoMode
-        );
-        assert_eq!(PermissionMode::try_from(4).unwrap(), PermissionMode::Bypass);
+    fn test_from_u8_valid() {
+        assert_eq!(PermissionMode::from(0u8), PermissionMode::Default);
+        assert_eq!(PermissionMode::from(1u8), PermissionMode::DontAsk);
+        assert_eq!(PermissionMode::from(2u8), PermissionMode::AcceptEdit);
+        assert_eq!(PermissionMode::from(3u8), PermissionMode::AutoMode);
+        assert_eq!(PermissionMode::from(4u8), PermissionMode::Bypass);
     }
 
     #[test]
-    fn test_try_from_u8_invalid() {
-        assert_eq!(
-            PermissionMode::try_from(5).unwrap(),
-            PermissionMode::Default
-        );
-        assert_eq!(
-            PermissionMode::try_from(255).unwrap(),
-            PermissionMode::Default
-        );
+    fn test_from_u8_invalid() {
+        assert_eq!(PermissionMode::from(5u8), PermissionMode::Default);
+        assert_eq!(PermissionMode::from(255u8), PermissionMode::Default);
     }
 
     #[test]
