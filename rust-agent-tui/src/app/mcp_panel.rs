@@ -336,11 +336,13 @@ impl crate::app::App {
                 });
                 tokio::spawn(async move {
                     let result = pool2.reconnect(&name2, Some(oauth_cb)).await;
-                    let _ = tx.send(AgentEvent::McpActionCompleted {
-                        server_name: name2,
-                        action: "reconnect".to_string(),
-                        success: result.is_ok(),
-                    });
+                    let _ = tx
+                        .send(AgentEvent::McpActionCompleted {
+                            server_name: name2,
+                            action: "reconnect".to_string(),
+                            success: result.is_ok(),
+                        })
+                        .await;
                 });
             }
         }

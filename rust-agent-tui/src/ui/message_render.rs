@@ -297,7 +297,7 @@ pub fn render_view_model(
         MessageViewModel::ToolCallGroup {
             tools, collapsed, ..
         } => {
-            let count = tools.len();
+            let _count = tools.len();
             let mut lines = Vec::new();
             let summary = ToolCategory::summary_for_tools(tools);
 
@@ -315,7 +315,7 @@ pub fn render_view_model(
                 }
             } else {
                 // 展开：标题 + 每个工具的参数
-                let arrow = if count == 1 { " " } else { " " };
+                let arrow = " ";
                 lines.push(Line::from(vec![Span::styled(
                     format!("  {}{}", arrow, summary),
                     Style::default()

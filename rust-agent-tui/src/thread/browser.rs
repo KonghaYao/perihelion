@@ -102,9 +102,7 @@ impl ThreadBrowser {
     /// 删除光标所在的历史 thread（同步，block_in_place），返回被删除的对话标题
     pub fn delete_selected(&mut self) -> Option<String> {
         let &orig_idx = self.filtered_indices.get(self.cursor)?;
-        let Some(meta) = self.threads.get(orig_idx) else {
-            return None;
-        };
+        let meta = self.threads.get(orig_idx)?;
         let id = meta.id.clone();
         let title = meta.title.clone().unwrap_or_else(|| "(无标题)".to_string());
         let store = self.store.clone();

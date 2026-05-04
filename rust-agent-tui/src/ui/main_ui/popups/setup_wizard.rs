@@ -125,7 +125,7 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
     } else {
         "•".repeat(wizard.api_key.len())
     };
-    let key_display = if key_active { masked } else { masked };
+    let key_display = masked;
     let line_key = Line::from(vec![
         Span::styled(" API Key  ", key_label),
         Span::styled(format!(" {}", key_display), key_val),

@@ -149,8 +149,7 @@ pub fn extract_panel_text(
     let er = er.min(plain_lines.len() - 1);
 
     let mut parts: Vec<String> = Vec::new();
-    for i in sr..=er {
-        let text = &plain_lines[i];
+    for (i, text) in plain_lines.iter().enumerate().take(er + 1).skip(sr) {
         if sr == er {
             // 同一行
             let b_start = char_to_byte_idx(text, sc as usize);
@@ -284,8 +283,12 @@ pub fn extract_selected_text(
 
     let mut parts: Vec<String> = Vec::new();
 
-    for i in start_idx..=end_idx {
-        let info = &wrap_map[i];
+    for (i, info) in wrap_map
+        .iter()
+        .enumerate()
+        .take(end_idx + 1)
+        .skip(start_idx)
+    {
         let text = &info.plain_text;
 
         if start_idx == end_idx {

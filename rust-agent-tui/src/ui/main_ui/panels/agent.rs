@@ -92,11 +92,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
 
         // 描述行（次要信息）
         if !agent.description.is_empty() {
-            let desc_style = if is_cursor {
-                Style::default().fg(theme::MUTED)
-            } else {
-                Style::default().fg(theme::MUTED)
-            };
+            let desc_style = Style::default().fg(theme::MUTED);
             // 截断过长的描述
             let desc: String = agent.description.chars().take(50).collect();
             let desc = if agent.description.chars().count() > 50 {

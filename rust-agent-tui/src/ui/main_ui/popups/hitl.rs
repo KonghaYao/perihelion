@@ -53,11 +53,7 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
 
         // 光标高亮
         let cursor_indicator = if is_cursor { "❯ " } else { "  " };
-        let _row_style = if is_cursor {
-            Style::default()
-        } else {
-            Style::default()
-        };
+        let _row_style = Style::default();
 
         // 工具名行
         lines.push(Line::styled(
