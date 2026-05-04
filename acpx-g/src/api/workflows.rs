@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use sqlx::SqlitePool;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::db::{
@@ -69,6 +70,7 @@ pub struct TemplateNodeInfo {
 pub struct AppState {
     pub pool: Arc<SqlitePool>,
     pub templates: Arc<RwLock<Vec<WorkflowTemplate>>>,
+    pub cancellation_tokens: runner::CancelRegistry,
 }
 
 // ─── GET /health ────────────────────────────────────────────────────
@@ -91,6 +93,7 @@ pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoRespon
 /// Shared by submit_workflow, run_template, and watcher.
 pub async fn create_and_start_run(
     pool: &SqlitePool,
+    cancellation_tokens: &runner::CancelRegistry,
     wf: &crate::schema::Workflow,
     expanded_wf: crate::schema::Workflow,
     yaml_content: String,
@@ -172,11 +175,20 @@ pub async fn create_and_start_run(
         .cloned()
         .unwrap_or_default();
 
+    // Create and register cancellation token
+    let cancel_token = CancellationToken::new();
+    cancellation_tokens
+        .write()
+        .await
+        .insert(run_id.clone(), cancel_token.clone());
+
     runner::run_workflow(
         Arc::new(pool.clone()),
         run_id.clone(),
         expanded_wf,
         root_inputs,
+        cancel_token,
+        cancellation_tokens.clone(),
     )
     .await;
 
@@ -223,6 +235,15 @@ pub async fn list_api_docs() -> impl IntoResponse {
             params: vec![],
             curl: "curl -X DELETE http://$HOST/api/v1/workflows/{run_id}".into(),
             response: r#"{ "deleted": "019..." }"#.into(),
+            category: Some("workflows".into()),
+        },
+        ApiEndpoint {
+            method: "POST".into(),
+            path: "/api/v1/workflows/{run_id}/cancel".into(),
+            description: "Cancel a running or pending workflow run. Running nodes are terminated, pending nodes are skipped.".into(),
+            params: vec![],
+            curl: "curl -X POST http://$HOST/api/v1/workflows/{run_id}/cancel".into(),
+            response: r#"{ "status": "cancelled", "run_id": "019..." }"#.into(),
             category: Some("workflows".into()),
         },
         ApiEndpoint {
@@ -355,7 +376,15 @@ pub async fn submit_workflow(
         }
     };
 
-    match create_and_start_run(&state.pool, &wf, expanded_wf, req.yaml.clone()).await {
+    match create_and_start_run(
+        &state.pool,
+        &state.cancellation_tokens,
+        &wf,
+        expanded_wf,
+        req.yaml.clone(),
+    )
+    .await
+    {
         Ok(run_id) => (
             StatusCode::CREATED,
             Json(serde_json::json!(SubmitWorkflowResponse {
@@ -498,6 +527,75 @@ pub async fn delete_workflow_run(
     }
 }
 
+// ─── POST /api/v1/workflows/:run_id/cancel ────────────────────────────
+
+pub async fn cancel_workflow_run(
+    State(state): State<Arc<AppState>>,
+    Path(run_id): Path<String>,
+) -> impl IntoResponse {
+    match WorkflowRun::find_by_id(&state.pool, &run_id).await {
+        Ok(Some(run)) => {
+            // Idempotent: already cancelled
+            if run.status == "cancelled" {
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "status": "cancelled",
+                        "run_id": run_id,
+                        "message": "already cancelled"
+                    })),
+                );
+            }
+
+            // Can only cancel running or pending workflows
+            if run.status != "running" && run.status != "pending" {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "error": format!("cannot cancel run in '{}' status", run.status)
+                    })),
+                );
+            }
+
+            // Signal cancellation via token
+            let tokens = state.cancellation_tokens.read().await;
+            if let Some(token) = tokens.get(&run_id) {
+                token.cancel();
+            }
+            drop(tokens);
+
+            // Update workflow status
+            let _ = WorkflowRun::update_status(
+                &state.pool,
+                &run_id,
+                "cancelled",
+                Some("cancelled by user"),
+            )
+            .await;
+
+            // Mark running nodes as cancelled, pending nodes as skipped
+            let _ = NodeRun::mark_run_running_as_cancelled(&state.pool, &run_id).await;
+            let _ = NodeRun::mark_run_pending_as_skipped(&state.pool, &run_id).await;
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "cancelled",
+                    "run_id": run_id,
+                })),
+            )
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "workflow run not found"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("{e}")})),
+        ),
+    }
+}
+
 // ─── GET /api/v1/templates ───────────────────────────────────────
 
 pub async fn list_templates(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -569,7 +667,15 @@ pub async fn run_template(
         }
     };
 
-    match create_and_start_run(&state.pool, &wf, expanded_wf, yaml_content).await {
+    match create_and_start_run(
+        &state.pool,
+        &state.cancellation_tokens,
+        &wf,
+        expanded_wf,
+        yaml_content,
+    )
+    .await
+    {
         Ok(run_id) => (
             StatusCode::CREATED,
             Json(serde_json::json!({

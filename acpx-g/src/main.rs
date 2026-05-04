@@ -22,10 +22,12 @@ async fn main() -> anyhow::Result<()> {
     let pool = Arc::new(acpx_g::db::init(&database_url).await?);
 
     let templates = Arc::new(RwLock::new(Vec::new()));
+    let cancellation_tokens = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
 
     let state = Arc::new(acpx_g::api::AppState {
         pool: pool.clone(),
         templates: templates.clone(),
+        cancellation_tokens: cancellation_tokens.clone(),
     });
 
     // Cancellation token for graceful watcher shutdown
@@ -37,10 +39,11 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(dir = %workflow_dir, "starting workflow directory watcher");
         let pool_clone = pool.clone();
         let templates_clone = templates.clone();
+        let cancel_tokens_clone = cancellation_tokens.clone();
         let dir = workflow_dir.clone();
         Some(tokio::spawn(async move {
             tokio::select! {
-                _ = watcher::watch_directory(pool_clone, templates_clone, dir) => {},
+                _ = watcher::watch_directory(pool_clone, templates_clone, cancel_tokens_clone, dir) => {},
                 _ = watcher_cancel.cancelled() => {
                     tracing::info!("watcher shutting down");
                 }
@@ -72,6 +75,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/workflows/{run_id}",
             delete(acpx_g::api::delete_workflow_run),
+        )
+        .route(
+            "/api/v1/workflows/{run_id}/cancel",
+            post(acpx_g::api::cancel_workflow_run),
         )
         .route(
             "/api/v1/workflows/{run_id}/nodes/{node_id}/logs",

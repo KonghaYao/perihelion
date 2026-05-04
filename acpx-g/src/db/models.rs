@@ -46,7 +46,7 @@ impl WorkflowRun {
         error_message: Option<&str>,
     ) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        let finished = if status == "success" || status == "failed" {
+        let finished = if status == "success" || status == "failed" || status == "cancelled" {
             Some(now.clone())
         } else {
             None
@@ -254,6 +254,22 @@ impl NodeRun {
         .fetch_optional(pool)
         .await?;
         Ok(node)
+    }
+
+    /// Mark all running nodes in a run as cancelled (used on workflow cancellation).
+    pub async fn mark_run_running_as_cancelled(
+        pool: &SqlitePool,
+        run_id: &str,
+    ) -> anyhow::Result<u64> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let result = sqlx::query(
+            "UPDATE node_runs SET status = 'cancelled', error_message = 'cancelled by user', finished_at = ? WHERE run_id = ? AND status = 'running'",
+        )
+        .bind(&now)
+        .bind(run_id)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     /// Mark all pending nodes in a run as skipped (used when a workflow fails).

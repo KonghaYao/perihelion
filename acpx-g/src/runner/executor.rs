@@ -3,6 +3,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use tokio::process::Command;
 use tokio::time::{timeout as tokio_timeout, Duration};
+use tokio_util::sync::CancellationToken;
 
 use crate::db::NodeRun;
 use crate::runner::template::interpolate;
@@ -40,6 +41,7 @@ pub async fn execute_node(
     ctx: &TemplateContext,
     default_timeout: u64,
     default_retry: u32,
+    cancel_token: CancellationToken,
 ) -> anyhow::Result<HashMap<String, String>> {
     let nid = node_id(node);
     let node_run = NodeRun::find_by_run_and_node(pool, run_id, nid)
@@ -66,6 +68,7 @@ pub async fn execute_node(
                 Some(timeout),
                 Some(retry),
                 shell_cmd.as_deref(),
+                cancel_token.clone(),
             )
             .await
         }
@@ -87,6 +90,7 @@ pub async fn execute_node(
                 &env,
                 Some(timeout),
                 Some(retry),
+                cancel_token.clone(),
             )
             .await
         }
@@ -140,6 +144,7 @@ async fn execute_with_retry(
     pool: &SqlitePool,
     node_run_id: &str,
     retries: Option<u32>,
+    cancel_token: CancellationToken,
     execute_fn: impl Fn() -> std::pin::Pin<
         Box<dyn std::future::Future<Output = anyhow::Result<AttemptResult>> + Send>,
     >,
@@ -150,6 +155,11 @@ async fn execute_with_retry(
     let mut accumulated_stderr = String::new();
 
     for attempt in 0..max_attempts {
+        if cancel_token.is_cancelled() {
+            mark_node_cancelled(pool, node_run_id).await;
+            return Err(anyhow::anyhow!("cancelled by user"));
+        }
+
         sqlx::query("UPDATE node_runs SET attempt = ? WHERE id = ?")
             .bind(attempt as i64)
             .bind(node_run_id)
@@ -158,7 +168,15 @@ async fn execute_with_retry(
 
         NodeRun::set_started(pool, node_run_id).await?;
 
-        match execute_fn().await {
+        let result = tokio::select! {
+            r = execute_fn() => r,
+            _ = cancel_token.cancelled() => {
+                mark_node_cancelled(pool, node_run_id).await;
+                return Err(anyhow::anyhow!("cancelled by user"));
+            }
+        };
+
+        match result {
             Ok(result) => {
                 if attempt > 0 {
                     accumulated_stdout.push_str(&format!("--- Attempt {} ---\n", attempt + 1));
@@ -196,7 +214,13 @@ async fn execute_with_retry(
                 last_error = Some(e);
                 // Cap backoff at 60s to prevent overflow on high retry counts
                 let backoff_secs = 1u64.checked_shl(attempt).unwrap_or(60).min(60);
-                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)) => {}
+                    _ = cancel_token.cancelled() => {
+                        mark_node_cancelled(pool, node_run_id).await;
+                        return Err(anyhow::anyhow!("cancelled by user"));
+                    }
+                }
             }
         }
     }
@@ -215,8 +239,22 @@ async fn execute_with_retry(
     Err(err)
 }
 
+/// Mark a node as cancelled (idempotent, only updates if still running).
+async fn mark_node_cancelled(pool: &SqlitePool, node_run_id: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE node_runs SET status = 'cancelled', error_message = 'cancelled by user', finished_at = ? WHERE id = ? AND status = 'running'",
+    )
+    .bind(&now)
+    .bind(node_run_id)
+    .execute(pool)
+    .await
+    .ok();
+}
+
 // ─── Shell Execution ──────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn run_shell(
     pool: &SqlitePool,
     node_run_id: &str,
@@ -225,12 +263,13 @@ async fn run_shell(
     timeout_secs: Option<u64>,
     retries: Option<u32>,
     shell_override: Option<&str>,
+    cancel_token: CancellationToken,
 ) -> anyhow::Result<HashMap<String, String>> {
     let script = script.to_string();
     let env = env.clone();
     let shell_override = shell_override.map(|s| s.to_string());
 
-    execute_with_retry(pool, node_run_id, retries, move || {
+    execute_with_retry(pool, node_run_id, retries, cancel_token, move || {
         let script = script.clone();
         let mut env = env.clone();
         let shell_override = shell_override.clone();
@@ -330,6 +369,7 @@ async fn run_agent(
     env: &HashMap<String, String>,
     timeout_secs: Option<u64>,
     retries: Option<u32>,
+    cancel_token: CancellationToken,
 ) -> anyhow::Result<HashMap<String, String>> {
     let prompt = prompt.to_string();
     let agent_name = agent_name.map(|s| s.to_string());
@@ -337,7 +377,7 @@ async fn run_agent(
     let cwd = cwd.map(|s| s.to_string());
     let env = env.clone();
 
-    execute_with_retry(pool, node_run_id, retries, move || {
+    execute_with_retry(pool, node_run_id, retries, cancel_token, move || {
         let prompt = prompt.clone();
         let agent_name = agent_name.clone();
         let model = model.clone();
@@ -773,5 +813,138 @@ mod tests {
         let outputs = parse_output_file(output_path.to_str().unwrap());
         let _ = std::fs::remove_file(&output_path);
         assert_eq!(outputs.get("workdir").unwrap(), "./workspace/test-uuid");
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retry_cancel_before_execution() {
+        let pool = init_test_pool().await;
+        let run_id = uuid::Uuid::now_v7().to_string();
+        let node_run_id = uuid::Uuid::now_v7().to_string();
+        setup_test_node_run(&pool, &run_id, &node_run_id, "test-cancel").await;
+
+        let cancel_token = CancellationToken::new();
+        cancel_token.cancel(); // Cancel before execution
+
+        let result = execute_with_retry(&pool, &node_run_id, Some(0), cancel_token, || {
+            Box::pin(async move {
+                Ok(AttemptResult {
+                    exit_code: 0,
+                    stdout: "hello".to_string(),
+                    stderr: String::new(),
+                    dynamic_outputs: HashMap::new(),
+                })
+            })
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retry_cancel_during_execution() {
+        let pool = init_test_pool().await;
+        let run_id = uuid::Uuid::now_v7().to_string();
+        let node_run_id = uuid::Uuid::new_v4().to_string();
+        setup_test_node_run(&pool, &run_id, &node_run_id, "test-cancel-during").await;
+
+        let cancel_token = CancellationToken::new();
+        let token_clone = cancel_token.clone();
+
+        // Cancel after a brief delay
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            token_clone.cancel();
+        });
+
+        let result = execute_with_retry(&pool, &node_run_id, Some(0), cancel_token, || {
+            Box::pin(async move {
+                // Simulate long-running command
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                Ok(AttemptResult {
+                    exit_code: 0,
+                    stdout: "done".to_string(),
+                    stderr: String::new(),
+                    dynamic_outputs: HashMap::new(),
+                })
+            })
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    // Helper: create an in-memory SQLite pool for testing
+    async fn init_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("failed to create test pool");
+        sqlx::query(
+            "CREATE TABLE workflow_runs (
+                id TEXT PRIMARY KEY,
+                workflow_name TEXT NOT NULL,
+                workflow_version TEXT NOT NULL,
+                yaml_content TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                node_count INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT,
+                finished_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                error_message TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("failed to create workflow_runs table");
+        sqlx::query(
+            "CREATE TABLE node_runs (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                node_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempt INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT,
+                finished_at TEXT,
+                exit_code INTEGER,
+                stdout TEXT,
+                stderr TEXT,
+                error_message TEXT,
+                outputs TEXT,
+                depends TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("failed to create node_runs table");
+        pool
+    }
+
+    async fn setup_test_node_run(
+        pool: &SqlitePool,
+        run_id: &str,
+        node_run_id: &str,
+        node_id: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO workflow_runs (id, workflow_name, workflow_version, yaml_content, status, node_count, created_at)
+             VALUES (?, 'test', '1.0', '', 'running', 1, datetime('now'))",
+        )
+        .bind(run_id)
+        .execute(pool)
+        .await
+        .expect("failed to insert test workflow_run");
+
+        sqlx::query(
+            "INSERT INTO node_runs (id, run_id, node_id, node_type, status, attempt)
+             VALUES (?, ?, ?, 'shell', 'pending', 0)",
+        )
+        .bind(node_run_id)
+        .bind(run_id)
+        .bind(node_id)
+        .execute(pool)
+        .await
+        .expect("failed to insert test node_run");
     }
 }

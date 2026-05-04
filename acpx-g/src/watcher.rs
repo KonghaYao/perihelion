@@ -35,6 +35,7 @@ fn fnv1a_hash(data: &str) -> u64 {
 pub async fn watch_directory(
     pool: Arc<SqlitePool>,
     templates: Arc<RwLock<Vec<WorkflowTemplate>>>,
+    cancellation_tokens: crate::runner::CancelRegistry,
     dir_path: String,
 ) {
     let mut tracker = VersionTracker {
@@ -44,17 +45,32 @@ pub async fn watch_directory(
     let mut interval = tokio::time::interval(Duration::from_secs(10));
 
     // Immediate first scan (track only, no submits)
-    run_scan(&pool, &templates, &dir_path, &mut tracker).await;
+    run_scan(
+        &pool,
+        &templates,
+        &cancellation_tokens,
+        &dir_path,
+        &mut tracker,
+    )
+    .await;
 
     loop {
         interval.tick().await;
-        run_scan(&pool, &templates, &dir_path, &mut tracker).await;
+        run_scan(
+            &pool,
+            &templates,
+            &cancellation_tokens,
+            &dir_path,
+            &mut tracker,
+        )
+        .await;
     }
 }
 
 async fn run_scan(
     pool: &Arc<SqlitePool>,
     templates: &Arc<RwLock<Vec<WorkflowTemplate>>>,
+    cancellation_tokens: &crate::runner::CancelRegistry,
     dir_path: &str,
     tracker: &mut VersionTracker,
 ) {
@@ -148,8 +164,14 @@ async fn run_scan(
                     };
 
                     if should_submit {
-                        if let Err(e) =
-                            submit_workflow_from_file(pool, &content, &file_path, &wf).await
+                        if let Err(e) = submit_workflow_from_file(
+                            pool,
+                            cancellation_tokens,
+                            &content,
+                            &file_path,
+                            &wf,
+                        )
+                        .await
                         {
                             tracing::error!(name = %name, error = %e, "failed to submit workflow");
                             continue;
@@ -214,6 +236,7 @@ fn scan_dir(dir: &Path, files: &mut Vec<String>) -> anyhow::Result<()> {
 /// Expands references via the loader before persisting and executing.
 async fn submit_workflow_from_file(
     pool: &SqlitePool,
+    cancellation_tokens: &crate::runner::CancelRegistry,
     yaml_content: &str,
     file_path: &str,
     wf: &crate::schema::Workflow,
@@ -221,8 +244,14 @@ async fn submit_workflow_from_file(
     // Expand references using the loader
     let expanded_wf = runner::load_workflow(file_path, std::collections::HashMap::new()).await?;
 
-    let run_id =
-        crate::api::create_and_start_run(pool, wf, expanded_wf, yaml_content.to_string()).await?;
+    let run_id = crate::api::create_and_start_run(
+        pool,
+        cancellation_tokens,
+        wf,
+        expanded_wf,
+        yaml_content.to_string(),
+    )
+    .await?;
 
     tracing::info!(
         name = %wf.name,
