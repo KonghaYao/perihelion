@@ -95,7 +95,7 @@ function renderEditorPage() {
         </div>
 
         <!-- Drawflow Canvas -->
-        <div class="editor-canvas" id="drawflow" ondrop="editorDrop(event)" ondragover="event.preventDefault()"></div>
+        <div class="editor-canvas" id="drawflow"></div>
 
         <!-- YAML Panel (hidden by default) -->
         <div class="yaml-panel" id="yaml-panel">
@@ -183,6 +183,10 @@ function initEditor() {
   dfEditor.reroute_fix_curvature = true;
   dfEditor.force_first_input = false;
   dfEditor.start();
+
+  // Canvas drop handler
+  el.addEventListener('dragover', (e) => e.preventDefault());
+  el.addEventListener('drop', editorDrop);
 
   // Drawflow events
   dfEditor.on('nodeCreated', () => { updateYamlFromCanvas(); pushHistory(); });

@@ -3,7 +3,7 @@
 let _apiEndpoints = null;
 
 function curlBlock(code) {
-  return `<div class="api-curl"><button class="code-copy-btn" onclick="copyToClipboard(this.parentElement.querySelector('code').textContent)">复制</button><code>${escapeHtml(code)}</code></div>`;
+  return `<div class="api-curl"><button class="code-copy-btn" data-action="copy-curl">复制</button><code>${escapeHtml(code)}</code></div>`;
 }
 
 async function fetchApiEndpoints() {
@@ -58,6 +58,7 @@ async function showApiDocs() {
 
   body.innerHTML = endpoints.map(ep => renderEndpoint(ep)).join('');
   lucide.createIcons({ nodes: [body] });
+  bindApiDocsCopy(body);
 }
 
 function showTemplateApi(templateName) {
@@ -78,7 +79,17 @@ function showTemplateApi(templateName) {
     }).join('');
     body.innerHTML = html;
     lucide.createIcons({ nodes: [body] });
+    bindApiDocsCopy(body);
   }).catch(() => {
     body.innerHTML = '<div style="color:var(--status-error);padding:16px;font-size:13px;">加载失败</div>';
+  });
+}
+
+function bindApiDocsCopy(container) {
+  container.querySelectorAll('[data-action="copy-curl"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.parentElement?.querySelector('code')?.textContent;
+      if (code) copyToClipboard(code);
+    });
   });
 }
