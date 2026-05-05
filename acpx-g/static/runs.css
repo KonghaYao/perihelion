@@ -1,0 +1,132 @@
+/* ─── Runs Page ────────────────────────────────────────────────── */
+.runs-page {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ─── Run Card Grid ───────────────────────────────────────────── */
+.run-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.run-card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.run-card:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-elevated);
+  transform: translateY(-2px);
+}
+
+.run-card-top {
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.run-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.run-card-icon.running { background: rgba(16, 185, 129, 0.12); color: var(--status-active); }
+.run-card-icon.success { background: rgba(16, 185, 129, 0.12); color: var(--status-active); }
+.run-card-icon.failed  { background: rgba(239, 68, 68, 0.12); color: var(--status-error); }
+.run-card-icon.cancelled { background: rgba(249, 115, 22, 0.12); color: var(--status-cancelled); }
+.run-card-icon.pending { background: rgba(148, 163, 184, 0.12); color: var(--status-pending); }
+
+.run-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.run-card-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-card-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.run-card-status {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+.run-card-status.running   { background: rgba(16, 185, 129, 0.12); color: var(--status-active); }
+.run-card-status.success   { background: rgba(16, 185, 129, 0.12); color: var(--status-active); }
+.run-card-status.failed    { background: rgba(239, 68, 68, 0.12); color: var(--status-error); }
+.run-card-status.cancelled { background: rgba(249, 115, 22, 0.12); color: var(--status-cancelled); }
+.run-card-status.pending   { background: rgba(148, 163, 184, 0.12); color: var(--status-pending); }
+
+.run-card-stats {
+  padding: 0 16px 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.run-card-stat {
+  background: var(--surface-void);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.run-card-stat-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.run-card-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.run-card-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.run-card-time {
+  font-size: 11px;
+  color: var(--text-dim);
+}

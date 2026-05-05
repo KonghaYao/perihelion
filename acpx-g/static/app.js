@@ -1,704 +1,277 @@
-// ── State ───────────────────────────────────────────────────────────
+// ============================================================
+// ACPX-G — App Shell (SPA Router + Global State + Toast + Modal)
+// ============================================================
+
 const API_WF = '/api/v1/workflows';
 const API_TPL = '/api/v1/templates';
-let selectedRunId = null;
-let selectedTemplateName = null;
-let allTemplates = [];
-let refreshTimer = null;
-let dagZoom = 1, dagPanX = 0, dagPanY = 0;
-let dragging = false, dragStart = {};
-let currentPage = 1;
-let totalPages = 1;
 
-// ── Toast notifications ──────────────────────────────────────────────
-function showToast(msg, type='error') {
-  let container = document.getElementById('toast-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'toast-container';
-    document.body.appendChild(container);
-  }
-  const el = document.createElement('div');
-  el.className = `toast toast-${type}`;
-  el.textContent = msg;
-  container.appendChild(el);
-  setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 300); }, 4000);
-}
+// ── Global State ──────────────────────────────────────────
+const AppState = {
+  currentPage: 'editor',
+  templates: [],
+  pollTimers: [],
+};
 
-// ── Status helpers ──────────────────────────────────────────────────
-const NODE_ICONS = { shell: '\u25B6', agent: '\u2726', reference: '\u21BB' };
-
-function sb(s) { return `sb-${s || 'pending'}`; }
-function statusLabel(s) { return (s || 'pending'); }
-function statusBadge(s) {
-  return `<span class="status-badge ${sb(s)}"><span class="dot"></span>${statusLabel(s)}</span>`;
-}
-
-function nodeFill(s) {
-  return { pending:'#eaeef2', running:'#ddf4ff', success:'#dafbe1', failed:'#ffebe9', skipped:'#f6f8fa' }[s] || '#eaeef2';
-}
-function nodeStroke(s) {
-  return { pending:'#8b949e', running:'#0969da', success:'#1a7f37', failed:'#cf222e', skipped:'#8b949e' }[s] || '#8b949e';
-}
-
-// ── Mode switching ──────────────────────────────────────────────────
-function showTemplatePreview(name) {
-  selectedTemplateName = name;
-  selectedRunId = null;
-  clearInterval(refreshTimer);
-
-  const tpl = allTemplates.find(t => t.name === name);
-  if (!tpl) return;
-
-  document.querySelectorAll('.template-card').forEach(el => {
-    el.classList.toggle('active', el.dataset.name === name);
+// ── API Helper ────────────────────────────────────────────
+async function api(path, options = {}) {
+  const url = path.startsWith('http') ? path : path;
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
   });
-  document.querySelectorAll('.run-item').forEach(el => el.classList.remove('active'));
-
-  const hdr = document.getElementById('preview-header');
-  hdr.classList.add('visible');
-  document.getElementById('preview-name').textContent = tpl.name;
-  document.getElementById('preview-desc').textContent = tpl.description || `v${tpl.version} · ${tpl.node_count} nodes`;
-  document.getElementById('preview-run-btn').onclick = () => runTemplate(name);
-
-  // Render inputs form if the template declares inputs
-  const inputsEl = document.getElementById('preview-inputs');
-  const inputs = tpl.inputs || {};
-  const inputKeys = Object.keys(inputs);
-  if (inputKeys.length > 0) {
-    inputsEl.style.display = 'block';
-    inputsEl.innerHTML = '<div class="inputs-title">Inputs</div>' +
-      inputKeys.map(k => {
-        const def = inputs[k];
-        const req = def.required ? ' <span class="req">*</span>' : '';
-        const ph = def.default ? `placeholder="default: ${esc(def.default)}"` : '';
-        return `<div class="input-field">
-          <label>${esc(k)}${req}</label>
-          <input type="text" data-input-key="${esc(k)}" ${ph} value="${esc(def.default || '')}">
-        </div>`;
-      }).join('');
-  } else {
-    inputsEl.style.display = 'none';
-    inputsEl.innerHTML = '';
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || body.message || `请求失败 (${res.status})`);
   }
-
-  const previewNodes = (tpl.nodes || []).map(n => ({
-    node_id: n.id, node_type: n.node_type, depends: n.depends, status: 'pending'
-  }));
-  renderGraph(previewNodes, null);
-
-  document.getElementById('log-panel').innerHTML = '<div class="log-empty">Run this template to see logs</div>';
+  if (res.status === 204) return null;
+  return res.json();
 }
 
-function showRunView() {
-  selectedTemplateName = null;
-  document.getElementById('preview-header').classList.remove('visible');
-  document.querySelectorAll('.template-card').forEach(el => el.classList.remove('active'));
+// ── Toast System ──────────────────────────────────────────
+function showToast(message, type = 'info', duration = 3000) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+
+  const iconMap = {
+    success: 'check-circle',
+    error: 'alert-circle',
+    warning: 'alert-triangle',
+    info: 'info',
+  };
+
+  toast.innerHTML = `
+    <i data-lucide="${iconMap[type] || 'info'}" class="toast-icon"></i>
+    <span class="toast-message">${escapeHtml(message)}</span>
+    <button class="toast-close" onclick="dismissToast(this.parentElement)">
+      <i data-lucide="x" style="width:14px;height:14px"></i>
+    </button>
+  `;
+
+  container.appendChild(toast);
+  lucide.createIcons({ nodes: [toast] });
+
+  setTimeout(() => dismissToast(toast), duration);
 }
 
-// ── Templates ───────────────────────────────────────────────────────
-async function loadTemplates() {
-  const el = document.getElementById('templates-section');
-  try {
-    const r = await fetch(API_TPL);
-    const d = await r.json();
-    const tpls = d.templates || [];
-    allTemplates = tpls;
-    if (!tpls.length) {
-      el.innerHTML = '<div class="template-empty">No templates found<br><span style="font-size:11px">Start with: acpx-g --workflow-dir ./examples</span></div>';
-      document.getElementById('graph-placeholder').textContent = 'Add a workflow directory to get started';
-      document.getElementById('log-panel').innerHTML = '<div class="log-empty">Workflow logs will appear here</div>';
-      if (typeof refreshEditorTemplateList === 'function') refreshEditorTemplateList();
-      return;
-    }
-    el.innerHTML = tpls.map(t => `
-      <div class="template-card${selectedTemplateName===t.name?' active':''}" data-name="${esc(t.name)}">
-        <div class="template-name">${esc(t.name)}</div>
-        <div class="template-desc">${esc(t.description || 'No description')}</div>
-        <div class="template-meta">
-          <span class="tag">v${esc(t.version)}</span>
-          <span class="tag">${t.node_count} nodes</span>
-          <span class="tag" title="${esc(t.file_path)}">${esc(basename(t.file_path))}</span>
-        </div>
-        <div class="template-actions">
-          <button class="btn btn-primary btn-sm run-btn" data-name="${esc(t.name)}">&#9654; Run</button>
-          <button class="btn btn-sm edit-btn" data-name="${esc(t.name)}">Edit</button>
-          <button class="btn btn-sm api-btn" data-name="${esc(t.name)}">API</button>
-        </div>
-      </div>
-    `).join('');
+function dismissToast(el) {
+  if (!el || !el.parentElement) return;
+  el.classList.add('exit');
+  setTimeout(() => el.remove(), 200);
+}
 
-    // Event delegation for template cards
-    el.querySelectorAll('.template-card').forEach(card => {
-      card.addEventListener('click', () => showTemplatePreview(card.dataset.name));
-    });
-    el.querySelectorAll('.run-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        runTemplateFromCard(btn.dataset.name);
-      });
-    });
-    el.querySelectorAll('.edit-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (typeof editTemplateInEditor === 'function') {
-          editTemplateInEditor(btn.dataset.name);
-        }
-      });
-    });
-    el.querySelectorAll('.api-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        showTemplateApi(btn.dataset.name);
-      });
-    });
+// ── Modal System ──────────────────────────────────────────
+function openModal(html, opts = {}) {
+  const overlay = document.getElementById('modalOverlay');
+  const content = document.getElementById('modalContent');
+  content.innerHTML = html;
+  overlay.classList.add('open');
+  if (opts.onClose) overlay._onClose = opts.onClose;
+  lucide.createIcons({ nodes: [content] });
+}
 
-    // Sync editor sidebar template list
-    if (typeof refreshEditorTemplateList === 'function') refreshEditorTemplateList();
-
-    // Auto-select first template on initial load
-    if (!selectedRunId && !selectedTemplateName) {
-      showTemplatePreview(tpls[0].name);
-    }
-  } catch(e) {
-    el.innerHTML = '<div class="template-empty" style="color:#cf222e">Failed to load templates</div>';
+function closeModal() {
+  const overlay = document.getElementById('modalOverlay');
+  overlay.classList.remove('open');
+  if (overlay._onClose) {
+    overlay._onClose();
+    overlay._onClose = null;
   }
 }
 
-// Run from card: select template first (shows inputs form), then run
-function runTemplateFromCard(name) {
-  showTemplatePreview(name);
-  const tpl = allTemplates.find(t => t.name === name);
-  const inputKeys = Object.keys(tpl?.inputs || {});
-  if (inputKeys.length === 0) {
-    // No inputs required, run immediately
-    runTemplate(name);
-  }
-  // If template has inputs, user fills them in the preview form and clicks Run
+// ── Confirm Dialog ────────────────────────────────────────
+function confirmDialog(title, message, detail, onConfirm) {
+  const detailHtml = detail ? `<div class="confirm-detail">${escapeHtml(detail)}</div>` : '';
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">${escapeHtml(title)}</span>
+      <button class="modal-close" onclick="closeModal()"><i data-lucide="x" style="width:16px;height:16px"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="confirm-body">${escapeHtml(message)}</div>
+      ${detailHtml}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger" id="confirmBtn">确认</button>
+    </div>
+  `);
+  document.getElementById('confirmBtn').onclick = () => {
+    closeModal();
+    onConfirm();
+  };
 }
 
-async function runTemplate(name) {
-  // Collect inputs from the preview form with validation
-  const inputsEl = document.getElementById('preview-inputs');
-  const inputs = {};
-  let valid = true;
-  if (inputsEl) {
-    inputsEl.querySelectorAll('input[data-input-key]').forEach(inp => {
-      inp.style.borderColor = '';
-      const key = inp.dataset.inputKey;
-      const label = inp.closest('.input-field')?.querySelector('label');
-      const isRequired = label && label.querySelector('.req');
-      if (!inp.value.trim() && isRequired) {
-        inp.style.borderColor = '#cf222e';
-        valid = false;
-      } else if (inp.value.trim()) {
-        inputs[key] = inp.value.trim();
-      }
-    });
+// ── Router ────────────────────────────────────────────────
+function navigate(page, params = {}) {
+  // Clear all poll timers
+  AppState.pollTimers.forEach(t => clearInterval(t));
+  AppState.pollTimers = [];
+
+  AppState.currentPage = page;
+  AppState.pageParams = params;
+
+  // Destroy editor when navigating away
+  if (page !== 'editor' && typeof destroyEditor === 'function') {
+    destroyEditor();
   }
 
-  if (!valid) {
-    showToast('Please fill in all required inputs', 'error');
-    return;
+  // Update tab active state
+  document.querySelectorAll('.topbar-tab[data-page]').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.page === page);
+  });
+
+  // Render page
+  const content = document.getElementById('content');
+
+  switch (page) {
+    case 'editor':
+      content.innerHTML = renderEditorPage();
+      if (typeof initEditor === 'function') initEditor();
+      break;
+    case 'runs':
+      content.innerHTML = renderRunsPage();
+      if (typeof initRuns === 'function') initRuns();
+      break;
+    case 'run-detail':
+      content.innerHTML = renderRunDetailPage(params.id);
+      if (typeof initRunDetail === 'function') initRunDetail(params.id);
+      break;
+    default:
+      content.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i data-lucide="inbox" style="width:28px;height:28px"></i></div><div class="empty-state-title">页面不存在</div></div>';
   }
 
-  try {
-    const r = await fetch(`${API_TPL}/${encodeURIComponent(name)}/run`, {
-      method:'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inputs: Object.keys(inputs).length ? inputs : undefined }),
+  // Re-init lucide icons
+  lucide.createIcons();
+}
+
+// ── Utility ───────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function relativeTime(dateStr) {
+  if (!dateStr) return '--';
+  const now = new Date();
+  const date = new Date(dateStr + (dateStr.includes('Z') || dateStr.includes('+') ? '' : 'Z'));
+  const diff = (now - date) / 1000;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)} 天前`;
+  return date.toLocaleDateString('zh-CN');
+}
+
+function formatDuration(startedAt, finishedAt) {
+  if (!startedAt) return '--';
+  const start = new Date(startedAt + (startedAt.includes('Z') || startedAt.includes('+') ? '' : 'Z'));
+  const end = finishedAt
+    ? new Date(finishedAt + (finishedAt.includes('Z') || finishedAt.includes('+') ? '' : 'Z'))
+    : new Date();
+  const diff = Math.max(0, (end - start) / 1000);
+  if (diff < 60) return `${Math.floor(diff)}s`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ${Math.floor(diff % 60)}s`;
+  const h = Math.floor(diff / 3600);
+  const m = Math.floor((diff % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+function statusText(status) {
+  const map = {
+    pending: '等待中',
+    running: '运行中',
+    success: '成功',
+    failed: '失败',
+    cancelled: '已取消',
+    skipped: '已跳过',
+  };
+  return map[status] || status;
+}
+
+function statusClass(status) {
+  const map = {
+    running: 'running',
+    success: 'success',
+    idle: 'idle',
+    warning: 'warning',
+    error: 'error',
+    pending: 'pending',
+    cancelled: 'cancelled',
+    skipped: 'skipped',
+  };
+  return map[status] || 'pending';
+}
+
+function nodeTypeColor(type) {
+  const map = {
+    shell: 'var(--brand)',
+    agent: '#8250DF',
+    reference: 'var(--status-active)',
+  };
+  return map[type] || 'var(--text-dim)';
+}
+
+function nodeTypeLabel(type) {
+  const map = {
+    shell: 'Shell',
+    agent: '代理',
+    reference: '引用',
+  };
+  return map[type] || type;
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('已复制到剪贴板', 'success', 2000);
+  }).catch(() => {
+    showToast('复制失败', 'error');
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  lucide.createIcons();
+
+  // Tab click handlers
+  document.querySelectorAll('.topbar-tab[data-page]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      location.hash = tab.dataset.page;
     });
-    const d = await r.json();
-    if (r.ok) {
-      selectedRunId = d.run_id;
-      showRunView();
-      loadRuns();
-      selectRun(d.run_id);
-      showToast('Workflow started', 'success');
+  });
+
+  // API Docs button
+  document.getElementById('navApiDocs').addEventListener('click', () => {
+    if (typeof showApiDocs === 'function') showApiDocs();
+  });
+
+  // Close modal on overlay click
+  document.getElementById('modalOverlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+
+  // Close API docs modal
+  const apiDocsOverlay = document.getElementById('apiDocsOverlay');
+  document.getElementById('apiDocsClose').addEventListener('click', () => {
+    apiDocsOverlay.classList.remove('open');
+  });
+  apiDocsOverlay.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) apiDocsOverlay.classList.remove('open');
+  });
+
+  // Hash-based routing
+  function handleHash() {
+    const hash = location.hash.slice(1) || 'editor';
+    if (hash.startsWith('run/')) {
+      const id = hash.slice(4);
+      navigate('run-detail', { id });
     } else {
-      showToast(d.error || 'Failed to start workflow', 'error');
+      navigate(hash);
     }
-  } catch(e) {
-    showToast('Network error: ' + e.message, 'error');
-  }
-}
-
-// ── Runs ────────────────────────────────────────────────────────────
-async function loadRuns(page) {
-  if (page !== undefined) currentPage = page;
-  const el = document.getElementById('run-list');
-  try {
-    const r = await fetch(`${API_WF}?page=${currentPage}&per_page=50`);
-    const d = await r.json();
-    const runs = d.runs || [];
-    const total = d.total || 0;
-    const perPage = d.per_page || 50;
-    totalPages = Math.max(1, Math.ceil(total / perPage));
-    document.getElementById('run-count').textContent = total ? `${total} total · page ${currentPage}/${totalPages}` : '';
-    if (!runs.length) { el.innerHTML = '<div class="log-empty" style="padding:24px">No runs yet</div>'; return; }
-    el.innerHTML = runs.map(run => {
-      const cls = run.id === selectedRunId ? 'run-item active' : 'run-item';
-      return `<div class="${cls}" data-run-id="${esc(run.id)}">
-        <div class="run-name">${statusBadge(run.status)} ${esc(run.workflow_name)}</div>
-        <div class="run-meta">
-          <span>v${esc(run.workflow_version)}</span>
-          <span>${run.node_count} nodes</span>
-          <span>${fmtTime(run.created_at)}</span>
-          <span>${fmtDuration(run.started_at, run.finished_at)}</span>
-        </div>
-      </div>`;
-    }).join('');
-
-    // Pagination controls
-    if (totalPages > 1) {
-      el.innerHTML += `<div class="pagination">
-        <button class="btn btn-sm" onclick="loadRuns(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>&#9664; Prev</button>
-        <span style="font-size:11px;color:var(--text2)">${currentPage} / ${totalPages}</span>
-        <button class="btn btn-sm" onclick="loadRuns(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>Next &#9654;</button>
-      </div>`;
-    }
-
-    // Event delegation for run items
-    el.querySelectorAll('.run-item').forEach(item => {
-      item.addEventListener('click', () => selectRun(item.dataset.runId));
-    });
-  } catch(e) {
-    el.innerHTML = '<div class="log-empty" style="color:#cf222e">Failed to load</div>';
-  }
-}
-
-// ── Select Run ──────────────────────────────────────────────────────
-async function selectRun(id) {
-  selectedRunId = id;
-  showRunView();
-  loadRuns();
-  clearInterval(refreshTimer);
-
-  try {
-    const r = await fetch(`${API_WF}/${id}`);
-    const run = await r.json();
-    renderGraph(run.nodes || [], run);
-    renderLogs(run);
-
-    // Schedule polling for active runs — single fetch, no duplicate
-    if (run.status === 'running' || run.status === 'pending') {
-      refreshTimer = setInterval(() => selectRun(id), 2000);
-    }
-  } catch(e) {}
-}
-
-// ── DAG Graph ───────────────────────────────────────────────────────
-const NODE_W = 140, NODE_H = 48, LEVEL_GAP = 90, NODE_GAP = 14, PAD = 40;
-
-function renderGraph(nodes, runCtx) {
-  const ph = document.getElementById('graph-placeholder');
-  const svgEl = document.getElementById('graph-svg');
-  const zoomCtls = document.getElementById('zoom-ctls');
-
-  if (!nodes.length) {
-    ph.style.display = 'flex'; svgEl.style.display = 'none'; zoomCtls.style.display = 'none';
-    return;
   }
 
-  ph.style.display = 'none';
-  svgEl.style.display = 'block';
-  zoomCtls.style.display = 'flex';
-
-  const idxMap = {}; nodes.forEach((n,i) => idxMap[n.node_id] = i);
-  const adj = nodes.map(() => []);
-  const deg = nodes.map(() => 0);
-  nodes.forEach((n,i) => {
-    (n.depends || []).forEach(d => {
-      const j = idxMap[d];
-      if (j !== undefined) { adj[j].push(i); deg[i]++; }
-    });
-  });
-
-  // Topological sort
-  const levels = [];
-  const inDeg = [...deg];
-  let queue = nodes.map((_,i)=>i).filter(i => inDeg[i]===0);
-  while (queue.length) {
-    levels.push([...queue]);
-    const next = [];
-    queue.forEach(i => adj[i].forEach(j => { inDeg[j]--; if (inDeg[j]===0) next.push(j); }));
-    queue = next;
-  }
-  const placed = new Set(levels.flat());
-  const remaining = nodes.map((_,i)=>i).filter(i => !placed.has(i));
-  if (remaining.length) levels.push(remaining);
-
-  // Layout — top-to-bottom
-  const maxPerLevel = Math.max(1, ...levels.map(l => l.length));
-  const totalW = maxPerLevel * (NODE_W + NODE_GAP) - NODE_GAP + PAD * 2;
-  const totalH = levels.length * (NODE_H + LEVEL_GAP) - LEVEL_GAP + PAD * 2;
-
-  // Only reset zoom/pan when switching between different content (run vs template)
-  const prevNodes = svgEl.dataset.nodeCount || '';
-  const curNodes = String(nodes.length);
-  if (prevNodes !== curNodes) {
-    dagZoom = 1; dagPanX = 0; dagPanY = 0;
-    svgEl.dataset.nodeCount = curNodes;
-  }
-
-  const pos = {};
-  levels.forEach((level, li) => {
-    const y = PAD + li * (NODE_H + LEVEL_GAP);
-    const startX = PAD + (maxPerLevel - level.length) * (NODE_W + NODE_GAP) / 2;
-    level.forEach((ni, si) => {
-      pos[ni] = { x: startX + si * (NODE_W + NODE_GAP), y };
-    });
-  });
-
-  let html = `<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-    <path d="M0,0 L8,3 L0,6 Z" class="edge-arrow"/>
-  </marker></defs>`;
-
-  // Edges
-  nodes.forEach((n,i) => {
-    (n.depends || []).forEach(d => {
-      const j = idxMap[d];
-      if (j === undefined || !pos[i] || !pos[j]) return;
-      const from = pos[j], to = pos[i];
-      const x1 = from.x + NODE_W / 2, y1 = from.y + NODE_H;
-      const x2 = to.x + NODE_W / 2, y2 = to.y;
-      html += `<path d="M${x1} ${y1} C${x1} ${(y1+y2)/2} ${x2} ${(y1+y2)/2} ${x2} ${y2}" class="edge-line" marker-end="url(#arrow)"/>`;
-    });
-  });
-
-  // Nodes
-  const isPreview = !runCtx;
-  nodes.forEach((n,i) => {
-    if (!pos[i]) return;
-    const {x, y} = pos[i];
-    const status = n.status || 'pending';
-    const icon = NODE_ICONS[n.node_type] || '';
-
-    let clickAttr = '';
-    let subText = esc(n.node_type) + ' \u00b7 ' + statusLabel(status);
-    if (!isPreview && n.node_id) {
-      clickAttr = ` data-jump-node="${cssEsc(n.node_id)}"`;
-      if (n.exit_code != null) subText += ' exit=' + n.exit_code;
-    }
-
-    html += `<g class="node-group"${clickAttr}>
-      <rect x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" class="node-rect" fill="${nodeFill(status)}" stroke="${nodeStroke(status)}"/>
-      <text x="${x + 8}" y="${y + 16}" class="node-icon">${icon}</text>
-      <text x="${x + NODE_W/2}" y="${y + 16}" class="node-title">${esc(n.node_id)}</text>
-      <text x="${x + NODE_W/2}" y="${y + 34}" class="node-sub">${subText}</text>
-    </g>`;
-  });
-
-  svgEl.setAttribute('viewBox', `0 0 ${Math.max(totalW,400)} ${Math.max(totalH,200)}`);
-  svgEl.innerHTML = html;
-  applyTransform();
-
-  // Event delegation for DAG node clicks → jump to log
-  svgEl.querySelectorAll('.node-group[data-jump-node]').forEach(g => {
-    g.addEventListener('click', () => jumpToLog(g.dataset.jumpNode));
-  });
-}
-
-function applyTransform() {
-  const svg = document.getElementById('graph-svg');
-  svg.style.transform = `translate(${dagPanX}px,${dagPanY}px) scale(${dagZoom})`;
-  svg.style.transformOrigin = '0 0';
-}
-
-function zoomIn()  { dagZoom = Math.min(3, dagZoom * 1.25); applyTransform(); }
-function zoomOut() { dagZoom = Math.max(0.25, dagZoom / 1.25); applyTransform(); }
-function zoomFit() { dagZoom = 1; dagPanX = 0; dagPanY = 0; applyTransform(); }
-
-// Pan with mouse drag
-(function() {
-  const svg = document.getElementById('graph-svg');
-  svg.addEventListener('mousedown', e => {
-    dragging = true; dragStart = { x: e.clientX - dagPanX, y: e.clientY - dagPanY };
-    e.preventDefault();
-  });
-  window.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    dagPanX = e.clientX - dragStart.x;
-    dagPanY = e.clientY - dragStart.y;
-    applyTransform();
-  });
-  window.addEventListener('mouseup', () => { dragging = false; });
-  svg.addEventListener('wheel', e => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    dagZoom = Math.max(0.25, Math.min(3, dagZoom * delta));
-    applyTransform();
-  });
-})();
-
-function jumpToLog(nodeRunId) {
-  const el = document.querySelector(`.log-section[data-node="${cssEsc(nodeRunId)}"]`);
-  if (el) {
-    el.scrollIntoView({ behavior:'smooth', block:'center' });
-    const body = el.querySelector('.log-body');
-    if (body && !body.classList.contains('open')) el.querySelector('.log-header').click();
-  }
-}
-
-// ── Logs ────────────────────────────────────────────────────────────
-function renderLogs(run) {
-  const nodes = run.nodes || [];
-  const panel = document.getElementById('log-panel');
-  if (!nodes.length) { panel.innerHTML = '<div class="log-empty">No nodes</div>'; return; }
-
-  // Progress indicator: completed/total nodes
-  const completed = nodes.filter(n => ['success','failed','skipped','cancelled'].includes(n.status)).length;
-  const total = nodes.length;
-  const progressPct = total ? Math.round(completed / total * 100) : 0;
-  const progressHtml = `<div class="progress-bar-container" title="${completed}/${total} nodes completed (${progressPct}%)">
-    <div class="progress-bar-fill" style="width:${progressPct}%"></div>
-    <span class="progress-bar-text">${completed}/${total} nodes</span>
-  </div>`;
-
-  // Action buttons based on workflow status
-  let actionsHtml = '<div class="run-actions">';
-  actionsHtml += `<button class="btn btn-sm" data-action="edit">Edit</button>`;
-  if (run.status === 'running' || run.status === 'pending') {
-    actionsHtml += `<button class="btn btn-sm btn-danger" data-action="cancel">Cancel</button>`;
-  }
-  if (['success','failed','cancelled'].includes(run.status)) {
-    actionsHtml += `<button class="btn btn-sm btn-primary" data-action="rerun">Re-run</button>`;
-    actionsHtml += `<button class="btn btn-sm btn-danger" data-action="delete">Delete</button>`;
-  }
-  actionsHtml += '</div>';
-
-  panel.innerHTML = `<div class="run-detail-header">
-    <h3>${statusBadge(run.status)} ${esc(run.workflow_name)} <span style="font-weight:400">${fmtDuration(run.started_at, run.finished_at)}</span></h3>
-    ${progressHtml}
-    ${actionsHtml}
-  </div>` +
-    nodes.map(n => {
-      const isFailed = n.status === 'failed';
-      const hasError = !!n.error_message;
-      const bodyClass = (isFailed || hasError) ? 'log-body open' : 'log-body';
-      const sectionClass = isFailed ? 'log-section failed' : 'log-section';
-
-      let bodyContent = '';
-      if (n.error_message) bodyContent += `<div class="log-error-banner">${esc(n.error_message)}</div>`;
-      bodyContent += (n.stdout ? `<pre>${esc(n.stdout)}</pre>` : '');
-      bodyContent += (n.stderr ? `<pre class="stderr">${esc(n.stderr)}</pre>` : '');
-      if (!n.stdout && !n.stderr && !n.error_message) {
-        bodyContent = '<div style="font-size:11px;color:var(--text2);padding:8px">No output</div>';
-      }
-
-      return `<div class="${sectionClass}" data-node="${cssEsc(n.node_id)}">
-        <div class="log-header" data-node-id="${esc(n.node_id)}">
-          <span class="left"><b>${esc(n.node_id)}</b> <span style="color:var(--text2)">${n.node_type}</span></span>
-          <span class="right">
-            ${statusBadge(n.status)}
-            ${n.attempt>0 ? `<span>retry ${n.attempt}</span>` : ''}
-            ${n.exit_code!=null ? `<span>exit=${n.exit_code}</span>` : ''}
-            ${n.started_at ? `<span>${fmtDuration(n.started_at, n.finished_at)}</span>` : ''}
-          </span>
-        </div>
-        <div class="${bodyClass}" id="${domId(n.node_id)}">${bodyContent}</div>
-      </div>`;
-    }).join('');
-
-  // Event delegation for log headers
-  panel.querySelectorAll('.log-header[data-node-id]').forEach(hdr => {
-    hdr.addEventListener('click', () => toggleLog(hdr, hdr.dataset.nodeId));
-  });
-
-  // Event delegation for run action buttons
-  panel.querySelectorAll('.run-actions .btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const action = btn.dataset.action;
-      if (action === 'cancel') cancelRun(run.id);
-      else if (action === 'rerun') rerunRun(run.id);
-      else if (action === 'delete') confirmDelete(run.id, run.workflow_name);
-      else if (action === 'edit') {
-        if (typeof editTemplateInEditor === 'function') {
-          editTemplateInEditor(run.workflow_name);
-        }
-      }
-    });
-  });
-}
-
-function toggleLog(header, nodeId) {
-  const body = document.getElementById(domId(nodeId));
-  if (!body) return;
-  if (!body.classList.contains('open')) {
-    body.classList.add('open');
-    fetchLogs(nodeId, body);
-  } else {
-    body.classList.remove('open');
-  }
-}
-
-// Escape a string for use in CSS attribute selectors
-// Escape a string for use in CSS attribute selectors
-// Covers: backslash, quotes, brackets, and non-identifier chars per CSS spec
-function cssEsc(s) {
-  return s.replace(/[\\\0-\x1f"']/g, ch => {
-    return '\\' + ch.charCodeAt(0).toString(16) + ' ';
-  }).replace(/]/g, '\\]');
-}
-
-// Sanitize node_id for use as a DOM id (replace / with -)
-function domId(nodeId) { return 'log-' + nodeId.replace(/[^a-zA-Z0-9_-]/g, '_'); }
-
-async function fetchLogs(nodeId, el) {
-  if (!selectedRunId) return;
-  el.innerHTML = '<div style="padding:8px;text-align:center"><span class="spinner"></span> Loading...</div>';
-  try {
-    const r = await fetch(`${API_WF}/${selectedRunId}/nodes/${encodeURIComponent(nodeId)}/logs`);
-    const d = await r.json();
-    let html = '';
-    if (d.error_message) html += `<div class="log-error-banner">${esc(d.error_message)}</div>`;
-    html += (d.stdout ? `<pre>${esc(d.stdout)}</pre>` : '');
-    html += (d.stderr ? `<pre class="stderr">${esc(d.stderr)}</pre>` : '');
-    if (!html) html = '<div style="font-size:11px;color:var(--text2);padding:8px">No output</div>';
-    el.innerHTML = html;
-  } catch(e) {
-    el.innerHTML = '<div style="color:#cf222e;font-size:11px">Failed to load</div>';
-  }
-}
-
-// ── Run Actions ──────────────────────────────────────────────────────
-async function cancelRun(runId) {
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-  const dialog = document.createElement('div');
-  dialog.className = 'confirm-dialog';
-  dialog.innerHTML = `
-    <div class="confirm-title">Cancel Workflow</div>
-    <div class="confirm-msg">Cancel this running workflow? Running nodes will be terminated and pending nodes will be skipped.</div>
-    <div class="confirm-actions">
-      <button class="btn btn-sm confirm-cancel">Keep Running</button>
-      <button class="btn btn-sm btn-danger confirm-ok">Cancel Workflow</button>
-    </div>`;
-  document.body.appendChild(backdrop);
-  document.body.appendChild(dialog);
-
-  const cleanup = () => { backdrop.remove(); dialog.remove(); };
-  dialog.querySelector('.confirm-cancel').addEventListener('click', cleanup);
-  backdrop.addEventListener('click', cleanup);
-  dialog.querySelector('.confirm-ok').addEventListener('click', async () => {
-    cleanup();
-    try {
-      const r = await fetch(`${API_WF}/${runId}/cancel`, { method: 'POST' });
-      if (r.ok) {
-        showToast('Workflow cancelled', 'success');
-        selectRun(runId);
-        loadRuns();
-      } else {
-        const d = await r.json();
-        showToast(d.error || 'Failed to cancel', 'error');
-      }
-    } catch(e) {
-      showToast('Network error: ' + e.message, 'error');
-    }
-  });
-}
-
-function rerunRun(runId) {
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-  const dialog = document.createElement('div');
-  dialog.className = 'confirm-dialog';
-  dialog.innerHTML = `
-    <div class="confirm-title">Re-run Workflow</div>
-    <div class="confirm-msg">Create a new run with the same inputs?</div>
-    <div class="confirm-actions">
-      <button class="btn btn-sm confirm-cancel">Cancel</button>
-      <button class="btn btn-sm btn-primary confirm-ok">Re-run</button>
-    </div>`;
-  document.body.appendChild(backdrop);
-  document.body.appendChild(dialog);
-
-  const cleanup = () => { backdrop.remove(); dialog.remove(); };
-  dialog.querySelector('.confirm-cancel').addEventListener('click', cleanup);
-  backdrop.addEventListener('click', cleanup);
-  dialog.querySelector('.confirm-ok').addEventListener('click', async () => {
-    cleanup();
-    try {
-    const r = await fetch(`${API_WF}/${runId}/rerun`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    const d = await r.json();
-    if (r.ok) {
-      showToast('Workflow re-started', 'success');
-      selectedRunId = d.run_id;
-      showRunView();
-      loadRuns();
-      selectRun(d.run_id);
-    } else {
-      showToast(d.error || 'Failed to re-run', 'error');
-    }
-  } catch(e) {
-    showToast('Network error: ' + e.message, 'error');
-  }
-  });
-}
-
-function confirmDelete(runId, name) {
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-  const dialog = document.createElement('div');
-  dialog.className = 'confirm-dialog';
-  dialog.innerHTML = `
-    <div class="confirm-title">Delete Run</div>
-    <div class="confirm-msg">Delete workflow run <b>${esc(name)}</b>? This cannot be undone.</div>
-    <div class="confirm-actions">
-      <button class="btn btn-sm confirm-cancel">Cancel</button>
-      <button class="btn btn-sm btn-danger confirm-ok">Delete</button>
-    </div>`;
-  document.body.appendChild(backdrop);
-  document.body.appendChild(dialog);
-
-  const cleanup = () => { backdrop.remove(); dialog.remove(); };
-  dialog.querySelector('.confirm-cancel').addEventListener('click', cleanup);
-  backdrop.addEventListener('click', cleanup);
-  dialog.querySelector('.confirm-ok').addEventListener('click', async () => {
-    cleanup();
-    try {
-      const r = await fetch(`${API_WF}/${runId}`, { method: 'DELETE' });
-      if (r.ok) {
-        showToast('Run deleted', 'success');
-        if (selectedRunId === runId) {
-          selectedRunId = null;
-          document.getElementById('log-panel').innerHTML = '<div class="log-empty">Select a run to view logs</div>';
-          document.getElementById('graph-placeholder').style.display = 'flex';
-          document.getElementById('graph-svg').style.display = 'none';
-          document.getElementById('zoom-ctls').style.display = 'none';
-        }
-        loadRuns();
-      } else {
-        const d = await r.json();
-        showToast(d.error || 'Failed to delete', 'error');
-      }
-    } catch(e) {
-      showToast('Network error: ' + e.message, 'error');
-    }
-  });
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────
-function fmtTime(t) { if(!t)return'-'; const d=new Date(t); return d.toLocaleTimeString(); }
-function fmtDuration(start, end) {
-  if (!start) return '';
-  const s = new Date(start);
-  const e = end ? new Date(end) : new Date();
-  const ms = e - s;
-  if (ms < 1000) return ms + 'ms';
-  if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-  const m = Math.floor(ms / 60000);
-  const sec = Math.floor((ms % 60000) / 1000);
-  return m + 'm ' + sec + 's';
-}
-function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function basename(p) { return (p||'').split('/').pop(); }
-
-// ── Init ────────────────────────────────────────────────────────────
-loadTemplates();
-loadRuns();
-setInterval(loadTemplates, 15000);
-setInterval(loadRuns, 5000);
+  window.addEventListener('hashchange', handleHash);
+  handleHash();
+});

@@ -1,315 +1,88 @@
-<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>acpx-g</title>
-        <link rel="stylesheet" href="style.css?v=6" />
-        <!-- Editor libraries -->
-        <link
-            rel="stylesheet"
-            href="https://unpkg.com/drawflow@0.0.59/dist/drawflow.min.css"
-        />
-        <link
-            rel="stylesheet"
-            href="https://unpkg.com/codemirror@5/lib/codemirror.min.css"
-        />
-        <link rel="stylesheet" href="editor.css?v=3" />
-    </head>
-    <body>
-        <!-- Tab Navigation -->
-        <div id="tab-bar">
-            <button
-                class="tab active"
-                data-tab="editor"
-                onclick="switchTab('editor')"
-            >
-                Editor
-            </button>
-            <button class="tab" data-tab="logs" onclick="switchTab('logs')">
-                Logs
-            </button>
-        </div>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ACPX-G — 工作流引擎</title>
 
-        <!-- Logs View -->
-        <div id="logs-view" style="display: none">
-            <div id="sidebar">
-                <div class="runs-header" style="flex-shrink: 0">
-                    <span>Templates</span>
-                    <button
-                        class="btn btn-sm"
-                        onclick="showAllApiDocs()"
-                        title="API documentation"
-                    >
-                        API
-                    </button>
-                </div>
-                <div
-                    id="templates-section"
-                    style="overflow: auto; flex: 1; min-height: 0"
-                >
-                    <div class="template-empty">
-                        <span class="spinner"></span> Loading...
-                    </div>
-                </div>
+<!-- Fonts -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1/dist/fonts/geist-sans/style.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
 
-                <div class="runs-header">
-                    <span>Runs</span>
-                    <span class="count" id="run-count"></span>
-                </div>
-                <div id="run-list">
-                    <div class="log-empty" style="padding: 24px">
-                        No runs yet
-                    </div>
-                </div>
-            </div>
+<!-- Icons -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 
-            <div id="main">
-                <div id="preview-header">
-                    <div class="info">
-                        <h2 id="preview-name"></h2>
-                        <p id="preview-desc"></p>
-                    </div>
-                    <div id="preview-inputs" style="display: none"></div>
-                    <button class="btn btn-primary" id="preview-run-btn">
-                        &#9654; Run
-                    </button>
-                </div>
-                <div id="graph-panel">
-                    <div id="graph-placeholder">
-                        Select a template or run to view pipeline
-                    </div>
-                    <svg id="graph-svg" style="display: none"></svg>
-                    <div
-                        class="zoom-controls"
-                        style="display: none"
-                        id="zoom-ctls"
-                    >
-                        <button class="zoom-btn" onclick="zoomIn()">+</button>
-                        <button class="zoom-btn" onclick="zoomOut()">
-                            &minus;
-                        </button>
-                        <button
-                            class="zoom-btn"
-                            onclick="zoomFit()"
-                            title="Fit"
-                        >
-                            &#8982;
-                        </button>
-                    </div>
-                </div>
-                <div id="log-panel">
-                    <div class="log-empty">Select a run to view logs</div>
-                </div>
-            </div>
-        </div>
+<!-- Editor libs -->
+<link rel="stylesheet" href="https://unpkg.com/drawflow@0.0.59/dist/drawflow.min.css" />
+<script src="https://unpkg.com/drawflow@0.0.59/dist/drawflow.min.js"></script>
 
-        <!-- Editor View -->
-        <div id="editor-view">
-            <div id="editor-toolbar">
-                <div class="toolbar-center">
-                    <input
-                        id="wf-name"
-                        placeholder="Workflow name"
-                        value="new-workflow"
-                    />
-                    <input
-                        id="wf-version"
-                        placeholder="Version"
-                        value="1.0"
-                        style="width: 60px"
-                    />
-                </div>
-                <div class="toolbar-right">
-                    <button
-                        class="btn btn-sm"
-                        onclick="editorValidate()"
-                        title="Validate (Ctrl+Shift+V)"
-                    >
-                        Validate
-                    </button>
-                    <button
-                        class="btn btn-sm"
-                        onclick="editorAutoLayout()"
-                        title="Auto Layout"
-                    >
-                        Layout
-                    </button>
-                    <button
-                        class="btn btn-sm btn-primary"
-                        onclick="editorSave()"
-                    >
-                        Save
-                    </button>
-                    <button
-                        class="btn btn-sm btn-primary"
-                        onclick="editorRun()"
-                    >
-                        &#9654; Run
-                    </button>
-                </div>
-            </div>
-            <div id="editor-body">
-                <div id="editor-sidebar">
-                    <div class="sidebar-header">
-                        <span>Templates</span>
-                        <div>
-                            <button class="btn btn-sm" onclick="editorNew()">
-                                New
-                            </button>
-                            <button class="btn btn-sm" onclick="editorImport()">
-                                Import
-                            </button>
-                        </div>
-                    </div>
-                    <div id="editor-template-list">
-                        <div class="template-empty">
-                            <span class="spinner"></span> Loading...
-                        </div>
-                    </div>
-                </div>
-                <div id="node-palette">
-                    <div class="palette-title">Nodes</div>
-                    <div
-                        class="palette-node shell-palette"
-                        draggable="true"
-                        data-type="shell"
-                    >
-                        &#9654; Shell
-                    </div>
-                    <div
-                        class="palette-node agent-palette"
-                        draggable="true"
-                        data-type="agent"
-                    >
-                        &#10023; Agent
-                    </div>
-                    <div
-                        class="palette-node reference-palette"
-                        draggable="true"
-                        data-type="reference"
-                    >
-                        &#8635; Reference
-                    </div>
-                    <div class="palette-divider"></div>
-                    <div class="palette-title">Workflow</div>
-                    <button
-                        class="btn btn-sm palette-btn"
-                        onclick="showWorkflowSettings()"
-                    >
-                        Settings
-                    </button>
-                    <button
-                        class="btn btn-sm palette-btn"
-                        onclick="editorAutoLayout()"
-                    >
-                        Auto Layout
-                    </button>
-                    <button
-                        class="btn btn-sm palette-btn"
-                        onclick="editorDeleteSelected()"
-                    >
-                        Delete
-                    </button>
-                    <div class="palette-divider"></div>
-                    <div class="palette-title">Validation</div>
-                    <div id="validation-status" class="validation-ok">
-                        No errors
-                    </div>
-                    <div id="validation-errors"></div>
-                </div>
-                <div id="drawflow-container">
-                    <div
-                        id="drawflow"
-                        ondrop="editorDrop(event)"
-                        ondragover="event.preventDefault()"
-                    ></div>
-                </div>
-                <div id="property-panel">
-                    <div id="prop-empty">
-                        Select a node to edit its properties
-                    </div>
-                    <div id="prop-content" style="display: none"></div>
-                </div>
-            </div>
-            <div id="yaml-panel">
-                <div id="yaml-toggle" onclick="toggleYamlPanel()">
-                    <span>YAML</span>
-                    <span id="yaml-toggle-icon">&#9654;</span>
-                </div>
-                <div id="yaml-editor-wrap" style="display: none">
-                    <textarea id="yaml-code-editor"></textarea>
-                    <div id="yaml-actions">
-                        <button
-                            class="btn btn-sm btn-primary"
-                            onclick="applyYamlChanges()"
-                        >
-                            Apply
-                        </button>
-                        <button class="btn btn-sm" onclick="copyYaml()">
-                            Copy
-                        </button>
-                        <button class="btn btn-sm" onclick="downloadYaml()">
-                            Download
-                        </button>
-                    </div>
-                    <div id="yaml-errors"></div>
-                </div>
-            </div>
-        </div>
+<!-- Utils -->
+<script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
 
-        <!-- Import YAML Modal -->
-        <div id="import-modal" style="display: none">
-            <div class="modal-backdrop" onclick="closeImportModal()"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Import YAML</h2>
-                    <button class="modal-close" onclick="closeImportModal()">
-                        &times;
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <textarea
-                        id="import-yaml-input"
-                        placeholder="Paste your workflow YAML here..."
-                        rows="16"
-                    ></textarea>
-                    <div style="margin-top: 12px; text-align: right">
-                        <button class="btn btn-sm" onclick="closeImportModal()">
-                            Cancel
-                        </button>
-                        <button
-                            class="btn btn-sm btn-primary"
-                            onclick="doImportYaml()"
-                        >
-                            Import
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+<!-- App styles -->
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="editor.css" />
+<link rel="stylesheet" href="runs.css" />
+<link rel="stylesheet" href="run-detail.css" />
+</head>
+<body>
+<div class="shell">
+  <!-- ==================== TOP BAR ==================== -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="topbar-brand-icon">G</div>
+      <span class="topbar-brand-text">ACPX-G</span>
+    </div>
 
-        <script src="api-docs.js?v=3"></script>
-        <!-- Editor libraries (must load before app.js and editor.js) -->
-        <script src="https://unpkg.com/drawflow@0.0.59/dist/drawflow.min.js"></script>
-        <script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
-        <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
-        <script src="https://unpkg.com/codemirror@5.65.21/lib/codemirror.js"></script>
-        <script src="https://unpkg.com/codemirror@5/mode/yaml/yaml.js"></script>
-        <script src="app.js?v=7"></script>
-        <script src="editor.js?v=4"></script>
+    <div class="topbar-tabs">
+      <button class="topbar-tab active" data-page="editor">
+        <i data-lucide="workflow" style="width:14px;height:14px"></i>
+        <span>工作流编辑器</span>
+      </button>
+      <button class="topbar-tab" data-page="runs">
+        <i data-lucide="list" style="width:14px;height:14px"></i>
+        <span>运行记录</span>
+      </button>
+    </div>
 
-        <div id="api-modal" style="display: none">
-            <div class="modal-backdrop" onclick="closeApiModal()"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="api-modal-title">API Reference</h2>
-                    <button class="modal-close" onclick="closeApiModal()">
-                        &times;
-                    </button>
-                </div>
-                <div class="modal-body" id="api-docs-body"></div>
-            </div>
-        </div>
-    </body>
+    <div class="topbar-spacer"></div>
+
+    <button class="btn btn-ghost btn-sm" id="navApiDocs" style="gap:4px;">
+      <i data-lucide="book-open" style="width:14px;height:14px"></i>
+      <span>API 文档</span>
+    </button>
+  </header>
+
+  <!-- Content -->
+  <div class="content" id="content">
+    <!-- Pages rendered dynamically by app.js -->
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Modal Overlay -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<!-- API Docs Modal -->
+<div class="modal-overlay" id="apiDocsOverlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <span class="modal-title">API 文档</span>
+      <button class="modal-close" id="apiDocsClose"><i data-lucide="x" style="width:16px;height:16px"></i></button>
+    </div>
+    <div class="modal-body" id="apiDocsBody"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="api-docs.js"></script>
+<script src="editor.js"></script>
+<script src="runs.js"></script>
+<script src="run-detail.js"></script>
+</body>
 </html>
