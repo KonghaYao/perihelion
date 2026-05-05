@@ -812,7 +812,7 @@ function editorValidate() {
       body: JSON.stringify({ yaml }),
     }).then(r => r.json()).then(result => {
       if (result.valid) showToast('工作流验证通过', 'success');
-      else showToast('服务端验证: ' + (result.errors || []).map(e => e.message).join('; '), 'error');
+      else showToast('服务端验证: ' + (result.errors || []).map(e => e.message || String(e)).join('; '), 'error');
     }).catch(() => showToast('工作流结构验证通过', 'success'));
   }
 }
@@ -1239,5 +1239,8 @@ function loadDraft() {
     }
     nodeIdCounter = draft.counter ?? nodeStore.size;
     updateYamlFromCanvas(); displayValidation([]); pushHistory();
-  } catch (e) { /* corrupt draft */ }
+  } catch (e) {
+    localStorage.removeItem('acpx-editor-draft');
+    showToast('本地草稿已损坏并已清除', 'warning');
+  }
 }
