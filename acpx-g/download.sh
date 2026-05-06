@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+mkdir -p "$(dirname "$0")/static/vendor"
 cd "$(dirname "$0")/static/vendor"
 
 # Download vendor JS/CSS from unpkg.com into current directory.
