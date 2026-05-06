@@ -429,13 +429,21 @@ impl App {
             let name = MarketplaceManager::extract_name_wrapper(&km.source);
 
             // 优先从 install_location 加载，如果不存在则使用默认路径
+            // 注意：Url 类型的 install_location 指向 .json 文件，其他类型指向目录
             let cached_manifest = if !km.install_location.is_empty() {
-                // 使用 install_location 作为缓存目录
-                use rust_agent_middlewares::plugin::marketplace::find_marketplace_json;
+                use rust_agent_middlewares::plugin::marketplace::{
+                    find_marketplace_json, read_manifest_from_path,
+                };
                 let cache_path = std::path::Path::new(&km.install_location);
-                find_marketplace_json(cache_path).and_then(|p| {
-                    rust_agent_middlewares::plugin::marketplace::read_manifest_from_path(&p).ok()
-                })
+
+                // 判断是文件还是目录
+                if cache_path.is_file() {
+                    // 直接是 .json 文件（Url 类型）
+                    read_manifest_from_path(cache_path).ok()
+                } else {
+                    // 是目录，需要查找 marketplace.json
+                    find_marketplace_json(cache_path).and_then(|p| read_manifest_from_path(&p).ok())
+                }
             } else {
                 mgr.try_load_cache_wrapper(&km.source, &name)
             };
