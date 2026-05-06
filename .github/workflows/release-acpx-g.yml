@@ -65,6 +65,9 @@ jobs:
                       ${{ runner.os }}-${{ matrix.target }}-build-
                       ${{ runner.os }}-${{ matrix.target }}-
 
+            - name: Download vendor JS/CSS
+              run: bash acpx-g/download.sh
+
             - name: Install cross
               if: runner.os == 'Linux'
               run: cargo install cross

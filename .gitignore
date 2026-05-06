@@ -169,3 +169,5 @@ process.md
 .claude/autonomy/.lock
 .claude/autonomy/runs.json
 *.db
+
+vendor/
