@@ -325,7 +325,6 @@ impl From<KnownMarketplace> for DeclaredMarketplace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn test_plugin_manifest_minimal() {

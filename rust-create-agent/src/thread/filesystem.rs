@@ -82,7 +82,7 @@ impl FilesystemThreadStore {
             metas.push(meta.clone());
         }
         // 按 updated_at 降序排列
-        metas.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        metas.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
         self.write_index(&metas).await
     }
 }
@@ -168,7 +168,7 @@ impl ThreadStore for FilesystemThreadStore {
 
     async fn list_threads(&self) -> Result<Vec<ThreadMeta>> {
         let mut metas = self.read_index().await?;
-        metas.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        metas.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
         // 计算 content_size（从 messages.jsonl 文件大小）
         for meta in &mut metas {
             let msg_path = self.messages_path(&meta.id);

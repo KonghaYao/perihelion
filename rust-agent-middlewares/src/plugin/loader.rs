@@ -1,7 +1,7 @@
 use crate::mcp::config::load_from_path;
 use crate::mcp::McpServerConfig;
 use crate::plugin::config::{load_claude_settings, load_installed_plugins, load_plugin_manifest};
-use crate::plugin::types::{InstalledPlugins, McpServerEntry, PluginCommand, PluginManifest};
+use crate::plugin::types::{InstalledPlugins, McpServerEntry, PluginManifest};
 use gray_matter::{engine::YAML, Matter};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -37,7 +37,8 @@ pub trait CommandProvider: Send + Sync {
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct CommandFrontmatter {
+#[allow(dead_code)]
+pub struct CommandFrontmatter {
     #[serde(default)]
     shell: Option<String>,
     #[serde(default)]
@@ -362,6 +363,7 @@ pub fn load_enabled_plugins_aggregated(claude_dir: &Path) -> PluginLoadResult {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::plugin::types::PluginCommand;
     use crate::plugin::types::{InstallScope, InstalledPlugin, PluginAgent};
     use tempfile::tempdir;
 

@@ -561,8 +561,6 @@ pub async fn check_updates(
 /// 扫描 `~/.claude/plugins/cache/` 目录，删除标记为孤儿且超过 7 天的版本。
 /// 应在应用启动时或定期调用。
 pub async fn cleanup_orphaned_plugins(claude_dir: &Path) -> Result<usize, InstallerError> {
-    use std::time::Duration as StdDuration;
-
     const CLEANUP_AGE_MS: i64 = 7 * 24 * 60 * 60 * 1000; // 7 天
 
     let cache_dir = claude_dir.join("plugins").join("cache");

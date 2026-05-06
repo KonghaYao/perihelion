@@ -675,20 +675,16 @@ impl<'a> RenderState<'a> {
                     Style::default().fg(self.theme.list_bullet()),
                 ));
             }
-            Event::End(TagEnd::Item) => {
-                if !self.current_spans.is_empty() {
-                    self.flush_line();
-                }
+            Event::End(TagEnd::Item) if !self.current_spans.is_empty() => {
+                self.flush_line();
             }
 
             // ── 引用块 ────────────────────────────────────────────────────────
             Event::Start(Tag::BlockQuote(_)) => {
                 self.quote_depth += 1;
             }
-            Event::End(TagEnd::BlockQuote(_)) => {
-                if self.quote_depth > 0 {
-                    self.quote_depth -= 1;
-                }
+            Event::End(TagEnd::BlockQuote(_)) if self.quote_depth > 0 => {
+                self.quote_depth -= 1;
             }
 
             // ── 水平线 ────────────────────────────────────────────────────────
@@ -725,8 +721,8 @@ impl<'a> RenderState<'a> {
             Event::Code(text) => {
                 let style = Style::default().fg(self.theme.code());
                 let span = Span::styled(text.into_string(), style);
-                if self.table.is_some() {
-                    self.table.as_mut().unwrap().current_cell.push(span);
+                if let Some(table) = &mut self.table {
+                    table.current_cell.push(span);
                 } else {
                     self.current_spans.push(span);
                 }
