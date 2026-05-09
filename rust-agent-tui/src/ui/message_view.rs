@@ -8,9 +8,10 @@ use super::markdown::parse_markdown_default;
 /// 只读工具分类，用于折叠聚合
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolCategory {
-    Read,   // Read
-    Search, // Grep
-    Glob,   // Glob
+    Read,    // Read
+    Search,  // Grep
+    Glob,    // Glob
+    AskUser, // AskUserQuestion
 }
 
 impl ToolCategory {
@@ -20,6 +21,7 @@ impl ToolCategory {
             "Read" => Some(ToolCategory::Read),
             "Grep" => Some(ToolCategory::Search),
             "Glob" => Some(ToolCategory::Glob),
+            "AskUserQuestion" => Some(ToolCategory::AskUser),
             _ => None,
         }
     }
@@ -48,6 +50,13 @@ impl ToolCategory {
                     format!("Matched {} patterns", count)
                 }
             }
+            ToolCategory::AskUser => {
+                if count == 1 {
+                    "User answered Peri's questions".to_string()
+                } else {
+                    format!("User answered Peri's questions ({} batches)", count)
+                }
+            }
         }
     }
 
@@ -57,7 +66,8 @@ impl ToolCategory {
         let has_search = tools.iter().any(|t| t.tool_name == "Grep");
         let has_read = tools.iter().any(|t| t.tool_name == "Read");
         let has_glob = tools.iter().any(|t| t.tool_name == "Glob");
-        let mixed = [has_search, has_read, has_glob]
+        let has_ask = tools.iter().any(|t| t.tool_name == "AskUserQuestion");
+        let mixed = [has_search, has_read, has_glob, has_ask]
             .iter()
             .filter(|&&b| b)
             .count()
@@ -69,6 +79,8 @@ impl ToolCategory {
             } else {
                 format!("{} operations", count)
             }
+        } else if has_ask {
+            ToolCategory::AskUser.summary(count)
         } else if has_search {
             ToolCategory::Search.summary(count)
         } else if has_read {
@@ -95,18 +107,28 @@ pub struct ToolEntry {
 
 /// 将 view_messages 中相邻的只读 ToolBlock 聚合为 ToolCallGroup（支持跨类别，跳过空 thinking bubble）
 pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
-    let mut result: Vec<MessageViewModel> = Vec::with_capacity(messages.len());
-    let mut i = 0;
-    let original = std::mem::take(messages);
+    aggregate_tail_tool_groups(messages, 0);
+}
 
-    while i < original.len() {
-        let vm = &original[i];
+/// 从 `from_idx` 开始聚合尾部相邻的只读 ToolBlock。
+/// `from_idx` 之前的消息保持不变（已聚合的部分不需要重新处理）。
+pub fn aggregate_tail_tool_groups(messages: &mut Vec<MessageViewModel>, from_idx: usize) {
+    if from_idx >= messages.len() {
+        return;
+    }
+    let mut result: Vec<MessageViewModel> = Vec::with_capacity(messages.len());
+    result.extend(messages[..from_idx].iter().cloned());
+
+    let mut i = from_idx;
+    let original_len = messages.len();
+    while i < original_len {
+        let vm = &messages[i];
         if let MessageViewModel::ToolBlock { tool_name, .. } = vm {
             if let Some(cat) = ToolCategory::from_tool_name(tool_name) {
-                // 收集连续的只读 ToolBlock（跳过中间的空 thinking bubble，允许跨类别合并）
+                // 收集连续的同类只读 ToolBlock（跳过中间的空 thinking bubble）
                 let mut entries: Vec<ToolEntry> = Vec::new();
                 let mut j = i;
-                while j < original.len() {
+                while j < original_len {
                     if let MessageViewModel::ToolBlock {
                         tool_name: tn,
                         display_name,
@@ -114,9 +136,14 @@ pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
                         content,
                         is_error,
                         ..
-                    } = &original[j]
+                    } = &messages[j]
                     {
-                        if ToolCategory::from_tool_name(tn).is_some() {
+                        let entry_cat = ToolCategory::from_tool_name(tn);
+                        // AskUser 只聚合 AskUser，其他只读工具允许跨类别合并
+                        if entry_cat.is_some()
+                            && (cat == ToolCategory::AskUser)
+                                == (entry_cat == Some(ToolCategory::AskUser))
+                        {
                             entries.push(ToolEntry {
                                 tool_name: tn.clone(),
                                 display_name: display_name.clone(),
@@ -129,7 +156,7 @@ pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
                         }
                     }
                     // 跳过中间的空 thinking bubble
-                    if original[j].is_reasoning_only() {
+                    if messages[j].is_reasoning_only() {
                         j += 1;
                         continue;
                     }
@@ -144,7 +171,7 @@ pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
                 continue;
             }
         }
-        result.push(original[i].clone());
+        result.push(messages[i].clone());
         i += 1;
     }
 
@@ -181,6 +208,8 @@ pub enum MessageViewModel {
     },
     /// 系统消息
     SystemNote { content: String },
+    /// 缓存率过低警告（黄色纯文本，无前缀符号）
+    CacheWarning { content: String },
     /// 只读工具调用聚合组（read/search/glob 折叠显示）
     ToolCallGroup {
         category: ToolCategory,
@@ -508,6 +537,11 @@ impl MessageViewModel {
         MessageViewModel::SystemNote { content }
     }
 
+    /// 创建缓存率警告消息（黄色纯文本，无前缀符号）
+    pub fn cache_warning(content: String) -> Self {
+        MessageViewModel::CacheWarning { content }
+    }
+
     /// 创建 SubAgentGroup（初始状态：运行中、展开、0 步）
     pub fn subagent_group(agent_id: String, task_preview: String) -> Self {
         MessageViewModel::SubAgentGroup {
@@ -723,6 +757,10 @@ mod tests {
         assert_eq!(ToolCategory::from_tool_name("Write"), None);
         assert_eq!(ToolCategory::from_tool_name("Bash"), None);
         assert_eq!(ToolCategory::from_tool_name("Agent"), None);
+        assert_eq!(
+            ToolCategory::from_tool_name("AskUserQuestion"),
+            Some(ToolCategory::AskUser)
+        );
     }
 
     #[test]

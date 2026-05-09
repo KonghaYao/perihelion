@@ -50,9 +50,15 @@ fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
         }
         let text = if !header.is_empty() {
             format!("{} → {}", header, answer)
-        } else {
+        } else if !answer.is_empty() {
             answer
+        } else {
+            // 单问题模式：整个 block 就是回答文本
+            block.to_string()
         };
+        if text.is_empty() {
+            continue;
+        }
         lines.push(Line::from(vec![
             Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
             Span::styled("· ", Style::default().fg(theme::DIM)),
@@ -138,7 +144,7 @@ pub fn render_view_model(
                                     lines.push(Line::from(spans));
                                     first_text_merged = true;
                                 } else {
-                                    let mut spans = vec![Span::raw("   ")];
+                                    let mut spans = vec![Span::raw("  ")];
                                     spans.extend(diff_spans);
                                     lines.push(Line::from(spans));
                                 }
@@ -152,7 +158,7 @@ pub fn render_view_model(
                                     lines.push(Line::from(spans));
                                     first_text_merged = true;
                                 } else {
-                                    let mut spans = vec![Span::raw("   ")];
+                                    let mut spans = vec![Span::raw("  ")];
                                     spans.extend(line.spans.clone());
                                     lines.push(Line::from(spans));
                                 }
@@ -409,23 +415,85 @@ pub fn render_view_model(
             }
             lines
         }
+        MessageViewModel::CacheWarning { content } => {
+            vec![Line::from(Span::styled(
+                content.clone(),
+                Style::default().fg(theme::WARNING),
+            ))]
+        }
         MessageViewModel::ToolCallGroup {
+            category,
             tools,
             collapsed: _collapsed,
             ..
         } => {
             let mut lines = Vec::new();
-            let summary = ToolCategory::summary_for_tools(tools);
 
-            // 统一 ⏺ 前缀，仅显示汇总行
-            lines.push(Line::from(vec![
-                Span::styled("⏺ ", Style::default().fg(theme::SAGE)),
-                Span::styled(summary, Style::default().fg(theme::MUTED)),
-            ]));
-            // 显示出错工具的错误摘要
-            for entry in tools {
-                if entry.is_error && !entry.content.is_empty() {
-                    lines.extend(error_summary_lines(&entry.content));
+            if *category == ToolCategory::AskUser {
+                // AskUserQuestion 聚合：统一标题 + 所有问答对
+                let has_error = tools.iter().any(|t| t.is_error);
+                let color = if has_error { theme::ERROR } else { theme::SAGE };
+                lines.push(Line::from(vec![
+                    Span::styled("⏺ ", Style::default().fg(color)),
+                    Span::styled(
+                        "User answered Peri's questions:".to_string(),
+                        Style::default().fg(theme::TEXT),
+                    ),
+                ]));
+
+                for entry in tools {
+                    let entry_color = if entry.is_error {
+                        theme::ERROR
+                    } else {
+                        theme::MUTED
+                    };
+                    if entry.content.is_empty() {
+                        continue;
+                    }
+                    // 解析每个工具结果中的问答对
+                    for block in entry.content.split("\n\n") {
+                        let mut header = String::new();
+                        let mut answer = String::new();
+                        for line in block.lines() {
+                            if let Some(h) =
+                                line.strip_prefix("[问: ").and_then(|s| s.strip_suffix(']'))
+                            {
+                                header = h.to_string();
+                            } else if let Some(a) = line.strip_prefix("回答: ") {
+                                answer = a.to_string();
+                            }
+                        }
+                        let text = if !header.is_empty() {
+                            format!("{} → {}", header, answer)
+                        } else if !answer.is_empty() {
+                            answer
+                        } else {
+                            // 单问题模式：整个 block 就是回答文本
+                            block.to_string()
+                        };
+                        if text.is_empty() {
+                            continue;
+                        }
+                        lines.push(Line::from(vec![
+                            Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                            Span::styled("· ", Style::default().fg(theme::DIM)),
+                            Span::styled(text, Style::default().fg(entry_color)),
+                        ]));
+                    }
+                }
+            } else {
+                let summary = ToolCategory::summary_for_tools(tools);
+
+                // 统一 ⏺ 前缀，仅显示汇总行
+                lines.push(Line::from(vec![
+                    Span::styled("⏺ ", Style::default().fg(theme::SAGE)),
+                    Span::styled(summary, Style::default().fg(theme::MUTED)),
+                ]));
+                // 显示出错工具的错误摘要
+                for entry in tools {
+                    if entry.is_error && !entry.content.is_empty() {
+                        lines.extend(error_summary_lines(&entry.content));
+                    }
                 }
             }
 

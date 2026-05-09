@@ -267,31 +267,10 @@ impl App {
             "Hook groups assembled for agent"
         );
 
-        let mcp_init_rx = self.services.mcp_init_rx.clone();
         let hook_session_start = history.is_empty();
 
         tokio::spawn(
             async move {
-                // 异步等待 MCP 后台初始化完成（最多 30 秒）
-                if let Some(ref rx) = mcp_init_rx {
-                    let mut rx = rx.clone();
-                    let is_done = |s: &rust_agent_middlewares::mcp::McpInitStatus| {
-                        matches!(
-                            s,
-                            rust_agent_middlewares::mcp::McpInitStatus::Ready { .. }
-                                | rust_agent_middlewares::mcp::McpInitStatus::Failed(_)
-                        )
-                    };
-                    if !is_done(&rx.borrow()) {
-                        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
-                            while !is_done(&rx.borrow()) {
-                                rx.changed().await.ok();
-                            }
-                        })
-                        .await;
-                    }
-                }
-
                 agent::run_universal_agent(agent::AgentRunConfig {
                     provider,
                     input: agent_input,
@@ -429,6 +408,17 @@ impl App {
                     self.session_mgr.sessions[self.session_mgr.active]
                         .messages
                         .view_messages[idx] = (*vm).clone();
+                    // AskUserQuestion 结束后聚合尾部（多个并行调用合并为一个块）
+                    if matches!(&*vm, MessageViewModel::ToolBlock { tool_name, .. } if tool_name == "AskUserQuestion")
+                    {
+                        let aggregate_from = idx.saturating_sub(1);
+                        aggregate_tail_tool_groups(
+                            &mut self.session_mgr.sessions[self.session_mgr.active]
+                                .messages
+                                .view_messages,
+                            aggregate_from,
+                        );
+                    }
                 } else {
                     self.session_mgr.sessions[self.session_mgr.active]
                         .messages
@@ -792,6 +782,30 @@ impl App {
                 {
                     return (true, false, false);
                 }
+
+                // 缓存率检查：低于 80% 时显示黄色提示
+                {
+                    let cache_read = usage.cache_read_input_tokens.unwrap_or(0) as u64;
+                    let cache_creation = usage.cache_creation_input_tokens.unwrap_or(0) as u64;
+                    let denominator = cache_read + cache_creation;
+                    if denominator > 0 {
+                        let rate = cache_read as f64 / denominator as f64;
+                        if rate < 0.8 {
+                            let percentage = (rate * 100.0) as u32;
+                            let msg = format!("Prompt cache 命中率 {}% < 80%", percentage);
+                            let vm = MessageViewModel::cache_warning(msg);
+                            self.session_mgr.sessions[self.session_mgr.active]
+                                .messages
+                                .view_messages
+                                .push(vm.clone());
+                            let _ = self.session_mgr.sessions[self.session_mgr.active]
+                                .messages
+                                .render_tx
+                                .send(RenderEvent::AddMessage(vm));
+                        }
+                    }
+                }
+
                 // 累积到会话追踪器
                 self.session_mgr.sessions[self.session_mgr.active]
                     .agent
@@ -1461,26 +1475,17 @@ impl App {
                     .pipeline
                     .restore_completed(state_msgs);
 
-                let compact_vm =
-                    MessageViewModel::system("上下文已压缩（从旧对话迁移到新 Thread）".to_string());
-                let summary_vm = MessageViewModel::from_base_message(
-                    &BaseMessage::ai(format!("压缩摘要：\n{}", summary_text)),
-                    &[],
-                );
-                let mut view_msgs = vec![compact_vm, summary_vm];
-
                 let inject_count = self.session_mgr.sessions[self.session_mgr.active]
                     .agent
                     .agent_state_messages
                     .len()
                     - 1;
-                if inject_count > 0 {
-                    let inject_vm = MessageViewModel::system(format!(
-                        "已重新注入 {} 条上下文（文件/Skills）",
-                        inject_count
-                    ));
-                    view_msgs.push(inject_vm);
-                }
+                let compact_label = if inject_count > 0 {
+                    format!("上下文已压缩，注入 {} 条上下文", inject_count)
+                } else {
+                    "上下文已压缩".to_string()
+                };
+                let view_msgs = vec![MessageViewModel::system(compact_label)];
                 self.apply_pipeline_action(PipelineAction::RebuildAll {
                     prefix_len: 0,
                     tail_vms: view_msgs,

@@ -80,7 +80,9 @@ use crate::thread::{SqliteThreadStore, ThreadBrowser, ThreadId, ThreadMeta, Thre
 
 // Re-export MessageViewModel from ui::message_view
 use crate::command::agents::AgentItem;
-pub use crate::ui::message_view::{ContentBlockView, MessageViewModel};
+pub use crate::ui::message_view::{
+    aggregate_tail_tool_groups, aggregate_tool_groups, ContentBlockView, MessageViewModel,
+};
 pub use agent_panel::AgentPanel;
 pub use hooks_panel::HooksPanel;
 pub use model_panel::ModelPanel;
