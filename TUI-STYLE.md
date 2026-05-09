@@ -18,12 +18,12 @@
 
 | 名称 | 色值 | 用途 |
 |------|------|------|
-| SAGE | `#4EBA65` | 明亮绿：成功状态、Read/Glob/Grep 工具名、SubAgent、只读工具摘要、对勾标记 |
-| WARNING | `#FFC107` | 明亮琥珀：Write/Edit 工具名、次要强调、Markdown 标题、重试状态 |
+| SAGE | `#4EBA65` | 明亮绿：工具调用指示器（⏺）、SubAgent、对勾标记 |
+| WARNING | `#FFC107` | 明亮琥珀：次要强调、Markdown 标题、重试状态 |
 | ERROR | `#FF6B80` | 明亮红：错误/拒绝、失败工具结果边框、系统错误消息 |
 | THINKING | `#A2A9E4` | 标准紫：面板选中行、面板标题、/model 面板光标、Config 编辑高亮 |
 | LOADING | `#93A5FF` | 浅蓝紫：Loading spinner、Auto Mode 权限标签 |
-| BASH_BORDER | `#FD5DB1` | 粉红：Bash 工具名和结果边框 |
+| BASH_BORDER | `#FD5DB1` | 粉红：Bash 工具结果边框 |
 | MODEL_INFO | `#A0825F` | 棕金：状态栏模型名（不抢眼） |
 | TOOL_NAME | `= SAGE` | 语义别名：工具名展示色 |
 | SUB_AGENT | `= SAGE` | 语义别名：SubAgent 展示色 |
@@ -86,15 +86,16 @@
 
 ### 消息类型与视觉
 
-| 类型 | 前缀 | 前景色 | 底色 | 说明 |
-|------|------|--------|------|------|
-| 用户消息 | `❯` | ACCENT + BOLD | USER_BG | 底色与 sticky header 一致，所有行带底色 |
-| AI 回复 | `●` | TEXT (纯白) | — | 首行文本合并到 `● ` 后，支持 markdown 渲染 |
-| 思考 (Reasoning) | — | — | — | 不在消息流中渲染，完全隐藏 |
-| 工具调用 (非只读) | `●` | 白色工具名 + 状态色指示器 | — | 工具名 TEXT + BOLD，参数 DIM `(...)` |
-| 工具聚合组 (只读) | `▶` / 无 | MUTED / TEXT+BOLD | — | 折叠：`▶ Read 3 files`；展开：TEXT + BOLD 标题 |
-| SubAgent | `●` | SAGE / ERROR | — | 折叠：名称 + 任务预览；展开：嵌套消息 + 执行结果 |
-| 系统消息 | `[i]` / `✗` / `⚠` | SAGE / ERROR / WARNING | — | 自动检测错误/警告/信息前缀和颜色 |
+| 类型 | 前缀 | 前缀色 | 说明 |
+|------|------|--------|------|
+| 用户消息 | `❯` | ACCENT + BOLD | USER_BG 底色，所有行带底色 |
+| AI 回复 | `●` | TEXT (纯白) | 首行文本合并到 `● ` 后，支持 markdown 渲染 |
+| 思考 (Reasoning) | — | — | 不在消息流中渲染，完全隐藏 |
+| 工具调用 | `⏺` | SAGE (绿) | 工具名 TEXT + BOLD，参数 DIM `(...)` |
+| 工具聚合组 | `⏺` | SAGE (绿) 前缀 + MUTED 汇总文字 | 仅一行汇总文本，不可展开 |
+| AskUserQuestion | `⏺` | SAGE (绿) | 标题 `User answered Peri's questions:` + `⎿ · header → answer` |
+| SubAgent | `●` | SAGE / ERROR | 折叠：名称 + 任务预览；展开：嵌套消息 + 执行结果 |
+| 系统消息 | `·` | DIM | 自动检测错误/警告/信息颜色 |
 
 ### 间距规则
 
@@ -105,23 +106,37 @@
 
 ### 工具状态指示器
 
-指示器 `●` 按状态变色，工具名称统一 TEXT + BOLD，参数用 DIM 色 `(...)` 显示：
+指示器 `⏺` 按状态变化，工具名称统一 TEXT + BOLD，参数用 DIM 色 `(...)` 显示：
 
-| 状态 | 指示器颜色 | 工具名颜色 | 结果边框颜色 |
-|------|-----------|-----------|------------|
-| Running | TEXT (白) | TEXT + BOLD | — |
-| Completed | SAGE (绿) | TEXT + BOLD | 类别色 |
-| Failed | ERROR (红) | TEXT + BOLD | ERROR |
+| 状态 | 指示器 | 指示器颜色 | 工具名颜色 |
+|------|--------|-----------|-----------|
+| Running | `⏺` 闪烁（200ms 周期，⏺/空格交替） | SAGE | TEXT + BOLD |
+| Completed | `⏺` | SAGE | TEXT + BOLD |
+| Failed | `✗` | ERROR | TEXT + BOLD |
 
-工具结果行格式：`  │ ` 前缀（边框色）+ 内容（MUTED 色或 ERROR 色）。错误折叠时显示 error_summary（最多 400 Unicode 字符，2 空格缩进，无竖线前缀）。
+工具结果行格式：`  ⎿ ` 前缀（DIM 色）+ 内容（MUTED 色或 ERROR 色）。错误折叠时显示 error_summary（最多 400 Unicode 字符，DIM `⎿` 前缀）。
+
+### AskUserQuestion 渲染
+
+专用渲染路径，独立于普通 ToolBlock：
+
+```
+⏺ User answered Peri's questions:
+  ⎿ · header → answer
+  ⎿ · header2 → answer2
+```
+
+- 标题行：`⏺` (SAGE) + 标题文字 (TEXT)
+- 结果行：`⎿ ` (DIM) + `· ` (DIM) + `header → answer` (MUTED)
+- 解析工具输出 `[问: H]\n回答: V` 格式，重新格式化为 `H → V`
+- 错误态：指示器和标题使用 ERROR 色
 
 ## 只读工具聚合折叠
 
 read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 - **相邻的同类型工具**合并为一组（无其他消息穿插时）
-- 折叠时显示单行摘要：`  ▶ Read 3 files`（MUTED 色）
-- 展开时标题 TEXT + BOLD，每个工具参数：`  │ path`（DIM `│` + MUTED 参数）
+- 仅显示一行汇总：`⏺ Read 3 files`（⏺ SAGE + 文字 MUTED），不可展开
 - 出错工具即使在折叠态也显示 error_summary（ERROR 色）
 
 摘要格式：

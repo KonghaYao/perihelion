@@ -66,6 +66,9 @@ pub const SELECTION_BG: Color = Color::Rgb(38, 79, 120);
 /// Bash 工具调用边框色 #FD5DB1（Claude bashBorder）
 pub const BASH_BORDER: Color = Color::Rgb(253, 93, 177);
 
+/// SubAgent 嵌套消息背景色 #1E1E26（比终端背景略亮，形成视觉容器）
+pub const SUB_AGENT_BG: Color = Color::Rgb(30, 30, 38);
+
 // ── 语义别名 ─────────────────────────────────────────────────────────────────
 
 /// 工具名颜色（= SAGE）

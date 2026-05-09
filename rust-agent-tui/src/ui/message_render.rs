@@ -14,11 +14,56 @@ fn error_summary_lines(content: &str) -> Vec<Line<'static>> {
         .lines()
         .map(|line| {
             Line::from(vec![
-                Span::raw("  "),
+                Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
                 Span::styled(line.to_string(), Style::default().fg(theme::ERROR)),
             ])
         })
         .collect()
+}
+
+/// AskUserQuestion 专用渲染：`⏺ User answered Peri's questions:` + `⎿ · H → V`
+fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let color = if is_error { theme::ERROR } else { theme::SAGE };
+    lines.push(Line::from(vec![
+        Span::styled("⏺ ", Style::default().fg(color)),
+        Span::styled(
+            "User answered Peri's questions:".to_string(),
+            Style::default().fg(theme::TEXT),
+        ),
+    ]));
+
+    if content.is_empty() {
+        return lines;
+    }
+
+    // 解析多问题格式: [问: H]\n回答: V\n\n[问: H2]\n回答: V2
+    for block in content.split("\n\n") {
+        let mut header = String::new();
+        let mut answer = String::new();
+        for line in block.lines() {
+            if let Some(h) = line.strip_prefix("[问: ").and_then(|s| s.strip_suffix(']')) {
+                header = h.to_string();
+            } else if let Some(a) = line.strip_prefix("回答: ") {
+                answer = a.to_string();
+            }
+        }
+        let text = if !header.is_empty() {
+            format!("{} → {}", header, answer)
+        } else {
+            answer
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+            Span::styled("· ", Style::default().fg(theme::DIM)),
+            Span::styled(
+                text,
+                Style::default().fg(if is_error { theme::ERROR } else { theme::MUTED }),
+            ),
+        ]));
+    }
+
+    lines
 }
 
 /// 将单个 ViewModel 渲染为 Vec<Line>
@@ -56,45 +101,61 @@ pub fn render_view_model(
             }
             lines
         }
-        MessageViewModel::AssistantBubble { blocks, .. } => {
+        MessageViewModel::AssistantBubble {
+            blocks,
+            is_streaming,
+            ..
+        } => {
             let mut lines = Vec::new();
             let mut first_text_merged = false;
+
+            // 流式进行中：● 前缀闪烁动画（每 400ms 切换可见/暗淡）
+            let indicator = if *is_streaming {
+                let tick = std::time::Instant::now().elapsed().as_millis() as u64 / 400;
+                let visible = tick % 2 == 0;
+                Span::styled(
+                    "●".to_string(),
+                    Style::default().fg(if visible { theme::TEXT } else { theme::DIM }),
+                )
+            } else {
+                Span::styled("●".to_string(), Style::default().fg(theme::TEXT))
+            };
 
             for block in blocks {
                 match block {
                     ContentBlockView::Text { rendered, raw, .. } => {
-                        // 检测是否为 diff 内容，如果是则用 diff 着色覆盖
+                        // 先检测 diff 内容，分支渲染避免双重渲染丢失前缀
                         let is_diff =
                             perihelion_widgets::message_block::highlight::is_diff_content(raw);
-                        for line in rendered.lines.iter() {
-                            if !first_text_merged {
-                                // 第一行文本合并到标题行，保留 markdown 样式 spans
-                                let mut spans = vec![
-                                    Span::styled("●".to_string(), Style::default().fg(theme::TEXT)),
-                                    Span::raw(" "),
-                                ];
-                                spans.extend(line.spans.clone());
-                                lines.push(Line::from(spans));
-                                first_text_merged = true;
-                            } else {
-                                // 复用 spans Vec 内存，避免 iter().cloned() 的中间 Vec 分配
-                                let mut spans = vec![Span::raw("  ")];
-                                spans.extend(line.spans.clone());
-                                lines.push(Line::from(spans));
-                            }
-                        }
-                        // diff 内容着色覆盖：如果检测到 diff，重新渲染带颜色的行
-                        if is_diff && !lines.is_empty() {
-                            let diff_lines: Vec<Line<'static>> = raw.lines()
-                                .map(|l| {
-                                    let diff_spans = perihelion_widgets::message_block::highlight::highlight_diff_line(l);
-                                    let mut spans = vec![Span::raw("  ")];
+                        if is_diff {
+                            // Diff 专用渲染路径：保留 ● 首行前缀
+                            for (i, l) in raw.lines().enumerate() {
+                                let diff_spans =
+                                    perihelion_widgets::message_block::highlight::highlight_diff_line(l);
+                                if i == 0 && !first_text_merged {
+                                    let mut spans = vec![indicator.clone(), Span::raw(" ")];
                                     spans.extend(diff_spans);
-                                    Line::from(spans)
-                                })
-                                .collect();
-                            if !diff_lines.is_empty() {
-                                lines = diff_lines;
+                                    lines.push(Line::from(spans));
+                                    first_text_merged = true;
+                                } else {
+                                    let mut spans = vec![Span::raw("   ")];
+                                    spans.extend(diff_spans);
+                                    lines.push(Line::from(spans));
+                                }
+                            }
+                        } else {
+                            // 正常 markdown 渲染路径
+                            for line in rendered.lines.iter() {
+                                if !first_text_merged {
+                                    let mut spans = vec![indicator.clone(), Span::raw(" ")];
+                                    spans.extend(line.spans.clone());
+                                    lines.push(Line::from(spans));
+                                    first_text_merged = true;
+                                } else {
+                                    let mut spans = vec![Span::raw("   ")];
+                                    spans.extend(line.spans.clone());
+                                    lines.push(Line::from(spans));
+                                }
                             }
                         }
                     }
@@ -120,20 +181,29 @@ pub fn render_view_model(
             display_name,
             args_display,
             content,
-            color,
+            color: _color,
             is_error,
+            tool_name,
             ..
         } => {
-            // 使用 ToolCallState 构建渲染状态
+            // AskUserQuestion 专用渲染路径
+            if tool_name == "AskUserQuestion" {
+                return render_ask_user_block(content, *is_error);
+            }
+
+            let is_running = content.is_empty() && !*is_error;
+
+            // 构建状态（仅用于 result_lines 管理）
             let status = if *is_error {
                 perihelion_widgets::ToolCallStatus::Failed
-            } else if content.is_empty() {
+            } else if is_running {
                 perihelion_widgets::ToolCallStatus::Running
             } else {
                 perihelion_widgets::ToolCallStatus::Completed
             };
 
-            let mut state = perihelion_widgets::ToolCallState::new(display_name.clone(), *color);
+            let mut state =
+                perihelion_widgets::ToolCallState::new(display_name.clone(), theme::TEXT);
             state.status = status;
             state.collapsed = *collapsed;
             state.is_error = *is_error;
@@ -144,22 +214,24 @@ pub fn render_view_model(
                 state.set_result(content.clone());
             }
 
-            // 运行中状态：● 闪烁
-            let indicator = if matches!(state.status, perihelion_widgets::ToolCallStatus::Running) {
+            let tool_color = if *is_error { theme::ERROR } else { theme::SAGE };
+
+            // ⏺ 指示器：运行中闪烁，完成固定，失败 ✗
+            let indicator = if is_running {
                 let tick = std::time::Instant::now().elapsed().as_millis() as u64 / 200;
-                perihelion_widgets::tool_call::display::format_indicator(state.status.clone(), tick)
+                if (tick / 4).is_multiple_of(2) {
+                    "⏺"
+                } else {
+                    " "
+                }
+            } else if *is_error {
+                "✗"
             } else {
-                perihelion_widgets::tool_call::display::format_indicator(
-                    state.status.clone(),
-                    state.tick,
-                )
+                "⏺"
             };
-            let indicator_color = match state.status {
-                perihelion_widgets::ToolCallStatus::Completed => theme::SAGE,
-                _ => theme::TEXT,
-            };
+
             let mut header_spans = vec![
-                Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),
+                Span::styled(indicator.to_string(), Style::default().fg(tool_color)),
                 Span::raw(" "),
                 Span::styled(
                     state.tool_name.clone(),
@@ -185,15 +257,12 @@ pub fn render_view_model(
                 } else {
                     theme::MUTED
                 };
-                let border_color = if *is_error { theme::ERROR } else { *color };
+                let border_color = if *is_error { theme::ERROR } else { theme::DIM };
                 for line in &state.result_lines {
                     lines.push(Line::from(vec![
-                        Span::styled("  │ ".to_string(), Style::default().fg(border_color)),
+                        Span::styled("  ⎿ ".to_string(), Style::default().fg(border_color)),
                         Span::styled(line.clone(), Style::default().fg(result_color)),
                     ]));
-                }
-                if let Some(_omitted) = state.omitted_lines {
-                    // 省略提示已删除
                 }
             } else if *is_error && !content.is_empty() {
                 lines.extend(error_summary_lines(content));
@@ -261,15 +330,16 @@ pub fn render_view_model(
                 )]));
 
                 // 嵌套消息（不渲染序号），跳过无可见内容的条目
+                let bg_style = Style::default().bg(theme::SUB_AGENT_BG);
                 for inner_vm in recent_messages.iter() {
                     let inner_lines = render_view_model(inner_vm, None, _width);
                     if inner_lines.is_empty() {
                         continue;
                     }
                     for line in inner_lines {
-                        // 每行前缀 2 空格缩进
-                        let mut new_spans = vec![Span::raw("  ")];
-                        new_spans.extend(line.spans);
+                        // 每行前缀 2 空格缩进 + 背景色
+                        let mut new_spans = vec![Span::styled("  ", bg_style)];
+                        new_spans.extend(line.spans.into_iter().map(|s| s.patch_style(bg_style)));
                         lines.push(Line::from(new_spans));
                     }
                 }
@@ -282,7 +352,7 @@ pub fn render_view_model(
                         // 前缀缩进 + 分隔符
                         lines.push(Line::from(vec![Span::styled(
                             "  ── 执行结果 ──".to_string(),
-                            Style::default().fg(theme::DIM),
+                            Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
                         )]));
                         // 逐行渲染 final_result（最多 20 行，过长截断）
                         let max_lines = 20;
@@ -291,15 +361,24 @@ pub fn render_view_model(
                                 let truncated: String =
                                     line_text.chars().take(80).collect::<String>() + "…";
                                 lines.push(Line::from(vec![
-                                    Span::raw("  │ "),
-                                    Span::styled(truncated, Style::default().fg(theme::MUTED)),
+                                    Span::styled(
+                                        "  ⎿ ",
+                                        Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
+                                    ),
+                                    Span::styled(
+                                        truncated,
+                                        Style::default().fg(theme::MUTED).bg(theme::SUB_AGENT_BG),
+                                    ),
                                 ]));
                             } else {
                                 lines.push(Line::from(vec![
-                                    Span::raw("  │ "),
+                                    Span::styled(
+                                        "  ⎿ ",
+                                        Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
+                                    ),
                                     Span::styled(
                                         line_text.to_string(),
-                                        Style::default().fg(theme::MUTED),
+                                        Style::default().fg(theme::MUTED).bg(theme::SUB_AGENT_BG),
                                     ),
                                 ]));
                             }
@@ -312,71 +391,41 @@ pub fn render_view_model(
         }
         MessageViewModel::SystemNote { content } => {
             let mut lines = Vec::new();
-            let is_error =
-                content.contains("❌") || content.contains("失败") || content.contains("错误");
-            let is_warn = content.contains("⚠") || content.contains("已中断");
-            let text_color = if is_error {
-                theme::ERROR
-            } else if is_warn {
-                theme::WARNING
-            } else {
-                theme::MUTED
-            };
             for line in content.lines() {
-                lines.push(Line::from(vec![Span::styled(
-                    line.to_string(),
-                    Style::default().fg(text_color),
-                )]));
+                let is_error =
+                    line.contains("❌") || line.contains("失败") || line.contains("错误");
+                let is_warn = line.contains("⚠") || line.contains("已中断");
+                let text_color = if is_error {
+                    theme::ERROR
+                } else if is_warn {
+                    theme::WARNING
+                } else {
+                    theme::MUTED
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("· ", Style::default().fg(theme::DIM)),
+                    Span::styled(line.to_string(), Style::default().fg(text_color)),
+                ]));
             }
             lines
         }
         MessageViewModel::ToolCallGroup {
-            tools, collapsed, ..
+            tools,
+            collapsed: _collapsed,
+            ..
         } => {
-            let _count = tools.len();
             let mut lines = Vec::new();
             let summary = ToolCategory::summary_for_tools(tools);
 
-            if *collapsed {
-                // 折叠：单行摘要 + ▶ 展开提示
-                lines.push(Line::from(vec![Span::styled(
-                    format!("  ▶ {}", summary),
-                    Style::default().fg(theme::MUTED),
-                )]));
-                // 折叠时显示出错工具的错误摘要
-                for entry in tools {
-                    if entry.is_error && !entry.content.is_empty() {
-                        lines.extend(error_summary_lines(&entry.content));
-                    }
-                }
-            } else {
-                // 展开：标题 + 每个工具的参数
-                let arrow = " ";
-                lines.push(Line::from(vec![Span::styled(
-                    format!("  {}{}", arrow, summary),
-                    Style::default()
-                        .fg(theme::TEXT)
-                        .add_modifier(Modifier::BOLD),
-                )]));
-                for entry in tools {
-                    let mut detail = String::new();
-                    if let Some(args) = &entry.args_display {
-                        detail = args.clone();
-                    }
-                    if entry.is_error {
-                        lines.push(Line::from(vec![
-                            Span::raw("  "),
-                            Span::styled(
-                                format!("│ {}", detail),
-                                Style::default().fg(theme::ERROR),
-                            ),
-                        ]));
-                    } else {
-                        lines.push(Line::from(vec![
-                            Span::styled("  │ ", Style::default().fg(theme::DIM)),
-                            Span::styled(detail, Style::default().fg(theme::MUTED)),
-                        ]));
-                    }
+            // 统一 ⏺ 前缀，仅显示汇总行
+            lines.push(Line::from(vec![
+                Span::styled("⏺ ", Style::default().fg(theme::SAGE)),
+                Span::styled(summary, Style::default().fg(theme::MUTED)),
+            ]));
+            // 显示出错工具的错误摘要
+            for entry in tools {
+                if entry.is_error && !entry.content.is_empty() {
+                    lines.extend(error_summary_lines(&entry.content));
                 }
             }
 
