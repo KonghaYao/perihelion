@@ -463,12 +463,13 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         let spinner_extra: u16 = if spinner_line.is_some() {
             let base = 1 + 2; // spinner line + 2 padding blank lines
             if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
-                base + 1
+                // tip + blank + todo items + trailing blanks(3)
+                base + 3
                     + app.session_mgr.sessions[app.session_mgr.active]
                         .todo_items
-                        .len() as u16 // tip + todo items
+                        .len() as u16
             } else {
-                base
+                base + 2 // trailing blanks(3)
             }
         } else {
             0
@@ -562,9 +563,13 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
                 }
                 all_lines.push(Line::from(spans));
             }
-            all_lines.push(Line::from(""));
+            for _ in 0..3 {
+                all_lines.push(Line::from(""));
+            }
         } else {
-            all_lines.push(Line::from(""));
+            for _ in 0..3 {
+                all_lines.push(Line::from(""));
+            }
         }
     }
 
