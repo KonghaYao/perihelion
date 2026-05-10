@@ -16,16 +16,21 @@ pub struct ChatOpenAI {
     /// o1/o3 系列推理强度："low" | "medium" | "high"
     /// 设置后请求体加 `reasoning_effort` 字段，同时移除 temperature
     pub reasoning_effort: Option<String>,
+    /// 是否在 content 中回传 `thinking` 类型的 Reasoning 块。
+    /// 仅 deepseek-v4-pro 等明确支持的模型开启，其他 provider 不支持会报 400。
+    pub supports_thinking_content: bool,
     client: reqwest::Client,
 }
 
 impl ChatOpenAI {
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        let model = model.into();
         Self {
             api_key: api_key.into(),
             base_url: "https://api.openai.com/v1".to_string(),
-            model: model.into(),
             reasoning_effort: None,
+            supports_thinking_content: Self::detect_thinking_content_support(&model),
+            model,
             client: reqwest::Client::new(),
         }
     }
@@ -40,6 +45,19 @@ impl ChatOpenAI {
     pub fn with_reasoning_effort(mut self, effort: impl Into<String>) -> Self {
         self.reasoning_effort = Some(effort.into());
         self
+    }
+
+    /// 手动控制是否在 content 中回传 `thinking` 类型的 Reasoning 块
+    pub fn with_thinking_content(mut self, enabled: bool) -> Self {
+        self.supports_thinking_content = enabled;
+        self
+    }
+
+    /// 根据模型名检测是否支持 content 中的 `thinking` 类型
+    fn detect_thinking_content_support(model: &str) -> bool {
+        let m = model.to_lowercase();
+        // deepseek-v4-pro 等要求回传 thinking content
+        m.contains("deepseek-v4")
     }
 
     pub fn from_env() -> Option<Self> {
@@ -79,13 +97,16 @@ impl ChatOpenAI {
     /// - `Text(s)` → 字符串
     /// - `Blocks(v)` → array of content parts
     /// - `Raw(v)` → 透传
-    pub(crate) fn content_to_openai(content: &MessageContent) -> Value {
+    pub(crate) fn content_to_openai(
+        content: &MessageContent,
+        supports_thinking_content: bool,
+    ) -> Value {
         match content {
             MessageContent::Text(s) => json!(s),
             MessageContent::Blocks(blocks) => {
                 let parts: Vec<Value> = blocks
                     .iter()
-                    .filter_map(Self::block_to_openai_part)
+                    .filter_map(|b| Self::block_to_openai_part(b, supports_thinking_content))
                     .collect();
                 if parts.is_empty() {
                     json!("")
@@ -97,7 +118,10 @@ impl ChatOpenAI {
         }
     }
 
-    fn block_to_openai_part(block: &ContentBlock) -> Option<Value> {
+    fn block_to_openai_part(
+        block: &ContentBlock,
+        supports_thinking_content: bool,
+    ) -> Option<Value> {
         match block {
             ContentBlock::Text { text } => Some(json!({ "type": "text", "text": text })),
             ContentBlock::Image { source } => {
@@ -111,14 +135,15 @@ impl ChatOpenAI {
             }
             // ToolUse / ToolResult 在 assistant / tool 角色消息中处理，此处跳过
             ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. } => None,
-            // deepseek-v4-pro 等模型要求将 thinking content 回传给 API
-            ContentBlock::Reasoning { text, signature } => {
+            // Reasoning: 仅在 provider 支持 thinking content type 时回传
+            ContentBlock::Reasoning { text, signature } if supports_thinking_content => {
                 let mut obj = json!({ "type": "thinking", "thinking": text });
                 if let Some(sig) = signature {
                     obj["signature"] = json!(sig);
                 }
                 Some(obj)
             }
+            ContentBlock::Reasoning { .. } => None,
             // Document / Unknown 透传为 raw JSON（OpenAI 可能不支持，但透传保持兼容）
             ContentBlock::Document { source, title } => {
                 let src = serde_json::to_value(source).unwrap_or_default();
@@ -128,7 +153,7 @@ impl ChatOpenAI {
         }
     }
 
-    pub(crate) fn messages_to_json(messages: &[BaseMessage]) -> Vec<Value> {
+    pub(crate) fn messages_to_json(&self, messages: &[BaseMessage]) -> Vec<Value> {
         // 单次遍历：收集 System 消息并处理其他消息
         let mut system_parts: Vec<String> = Vec::new();
         let mut result: Vec<Value> = Vec::new();
@@ -143,7 +168,7 @@ impl ChatOpenAI {
                 }
                 BaseMessage::Human { content, .. } => {
                     result.push(
-                        json!({ "role": "user", "content": Self::content_to_openai(content) }),
+                        json!({ "role": "user", "content": Self::content_to_openai(content, self.supports_thinking_content) }),
                     );
                 }
                 BaseMessage::Ai {
@@ -152,7 +177,7 @@ impl ChatOpenAI {
                     ..
                 } => {
                     if tool_calls.is_empty() {
-                        result.push(json!({ "role": "assistant", "content": Self::content_to_openai(content) }));
+                        result.push(json!({ "role": "assistant", "content": Self::content_to_openai(content, self.supports_thinking_content) }));
                     } else {
                         let tcs: Vec<Value> = tool_calls
                             .iter()
@@ -169,7 +194,7 @@ impl ChatOpenAI {
                             .collect();
                         result.push(json!({
                             "role": "assistant",
-                            "content": Self::content_to_openai(content),
+                            "content": Self::content_to_openai(content, self.supports_thinking_content),
                             "tool_calls": tcs
                         }));
                     }
@@ -182,7 +207,7 @@ impl ChatOpenAI {
                     result.push(json!({
                         "role": "tool",
                         "tool_call_id": tool_call_id,
-                        "content": Self::content_to_openai(content)
+                        "content": Self::content_to_openai(content, self.supports_thinking_content)
                     }));
                 }
             }
@@ -301,7 +326,7 @@ impl BaseModel for ChatOpenAI {
             })
             .collect();
 
-        let mut messages = Self::messages_to_json(&request.messages);
+        let mut messages = self.messages_to_json(&request.messages);
 
         if let Some(base_system) = &request.system {
             if let Some(first) = messages.first_mut() {
@@ -536,14 +561,28 @@ impl ReactLLM for ChatOpenAI {
 mod tests {
     use super::*;
 
-    /// Reasoning block（thinking 内容）应序列化为 thinking 类型而非被丢弃
+    /// Reasoning block 默认被过滤（大多数 provider 不支持 thinking content type）
     #[test]
-    fn test_reasoning_block_serialized() {
+    fn test_reasoning_block_filtered_by_default() {
         let content = MessageContent::Blocks(vec![
             ContentBlock::reasoning("step 1"),
             ContentBlock::text("answer"),
         ]);
-        let val = ChatOpenAI::content_to_openai(&content);
+        let val = ChatOpenAI::content_to_openai(&content, false);
+        let arr = val.as_array().expect("content 应为 array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[0]["text"], "answer");
+    }
+
+    /// supports_thinking_content=true 时 Reasoning block 应序列化为 thinking 类型
+    #[test]
+    fn test_reasoning_block_included_when_supported() {
+        let content = MessageContent::Blocks(vec![
+            ContentBlock::reasoning("step 1"),
+            ContentBlock::text("answer"),
+        ]);
+        let val = ChatOpenAI::content_to_openai(&content, true);
         let arr = val.as_array().expect("content 应为 array");
         assert_eq!(arr.len(), 2);
         assert_eq!(arr[0]["type"], "thinking");
@@ -552,39 +591,58 @@ mod tests {
         assert_eq!(arr[1]["text"], "answer");
     }
 
-    /// 仅 reasoning block 无 text 的序列化
+    /// 仅 reasoning block 无 text 时，content 应为空字符串
     #[test]
-    fn test_reasoning_only_block() {
+    fn test_reasoning_only_block_becomes_empty() {
         let content = MessageContent::Blocks(vec![ContentBlock::reasoning("deep thinking")]);
-        let val = ChatOpenAI::content_to_openai(&content);
-        let arr = val.as_array().expect("content 应为 array");
-        assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["type"], "thinking");
-        assert_eq!(arr[0]["thinking"], "deep thinking");
+        let val = ChatOpenAI::content_to_openai(&content, false);
+        assert_eq!(val, json!(""));
     }
 
-    /// messages_to_json 中，含 reasoning 的 assistant 消息应正确序列化
+    /// messages_to_json：默认模型不支持 thinking，reasoning 被过滤
     #[test]
-    fn test_messages_to_json_with_reasoning() {
+    fn test_messages_to_json_with_reasoning_filtered() {
+        let llm = ChatOpenAI::new("sk-test", "gpt-4o");
+        assert!(!llm.supports_thinking_content);
         let msgs = vec![BaseMessage::ai_from_blocks(vec![
             ContentBlock::reasoning("r1"),
             ContentBlock::text("t1"),
         ])];
-        let vals = ChatOpenAI::messages_to_json(&msgs);
+        let vals = llm.messages_to_json(&msgs);
         assert_eq!(vals.len(), 1);
         let assistant = &vals[0];
         assert_eq!(assistant["role"], "assistant");
         let content = assistant["content"].as_array().expect("content 应为 array");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "t1");
+    }
+
+    /// messages_to_json：deepseek-v4-pro 支持 thinking，reasoning 应保留
+    #[test]
+    fn test_messages_to_json_with_reasoning_included_for_deepseek_v4() {
+        let llm = ChatOpenAI::new("sk-test", "deepseek-v4-pro");
+        assert!(llm.supports_thinking_content);
+        let msgs = vec![BaseMessage::ai_from_blocks(vec![
+            ContentBlock::reasoning("r1"),
+            ContentBlock::text("t1"),
+        ])];
+        let vals = llm.messages_to_json(&msgs);
+        assert_eq!(vals.len(), 1);
+        let assistant = &vals[0];
+        let content = assistant["content"].as_array().expect("content 应为 array");
         assert_eq!(content.len(), 2);
         assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[0]["thinking"], "r1");
         assert_eq!(content[1]["type"], "text");
     }
 
     /// 无 reasoning 的纯文本 AI 消息，content 应为字符串（保持兼容）
     #[test]
     fn test_messages_to_json_text_only() {
+        let llm = ChatOpenAI::new("sk-test", "gpt-4o");
         let msgs = vec![BaseMessage::ai("hello")];
-        let vals = ChatOpenAI::messages_to_json(&msgs);
+        let vals = llm.messages_to_json(&msgs);
         let assistant = &vals[0];
         assert_eq!(assistant["role"], "assistant");
         assert!(assistant["content"].is_string());
@@ -652,6 +710,24 @@ mod tests {
     fn test_with_reasoning_effort() {
         let llm = ChatOpenAI::new("key", "o1-preview").with_reasoning_effort("high");
         assert_eq!(llm.reasoning_effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn test_with_thinking_content() {
+        let llm = ChatOpenAI::new("key", "gpt-4o").with_thinking_content(true);
+        assert!(llm.supports_thinking_content);
+    }
+
+    #[test]
+    fn test_detect_thinking_content_deepseek_v4() {
+        assert!(ChatOpenAI::detect_thinking_content_support(
+            "deepseek-v4-pro"
+        ));
+        assert!(ChatOpenAI::detect_thinking_content_support(
+            "DeepSeek-V4-Pro"
+        ));
+        assert!(!ChatOpenAI::detect_thinking_content_support("deepseek-r1"));
+        assert!(!ChatOpenAI::detect_thinking_content_support("gpt-4o"));
     }
 
     #[test]

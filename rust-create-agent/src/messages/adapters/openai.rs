@@ -38,14 +38,13 @@ impl OpenAiAdapter {
                 };
                 Some(json!({ "type": "image_url", "image_url": image_url }))
             }
-            ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. } => None,
-            ContentBlock::Reasoning { text, signature } => {
-                let mut obj = json!({ "type": "thinking", "thinking": text });
-                if let Some(sig) = signature {
-                    obj["signature"] = json!(sig);
-                }
-                Some(obj)
-            }
+            // ToolUse / ToolResult / Reasoning 不通过 content 回传
+            // - ToolUse → 顶层 tool_calls 字段
+            // - ToolResult → role: "tool" 消息
+            // - Reasoning → 大多数 OpenAI 兼容 provider 不支持 "thinking" content type
+            ContentBlock::ToolUse { .. }
+            | ContentBlock::ToolResult { .. }
+            | ContentBlock::Reasoning { .. } => None,
             ContentBlock::Document { source, title } => {
                 let src = serde_json::to_value(source).unwrap_or_default();
                 Some(json!({ "type": "document", "source": src, "title": title }))
@@ -354,9 +353,9 @@ mod tests {
         );
     }
 
-    /// Reasoning block 应序列化为 thinking 类型（deepseek-v4-pro 要求回传）
+    /// Reasoning block 应被过滤掉（大多数 OpenAI 兼容 provider 不支持 thinking content type）
     #[test]
-    fn test_reasoning_block_serialized_as_thinking() {
+    fn test_reasoning_block_filtered() {
         let msg = BaseMessage::ai_from_blocks(vec![
             ContentBlock::reasoning("step 1: analyze first"),
             ContentBlock::text("final answer"),
@@ -364,15 +363,14 @@ mod tests {
         let val = OpenAiAdapter::from_base_messages(&[msg]);
         let arr = val.as_array().unwrap();
         let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
+        // reasoning 被过滤，只剩 text → content 为 array with single text part
         let content = assistant["content"].as_array().expect("content 应为 array");
-        assert_eq!(content.len(), 2);
-        assert_eq!(content[0]["type"], "thinking");
-        assert_eq!(content[0]["thinking"], "step 1: analyze first");
-        assert_eq!(content[1]["type"], "text");
-        assert_eq!(content[1]["text"], "final answer");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "final answer");
     }
 
-    /// Reasoning + tool_calls 序列化：thinking 在 content，tool_calls 在顶层
+    /// Reasoning + tool_calls 序列化：reasoning 被过滤，tool_calls 在顶层
     #[test]
     fn test_reasoning_with_tool_calls_serialization() {
         let msg = BaseMessage::ai_from_blocks(vec![
@@ -383,30 +381,24 @@ mod tests {
         let val = OpenAiAdapter::from_base_messages(&[msg]);
         let arr = val.as_array().unwrap();
         let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
-        // content 包含 thinking 和 text，但不含 tool_use（已在 tool_calls 字段）
+        // content 只包含 text，不含 thinking 或 tool_use
         let content = assistant["content"].as_array().expect("content 应为 array");
-        assert!(content.iter().any(|b| b["type"] == "thinking"));
-        assert!(content.iter().any(|b| b["type"] == "text"));
-        assert!(
-            !content.iter().any(|b| b["type"] == "tool_use"),
-            "tool_use 不应出现在 content 中"
-        );
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "running...");
         // tool_calls 在顶层
         assert!(assistant["tool_calls"].is_array());
         assert_eq!(assistant["tool_calls"][0]["id"], "tc1");
     }
 
-    /// 仅 reasoning block（无 text）序列化
+    /// 仅 reasoning block（无 text）→ content 为空字符串
     #[test]
     fn test_reasoning_only_serialization() {
         let msg = BaseMessage::ai_from_blocks(vec![ContentBlock::reasoning("thinking only")]);
         let val = OpenAiAdapter::from_base_messages(&[msg]);
         let arr = val.as_array().unwrap();
         let assistant = arr.iter().find(|m| m["role"] == "assistant").unwrap();
-        let content = assistant["content"].as_array().expect("content 应为 array");
-        assert_eq!(content.len(), 1);
-        assert_eq!(content[0]["type"], "thinking");
-        assert_eq!(content[0]["thinking"], "thinking only");
+        assert_eq!(assistant["content"], json!(""));
     }
 
     /// 无 reasoning block 的消息不应包含 thinking
