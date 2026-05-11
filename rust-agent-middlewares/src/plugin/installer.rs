@@ -59,10 +59,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// 从 marketplace 条目生成合成 plugin.json（用于无原生 manifest 的 LSP/MCP 插件）
-fn generate_synthetic_manifest(
+pub(crate) fn generate_synthetic_manifest(
     target_dir: &Path,
     marketplace_plugin: &crate::plugin::types::MarketplacePlugin,
-) -> Result<(), InstallerError> {
+) -> Result<(), std::io::Error> {
     let mut manifest = serde_json::Map::new();
     manifest.insert("name".into(), serde_json::json!(marketplace_plugin.name));
     if !marketplace_plugin.version.is_empty() {
@@ -78,11 +78,9 @@ fn generate_synthetic_manifest(
         );
     }
     if let Some(ref author) = marketplace_plugin.author {
-        manifest.insert(
-            "author".into(),
-            serde_json::to_value(author)
-                .map_err(|e| InstallerError::SettingsError(e.to_string()))?,
-        );
+        if let Ok(val) = serde_json::to_value(author) {
+            manifest.insert("author".into(), val);
+        }
     }
 
     // 转换 lspServers: HashMap -> Vec（marketplace 用 {name: config}，plugin.json 用 [{name, ...}]）
@@ -112,8 +110,7 @@ fn generate_synthetic_manifest(
     let claude_plugin_dir = target_dir.join(".claude-plugin");
     std::fs::create_dir_all(&claude_plugin_dir)?;
     let manifest_path = claude_plugin_dir.join("plugin.json");
-    let json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| InstallerError::SettingsError(e.to_string()))?;
+    let json = serde_json::to_string_pretty(&manifest)?;
     std::fs::write(&manifest_path, json)?;
 
     Ok(())
