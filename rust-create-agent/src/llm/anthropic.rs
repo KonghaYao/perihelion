@@ -45,12 +45,9 @@ impl ChatAnthropic {
     }
 
     /// 开启 Extended Thinking（claude-3-7-sonnet 及以上）
-    ///
-    /// `budget_tokens` 最小值为 1024（Anthropic API 要求）；传入更小的值会被静默提升到 1024。
     pub fn with_extended_thinking(mut self, budget_tokens: u32, effort: impl Into<String>) -> Self {
         self.extended_thinking = true;
-        // Anthropic extended thinking API 要求 budget_tokens >= 1024
-        self.thinking_budget = budget_tokens.max(1024);
+        self.thinking_budget = budget_tokens;
         self.thinking_effort = effort.into();
         self
     }
@@ -399,12 +396,7 @@ impl BaseModel for ChatAnthropic {
             (Some(from_msgs), None) => Some(from_msgs),
             (None, base) => base,
         };
-        let mut max_tokens = request.max_tokens.unwrap_or(4096);
-
-        // Extended Thinking 要求 max_tokens > budget_tokens
-        if self.extended_thinking && max_tokens <= self.thinking_budget {
-            max_tokens = self.thinking_budget + 4096;
-        }
+        let max_tokens = request.max_tokens.unwrap_or(4096);
 
         // 开启缓存时：对最后一条消息的最后一个 block 加 cache_control
         if self.enable_cache {
@@ -817,12 +809,12 @@ mod tests {
     }
 
     #[test]
-    fn test_with_extended_thinking_minimum_budget() {
+    fn test_with_extended_thinking_passes_through_budget() {
         let llm = ChatAnthropic::new("key", "model").with_extended_thinking(100, "high");
         assert!(llm.extended_thinking);
         assert_eq!(
-            llm.thinking_budget, 1024,
-            "budget below 1024 should be clamped"
+            llm.thinking_budget, 100,
+            "budget_tokens 应原样传递，不做截断"
         );
         assert_eq!(llm.thinking_effort, "high");
     }
