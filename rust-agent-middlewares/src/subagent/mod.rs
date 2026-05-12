@@ -1,5 +1,6 @@
 mod background;
 mod built_in_agents;
+mod fork;
 mod skill_preload;
 mod tool;
 pub use background::{BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus};

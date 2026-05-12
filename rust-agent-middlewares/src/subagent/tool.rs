@@ -228,27 +228,15 @@ impl SubAgentTool {
         })
     }
 
-    /// Extract AgentOverrides from already-parsed agent_def to avoid redundant I/O
+    /// Extract AgentOverrides from already-parsed agent_def to avoid redundant I/O.
+    ///
+    /// Delegates to [`super::fork::overrides_from_agent_def`].
     fn overrides_from_agent_def(
         system_prompt: &str,
         tone: &Option<String>,
         proactiveness: &Option<String>,
     ) -> Option<AgentOverrides> {
-        let persona = if system_prompt.is_empty() {
-            None
-        } else {
-            Some(system_prompt.to_string())
-        };
-        let overrides = AgentOverrides {
-            persona,
-            tone: tone.clone(),
-            proactiveness: proactiveness.clone(),
-        };
-        if overrides.is_empty() {
-            None
-        } else {
-            Some(overrides)
-        }
+        super::fork::overrides_from_agent_def(system_prompt, tone, proactiveness)
     }
 
     /// Fire SubagentStart/SubagentStop hooks if any matching hooks are registered.
@@ -269,48 +257,15 @@ impl SubAgentTool {
         .await;
     }
 
-    /// Filter available tools from parent tool set based on agent definition's tools/disallowedTools fields
+    /// Filter available tools from parent tool set based on agent definition's tools/disallowedTools fields.
     ///
-    /// Rules:
-    /// - tools is Empty -> inherit all parent tools (but always exclude Agent itself to prevent recursion)
-    /// - tools has value -> only keep tools in the list (also exclude Agent)
-    /// - then remove tools listed in disallowed_tools from the result
+    /// Delegates to [`super::fork::filter_tools`].
     fn filter_tools(
         &self,
         allowed: &ToolsValue,
         disallowed: &ToolsValue,
     ) -> Vec<Box<dyn BaseTool>> {
-        let allowed_list = allowed.to_vec();
-        let disallowed_list = disallowed.to_vec();
-        let is_wildcard = allowed_list.len() == 1 && allowed_list[0] == "*";
-
-        self.parent_tools
-            .iter()
-            .filter(|tool| {
-                let name = tool.name();
-                let name_lower = name.to_lowercase();
-                // Always exclude Agent to prevent recursion
-                if name == "Agent" {
-                    return false;
-                }
-                // If allowed_list is non-empty and not wildcard "*", only keep tools in the list
-                if !is_wildcard
-                    && !allowed_list.is_empty()
-                    && !allowed_list.iter().any(|n| n.to_lowercase() == name_lower)
-                {
-                    return false;
-                }
-                // Exclude tools in the disallowed list (case-insensitive)
-                if disallowed_list
-                    .iter()
-                    .any(|n| n.to_lowercase() == name_lower)
-                {
-                    return false;
-                }
-                true
-            })
-            .map(|tool| Box::new(ArcToolWrapper(Arc::clone(tool))) as Box<dyn BaseTool>)
-            .collect()
+        super::fork::filter_tools(&self.parent_tools, allowed, disallowed)
     }
 
     /// Fork path: sub-agent inherits parent's full message history + system prompt + tool set
@@ -329,26 +284,7 @@ impl SubAgentTool {
         };
 
         // 2. Build fork directive Human message
-        let fork_directive = format!(
-            "<fork_directive>\n\
-             You are a forked agent continuing from the parent conversation.\n\
-             You have full access to the conversation history above.\n\
-             \n\
-             RULES:\n\
-             1. Do NOT spawn sub-agents — execute directly using your tools\n\
-             2. Do NOT ask questions — act on the directive below\n\
-             3. Stay strictly within your assigned scope\n\
-             4. Report structured facts, then stop\n\
-             5. Keep your response under 500 words unless specified otherwise\n\
-             \n\
-             Output format:\n\
-               Scope: <your assigned scope in one sentence>\n\
-               Result: <the answer or key findings>\n\
-               Key files: <relevant file paths>\n\
-               Files changed: <list if you modified files>\n\
-             </fork_directive>\n\n\
-             {prompt}"
-        );
+        let fork_directive = super::fork::build_fork_directive(prompt);
 
         // 3. Build child AgentState using deep copy of parent messages
         let mut fork_state = AgentState::with_messages(cwd.to_string(), parent_msgs);
