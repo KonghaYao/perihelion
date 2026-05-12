@@ -1109,7 +1109,6 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     // ─── build_rebuild_all 事件处理测试 ──────────────────────────────────────
 
@@ -1197,7 +1196,6 @@ mod tests {
     /// 模拟 agent 运行中 SystemNote（如 OAuth 通知）被后续 RebuildAll 保留
     #[test]
     fn test_rebuildall_preserves_system_notes() {
-        use super::super::message_pipeline::PipelineAction;
         use crate::ui::message_view::MessageViewModel;
 
         let mut view_messages: Vec<MessageViewModel> =

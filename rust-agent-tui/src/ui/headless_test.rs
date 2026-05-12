@@ -2,7 +2,6 @@ use super::*;
 use crate::app::MessageViewModel;
 use crate::app::{AgentEvent, App};
 use crate::ui::main_ui;
-use crate::ui::render_thread::RenderEvent;
 
 #[tokio::test]
 async fn test_snapshot_row_count() {
@@ -90,7 +89,7 @@ async fn test_user_message_renders() {
 async fn test_clear_empties_render_cache() {
     use crate::ui::render_thread::RenderEvent;
 
-    let (mut app, _handle) = App::new_headless(120, 30).await;
+    let (app, _handle) = App::new_headless(120, 30).await;
 
     // 直接发送 LoadHistory 填充 RenderCache
     let msgs = vec![MessageViewModel::user("test content".into())];
