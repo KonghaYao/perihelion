@@ -827,10 +827,10 @@ async fn test_context_budget_emits_warning_event() {
     let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(vec![]));
     let events_clone = events.clone();
 
-    // context_window=1000, warning_threshold=0.5 → 400+200=600/1000=60% > 50%
+    // context_window=1000, warning_threshold=0.5 → input=600/1000=60% > 50%
     let budget = crate::agent::token::ContextBudget::new(1000).with_warning_threshold(0.5);
     let agent = ReActAgent::new(TokenLLM {
-        input_tokens: 400,
+        input_tokens: 600,
         output_tokens: 200,
     })
     .max_iterations(3)
@@ -858,7 +858,7 @@ async fn test_context_budget_emits_warning_event() {
         percentage,
     } = warnings[0]
     {
-        assert_eq!(*used_tokens, 600, "used_tokens = input+output = 400+200");
+        assert_eq!(*used_tokens, 600, "used_tokens = input = 600");
         assert_eq!(*total_tokens, 1000, "total_tokens = budget.context_window");
         assert!((*percentage - 60.0).abs() < 1.0, "percentage ≈ 60%");
     }
@@ -879,9 +879,9 @@ async fn test_fallback_path_emits_warning_event() {
             _tools: &[&dyn BaseTool],
         ) -> crate::error::AgentResult<Reasoning> {
             let mut r = Reasoning::with_answer("", "ok");
-            // context_window 默认 200K，90K+80K=170K = 85% > 80% 硬编码阈值
+            // context_window 默认 200K，input=170K → 170K/200K = 85% > 80% 硬编码阈值
             r.usage = Some(crate::llm::types::TokenUsage {
-                input_tokens: 90000,
+                input_tokens: 170000,
                 output_tokens: 80000,
                 cache_creation_input_tokens: None,
                 cache_read_input_tokens: None,
@@ -922,7 +922,7 @@ async fn test_fallback_path_emits_warning_event() {
         percentage,
     } = warnings[0]
     {
-        assert_eq!(*used_tokens, 170000, "used_tokens = input+output");
+        assert_eq!(*used_tokens, 170000, "used_tokens = input = 170K");
         assert!((*percentage - 85.0).abs() < 1.0, "percentage ≈ 85%");
     }
 }

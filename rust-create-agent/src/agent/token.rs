@@ -183,7 +183,7 @@ mod tests {
     fn test_accumulate_zero_input_tokens_does_not_overwrite_last_usage() {
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(50000, 2000, None, None));
-        assert_eq!(tracker.estimated_context_tokens(), Some(52000));
+        assert_eq!(tracker.estimated_context_tokens(), Some(50000));
 
         // 异常 API 响应 input_tokens=0，不应覆盖 last_usage
         tracker.accumulate(&make_usage(0, 100, None, None));
@@ -192,7 +192,7 @@ mod tests {
         assert_eq!(tracker.llm_call_count, 2);
         assert_eq!(
             tracker.estimated_context_tokens(),
-            Some(52000),
+            Some(50000),
             "last_usage 不应被 input_tokens=0 覆盖"
         );
     }
@@ -202,16 +202,16 @@ mod tests {
         let mut tracker = TokenTracker::default();
         // input 已在 adapter 层规范化：raw(1000) + cache_creation(200) + cache_read(300) = 1500
         tracker.accumulate(&make_usage(1500, 500, Some(200), Some(300)));
-        // input(1500) + output(500) = 2000
-        assert_eq!(tracker.estimated_context_tokens(), Some(2000));
+        // estimated_context_tokens 只返回 input_tokens
+        assert_eq!(tracker.estimated_context_tokens(), Some(1500));
     }
 
     #[test]
     fn test_estimated_context_tokens_no_cache() {
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(1000, 500, None, None));
-        // input(1000) + output(500) = 1500
-        assert_eq!(tracker.estimated_context_tokens(), Some(1500));
+        // estimated_context_tokens 只返回 input_tokens
+        assert_eq!(tracker.estimated_context_tokens(), Some(1000));
     }
 
     #[test]
@@ -219,10 +219,10 @@ mod tests {
         // OpenAI API: prompt_tokens 已包含 cached_tokens，adapter 层无需额外处理
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(150_000, 10_000, None, Some(120_000)));
-        // input(150K) + output(10K) = 160K（统一公式，所有 provider 一致）
-        assert_eq!(tracker.estimated_context_tokens(), Some(160_000),);
+        // estimated_context_tokens 只返回 input_tokens = 150K
+        assert_eq!(tracker.estimated_context_tokens(), Some(150_000),);
         let pct = tracker.context_usage_percent(200_000).unwrap();
-        assert!((pct - 80.0).abs() < 0.01, "应为 80%，实际 {}%", pct);
+        assert!((pct - 75.0).abs() < 0.01, "应为 75%，实际 {}%", pct);
     }
 
     #[test]
@@ -230,21 +230,21 @@ mod tests {
         let mut tracker = TokenTracker::default();
         // input 已规范化：raw(50000) + cache(12500) + cache(12500) = 75000
         tracker.accumulate(&make_usage(75000, 25000, Some(12500), Some(12500)));
-        // 75000 + 25000 = 100000 → 50%
+        // estimated_context_tokens 只返回 input_tokens = 75000 → 37.5%
         let pct = tracker.context_usage_percent(200_000).unwrap();
-        assert!((pct - 50.0).abs() < 0.01);
+        assert!((pct - 37.5).abs() < 0.01);
     }
 
     #[test]
     fn test_context_budget_should_auto_compact() {
         let budget = ContextBudget::new(200_000);
         let mut tracker = TokenTracker::default();
-        // input 已规范化：raw(50000) + cache(40K) + cache(40K) = 130K → 130K + 40K = 170K (85%)
-        tracker.accumulate(&make_usage(130000, 40000, Some(40000), Some(40000)));
+        // input=170K → 170K/200K = 85% → 达到 auto-compact 阈值
+        tracker.accumulate(&make_usage(170000, 40000, None, None));
         assert!(budget.should_auto_compact(&tracker));
-        // input 已规范化：raw(50000) + cache(30K) + cache(30K) = 110K → 110K + 40K = 150K (75%)
+        // input=150K → 150K/200K = 75% < 85%
         let mut tracker2 = TokenTracker::default();
-        tracker2.accumulate(&make_usage(110000, 40000, Some(30000), Some(30000)));
+        tracker2.accumulate(&make_usage(150000, 40000, None, None));
         assert!(!budget.should_auto_compact(&tracker2));
     }
 
@@ -252,12 +252,12 @@ mod tests {
     fn test_context_budget_should_warn() {
         let budget = ContextBudget::new(200_000);
         let mut tracker = TokenTracker::default();
-        // input 已规范化：raw(40000) + cache(20K) + cache(20K) = 80K → 80K + 60K = 140K (70%)
-        tracker.accumulate(&make_usage(80000, 60000, Some(20000), Some(20000)));
+        // input=140K → 140K/200K = 70% → 达到警告阈值
+        tracker.accumulate(&make_usage(140000, 60000, None, None));
         assert!(budget.should_warn(&tracker));
-        // input 已规范化：raw(30000) + cache(20K) + cache(20K) = 70K → 70K + 40K = 110K (55%)
+        // input=110K → 110K/200K = 55% < 70%
         let mut tracker2 = TokenTracker::default();
-        tracker2.accumulate(&make_usage(70000, 40000, Some(20000), Some(20000)));
+        tracker2.accumulate(&make_usage(110000, 40000, None, None));
         assert!(!budget.should_warn(&tracker2));
     }
 
