@@ -20,7 +20,7 @@ import { clean } from "./clean.js";
 /**
  * 判断输入是完整 tag 还是包名前缀
  * 完整 tag 格式：xxx-vN.N（含版本号）
- * 包名前缀：agent、acpx-g（不含版本号）
+ * 包名前缀：agent（不含版本号）
  */
 function isFullTag(input) {
     return /-v\d/.test(input);
@@ -40,11 +40,11 @@ export async function install(pkg) {
             console.log("📦 Fetching latest agent release...");
             release = await getLatestRelease();
         } else if (isFullTag(pkg)) {
-            // 完整 tag（如 agent-v1.17、acpx-g-v-0.1）→ 安装指定版本
+            // 完整 tag（如 agent-v1.17）→ 安装指定版本
             console.log(`📦 Installing version: ${pkg}`);
             release = await getReleaseByVersion(pkg);
         } else {
-            // 包名前缀（如 agent、acpx-g）→ 安装该包的最新版本
+            // 包名前缀（如 agent）→ 安装该包的最新版本
             console.log(`📦 Fetching latest ${pkg} release...`);
             release = await getLatestReleaseByPrefix(`${pkg}-`);
         }

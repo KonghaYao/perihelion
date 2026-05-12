@@ -16,7 +16,7 @@
 修复 3 个关键 bug：dispatch loop `_rx` 丢弃导致无响应、`RwLock` read→write 死锁、`file://` 双重前缀。修复 6 个 warning。补充 32 个测试，共 1428 测试通过。
 
 ## 2026-05-07 第44-43轮：ContentBlock 测试 + re-export 收紧
-content.rs 补 11 个测试（image/reasoning/Document roundtrip）。langfuse-client 移除 11 个未使用 re-export，acpx-g 消除 3 处重复函数定义。净减 46 行，275 测试通过。
+content.rs 补 11 个测试（image/reasoning/Document roundtrip）。langfuse-client 移除 11 个未使用 re-export。净减 46 行，275 测试通过。
 
 ## 2026-05-07 第42-41轮：LLM adapter 测试 + widgets 死代码删除
 ChatAnthropic 补 6 个测试，ChatOpenAI 补 4 个测试。widgets 删除 115 行死代码（TableBuilder::render + make_data_line），移除 compact 无用 re-export。

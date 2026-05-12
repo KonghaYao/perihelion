@@ -1,7 +1,7 @@
 import fs from "fs-extra";
 import path from "path";
 
-// 从 tag 中提取工具名：agent-v1.17 → agent，acpx-g-v-0.1 → acpx-g
+// 从 tag 中提取工具名：agent-v1.17 → agent
 export function extractToolName(tag) {
     const match = tag.match(/^(.+?)-v-?\d/);
     return match ? match[1] : tag;
@@ -9,7 +9,7 @@ export function extractToolName(tag) {
 
 // GitHub 下载代理（环境变量 GITHUB_PROXY 或 PERI_GITHUB_PROXY）
 // 代理 URL 替换原始 URL 中的 "https://github.com" 前缀
-// 例如：GITHUB_PROXY=https://<your-proxy-url>  /https://github.com peri install acpx-g
+// 例如：GITHUB_PROXY=https://<your-proxy-url>  /https://github.com peri install agent
 // 原始地址：https://github.com/KonghaYao/peri/releases/download/...
 // 代理地址：https://<your-proxy-url>  /https://github.com/KonghaYao/peri/releases/download/...
 export function getDownloadUrl(originalUrl) {

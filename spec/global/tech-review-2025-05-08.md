@@ -123,7 +123,7 @@
 
 1. **零循环依赖** — workspace 依赖方向清晰，cargo tree 验证通过
 2. **零 unsafe 代码** — 全代码库无 unsafe 块
-3. **langfuse-client / acpx-g 完全独立** — 可作为独立子项目发布
+3. **langfuse-client 完全独立** — 可作为独立子项目发布
 4. **中间件 trait 设计清晰** — 12 个中间件正确实现 collect_tools/before_agent/before_tool
 5. **渲染线程解耦** — 独立渲染线程 + RenderCache，不阻塞主循环
 6. **LLM 重试机制完善** — RetryableLLM 装饰器实现指数退避

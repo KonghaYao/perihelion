@@ -1,7 +1,7 @@
 import fs from "fs-extra";
 import { getInstallDir, extractToolName } from "../utils/config.js";
 
-// 从 tag 中提取版本号用于排序：agent-v1.17 → [1,17]，acpx-g-v-0.1 → [0,1]
+// 从 tag 中提取版本号用于排序：agent-v1.17 → [1,17]
 function parseVersion(tag) {
     const match = tag.match(/-v-?([\d.]+)/);
     return match ? match[1].split(".").map(Number) : [0];

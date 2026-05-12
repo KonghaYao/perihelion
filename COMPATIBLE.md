@@ -105,19 +105,7 @@
 | | | Teammate Mailbox | teammateMailbox（25 个测试覆盖，协议消息检测） | -- | ❌ | |
 | | | Background Tasks Dialog | BackgroundTasksDialog + BackgroundAgentSelector（UI 管理） | -- | ❌ | |
 | | | Task Framework | task/framework.rs + TaskOutput + diskOutput | -- | ❌ | |
-| | | DAG 工作流引擎 | -- | acpx-g（YAML 定义、拓扑排序、并行执行、Web API、SQLite） | 🟢 | |
-| | | 工作流节点类型 | -- | 3 种（shell/agent/reference） | 🟢 | |
-| | | 工作流子引用 | -- | Reference 节点（子工作流内联展开 + 参数传递 + 依赖重连） | 🟢 | |
-| | | 工作流模板变量 | -- | `{{ inputs }}` / `{{ needs.node.outputs }}` / `{{ env }}` | 🟢 | |
-| | | 工作流条件执行 | -- | `if` 字段（模板表达式 + 比较运算） | 🟢 | |
-| | | 工作流 GitOps | -- | 目录监视器（10s 扫描 + 版本/哈希变更检测 + 自动提交） | 🟢 | |
-| | | 工作流 Web UI | -- | 内建 SPA（DAG 可视化 + 运行列表 + 节点日志 + 模板浏览器） | 🟢 | |
-| | | 工作流 REST API | -- | 10+ 端点（提交/列表/详情/取消/重跑/日志/模板/验证/健康检查） | 🟢 | |
-| | | 工作流并发控制 | -- | 全局信号量（max 16 节点/工作流 + max 8 并行工作流） | 🟢 | |
-| | | 工作流输入验证 | -- | Schema 驱动（string/number/boolean + required + default） | 🟢 | |
-| | | 工作流优雅关闭 | -- | Ctrl+C 触发原子批量更新（running→failed） | 🟢 | |
-| | | 工作流输出截断 | -- | stdout/stderr 最大 256KB + CJK 字符边界安全 | 🟢 | |
-| | | 工作流 Secret 脱敏 | -- | API 响应自动屏蔽 password/secret/token/api_key 等 | 🟢 | |
+| | | DAG 工作流引擎 | -- | --（已迁移为独立项目 acpx-g） | -- | |
 | | **Skills** | 搜索路径 | `~/.claude/skills/` → skillsDir → `./.claude/skills/` | 同左 + 插件 skills | ✅ | |
 | | | Skill 格式 | SKILL.md（YAML frontmatter: name, description） | 同左 | ✅ | |
 | | | 触发方式 | `/skill-name` 或 LLM 调用 SkillTool | `/skill-name` 或 `#skill-name` 全文注入 | ✅ | |

@@ -27,7 +27,6 @@ cargo run -p rust-agent-tui
 - **多 LLM 支持** — OpenAI / Anthropic / 任意兼容接口，`/model` 随时切换
 - **Thinking/推理模式** — Anthropic `thinking`、OpenAI `reasoning_effort`，budget_tokens 可配
 - **交互式 TUI** — 终端内完整对话体验，多会话分屏持久化，Markdown 渲染
-- **DAG 工作流** — YAML 定义工作流，拓扑排序 + 并行执行 + SQLite 持久化
 - **遥测集成** — Langfuse + OpenTelemetry OTLP，开箱即用
 
 ## 快速上手
@@ -61,7 +60,7 @@ perihelion-widgets/      独立 Widget 库（11 组件）：BorderedPanel、Scro
 rust-agent-tui/         交互式 TUI 应用，多会话分屏、Slash 命令、上下文压缩
 
 langfuse-client/        Langfuse 遥测客户端（独立）
-acpx-g/                 DAG 工作流引擎——YAML 定义、Web API、SQLite 持久化（独立）
+perihelion-lsp/         LSP 客户端库（独立，被 middlewares 使用）
 ```
 
 ## TUI 命令

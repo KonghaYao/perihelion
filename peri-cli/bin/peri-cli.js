@@ -18,7 +18,7 @@ program
 program
     .command("install [package]")
     .description(
-        "Install a package (e.g. 'agent', 'acpx-g', or full tag 'agent-v1.17')",
+        "Install a package (e.g. 'agent', or full tag 'agent-v1.17')",
     )
     .action(install);
 
@@ -31,7 +31,7 @@ program
 program
     .command("update [package]", { isDefault: true })
     .description(
-        "Update a package to the latest version (e.g. 'agent', 'acpx-g')",
+        "Update a package to the latest version (e.g. 'agent')",
     )
     .action(update);
 

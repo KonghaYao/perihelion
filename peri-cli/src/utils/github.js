@@ -65,7 +65,7 @@ export function findAssetForPlatform(release, platformInfo) {
   return release.assets.find(asset => {
     const name = asset.name.toLowerCase();
 
-    // 根据工具名匹配（agent → 匹配 agent-tui-*，acpx-g → 匹配 acpx-g-*）
+    // 根据工具名匹配（agent → 匹配 agent-tui-*）
     if (name.includes(toolName) && name.includes(assetPlatformStr)) {
       return true;
     }
