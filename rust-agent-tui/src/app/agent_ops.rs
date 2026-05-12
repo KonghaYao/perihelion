@@ -149,27 +149,25 @@ impl App {
                     .session_token_tracker
                     .accumulate(&usage);
 
-                // 缓存率检查：累计命中率低于 80% 时显示黄色提示
-                if let Some(rate) = self.session_mgr.sessions[self.session_mgr.active]
+                // 缓存率检查：当次命中率低于 80% 时显示黄色提示
+                let rate = self.session_mgr.sessions[self.session_mgr.active]
                     .agent
                     .session_token_tracker
-                    .cache_hit_rate()
-                {
-                    if rate < 0.8 {
-                        let tracker = &self.session_mgr.sessions[self.session_mgr.active]
-                            .agent
-                            .session_token_tracker;
-                        tracing::warn!(
-                            input = tracker.total_input_tokens,
-                            cache_read = tracker.total_cache_read_tokens,
-                            rate_pct = rate * 100.0,
-                            "prompt cache hit rate below threshold"
-                        );
-                        let percentage = (rate * 100.0) as u32;
-                        let msg = format!("⚠ Prompt cache 累计命中率 {}% < 80%", percentage);
-                        let vm = MessageViewModel::system(msg);
-                        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
-                    }
+                    .cache_hit_rate();
+                if rate < 0.8 {
+                    let tracker = &self.session_mgr.sessions[self.session_mgr.active]
+                        .agent
+                        .session_token_tracker;
+                    tracing::warn!(
+                        input = tracker.total_input_tokens,
+                        cache_read = tracker.total_cache_read_tokens,
+                        rate_pct = rate * 100.0,
+                        "prompt cache hit rate below threshold"
+                    );
+                    let percentage = (rate * 100.0) as u32;
+                    let msg = format!("⚠ Prompt cache 命中率 {}% < 80%", percentage);
+                    let vm = MessageViewModel::system(msg);
+                    self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 }
                 // 更新 spinner 的 token 显示（仅当次调用的 token，不累计）
                 let current_tokens = usage.input_tokens as usize + usage.output_tokens as usize;

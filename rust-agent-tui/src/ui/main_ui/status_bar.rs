@@ -100,10 +100,11 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
                 theme::SAGE
             };
             spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
-            // 缓存命中率（使用当次值，反映最近一次 LLM 调用的缓存效率）
-            let cache_str = match tracker.last_cache_hit_rate() {
-                Some(rate) => format!(" {:.0}%", rate * 100.0),
-                None => String::new(),
+            // 缓存命中率（当次值，反映最近一次 LLM 调用的缓存效率）
+            let cache_str = if tracker.cache_hit_rate() > 0.0 {
+                format!(" {:.0}%", tracker.cache_hit_rate() * 100.0)
+            } else {
+                String::new()
             };
             spans.push(Span::styled(
                 format!(

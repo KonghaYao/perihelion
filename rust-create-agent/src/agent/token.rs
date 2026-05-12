@@ -48,33 +48,20 @@ impl TokenTracker {
             .map(|used| (used as f64 / context_window as f64) * 100.0)
     }
 
-    /// 会话累计缓存命中率
-    ///
-    /// 统一公式：`cache_read / total_input_tokens`
-    /// 适用于所有 provider（adapter 层已将 input_tokens 规范化为含缓存的总输入）。
-    ///
-    /// 返回 `None` 表示无缓存命中数据。
-    pub fn cache_hit_rate(&self) -> Option<f64> {
-        if self.total_cache_read_tokens == 0 {
-            return None;
-        }
-        if self.total_input_tokens == 0 {
-            return None;
-        }
-        Some(self.total_cache_read_tokens as f64 / self.total_input_tokens as f64)
-    }
-
     /// 当次调用的缓存命中率（基于 last_usage）
     ///
-    /// 与 `cache_hit_rate()`（累计）不同，此方法反映最近一次 LLM 调用的缓存效率。
-    pub fn last_cache_hit_rate(&self) -> Option<f64> {
-        self.last_usage.as_ref().and_then(|u| {
-            let cache_read = u.cache_read_input_tokens.unwrap_or(0);
-            if cache_read == 0 || u.input_tokens == 0 {
-                return None;
-            }
-            Some(cache_read as f64 / u.input_tokens as f64)
-        })
+    /// 返回最近一次 LLM 调用的缓存效率，当无缓存数据时返回 0.0。
+    pub fn cache_hit_rate(&self) -> f64 {
+        self.last_usage
+            .as_ref()
+            .map(|u| {
+                let cache_read = u.cache_read_input_tokens.unwrap_or(0);
+                if u.input_tokens == 0 {
+                    return 0.0;
+                }
+                cache_read as f64 / u.input_tokens as f64
+            })
+            .unwrap_or(0.0)
     }
 
     /// 重置追踪器（compact 后调用）
@@ -318,53 +305,66 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_hit_rate_none_when_no_cache_data() {
+    fn test_cache_hit_rate_zero_when_no_cache_data() {
         let tracker = TokenTracker::default();
-        assert!(tracker.cache_hit_rate().is_none());
+        assert_eq!(tracker.cache_hit_rate(), 0.0);
 
         // OpenAI 兼容 API：cache 字段为 None
         let mut tracker2 = TokenTracker::default();
         tracker2.accumulate(&make_usage(1000, 500, None, None));
-        assert!(tracker2.cache_hit_rate().is_none());
+        assert_eq!(tracker2.cache_hit_rate(), 0.0);
     }
 
     #[test]
     fn test_cache_hit_rate_zero_on_first_creation() {
-        // 首次调用仅有 cache_creation，cache_read=0 → 返回 None（无命中数据）
+        // 首次调用仅有 cache_creation，cache_read=0 → 返回 0.0
         // input 已规范化：raw(1000) + cache_creation(5000) + cache_read(0) = 6000
         let mut tracker = TokenTracker::default();
         tracker.accumulate(&make_usage(6000, 500, Some(5000), Some(0)));
+        assert_eq!(tracker.cache_hit_rate(), 0.0, "无 cache hit 应返回 0.0");
+    }
+
+    #[test]
+    fn test_cache_hit_rate_reflects_latest_call() {
+        let mut tracker = TokenTracker::default();
+        // 首次调用：无缓存
+        tracker.accumulate(&make_usage(10000, 500, None, Some(0)));
+        assert_eq!(tracker.cache_hit_rate(), 0.0);
+
+        // 第二次调用：高缓存命中 34230/34820 ≈ 98.3%
+        tracker.accumulate(&make_usage(34820, 423, None, Some(34230)));
+        let rate = tracker.cache_hit_rate();
         assert!(
-            tracker.cache_hit_rate().is_none(),
-            "无 cache hit 应返回 None"
+            (rate - 34230.0 / 34820.0).abs() < 1e-9,
+            "expected ≈98.3%, got {rate}"
+        );
+
+        // 第三次调用：低缓存命中
+        tracker.accumulate(&make_usage(20000, 1000, None, Some(5000)));
+        let rate = tracker.cache_hit_rate();
+        assert!(
+            (rate - 5000.0 / 20000.0).abs() < 1e-9,
+            "expected 25%, got {rate}"
         );
     }
 
     #[test]
-    fn test_cache_hit_rate_cumulative_after_multiple_calls() {
+    fn test_cache_hit_rate_none_when_no_cache_field() {
         let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(10000, 500, None, None));
+        assert_eq!(tracker.cache_hit_rate(), 0.0);
+    }
 
-        // Call 1: cache_creation=5000, cache_read=0 → None
-        tracker.accumulate(&make_usage(6000, 500, Some(5000), Some(0)));
-        assert!(tracker.cache_hit_rate().is_none());
+    #[test]
+    fn test_cache_hit_rate_after_reset() {
+        let mut tracker = TokenTracker::default();
+        // input 已规范化：raw(1000) + cache_creation(5000) + cache_read(5000) = 11000
+        tracker.accumulate(&make_usage(11000, 500, Some(5000), Some(5000)));
+        let rate = tracker.cache_hit_rate();
+        assert!((rate - 5000.0 / 11000.0).abs() < 1e-9);
 
-        // Call 2: cache_creation=0, cache_read=5000
-        // total_input=6000+5100=11100, total_cache_read=5000 → 5000/11100 ≈ 45.05%
-        tracker.accumulate(&make_usage(5100, 50, Some(0), Some(5000)));
-        let rate = tracker.cache_hit_rate().unwrap();
-        assert!(
-            (rate - 5000.0 / 11100.0).abs() < 1e-9,
-            "expected ≈45.05%, got {rate}"
-        );
-
-        // Call 3: cache_creation=0, cache_read=5000
-        // total_input=11100+5100=16200, total_cache_read=10000 → 10000/16200 ≈ 61.73%
-        tracker.accumulate(&make_usage(5100, 50, Some(0), Some(5000)));
-        let rate = tracker.cache_hit_rate().unwrap();
-        assert!(
-            (rate - 10000.0 / 16200.0).abs() < 1e-9,
-            "expected ≈61.73%, got {rate}"
-        );
+        tracker.reset();
+        assert_eq!(tracker.cache_hit_rate(), 0.0, "reset 后应返回 0.0");
     }
 
     #[test]
@@ -374,40 +374,29 @@ mod tests {
         // input 已在 adapter 层规范化（含缓存 token）
         let mut tracker = TokenTracker::default();
 
-        // 首次：创建缓存。input=500+8000+0=8500, cache_read=0 → None
+        // 首次：创建缓存。input=500+8000+0=8500, cache_read=0 → 0.0
         tracker.accumulate(&make_usage(8500, 200, Some(8000), Some(0)));
-        assert!(
-            tracker.cache_hit_rate().is_none(),
-            "首次创建缓存，无 cache hit 应返回 None"
+        assert_eq!(
+            tracker.cache_hit_rate(),
+            0.0,
+            "首次创建缓存，无 cache hit 应返回 0.0"
         );
 
-        // 后续：全部命中。total_input=17000, total_cache_read=8000 → 8000/17000 ≈ 47.06%
+        // 后续：全部命中。当次：8000/8500 ≈ 94.12%
         tracker.accumulate(&make_usage(8500, 200, Some(0), Some(8000)));
-        let rate = tracker.cache_hit_rate().unwrap();
+        let rate = tracker.cache_hit_rate();
         assert!(
-            (rate - 8000.0 / 17000.0).abs() < 1e-9,
-            "8000 cache_read / 17000 total_input ≈ 47.06%, got {rate}"
+            (rate - 8000.0 / 8500.0).abs() < 1e-9,
+            "8000 cache_read / 8500 input ≈ 94.12%, got {rate}"
         );
 
-        // 第三次命中。total_input=25500, total_cache_read=16000 → 16000/25500 ≈ 62.75%
+        // 第三次命中：同样是 8000/8500 ≈ 94.12%（当次值，非累计）
         tracker.accumulate(&make_usage(8500, 200, Some(0), Some(8000)));
-        let rate = tracker.cache_hit_rate().unwrap();
+        let rate = tracker.cache_hit_rate();
         assert!(
-            (rate - 16000.0 / 25500.0).abs() < 1e-9,
-            "16000 cache_read / 25500 total_input ≈ 62.75%, got {rate}"
+            (rate - 8000.0 / 8500.0).abs() < 1e-9,
+            "8000 cache_read / 8500 input ≈ 94.12%, got {rate}"
         );
-    }
-
-    #[test]
-    fn test_cache_hit_rate_after_reset() {
-        let mut tracker = TokenTracker::default();
-        // input 已规范化：raw(1000) + cache_creation(5000) + cache_read(5000) = 11000
-        tracker.accumulate(&make_usage(11000, 500, Some(5000), Some(5000)));
-        let rate = tracker.cache_hit_rate().unwrap();
-        assert!((rate - 5000.0 / 11000.0).abs() < 1e-9);
-
-        tracker.reset();
-        assert!(tracker.cache_hit_rate().is_none(), "reset 后应无缓存数据");
     }
 
     #[test]
@@ -416,96 +405,25 @@ mod tests {
         // prompt_tokens 已含 cached_tokens，input 已规范化
         let mut tracker = TokenTracker::default();
 
-        // 首次调用：prompt_tokens=10000, cached_tokens=0 → None
+        // 首次调用：prompt_tokens=10000, cached_tokens=0 → 0.0
         tracker.accumulate(&make_usage(10000, 500, None, Some(0)));
-        assert!(
-            tracker.cache_hit_rate().is_none(),
-            "cache_read=0 应返回 None"
-        );
+        assert_eq!(tracker.cache_hit_rate(), 0.0, "cache_read=0 应返回 0.0");
 
-        // 第二次调用：prompt_tokens=10000, cached_tokens=8000 → 8000/20000 = 40%
+        // 第二次调用：prompt_tokens=10000, cached_tokens=8000 → 8000/10000 = 80%
         tracker.accumulate(&make_usage(10000, 500, None, Some(8000)));
-        let rate = tracker.cache_hit_rate().unwrap();
+        let rate = tracker.cache_hit_rate();
         assert!(
-            (rate - 0.4).abs() < 1e-9,
-            "8000 cached / 20000 total input = 40%, got {rate}"
+            (rate - 0.8).abs() < 1e-9,
+            "8000 cached / 10000 input = 80%, got {rate}"
         );
 
-        // 第三次调用：prompt_tokens=10000, cached_tokens=9500 → 17500/30000 ≈ 58.3%
+        // 第三次调用：prompt_tokens=10000, cached_tokens=9500 → 9500/10000 = 95%
         tracker.accumulate(&make_usage(10000, 500, None, Some(9500)));
-        let rate = tracker.cache_hit_rate().unwrap();
+        let rate = tracker.cache_hit_rate();
         assert!(
-            (rate - 17500.0 / 30000.0).abs() < 1e-9,
-            "17500 cached / 30000 total input ≈ 58.3%, got {rate}"
+            (rate - 0.95).abs() < 1e-9,
+            "9500 cached / 10000 input = 95%, got {rate}"
         );
-    }
-
-    #[test]
-    fn test_cache_hit_rate_openai_no_cached_field() {
-        // OpenAI 某些模型不返回 cached_tokens → cache_read=None → 永远 None
-        let mut tracker = TokenTracker::default();
-        tracker.accumulate(&make_usage(10000, 500, None, None));
-        tracker.accumulate(&make_usage(10000, 500, None, None));
-        assert!(
-            tracker.cache_hit_rate().is_none(),
-            "无 cached_tokens 字段应返回 None"
-        );
-    }
-
-    #[test]
-    fn test_last_cache_hit_rate_none_when_empty() {
-        let tracker = TokenTracker::default();
-        assert!(tracker.last_cache_hit_rate().is_none());
-    }
-
-    #[test]
-    fn test_last_cache_hit_rate_reflects_latest_call() {
-        let mut tracker = TokenTracker::default();
-        // 首次调用：无缓存
-        tracker.accumulate(&make_usage(10000, 500, None, Some(0)));
-        assert!(tracker.last_cache_hit_rate().is_none());
-
-        // 第二次调用：高缓存命中 34230/34820 ≈ 98.3%
-        tracker.accumulate(&make_usage(34820, 423, None, Some(34230)));
-        let rate = tracker.last_cache_hit_rate().unwrap();
-        assert!(
-            (rate - 34230.0 / 34820.0).abs() < 1e-9,
-            "expected ≈98.3%, got {rate}"
-        );
-
-        // 第三次调用：低缓存命中
-        tracker.accumulate(&make_usage(20000, 1000, None, Some(5000)));
-        let rate = tracker.last_cache_hit_rate().unwrap();
-        assert!(
-            (rate - 5000.0 / 20000.0).abs() < 1e-9,
-            "expected 25%, got {rate}"
-        );
-    }
-
-    #[test]
-    fn test_last_cache_hit_rate_none_when_no_cache_field() {
-        let mut tracker = TokenTracker::default();
-        tracker.accumulate(&make_usage(10000, 500, None, None));
-        assert!(tracker.last_cache_hit_rate().is_none());
-    }
-
-    #[test]
-    fn test_last_vs_cumulative_cache_hit_rate() {
-        let mut tracker = TokenTracker::default();
-        // Call 1: input=10000, cache_read=0
-        tracker.accumulate(&make_usage(10000, 500, None, Some(0)));
-        // Call 2: input=34820, cache_read=34230
-        tracker.accumulate(&make_usage(34820, 423, None, Some(34230)));
-
-        // 累计：34230 / (10000+34820) = 34230/44820 ≈ 76.4%
-        let cumulative = tracker.cache_hit_rate().unwrap();
-        assert!((cumulative - 34230.0 / 44820.0).abs() < 1e-9);
-
-        // 当次：34230 / 34820 ≈ 98.3%
-        let last = tracker.last_cache_hit_rate().unwrap();
-        assert!((last - 34230.0 / 34820.0).abs() < 1e-9);
-
-        assert!(last > cumulative, "当次命中率应高于累计命中率");
     }
 
     #[test]
