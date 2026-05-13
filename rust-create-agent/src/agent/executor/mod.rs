@@ -211,7 +211,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             all_tools.insert(name.clone(), tool.as_ref());
         }
 
-        let tool_refs: Vec<&dyn BaseTool> = if let Some(filter) = self.tool_filter {
+        let mut tool_refs: Vec<&dyn BaseTool> = if let Some(filter) = self.tool_filter {
             all_tools
                 .values()
                 .copied()
@@ -220,6 +220,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         } else {
             all_tools.values().copied().collect()
         };
+        tool_refs.sort_by_key(|t| t.name());
 
         tracing::debug!(
             total_tools = all_tools.len(),
