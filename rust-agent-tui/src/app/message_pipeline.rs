@@ -641,25 +641,6 @@ impl MessagePipeline {
     fn build_tail_vms(&self) -> Vec<MessageViewModel> {
         let mut tail_vms = Vec::new();
 
-        // ── 诊断日志 ──
-        tracing::info!(
-            has_snapshot = self.has_snapshot_this_round,
-            completed_len = self.completed.len(),
-            completed_round_start = self.completed_len_at_round_start,
-            current_ai_text_len = self.current_ai_text.len(),
-            current_ai_text_preview = self
-                .current_ai_text
-                .chars()
-                .take(80)
-                .collect::<String>()
-                .as_str(),
-            current_ai_tool_calls = self.current_ai_tool_calls.len(),
-            pending_tools = self.pending_tools.len(),
-            completed_tools = self.completed_tools.len(),
-            subagent_stack = self.subagent_stack.len(),
-            "[tail-diag] build_tail_vms START",
-        );
-
         if self.has_snapshot_this_round {
             let start = self.completed_len_at_round_start.min(self.completed.len());
             let round_completed = &self.completed[start..];
@@ -672,30 +653,22 @@ impl MessagePipeline {
                 Self::messages_to_view_models(&self.completed[last_human_offset..], &self.cwd);
             let reconcile_subagent_count =
                 tail_vms.iter().filter(|vm| vm.is_subagent_group()).count();
-            tracing::info!(
-                "[tail-diag] reconcile path: start_offset={}, last_human_offset={}, round_completed_len={}, reconcile_total={}, reconcile_subagent_count={}",
-                start,
+            tracing::debug!(
+                has_snapshot = true,
+                completed_len = self.completed.len(),
+                start_offset = start,
                 last_human_offset,
-                round_completed.len(),
-                tail_vms.len(),
+                reconcile_total = tail_vms.len(),
                 reconcile_subagent_count,
+                frozen_count = self.frozen_subagent_vms.len(),
+                "[bg-diag] build_tail_vms reconcile"
             );
-            // 打印 reconcile 出的每个 VM 摘要
-            for (i, vm) in tail_vms.iter().enumerate() {
-                tracing::info!("[tail-diag]   reconcile VM[{}]: {}", i, vm_summary(vm),);
-            }
-        } else {
-            tracing::info!("[tail-diag] NO reconcile (has_snapshot=false), only streaming");
         }
 
         // 追加流式 AssistantBubble（当前 AI 正在输出的文本）
         // 必须在工具 blocks 之前：AI 先说文本，再调用工具
         if self.has_streaming_content() {
-            let bubble = self.build_streaming_bubble();
-            tracing::info!("[tail-diag] streaming bubble: {}", vm_summary(&bubble),);
-            tail_vms.push(bubble);
-        } else {
-            tracing::info!("[tail-diag] no streaming content");
+            tail_vms.push(self.build_streaming_bubble());
         }
 
         // 追加 pending tool blocks（ToolStart 后、下一个 StateSnapshot 前的工具）
@@ -757,24 +730,7 @@ impl MessagePipeline {
         }
 
         // 聚合相邻只读工具
-        let pre_agg_len = tail_vms.len();
         aggregate_tool_groups(&mut tail_vms);
-        if tail_vms.len() != pre_agg_len {
-            tracing::info!(
-                "[tail-diag] aggregate_tool_groups: {} -> {} VMs",
-                pre_agg_len,
-                tail_vms.len(),
-            );
-        }
-
-        // 最终输出
-        for (i, vm) in tail_vms.iter().enumerate() {
-            tracing::info!("[tail-diag]   final VM[{}]: {}", i, vm_summary(vm),);
-        }
-        tracing::info!(
-            "[tail-diag] === build_tail_vms END ({} VMs) ===",
-            tail_vms.len(),
-        );
 
         tail_vms
     }
@@ -903,81 +859,3 @@ impl MessagePipeline {
 #[cfg(test)]
 #[path = "message_pipeline_test.rs"]
 mod tests;
-
-/// 诊断用：生成 VM 的单行摘要（用于日志）
-fn vm_summary(vm: &MessageViewModel) -> String {
-    match vm {
-        MessageViewModel::AssistantBubble {
-            blocks,
-            is_streaming,
-            ..
-        } => {
-            let text_blocks: Vec<_> = blocks
-                .iter()
-                .filter_map(|b| {
-                    if let ContentBlockView::Text { raw, .. } = b {
-                        Some(raw.chars().take(40).collect::<String>())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            let tool_blocks: Vec<_> = blocks
-                .iter()
-                .filter_map(|b| {
-                    if let ContentBlockView::ToolUse { name } = b {
-                        Some(name.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            let reasoning_count = blocks
-                .iter()
-                .filter(|b| matches!(b, ContentBlockView::Reasoning { .. }))
-                .count();
-            format!(
-                "AssistantBubble(streaming={}, texts={}, tools={:?}, reasoning={})",
-                is_streaming,
-                text_blocks.len(),
-                tool_blocks,
-                reasoning_count,
-            )
-        }
-        MessageViewModel::ToolBlock {
-            tool_name, content, ..
-        } => {
-            format!("ToolBlock({}, output_len={})", tool_name, content.len())
-        }
-        MessageViewModel::ToolCallGroup {
-            category, tools, ..
-        } => {
-            format!("ToolCallGroup({:?}, count={})", category, tools.len())
-        }
-        MessageViewModel::UserBubble { content, .. } => {
-            format!(
-                "UserBubble({})",
-                content.chars().take(30).collect::<String>()
-            )
-        }
-        MessageViewModel::SystemNote { content } => {
-            format!(
-                "SystemNote({})",
-                content.chars().take(30).collect::<String>()
-            )
-        }
-        MessageViewModel::CacheWarning { content } => {
-            format!(
-                "CacheWarning({})",
-                content.chars().take(30).collect::<String>()
-            )
-        }
-        MessageViewModel::SubAgentGroup {
-            agent_id,
-            is_running,
-            ..
-        } => {
-            format!("SubAgentGroup({}, running={})", agent_id, is_running)
-        }
-    }
-}

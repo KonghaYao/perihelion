@@ -547,8 +547,8 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             is_error: true,
         },
         // 无需转发的内部事件（ToolEnd 成功事件需要转发以更新 ToolBlock 内容）
+        ExecutorEvent::StateSnapshot(msgs) => AgentEvent::StateSnapshot(msgs),
         ExecutorEvent::StepDone { .. }
-        | ExecutorEvent::StateSnapshot(_)
         | ExecutorEvent::MessageAdded(_)
         | ExecutorEvent::LlmCallStart { .. } => return None,
         // 成功的 ToolEnd（非 Agent / AskUserQuestion / error）
