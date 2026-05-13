@@ -452,7 +452,7 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
     let rate_title_h = 1u16;
     let rate_h = 4u16;
     let rate_x_axis_h = 1u16;
-    let blanks = 1u16;
+    let blanks = 2u16;
 
     let chart_h = area.height.saturating_sub(
         summary_h + legend_h + x_axis_h + rate_title_h + rate_h + rate_x_axis_h + blanks,
@@ -474,6 +474,7 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         },
     );
     y += summary_h;
+    y += 1; // 摘要行与图表之间的空行
 
     if !skip_chart {
         // 图例
