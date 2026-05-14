@@ -226,7 +226,7 @@ impl Sink for SearchSink {
                 };
 
                 let total = self.total_lines.fetch_add(1, Ordering::Relaxed) + 1;
-                if total >= self.max_limit {
+                if self.max_limit > 0 && total >= self.max_limit {
                     self.stopped.store(true, Ordering::Relaxed);
                 }
 
@@ -276,10 +276,14 @@ impl Sink for SearchSink {
             SinkContextKind::Other => '-',
         };
 
-        let line = format!(
-            "{}:{}{}: {}",
-            self.display_path, line_number, separator, content
-        );
+        let line = if self.show_line_numbers {
+            format!(
+                "{}:{}{}: {}",
+                self.display_path, line_number, separator, content
+            )
+        } else {
+            format!("{}{}: {}", self.display_path, separator, content)
+        };
 
         let total = self.total_lines.fetch_add(1, Ordering::Relaxed) + 1;
         if total >= self.max_limit {
