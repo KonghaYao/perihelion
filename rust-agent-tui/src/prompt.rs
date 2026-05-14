@@ -13,9 +13,9 @@ impl PromptFeatures {
     pub fn detect() -> Self {
         Self {
             hitl_enabled: std::env::var("YOLO_MODE").as_deref() == Ok("false"),
-            subagent_enabled: true, // TODO: 从中间件注册状态推断
-            cron_enabled: true,     // TODO: 从中间件注册状态推断
-            skills_enabled: true,   // TODO: 从中间件注册状态推断
+            subagent_enabled: true,
+            cron_enabled: true,
+            skills_enabled: true,
         }
     }
 

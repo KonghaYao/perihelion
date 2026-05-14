@@ -682,41 +682,6 @@ async fn test_cancel_token_interrupts_subagent() {
 
 // ─── Fork path tests ────────────────────────────────────────────────────
 
-/// Mock LLM that captures messages and tools for inspection
-#[allow(dead_code)]
-struct CaptureLLM {
-    messages: Arc<std::sync::Mutex<Vec<usize>>>,
-    tools: Arc<std::sync::Mutex<Vec<String>>>,
-    last_content: Arc<std::sync::Mutex<String>>,
-}
-
-#[allow(dead_code)]
-impl CaptureLLM {
-    fn new() -> Self {
-        Self {
-            messages: Arc::new(std::sync::Mutex::new(Vec::new())),
-            tools: Arc::new(std::sync::Mutex::new(Vec::new())),
-            last_content: Arc::new(std::sync::Mutex::new(String::new())),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl ReactLLM for CaptureLLM {
-    async fn generate_reasoning(
-        &self,
-        messages: &[BaseMessage],
-        tools: &[&dyn BaseTool],
-        _streaming: Option<rust_create_agent::llm::types::StreamingContext>,
-    ) -> rust_create_agent::error::AgentResult<Reasoning> {
-        *self.messages.lock().unwrap() = vec![messages.len()];
-        *self.tools.lock().unwrap() = tools.iter().map(|t| t.name().to_string()).collect();
-        let last = messages.last().map(|m| m.content()).unwrap_or_default();
-        *self.last_content.lock().unwrap() = last;
-        Ok(Reasoning::with_answer("", "capture-done"))
-    }
-}
-
 /// Fork inherits parent messages
 #[tokio::test]
 async fn test_fork_inherits_parent_messages() {

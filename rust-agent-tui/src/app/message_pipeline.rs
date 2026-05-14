@@ -73,9 +73,7 @@ pub enum PipelineAction {
 struct PendingTool {
     #[allow(dead_code)]
     tool_call_id: String,
-    #[allow(dead_code)]
     name: String,
-    #[allow(dead_code)]
     input: serde_json::Value,
 }
 

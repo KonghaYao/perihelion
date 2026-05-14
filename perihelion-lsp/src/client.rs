@@ -40,8 +40,6 @@ pub struct LspClient {
 
 #[derive(Debug, Clone)]
 struct OpenFileInfo {
-    #[allow(dead_code)]
-    language_id: String,
     version: i32,
 }
 
@@ -268,13 +266,7 @@ impl LspClient {
                 return Ok(());
             }
             let v = open.len() as i32 + 1;
-            open.insert(
-                uri.to_string(),
-                OpenFileInfo {
-                    language_id: language_id.to_string(),
-                    version: v,
-                },
-            );
+            open.insert(uri.to_string(), OpenFileInfo { version: v });
             v
         };
 
@@ -299,13 +291,7 @@ impl LspClient {
             } else {
                 let v = open.len() as i32 + 1;
                 let language_id = Self::infer_language_id(uri);
-                open.insert(
-                    uri.to_string(),
-                    OpenFileInfo {
-                        language_id: language_id.clone(),
-                        version: v,
-                    },
-                );
+                open.insert(uri.to_string(), OpenFileInfo { version: v });
                 DidChangeAction::Open {
                     language_id,
                     version: v,

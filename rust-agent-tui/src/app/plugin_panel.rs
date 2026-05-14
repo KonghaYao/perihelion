@@ -1532,20 +1532,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn discover_toggle_selected(&mut self) {
-        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
-            if let Some(plugin) = panel.discover_current_plugin() {
-                let id = plugin.plugin_id.clone();
-                if panel.discover_selected.contains(&id) {
-                    panel.discover_selected.remove(&id);
-                } else {
-                    panel.discover_selected.insert(id);
-                }
-            }
-        }
-    }
-
     pub fn discover_enter_search(&mut self) {
         if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_searching = true;

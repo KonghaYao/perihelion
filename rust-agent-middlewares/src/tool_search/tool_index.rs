@@ -19,10 +19,7 @@ pub struct SearchResult {
 
 /// TF-IDF 索引内部结构
 struct TfIdfIndex {
-    /// 每个词在多少个文档中出现过
-    #[allow(dead_code)]
-    doc_freqs: HashMap<String, usize>,
-    /// 每个文档的词向量（词 → TF×IDF 权重）
+    /// 每个工具的词向量（词 → TF×IDF 权重）
     doc_vectors: HashMap<String, HashMap<String, f64>>,
 }
 
@@ -64,7 +61,6 @@ fn build_tfidf_index(tools: &[Arc<dyn BaseTool>]) -> TfIdfIndex {
     let total_docs = tools.len();
     if total_docs == 0 {
         return TfIdfIndex {
-            doc_freqs: HashMap::new(),
             doc_vectors: HashMap::new(),
         };
     }
@@ -111,10 +107,7 @@ fn build_tfidf_index(tools: &[Arc<dyn BaseTool>]) -> TfIdfIndex {
         doc_vectors.insert(doc_name.clone(), vector);
     }
 
-    TfIdfIndex {
-        doc_freqs,
-        doc_vectors,
-    }
+    TfIdfIndex { doc_vectors }
 }
 
 /// 余弦相似度
@@ -161,7 +154,6 @@ impl ToolSearchIndex {
         Self {
             tools: RwLock::new(HashMap::new()),
             tfidf_index: RwLock::new(TfIdfIndex {
-                doc_freqs: HashMap::new(),
                 doc_vectors: HashMap::new(),
             }),
             cached_prompt: RwLock::new(None),

@@ -915,14 +915,6 @@ impl App {
             .close_if(PanelKind::Agent);
     }
 
-    /// 取消选择（不改变当前 agent_id），关闭面板
-    #[allow(dead_code)]
-    pub fn agent_panel_clear(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
-            .session_panels
-            .close_if(PanelKind::Agent);
-    }
-
     // ─── Hooks 面板操作 ───────────────────────────────────────────────────────
 
     /// 打开 /hooks 面板（只读）

@@ -1,13 +1,8 @@
-#[allow(unused)]
 use rust_create_agent::agent::AgentCancellationToken;
-#[allow(unused)]
 use rust_create_agent::messages::BaseMessage;
-#[allow(unused)]
 use tokio::sync::mpsc;
 
-#[allow(unused)]
 use super::events::AgentEvent;
-#[allow(unused)]
 use super::InteractionPrompt;
 
 type SharedToolRegistry = std::sync::Arc<
