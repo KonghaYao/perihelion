@@ -26,6 +26,7 @@ const NARROW_THRESHOLD: u16 = 50;
 
 /// 渲染 Welcome Card（空消息时替代聊天区内容）
 pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
+    let lc = &app.services.lc;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     let narrow = area.width < NARROW_THRESHOLD;
@@ -55,14 +56,14 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     // ── 副标题 ──────────────────────────────────────────────────────────
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Peri Agent Framework",
+        lc.tr("welcome-title"),
         Style::default().fg(theme::MUTED),
     )));
 
     // ── 分隔线 ──────────────────────────────────────────────────────────
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "────── What can I do? ──────",
+        lc.tr("welcome-divider"),
         Style::default().fg(theme::DIM),
     )));
 
@@ -70,15 +71,15 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
 
     let features = [
-        "Ask me to code, debug, or refactor",
-        "Manage files and run terminal commands",
-        "Delegate tasks to specialized sub-agents",
+        lc.tr("welcome-feature-code"),
+        lc.tr("welcome-feature-files"),
+        lc.tr("welcome-feature-agents"),
     ];
 
     for feat in &features {
         lines.push(Line::from(vec![
             Span::styled(" • ", Style::default().fg(theme::ACCENT)),
-            Span::styled(*feat, Style::default().fg(theme::TEXT)),
+            Span::styled(feat.clone(), Style::default().fg(theme::TEXT)),
         ]));
     }
 
@@ -110,14 +111,20 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
                     .fg(theme::WARNING)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("请输入 ", Style::default().fg(theme::TEXT)),
+            Span::styled(
+                lc.tr("welcome-login-hint-1"),
+                Style::default().fg(theme::TEXT),
+            ),
             Span::styled(
                 "/login",
                 Style::default()
                     .fg(theme::WARNING)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" 配置 API Key 开始使用", Style::default().fg(theme::TEXT)),
+            Span::styled(
+                lc.tr("welcome-login-hint-2"),
+                Style::default().fg(theme::TEXT),
+            ),
         ]));
     }
 
@@ -125,15 +132,34 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled(" Esc", Style::default().fg(theme::DIM)),
-        Span::styled(":Quit  ", Style::default().fg(theme::DIM)),
+        Span::styled(
+            lc.tr("welcome-shortcut-quit"),
+            Style::default().fg(theme::DIM),
+        ),
+        Span::styled("  ", Style::default().fg(theme::DIM)),
         Span::styled("Ctrl+C", Style::default().fg(theme::DIM)),
-        Span::styled(":Stop  ", Style::default().fg(theme::DIM)),
+        Span::styled(
+            lc.tr("welcome-shortcut-stop"),
+            Style::default().fg(theme::DIM),
+        ),
+        Span::styled("  ", Style::default().fg(theme::DIM)),
         Span::styled("Alt+Enter", Style::default().fg(theme::DIM)),
-        Span::styled(":NewLine  ", Style::default().fg(theme::DIM)),
+        Span::styled(
+            lc.tr("welcome-shortcut-newline"),
+            Style::default().fg(theme::DIM),
+        ),
+        Span::styled("  ", Style::default().fg(theme::DIM)),
         Span::styled("Shift+Tab", Style::default().fg(theme::DIM)),
-        Span::styled(":Mode  ", Style::default().fg(theme::DIM)),
+        Span::styled(
+            lc.tr("welcome-shortcut-mode"),
+            Style::default().fg(theme::DIM),
+        ),
+        Span::styled("  ", Style::default().fg(theme::DIM)),
         Span::styled("Alt+M", Style::default().fg(theme::DIM)),
-        Span::styled(":Model", Style::default().fg(theme::DIM)),
+        Span::styled(
+            lc.tr("welcome-shortcut-model"),
+            Style::default().fg(theme::DIM),
+        ),
     ]));
 
     // ── 动态信息 ────────────────────────────────────────────────────────
@@ -159,7 +185,10 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled(" #", Style::default().fg(theme::WARNING)),
             Span::styled(
-                format!("{} skills available", skills_count),
+                lc.tr_args(
+                    "welcome-skills-available",
+                    &[("count".into(), (skills_count as i64).into())],
+                ),
                 Style::default().fg(theme::TEXT),
             ),
         ]));

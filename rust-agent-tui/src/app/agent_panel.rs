@@ -138,7 +138,7 @@ impl PanelComponent for AgentPanel {
                         .agent_id = None;
                     ctx.session_mgr.sessions[ctx.session_mgr.active]
                         .messages
-                        .push_system_note("Agent 已重置（未设置 agent_id）".to_string());
+                        .push_system_note(ctx.services.lc.tr("app-agent-reset"));
                 } else if let Some(id) = agent_id {
                     ctx.session_mgr.sessions[ctx.session_mgr.active]
                         .agent
@@ -146,7 +146,10 @@ impl PanelComponent for AgentPanel {
                     let name = agent_name.unwrap_or_else(|| id.clone());
                     ctx.session_mgr.sessions[ctx.session_mgr.active]
                         .messages
-                        .push_system_note(format!("Agent 已切换为: {} ({})", name, id));
+                        .push_system_note(ctx.services.lc.tr_args(
+                            "app-agent-switched",
+                            &[("name".into(), name.into()), ("id".into(), id.into())],
+                        ));
                 }
                 EventResult::ClosePanel
             }
@@ -194,7 +197,11 @@ impl PanelComponent for AgentPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
-        vec![("↑↓", "选择"), ("Enter", "确认"), ("Esc", "取消")]
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
+        vec![
+            ("↑↓".to_string(), _lc.tr("key-select")),
+            ("Enter".to_string(), _lc.tr("key-confirm")),
+            ("Esc".to_string(), _lc.tr("key-cancel")),
+        ]
     }
 }

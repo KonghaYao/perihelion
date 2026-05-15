@@ -457,65 +457,71 @@ impl PanelComponent for PluginPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         if self.confirm_delete.is_some() {
             return vec![
-                ("Enter", "\u{786e}\u{8ba4}\u{5378}\u{8f7d}"),
-                ("\u{5176}\u{4ed6}\u{952e}", "\u{53d6}\u{6d88}"),
+                ("Enter".to_string(), _lc.tr("hint-plugin-uninstall")),
+                ("\u{5176}\u{4ed6}\u{952e}".to_string(), _lc.tr("key-cancel")),
             ];
         }
         if self.marketplace_confirm_delete.is_some() {
             return vec![
-                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
-                ("Esc", "\u{53d6}\u{6d88}"),
+                ("Enter".to_string(), _lc.tr("hint-plugin-delete")),
+                ("Esc".to_string(), _lc.tr("key-cancel")),
             ];
         }
         if self.add_marketplace_active {
-            return vec![("Enter", "\u{6dfb}\u{52a0}"), ("Esc", "\u{53d6}\u{6d88}")];
+            return vec![
+                ("Enter".to_string(), _lc.tr("hint-plugin-add")),
+                ("Esc".to_string(), _lc.tr("key-cancel")),
+            ];
         }
         if self.discover_searching {
             return vec![
-                ("Esc/\u{2191}\u{2193}", "\u{9000}\u{51fa}\u{641c}\u{7d22}"),
-                ("\u{2190}\u{2192}", "Tab"),
-                ("Enter", "\u{5b89}\u{88c5}"),
-                ("Backspace", "\u{5220}\u{9664}"),
+                (
+                    "Esc/\u{2191}\u{2193}".to_string(),
+                    _lc.tr("hint-plugin-exit-search"),
+                ),
+                ("\u{2190}\u{2192}".to_string(), _lc.tr("key-tab")),
+                ("Enter".to_string(), _lc.tr("key-install")),
+                ("Backspace".to_string(), _lc.tr("key-delete")),
             ];
         }
         if self.discover_detail_index.is_some() {
             return vec![
-                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-                ("Enter", "\u{6267}\u{884c}"),
-                ("Esc", "\u{8fd4}\u{56de}\u{5217}\u{8868}"),
+                ("\u{2191}\u{2193}".to_string(), _lc.tr("key-move")),
+                ("Enter".to_string(), _lc.tr("key-execute")),
+                ("Esc".to_string(), _lc.tr("key-back")),
             ];
         }
         if self.detail_index.is_some() {
             return vec![
-                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-                ("Enter", "\u{6267}\u{884c}"),
-                ("Esc", "\u{8fd4}\u{56de}\u{5217}\u{8868}"),
+                ("\u{2191}\u{2193}".to_string(), _lc.tr("key-move")),
+                ("Enter".to_string(), _lc.tr("key-execute")),
+                ("Esc".to_string(), _lc.tr("key-back")),
             ];
         }
         match self.view {
             PluginPanelView::Discover => vec![
-                ("\u{2191}\u{2193}", "\u{9009}\u{62e9}"),
-                ("\u{8f93}\u{5165}", "\u{641c}\u{7d22}"),
-                ("Enter", "\u{5b89}\u{88c5}"),
-                ("\u{2190}\u{2192}/Tab", "Tab"),
-                ("Esc", "\u{5173}\u{95ed}"),
+                ("\u{2191}\u{2193}".to_string(), _lc.tr("key-select")),
+                ("\u{8f93}\u{5165}".to_string(), _lc.tr("hint-plugin-search")),
+                ("Enter".to_string(), _lc.tr("key-install")),
+                ("\u{2190}\u{2192}/Tab".to_string(), _lc.tr("key-tab")),
+                ("Esc".to_string(), _lc.tr("key-close")),
             ],
             PluginPanelView::Marketplaces => vec![
-                ("\u{2191}\u{2193}", "\u{9009}\u{62e9}"),
-                ("Enter", "\u{6dfb}\u{52a0}/\u{66f4}\u{65b0}"),
-                ("Backspace", "\u{79fb}\u{9664}"),
-                ("\u{2190}\u{2192}/Tab", "Tab"),
-                ("Esc", "\u{5173}\u{95ed}"),
+                ("\u{2191}\u{2193}".to_string(), _lc.tr("key-select")),
+                ("Enter".to_string(), _lc.tr("hint-plugin-add")),
+                ("Backspace".to_string(), _lc.tr("hint-plugin-remove")),
+                ("\u{2190}\u{2192}/Tab".to_string(), _lc.tr("key-tab")),
+                ("Esc".to_string(), _lc.tr("key-close")),
             ],
             PluginPanelView::Installed | PluginPanelView::Errors => vec![
-                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-                ("Space", "\u{5207}\u{6362}"),
-                ("Enter", "\u{8be6}\u{60c5}"),
-                ("\u{2190}\u{2192}/Tab", "Tab"),
-                ("Esc", "\u{5173}\u{95ed}"),
+                ("\u{2191}\u{2193}".to_string(), _lc.tr("key-move")),
+                ("Space".to_string(), _lc.tr("key-switch")),
+                ("Enter".to_string(), _lc.tr("key-detail")),
+                ("\u{2190}\u{2192}/Tab".to_string(), _lc.tr("key-tab")),
+                ("Esc".to_string(), _lc.tr("key-close")),
             ],
         }
     }
@@ -1009,9 +1015,9 @@ impl PluginPanel {
                     });
                     ctx.session_mgr.sessions[ctx.session_mgr.active]
                         .messages
-                        .push_system_note(format!(
-                            "\u{6b63}\u{5728}\u{66f4}\u{65b0} marketplace: {}",
-                            name_for_msg
+                        .push_system_note(ctx.services.lc.tr_args(
+                            "app-plugin-updating",
+                            &[("name".into(), name_for_msg.into())],
                         ));
                 }
                 EventResult::Consumed
@@ -1057,9 +1063,9 @@ impl PluginPanel {
                         if let Err(e) = self.persist_marketplace_delete(&name) {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]
                                 .messages
-                                .push_system_note(format!(
-                                    "\u{5220}\u{9664}\u{5931}\u{8d25}: {}",
-                                    e
+                                .push_system_note(ctx.services.lc.tr_args(
+                                    "app-plugin-delete-failed",
+                                    &[("error".into(), e.to_string().into())],
                                 ));
                         }
                     }
@@ -1087,7 +1093,10 @@ impl PluginPanel {
                     if let Err(e) = self.persist_marketplace_add(&input_str, ctx) {
                         ctx.session_mgr.sessions[ctx.session_mgr.active]
                             .messages
-                            .push_system_note(format!("\u{6dfb}\u{52a0}\u{5931}\u{8d25}: {}", e));
+                            .push_system_note(ctx.services.lc.tr_args(
+                                "app-plugin-add-failed",
+                                &[("error".into(), e.to_string().into())],
+                            ));
                     }
                 }
                 EventResult::Consumed
@@ -1265,10 +1274,11 @@ impl PluginPanel {
 
         ctx.session_mgr.sessions[ctx.session_mgr.active]
             .messages
-            .push_system_note(format!(
-                "Marketplace \u{5df2}\u{6dfb}\u{52a0}: {} (\u{6b63}\u{5728}\u{83b7}\u{53d6}\u{5185}\u{5bb9}...)",
-                name
-            ));
+            .push_system_note(
+                ctx.services
+                    .lc
+                    .tr_args("app-plugin-added", &[("name".into(), name.clone().into())]),
+            );
 
         // Add placeholder entry to marketplace_entries
         self.marketplace_entries.push(MarketplaceViewEntry {

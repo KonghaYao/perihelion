@@ -8,8 +8,8 @@ impl Command for CronCommand {
         "cron"
     }
 
-    fn description(&self) -> &str {
-        "查看和管理定时任务"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-cron-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

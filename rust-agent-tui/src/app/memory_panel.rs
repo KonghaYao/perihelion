@@ -143,11 +143,14 @@ impl PanelComponent for MemoryPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         vec![
-            ("\u{2191}\u{2193}", "\u{9009}\u{62e9}"),
-            ("Enter", "\u{7f16}\u{8f91}"),
-            ("Esc", "\u{5173}\u{95ed}"),
+            (
+                "\u{2191}\u{2193}".to_string(),
+                "\u{9009}\u{62e9}".to_string(),
+            ),
+            ("Enter".to_string(), "\u{7f16}\u{8f91}".to_string()),
+            ("Esc".to_string(), "\u{5173}\u{95ed}".to_string()),
         ]
     }
 }

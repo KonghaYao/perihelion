@@ -1,5 +1,9 @@
 use super::*;
 
+fn make_lc() -> crate::i18n::LcRegistry {
+    crate::i18n::LcRegistry::default()
+}
+
 #[test]
 fn test_config_panel_from_config_defaults() {
     let cfg = PeriConfig::default();
@@ -60,13 +64,14 @@ fn test_config_panel_cycle_proactiveness() {
 
 #[test]
 fn test_config_panel_apply_edit_saves_to_config() {
+    let lc = make_lc();
     let mut cfg = PeriConfig::default();
     let mut panel = ConfigPanel::from_config(&cfg);
     panel.buf_language = "zh-CN".to_string();
     panel.buf_persona = "Rust expert".to_string();
     panel.buf_tone = "concise".to_string();
     panel.buf_proactiveness = "high".to_string();
-    panel.apply_edit(&mut cfg);
+    panel.apply_edit(&mut cfg, &lc).unwrap();
     assert_eq!(cfg.config.language.as_deref(), Some("zh-CN"));
     assert_eq!(cfg.config.persona.as_deref(), Some("Rust expert"));
     assert_eq!(cfg.config.tone.as_deref(), Some("concise"));
@@ -75,22 +80,96 @@ fn test_config_panel_apply_edit_saves_to_config() {
 
 #[test]
 fn test_config_panel_apply_edit_compact_threshold() {
+    let lc = make_lc();
     let mut cfg = PeriConfig::default();
     let mut panel = ConfigPanel::from_config(&cfg);
     panel.buf_threshold = "90".to_string();
-    panel.apply_edit(&mut cfg);
+    panel.apply_edit(&mut cfg, &lc).unwrap();
     let compact = cfg.config.compact.unwrap();
     assert!((compact.auto_compact_threshold - 0.90).abs() < 0.001);
 }
 
 #[test]
 fn test_config_panel_apply_edit_invalid_threshold_clamps() {
+    let lc = make_lc();
     let mut cfg = PeriConfig::default();
     let mut panel = ConfigPanel::from_config(&cfg);
     panel.buf_threshold = "30".to_string();
-    panel.apply_edit(&mut cfg);
+    panel.apply_edit(&mut cfg, &lc).unwrap();
     let compact = cfg.config.compact.unwrap();
     assert!((compact.auto_compact_threshold - 0.50).abs() < 0.001);
+}
+
+#[test]
+fn test_config_panel_apply_edit_language_validation_valid() {
+    let lc = make_lc();
+    // en 保存成功
+    let mut cfg = PeriConfig::default();
+    let mut panel = ConfigPanel::from_config(&cfg);
+    panel.buf_language = "en".to_string();
+    assert!(panel.apply_edit(&mut cfg, &lc).is_ok());
+    assert_eq!(cfg.config.language.as_deref(), Some("en"));
+
+    // zh-CN 保存成功
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.buf_language = "zh-CN".to_string();
+    assert!(panel.apply_edit(&mut cfg, &lc).is_ok());
+    assert_eq!(cfg.config.language.as_deref(), Some("zh-CN"));
+}
+
+#[test]
+fn test_config_panel_apply_edit_language_validation_empty() {
+    let lc = make_lc();
+    let mut cfg = PeriConfig::default();
+    let mut panel = ConfigPanel::from_config(&cfg);
+    panel.buf_language = String::new();
+    assert!(panel.apply_edit(&mut cfg, &lc).is_ok());
+    assert_eq!(cfg.config.language, None);
+
+    // "auto" 也等同于 None
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.buf_language = "auto".to_string();
+    assert!(panel.apply_edit(&mut cfg, &lc).is_ok());
+    assert_eq!(cfg.config.language, None);
+}
+
+#[test]
+fn test_config_panel_apply_edit_language_validation_invalid() {
+    let lc = make_lc();
+    let mut cfg = PeriConfig::default();
+    let mut panel = ConfigPanel::from_config(&cfg);
+    panel.buf_language = "fr".to_string();
+    let result = panel.apply_edit(&mut cfg, &lc);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("Unsupported language"),
+        "错误消息应包含 'Unsupported language': {}",
+        err
+    );
+    assert!(err.contains("fr"), "错误消息应包含无效语言: {}", err);
+    // 语言不应被修改
+    assert_eq!(cfg.config.language, None);
+}
+
+#[test]
+fn test_config_panel_field_display_language() {
+    let panel = ConfigPanel::from_config(&PeriConfig::default());
+    // 空语言显示 auto
+    assert_eq!(panel.field_display_value(2), "auto");
+
+    // en 显示 English
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.buf_language = "en".to_string();
+    assert_eq!(panel.field_display_value(2), "English");
+
+    // zh-CN 显示 简体中文
+    panel.buf_language = "zh-CN".to_string();
+    assert_eq!(panel.field_display_value(2), "简体中文");
+
+    // 未知语言原样显示
+    panel.buf_language = "ja".to_string();
+    assert_eq!(panel.field_display_value(2), "ja");
 }
 
 #[test]

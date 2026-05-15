@@ -69,4 +69,6 @@ pub struct ServiceRegistry {
     pub claude_settings_override: Option<PathBuf>,
     /// 进程内存监控（2s 刷新）
     pub resource_monitor: parking_lot::Mutex<ProcessResourceMonitor>,
+    /// i18n 语言注册表（跨 session 共享）
+    pub lc: crate::i18n::LcRegistry,
 }

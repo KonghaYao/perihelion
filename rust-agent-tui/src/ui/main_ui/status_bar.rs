@@ -139,6 +139,7 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
 
 /// 第二行：[Agent 面板信息] │ [快捷键提示]
 fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
+    let lc = &app.services.lc;
     let mut left_spans: Vec<Span> = Vec::new();
     let mut has_content = false;
 
@@ -148,12 +149,16 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         .copy_message_until
     {
         if std::time::Instant::now() < until {
+            let count = app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .copy_char_count;
             left_spans.push(Span::styled(
                 format!(
-                    " 已复制 {} 个字符",
-                    app.session_mgr.sessions[app.session_mgr.active]
-                        .ui
-                        .copy_char_count
+                    " {}",
+                    lc.tr_args(
+                        "statusbar-copied",
+                        &[("count".into(), (count as i64).into()),]
+                    )
                 ),
                 Style::default().fg(theme::MUTED),
             ));
@@ -167,9 +172,13 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         }
         left_spans.push(Span::styled(
-            format!(
-                "[BG: {}]",
-                app.session_mgr.sessions[app.session_mgr.active].background_task_count
+            lc.tr_args(
+                "statusbar-bg-indicator",
+                &[(
+                    "count".into(),
+                    (app.session_mgr.sessions[app.session_mgr.active].background_task_count as i64)
+                        .into(),
+                )],
             ),
             Style::default().fg(theme::WARNING),
         ));
@@ -190,7 +199,10 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(theme::MUTED),
             ));
         } else {
-            left_spans.push(Span::styled(" 无", Style::default().fg(theme::MUTED)));
+            left_spans.push(Span::styled(
+                format!(" {}", lc.tr("statusbar-no-agent")),
+                Style::default().fg(theme::MUTED),
+            ));
         }
     } else if let Some(id) = app.get_agent_id() {
         if has_content {
@@ -219,8 +231,16 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         };
         left_spans.push(Span::styled(
             format!(
-                " 重试 {}/{} ({:.1}s): {}",
-                retry.attempt, retry.max_attempts, delay_sec, err_display
+                " {}",
+                lc.tr_args(
+                    "statusbar-retrying",
+                    &[
+                        ("attempt".into(), (retry.attempt as i64).into()),
+                        ("max".into(), (retry.max_attempts as i64).into()),
+                        ("delay".into(), format!("{:.1}", delay_sec).into()),
+                        ("error".into(), err_display.into()),
+                    ]
+                )
             ),
             Style::default().fg(theme::WARNING),
         ));
@@ -236,7 +256,13 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
                 }
                 left_spans.push(Span::styled(
-                    format!(" [i] MCP ({}/{})...", connected, total),
+                    lc.tr_args(
+                        "statusbar-mcp-connecting",
+                        &[
+                            ("connected".into(), (connected as i64).into()),
+                            ("total".into(), (total as i64).into()),
+                        ],
+                    ),
                     Style::default().fg(theme::MUTED),
                 ));
                 has_content = true;
@@ -253,7 +279,10 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
                         }
                         left_spans.push(Span::styled(
-                            format!(" [i] MCP ready ({} servers)", total),
+                            lc.tr_args(
+                                "statusbar-mcp-ready",
+                                &[("total".into(), (total as i64).into())],
+                            ),
                             Style::default().fg(theme::SAGE),
                         ));
                         has_content = true;
@@ -265,7 +294,10 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
                 }
                 left_spans.push(Span::styled(
-                    format!(" [i] MCP failed: {}", msg),
+                    lc.tr_args(
+                        "statusbar-mcp-failed",
+                        &[("msg".into(), msg.clone().into())],
+                    ),
                     Style::default().fg(theme::ERROR),
                 ));
                 has_content = true;
@@ -281,8 +313,16 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
             if has_content {
                 left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
             }
-            let diag = format!("diag: {}E/{}W", agent.lsp_errors, agent.lsp_warnings);
-            left_spans.push(Span::styled(diag, Style::default().fg(theme::MUTED)));
+            left_spans.push(Span::styled(
+                lc.tr_args(
+                    "statusbar-lsp-diag",
+                    &[
+                        ("errors".into(), (agent.lsp_errors as i64).into()),
+                        ("warnings".into(), (agent.lsp_warnings as i64).into()),
+                    ],
+                ),
+                Style::default().fg(theme::MUTED),
+            ));
         }
     }
 
@@ -296,62 +336,86 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         .agent
         .interaction_prompt
     {
-        Some(_) if app.global_ui.oauth_prompt.is_some() => format_hints(
-            &[
-                ("Ctrl+O", ":打开浏览器"),
-                ("Enter", ":提交"),
-                ("Esc", ":取消"),
-            ],
-            key_style,
-            desc_style,
-        ),
-        Some(crate::app::InteractionPrompt::Questions(_)) => format_hints(
-            &[
-                ("Tab", ":切换"),
-                ("↑↓", ":移动"),
-                ("Space", ":选择"),
-                ("Enter", ":确认"),
-            ],
-            key_style,
-            desc_style,
-        ),
-        Some(crate::app::InteractionPrompt::Approval(_)) => format_hints(
-            &[("↑↓", ":移动"), ("Space", ":切换"), ("Enter", ":确认")],
-            key_style,
-            desc_style,
-        ),
+        Some(_) if app.global_ui.oauth_prompt.is_some() => {
+            let lc = &app.services.lc;
+            format_hints(
+                &[
+                    ("Ctrl+O".to_string(), lc.tr("key-open-browser")),
+                    ("Enter".to_string(), lc.tr("key-submit")),
+                    ("Esc".to_string(), lc.tr("key-cancel")),
+                ],
+                key_style,
+                desc_style,
+            )
+        }
+        Some(crate::app::InteractionPrompt::Questions(_)) => {
+            let lc = &app.services.lc;
+            format_hints(
+                &[
+                    ("Tab".to_string(), lc.tr("key-switch")),
+                    ("↑↓".to_string(), lc.tr("key-move")),
+                    ("Space".to_string(), lc.tr("key-select")),
+                    ("Enter".to_string(), lc.tr("key-confirm")),
+                ],
+                key_style,
+                desc_style,
+            )
+        }
+        Some(crate::app::InteractionPrompt::Approval(_)) => {
+            let lc = &app.services.lc;
+            format_hints(
+                &[
+                    ("↑↓".to_string(), lc.tr("key-move")),
+                    ("Space".to_string(), lc.tr("key-switch")),
+                    ("Enter".to_string(), lc.tr("key-confirm")),
+                ],
+                key_style,
+                desc_style,
+            )
+        }
         None => {
             let no_mouse = app.global_ui.mouse_available == Some(false);
+            let lc = &app.services.lc;
             let hints = if app.session_mgr.sessions[app.session_mgr.active]
                 .session_panels
                 .is_any_open()
             {
                 app.session_mgr.sessions[app.session_mgr.active]
                     .session_panels
-                    .status_bar_hints()
+                    .status_bar_hints(lc)
             } else if app.global_panels.is_any_open() {
-                app.global_panels.status_bar_hints()
+                app.global_panels.status_bar_hints(lc)
             } else if app.session_mgr.sessions.len() > 1 {
                 if no_mouse {
                     vec![
-                        ("/", "命令"),
-                        ("Ctrl+N/P", ":切换Session"),
-                        ("Ctrl+W", ":关闭"),
-                        ("Ctrl+U/D", ":滚动"),
+                        ("/".to_string(), lc.tr("key-command")),
+                        ("Ctrl+N/P".to_string(), lc.tr("key-switch-session")),
+                        ("Ctrl+W".to_string(), lc.tr("key-close")),
+                        ("Ctrl+U/D".to_string(), lc.tr("key-scroll")),
                     ]
                 } else {
                     vec![
-                        ("/", "命令"),
-                        ("Ctrl+N/P", ":切换Session"),
-                        ("Ctrl+W", ":关闭"),
+                        ("/".to_string(), lc.tr("key-command")),
+                        ("Ctrl+N/P".to_string(), lc.tr("key-switch-session")),
+                        ("Ctrl+W".to_string(), lc.tr("key-close")),
                     ]
                 }
             } else if app.global_ui.quit_pending_since.is_some() {
-                vec![("Ctrl+C", ":关闭"), ("其他键", ":取消")]
+                vec![
+                    ("Ctrl+C".to_string(), lc.tr("key-close")),
+                    ("其他键".to_string(), lc.tr("key-cancel")),
+                ]
             } else if no_mouse {
-                vec![("/", "命令"), ("Alt+Enter", ":换行"), ("Ctrl+U/D", ":滚动")]
+                vec![
+                    ("/".to_string(), lc.tr("key-command")),
+                    ("Alt+Enter".to_string(), lc.tr("key-newline")),
+                    ("Ctrl+U/D".to_string(), lc.tr("key-scroll")),
+                ]
             } else {
-                vec![("/", "命令"), ("Alt+Enter", ":换行")]
+                vec![
+                    ("/".to_string(), lc.tr("key-command")),
+                    ("Alt+Enter".to_string(), lc.tr("key-newline")),
+                ]
             };
             format_hints(&hints, key_style, desc_style)
         }
@@ -362,7 +426,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
 
 /// 将 (key, desc) 对列表格式化为 Span 列表
 fn format_hints(
-    hints: &[(&'static str, &'static str)],
+    hints: &[(String, String)],
     key_style: Style,
     desc_style: Style,
 ) -> Vec<Span<'static>> {

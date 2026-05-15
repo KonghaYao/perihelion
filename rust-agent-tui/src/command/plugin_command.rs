@@ -16,8 +16,8 @@ impl Command for PluginCommandAdapter {
     fn name(&self) -> &str {
         &self.entry.name
     }
-    fn description(&self) -> &str {
-        &self.entry.description
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        self.entry.description.clone()
     }
     fn execute(&self, app: &mut App, _args: &str) {
         match &self.entry.source {
@@ -36,7 +36,12 @@ impl Command for PluginCommandAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::LcRegistry;
     use rust_agent_middlewares::plugin::CommandSource;
+
+    fn make_lc() -> LcRegistry {
+        LcRegistry::new(None)
+    }
 
     #[test]
     fn test_adapter_name_returns_entry_name() {
@@ -57,6 +62,7 @@ mod tests {
             source: CommandSource::Builtin,
         };
         let adapter = PluginCommandAdapter::new(entry);
-        assert_eq!(adapter.description(), "my description");
+        let lc = make_lc();
+        assert_eq!(adapter.description(&lc), "my description");
     }
 }

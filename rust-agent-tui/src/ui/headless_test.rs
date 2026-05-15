@@ -1654,7 +1654,7 @@ async fn test_compact_done_with_re_inject() {
     );
     let has_compact = msgs.iter().any(|m| {
         if let MessageViewModel::SystemNote { content } = m {
-            content.contains("✻ 上下文已压缩")
+            content.contains("✻ Context compressed")
                 && content.contains("Read /a.rs")
                 && content.contains("Skill: skill.md")
         } else {
@@ -1678,7 +1678,7 @@ async fn test_compact_done_without_re_inject() {
     assert_eq!(msgs.len(), 1, "应只有 1 条压缩占位消息");
     let has_compact = msgs.iter().any(|m| {
         if let MessageViewModel::SystemNote { content } = m {
-            content.contains("✻ 上下文已压缩")
+            content.contains("✻ Context compressed")
         } else {
             false
         }
@@ -1992,7 +1992,7 @@ async fn test_unified_hint_shows_commands_and_skills() {
     let cmd_count = app.session_mgr.sessions[app.session_mgr.active]
         .commands
         .command_registry
-        .match_prefix("")
+        .match_prefix("", &app.services.lc)
         .len();
     assert_eq!(
         count,
@@ -2268,7 +2268,7 @@ async fn test_ambiguous_command_shows_candidates() {
     let registry = &app.session_mgr.sessions[app.session_mgr.active]
         .commands
         .command_registry;
-    let matches = registry.match_prefix("c");
+    let matches = registry.match_prefix("c", &app.services.lc);
     assert!(matches.len() >= 2, "/c 应匹配多个命令，实际: {:?}", matches);
     // dispatch 应返回 false（歧义）
     let registry = std::mem::take(
@@ -2288,18 +2288,18 @@ async fn test_ambiguous_command_shows_candidates() {
 #[test]
 fn test_system_note_error_detection() {
     // 错误类 system note
-    let error_content = "❌ 压缩失败: 未配置 Provider";
+    let error_content = "Compact failed: No LLM Provider";
     assert!(
-        error_content.contains("❌") || error_content.contains("失败"),
+        error_content.contains("failed") || error_content.contains("Compact failed"),
         "应检测到错误标记"
     );
-    let warn_content = "⚠ 已中断";
+    let warn_content = "⚠ Interrupted";
     assert!(warn_content.contains("⚠"), "应检测到警告标记");
     // 普通信息
-    let info_content = "已加载对话";
+    let info_content = "Configuration saved";
     assert!(
         !info_content.contains("❌")
-            && !info_content.contains("失败")
+            && !info_content.contains("failed")
             && !info_content.contains("⚠"),
         "普通消息不应被标记为错误"
     );
@@ -2317,7 +2317,7 @@ async fn test_compact_empty_shows_no_context_message() {
         .view_messages;
     let has_hint = msgs.iter().any(|vm| {
         if let crate::ui::message_view::MessageViewModel::SystemNote { content } = vm {
-            content.contains("无可压缩")
+            content.contains("No compressible context")
         } else {
             false
         }

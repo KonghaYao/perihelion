@@ -9,8 +9,8 @@ impl Command for CostCommand {
         "cost"
     }
 
-    fn description(&self) -> &str {
-        "查看当前会话费用和 token 消耗"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-cost-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

@@ -10,8 +10,8 @@ impl Command for EffortCommand {
         "effort"
     }
 
-    fn description(&self) -> &str {
-        "查看或设置推理力度（low/medium/high/xhigh/max）"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-effort-description")
     }
 
     fn execute(&self, app: &mut App, args: &str) {

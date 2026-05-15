@@ -10,6 +10,7 @@ fn build_bg_display_notification(
     output: &str,
     tool_calls_count: usize,
     duration_ms: u64,
+    lc: &crate::i18n::LcRegistry,
 ) -> String {
     let short_id = &task_id[..8.min(task_id.len())];
     if success {
@@ -20,23 +21,29 @@ fn build_bg_display_notification(
             .chars()
             .take(80)
             .collect();
-        format!(
-            "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n{}",
-            short_id,
-            agent_name,
-            tool_calls_count,
-            duration_ms,
-            if output.chars().count() > 80 || output.lines().count() > 1 {
-                format!("{}...", output_preview)
-            } else {
-                output_preview
-            },
+        let _preview = if output.chars().count() > 80 || output.lines().count() > 1 {
+            format!("{}...", output_preview)
+        } else {
+            output_preview
+        };
+        lc.tr_args(
+            "app-bg-task-done",
+            &[
+                ("id".into(), short_id.into()),
+                ("agent".into(), agent_name.into()),
+                ("tools".into(), (tool_calls_count as i64).into()),
+                ("duration".into(), (duration_ms as i64).into()),
+            ],
         )
     } else {
         let err_preview: String = output.chars().take(80).collect();
-        format!(
-            "[后台任务 {} 执行失败] Agent: {} | {}",
-            short_id, agent_name, err_preview,
+        lc.tr_args(
+            "app-bg-task-failed",
+            &[
+                ("id".into(), short_id.into()),
+                ("agent".into(), agent_name.into()),
+                ("error".into(), err_preview.into()),
+            ],
         )
     }
 }
@@ -58,21 +65,26 @@ impl App {
                 .saturating_sub(1);
 
         // 用于 LLM 上下文的纯文本通知
+        let short_id = &task_id[..8.min(task_id.len())];
         let state_notification = if success {
-            format!(
-                "[后台任务 {} 已完成] Agent: {} | 工具调用: {} | 耗时: {}ms\n结果:\n{}",
-                &task_id[..8.min(task_id.len())],
-                agent_name,
-                tool_calls_count,
-                duration_ms,
-                output,
+            self.services.lc.tr_args(
+                "app-bg-task-done-with-result",
+                &[
+                    ("id".into(), short_id.into()),
+                    ("agent".into(), agent_name.clone().into()),
+                    ("tools".into(), (tool_calls_count as i64).into()),
+                    ("duration".into(), (duration_ms as i64).into()),
+                    ("result".into(), output.clone().into()),
+                ],
             )
         } else {
-            format!(
-                "[后台任务 {} 执行失败] Agent: {}\n错误:\n{}",
-                &task_id[..8.min(task_id.len())],
-                agent_name,
-                output,
+            self.services.lc.tr_args(
+                "app-bg-task-failed-with-error",
+                &[
+                    ("id".into(), short_id.into()),
+                    ("agent".into(), agent_name.clone().into()),
+                    ("error".into(), output.clone().into()),
+                ],
             )
         };
 
@@ -194,6 +206,7 @@ impl App {
                 &output,
                 tool_calls_count,
                 duration_ms,
+                &self.services.lc,
             );
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
@@ -237,6 +250,7 @@ impl App {
                 &output,
                 tool_calls_count,
                 duration_ms,
+                &self.services.lc,
             );
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent

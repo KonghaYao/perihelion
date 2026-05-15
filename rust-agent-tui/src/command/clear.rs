@@ -8,8 +8,8 @@ impl Command for ClearCommand {
         "clear"
     }
 
-    fn description(&self) -> &str {
-        "清空消息列表"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-clear-description")
     }
 
     fn aliases(&self) -> Vec<&str> {

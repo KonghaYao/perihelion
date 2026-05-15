@@ -10,6 +10,7 @@ pub mod effort;
 pub mod help;
 pub mod history;
 pub mod hooks;
+pub mod lang;
 pub mod login;
 pub mod loop_cmd;
 pub mod mcp;
@@ -43,6 +44,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(effort::EffortCommand));
     r.register(Box::new(rename::RenameCommand));
     r.register(Box::new(doctor::DoctorCommand));
+    r.register(Box::new(lang::LangCommand));
     r
 }
 
@@ -54,7 +56,7 @@ pub trait Command: Send + Sync {
     /// 命令名，不含 /（如 "model"、"help"、"clear"）
     fn name(&self) -> &str;
     /// 单行描述，用于 /help 展示
-    fn description(&self) -> &str;
+    fn description(&self, lc: &crate::i18n::LcRegistry) -> String;
     /// 命令别名列表（不含 /），默认为空
     fn aliases(&self) -> Vec<&str> {
         vec![]
@@ -129,23 +131,33 @@ impl CommandRegistry {
     }
 
     /// 返回所有已注册命令的 (name, description, aliases) 列表
-    pub fn list(&self) -> Vec<(&str, &str, Vec<&str>)> {
+    pub fn list(&self, lc: &crate::i18n::LcRegistry) -> Vec<(String, String, Vec<String>)> {
         self.commands
             .iter()
-            .map(|c| (c.name(), c.description(), c.aliases()))
+            .map(|c| {
+                (
+                    c.name().to_string(),
+                    c.description(lc),
+                    c.aliases().into_iter().map(String::from).collect(),
+                )
+            })
             .collect()
     }
 
     /// 按前缀匹配命令，返回匹配的 (name, description) 列表
     /// prefix 不含 /，如 "mo" 匹配 "model"
     /// 同时匹配 name 和 aliases
-    pub fn match_prefix(&self, prefix: &str) -> Vec<(&str, &str)> {
+    pub fn match_prefix(
+        &self,
+        prefix: &str,
+        lc: &crate::i18n::LcRegistry,
+    ) -> Vec<(String, String)> {
         self.commands
             .iter()
             .filter(|c| {
                 c.name().starts_with(prefix) || c.aliases().iter().any(|a| a.starts_with(prefix))
             })
-            .map(|c| (c.name(), c.description()))
+            .map(|c| (c.name().to_string(), c.description(lc)))
             .collect()
     }
 }

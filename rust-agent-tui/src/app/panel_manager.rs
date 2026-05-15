@@ -235,20 +235,20 @@ impl PanelState {
     }
 
     /// 委托获取快捷键提示
-    pub fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    pub fn status_bar_hints(&self, lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         use super::panel_component::PanelComponent;
         match self {
-            PanelState::Model(p) => p.status_bar_hints(),
-            PanelState::Login(p) => p.status_bar_hints(),
-            PanelState::Agent(p) => p.status_bar_hints(),
-            PanelState::Hooks(p) => p.status_bar_hints(),
-            PanelState::Config(p) => p.status_bar_hints(),
-            PanelState::ThreadBrowser(p) => p.status_bar_hints(),
-            PanelState::Mcp(p) => p.status_bar_hints(),
-            PanelState::Plugin(p) => p.status_bar_hints(),
-            PanelState::Cron(p) => p.status_bar_hints(),
-            PanelState::Status(p) => p.status_bar_hints(),
-            PanelState::Memory(p) => p.status_bar_hints(),
+            PanelState::Model(p) => p.status_bar_hints(lc),
+            PanelState::Login(p) => p.status_bar_hints(lc),
+            PanelState::Agent(p) => p.status_bar_hints(lc),
+            PanelState::Hooks(p) => p.status_bar_hints(lc),
+            PanelState::Config(p) => p.status_bar_hints(lc),
+            PanelState::ThreadBrowser(p) => p.status_bar_hints(lc),
+            PanelState::Mcp(p) => p.status_bar_hints(lc),
+            PanelState::Plugin(p) => p.status_bar_hints(lc),
+            PanelState::Cron(p) => p.status_bar_hints(lc),
+            PanelState::Status(p) => p.status_bar_hints(lc),
+            PanelState::Memory(p) => p.status_bar_hints(lc),
         }
     }
 }
@@ -427,23 +427,23 @@ impl PanelManager {
     }
 
     /// 获取当前激活面板的快捷键提示
-    pub fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    pub fn status_bar_hints(&self, lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         use super::panel_component::PanelComponent;
         let Some(state) = self.active.as_ref() else {
             return Vec::new();
         };
         match state {
-            PanelState::Model(p) => p.status_bar_hints(),
-            PanelState::Agent(p) => p.status_bar_hints(),
-            PanelState::Hooks(p) => p.status_bar_hints(),
-            PanelState::Status(p) => p.status_bar_hints(),
-            PanelState::Memory(p) => p.status_bar_hints(),
-            PanelState::Login(p) => p.status_bar_hints(),
-            PanelState::Config(p) => p.status_bar_hints(),
-            PanelState::ThreadBrowser(p) => p.status_bar_hints(),
-            PanelState::Mcp(p) => p.status_bar_hints(),
-            PanelState::Cron(p) => p.status_bar_hints(),
-            PanelState::Plugin(p) => p.status_bar_hints(),
+            PanelState::Model(p) => p.status_bar_hints(lc),
+            PanelState::Agent(p) => p.status_bar_hints(lc),
+            PanelState::Hooks(p) => p.status_bar_hints(lc),
+            PanelState::Status(p) => p.status_bar_hints(lc),
+            PanelState::Memory(p) => p.status_bar_hints(lc),
+            PanelState::Login(p) => p.status_bar_hints(lc),
+            PanelState::Config(p) => p.status_bar_hints(lc),
+            PanelState::ThreadBrowser(p) => p.status_bar_hints(lc),
+            PanelState::Mcp(p) => p.status_bar_hints(lc),
+            PanelState::Cron(p) => p.status_bar_hints(lc),
+            PanelState::Plugin(p) => p.status_bar_hints(lc),
         }
     }
 

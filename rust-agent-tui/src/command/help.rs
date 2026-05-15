@@ -8,8 +8,8 @@ impl Command for HelpCommand {
         "help"
     }
 
-    fn description(&self) -> &str {
-        "列出所有可用命令"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-help-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

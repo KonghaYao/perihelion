@@ -8,8 +8,8 @@ impl Command for ModelCommand {
         "model"
     }
 
-    fn description(&self) -> &str {
-        "打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名（opus/sonnet/haiku）"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-model-description")
     }
 
     fn execute(&self, app: &mut App, args: &str) {

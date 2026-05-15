@@ -812,10 +812,10 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                                         [app.session_mgr.active]
                                         .commands
                                         .command_registry
-                                        .match_prefix(&prefix);
+                                        .match_prefix(&prefix, &app.services.lc);
                                     let error_msg = if cmd_matches.len() > 1 {
                                         let names: Vec<&str> =
-                                            cmd_matches.iter().map(|(n, _)| *n).collect();
+                                            cmd_matches.iter().map(|(n, _)| n.as_str()).collect();
                                         format!(
                                             "命令 '{}' 匹配多个: {}  （请输入完整命令名）",
                                             text,

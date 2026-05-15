@@ -13,8 +13,8 @@
         fn name(&self) -> &str {
             self.n
         }
-        fn description(&self) -> &str {
-            "stub"
+        fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+            "stub".to_string()
         }
         fn aliases(&self) -> Vec<&str> {
             self.aliases_vec.clone()
@@ -23,6 +23,10 @@
             self.called.store(true, Ordering::Relaxed);
             *self.last_args.lock() = args.to_string();
         }
+    }
+
+    fn make_lc() -> crate::i18n::LcRegistry {
+        crate::i18n::LcRegistry::default()
     }
 
     fn make_stub(
@@ -145,7 +149,7 @@
         r.register(Box::new(s1));
         r.register(Box::new(s2));
         r.register(Box::new(s3));
-        let matches = r.match_prefix("mo");
+        let matches = r.match_prefix("mo", &make_lc());
         assert_eq!(matches.len(), 2, "should match 'model' and 'mock'");
     }
 
@@ -158,7 +162,7 @@
         r.register(Box::new(s1));
         r.register(Box::new(s2));
         r.register(Box::new(s3));
-        assert_eq!(r.list().len(), 3, "list should return all 3 commands");
+        assert_eq!(r.list(&make_lc()).len(), 3, "list should return all 3 commands");
     }
 
     #[tokio::test]
@@ -250,7 +254,7 @@
         let mut r = CommandRegistry::new();
         let (s, _, _) = make_stub_with_aliases("clear", vec!["reset"]);
         r.register(Box::new(s));
-        let matches = r.match_prefix("res");
+        let matches = r.match_prefix("res", &make_lc());
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].0, "clear");
     }
@@ -260,10 +264,10 @@
         let mut r = CommandRegistry::new();
         let (s, _, _) = make_stub_with_aliases("clear", vec!["reset", "new"]);
         r.register(Box::new(s));
-        let list = r.list();
+        let list = r.list(&make_lc());
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].0, "clear");
-        assert_eq!(list[0].2, vec!["reset", "new"]);
+        assert_eq!(list[0].2, vec!["reset".to_string(), "new".to_string()]);
     }
 
     #[test]
@@ -271,8 +275,8 @@
         let mut r = CommandRegistry::new();
         let (s, _, _) = make_stub("model");
         r.register(Box::new(s));
-        let list = r.list();
-        assert_eq!(list[0].2, Vec::<&str>::new());
-        let matches = r.match_prefix("mo");
+        let list = r.list(&make_lc());
+        assert_eq!(list[0].2, Vec::<String>::new());
+        let matches = r.match_prefix("mo", &make_lc());
         assert_eq!(matches.len(), 1);
     }

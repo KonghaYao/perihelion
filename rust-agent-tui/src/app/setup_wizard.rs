@@ -21,17 +21,17 @@ pub enum SetupSource {
 impl SetupSource {
     pub const ALL: [Self; 2] = [Self::CustomApi, Self::MigrateClaudeCode];
 
-    pub fn label(&self) -> &str {
+    pub fn label(&self, lc: &crate::i18n::LcRegistry) -> String {
         match self {
-            Self::CustomApi => "Custom API",
-            Self::MigrateClaudeCode => "Migrate from Claude Code",
+            Self::CustomApi => lc.tr("setup-source-custom-api"),
+            Self::MigrateClaudeCode => lc.tr("setup-source-migrate"),
         }
     }
 
-    pub fn description(&self) -> &str {
+    pub fn description(&self, lc: &crate::i18n::LcRegistry) -> String {
         match self {
-            Self::CustomApi => "Manually enter provider details",
-            Self::MigrateClaudeCode => "Import config from ~/.claude/",
+            Self::CustomApi => lc.tr("setup-source-custom-desc"),
+            Self::MigrateClaudeCode => lc.tr("setup-source-migrate-desc"),
         }
     }
 }

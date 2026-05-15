@@ -46,7 +46,13 @@ impl App {
         let display = if attachments.is_empty() {
             input.clone()
         } else {
-            format!("{} [🖼 {} 张图片]", input, attachments.len())
+            self.services.lc.tr_args(
+                "app-submit-attachments",
+                &[
+                    ("input".into(), input.clone().into()),
+                    ("count".into(), (attachments.len() as i64).into()),
+                ],
+            )
         };
         self.session_mgr.sessions[self.session_mgr.active]
             .messages
@@ -106,7 +112,7 @@ impl App {
             Some(p) => p,
             None => {
                 self.apply_pipeline_action(PipelineAction::AddMessage(MessageViewModel::system(
-                    "未配置 API Key，请输入 /login 配置 Provider".to_string(),
+                    self.services.lc.tr("app-no-provider-submit"),
                 )));
                 self.set_loading(false);
                 return;

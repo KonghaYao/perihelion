@@ -54,7 +54,7 @@ pub trait PanelComponent: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
     /// 快捷键提示
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         Vec::new()
     }
 }

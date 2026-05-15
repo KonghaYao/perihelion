@@ -8,8 +8,8 @@ impl Command for AgentCommand {
         "agent"
     }
 
-    fn description(&self) -> &str {
-        "/agent <id> - 设置 Agent 定义，切换不同的 Agent 角色"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-agent-description").into()
     }
 
     fn execute(&self, app: &mut App, args: &str) {

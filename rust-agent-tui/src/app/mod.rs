@@ -136,6 +136,12 @@ impl App {
         // 优先从 ~/.peri/settings.json 加载配置，失败时 fallback 到环境变量
         let peri_config = crate::config::load().ok();
 
+        let lc = crate::i18n::LcRegistry::new(
+            peri_config
+                .as_ref()
+                .and_then(|c| c.config.language.as_deref()),
+        );
+
         let provider_from_config = peri_config
             .as_ref()
             .and_then(agent::LlmProvider::from_config);
@@ -144,13 +150,19 @@ impl App {
                 Some(p) => {
                     let name = p.display_name().to_string();
                     let model = p.model_name().to_string();
-                    let msg = format!("{} ({}) 已就绪", name, model);
+                    let msg = lc.tr_args(
+                        "app-provider-ready",
+                        &[
+                            ("name".into(), name.clone().into()),
+                            ("model".into(), model.clone().into()),
+                        ],
+                    );
                     (name, model, msg)
                 }
                 None => (
-                    "未配置".to_string(),
-                    "无".to_string(),
-                    "警告: 未设置任何 API Key（ANTHROPIC_API_KEY 或 OPENAI_API_KEY）".to_string(),
+                    lc.tr("app-not-configured"),
+                    lc.tr("app-empty"),
+                    lc.tr("app-no-api-key-warning"),
                 ),
             };
 
@@ -186,7 +198,7 @@ impl App {
 
         let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(32);
 
-        let initial_session = ChatSession::new(cwd.clone(), command_registry, skills);
+        let initial_session = ChatSession::new(cwd.clone(), command_registry, skills, &lc);
 
         let session_mgr = SessionManager::new(initial_session);
 
@@ -211,6 +223,7 @@ impl App {
             resource_monitor: parking_lot::Mutex::new(
                 service_registry::ProcessResourceMonitor::new(),
             ),
+            lc,
         };
 
         Self {
@@ -272,7 +285,12 @@ impl App {
             }
             command_registry.register_plugin_commands(pd.all_commands.clone());
         }
-        let session = ChatSession::new(self.services.cwd.clone(), command_registry, skills);
+        let session = ChatSession::new(
+            self.services.cwd.clone(),
+            command_registry,
+            skills,
+            &self.services.lc,
+        );
         self.session_mgr.sessions.push(session);
         self.session_mgr.active = self.session_mgr.sessions.len() - 1;
     }
@@ -471,14 +489,23 @@ impl App {
                     self.session_mgr.sessions[self.session_mgr.active]
                         .metadata
                         .last_human_message = None;
-                    self.push_system_note("⚠ 已强制中断（输入已恢复到输入框）".to_string());
+                    self.push_system_note(format!(
+                        "⚠ {}",
+                        self.services.lc.tr("app-interrupted-resumed")
+                    ));
                     self.render_rebuild();
                 } else {
-                    self.push_system_note("⚠ 已强制中断（后台任务可能仍在运行）".to_string());
+                    self.push_system_note(format!(
+                        "⚠ {}",
+                        self.services.lc.tr("app-interrupted-background")
+                    ));
                     self.render_rebuild();
                 }
             } else {
-                self.push_system_note("⚠ 已强制中断（后台任务可能仍在运行）".to_string());
+                self.push_system_note(format!(
+                    "⚠ {}",
+                    self.services.lc.tr("app-interrupted-background")
+                ));
                 self.render_rebuild();
             }
         }

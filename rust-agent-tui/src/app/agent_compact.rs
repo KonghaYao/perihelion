@@ -89,7 +89,7 @@ impl App {
             .pipeline
             .restore_completed(state_msgs);
 
-        let mut label_lines = vec!["✻ 上下文已压缩".to_string()];
+        let mut label_lines = vec![format!("✻ {}", self.services.lc.tr("app-compact-done"))];
         label_lines.extend(file_entries);
         if !skill_names.is_empty() {
             label_lines.push(format!("  ⎿  Skill: {}", skill_names.join(", ")));
@@ -182,10 +182,7 @@ impl App {
                     "auto-compact: reached max re-submit count ({}), stopping",
                     MAX_AUTO_COMPACT_RESUBMITS
                 );
-                let vm = MessageViewModel::system(
-                    "上下文压缩后仍超出限制，已停止自动继续。请使用 /compact 手动压缩或 /clear 清空历史。"
-                        .to_string(),
-                );
+                let vm = MessageViewModel::system(self.services.lc.tr("app-compact-limit-reached"));
                 self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                 // 未 resubmit 时处理待发消息
                 if !self.session_mgr.sessions[self.session_mgr.active]
@@ -215,7 +212,11 @@ impl App {
 
     /// CompactError 事件处理器：显示错误、恢复 token snapshot
     pub(crate) fn handle_compact_error(&mut self, msg: String) -> (bool, bool, bool) {
-        let vm = MessageViewModel::system(format!("❌ 压缩失败: {}", msg));
+        let vm = MessageViewModel::system(
+            self.services
+                .lc
+                .tr_args("app-compact-failed", &[("error".into(), msg.into())]),
+        );
         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         self.set_loading(false);
         self.session_mgr.sessions[self.session_mgr.active]
@@ -272,8 +273,10 @@ impl App {
                 .messages
                 .pipeline
                 .restore_completed(state_msgs);
-            let vm =
-                MessageViewModel::system(format!("自动清理：释放了 {} 个工具调用结果", cleared));
+            let vm = MessageViewModel::system(self.services.lc.tr_args(
+                "app-compact-auto-cleared",
+                &[("count".into(), (cleared as i64).into())],
+            ));
             self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         }
     }

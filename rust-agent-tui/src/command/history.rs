@@ -8,8 +8,8 @@ impl Command for HistoryCommand {
         "history"
     }
 
-    fn description(&self) -> &str {
-        "打开历史对话浏览面板"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-history-description")
     }
 
     fn aliases(&self) -> Vec<&str> {

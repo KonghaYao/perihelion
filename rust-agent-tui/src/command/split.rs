@@ -8,8 +8,8 @@ impl Command for SplitCommand {
         "split"
     }
 
-    fn description(&self) -> &str {
-        "新建分栏会话"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-split-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

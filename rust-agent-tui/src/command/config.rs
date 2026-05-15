@@ -12,8 +12,8 @@ impl Command for ConfigCommand {
         vec!["settings"]
     }
 
-    fn description(&self) -> &str {
-        "全局配置（autocompact、语言、系统提示词覆盖）"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-config-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

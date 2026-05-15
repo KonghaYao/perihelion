@@ -429,7 +429,10 @@ impl PanelComponent for LoginPanel {
                         if !selected_name.is_empty() {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]
                                 .messages
-                                .push_system_note(format!("已激活 Provider: {}", selected_name));
+                                .push_system_note(ctx.services.lc.tr_args(
+                                    "app-provider-activated",
+                                    &[("name".into(), selected_name.into())],
+                                ));
                         }
                         // Save config and update provider name
                         if let Err(e) = super::App::save_config(
@@ -438,9 +441,9 @@ impl PanelComponent for LoginPanel {
                         ) {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]
                                 .messages
-                                .push_system_note(format!(
-                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
-                                    e
+                                .push_system_note(ctx.services.lc.tr_args(
+                                    "app-config-save-failed",
+                                    &[("error".into(), e.to_string().into())],
                                 ));
                         }
                         if let Some(p) = super::agent::LlmProvider::from_config(cfg) {
@@ -559,7 +562,7 @@ impl PanelComponent for LoginPanel {
                         if !self.apply_edit(cfg) {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]
                                 .messages
-                                .push_system_note("保存失败：Provider 名称不能为空".to_string());
+                                .push_system_note(ctx.services.lc.tr("app-provider-name-empty"));
                             return EventResult::Consumed;
                         }
                         let display = if edit_name.is_empty() {
@@ -569,13 +572,18 @@ impl PanelComponent for LoginPanel {
                         };
                         // auto-activate saved provider
                         self.select_provider(cfg);
+                        let key = if is_new {
+                            "app-provider-created"
+                        } else {
+                            "app-provider-saved"
+                        };
                         ctx.session_mgr.sessions[ctx.session_mgr.active]
                             .messages
-                            .push_system_note(format!(
-                                "已{}并激活 Provider: {}",
-                                if is_new { "新建" } else { "保存" },
-                                display
-                            ));
+                            .push_system_note(
+                                ctx.services
+                                    .lc
+                                    .tr_args(key, &[("name".into(), display.into())]),
+                            );
                         // Save config and update provider name
                         if let Err(e) = super::App::save_config(
                             cfg,
@@ -583,9 +591,9 @@ impl PanelComponent for LoginPanel {
                         ) {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]
                                 .messages
-                                .push_system_note(format!(
-                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
-                                    e
+                                .push_system_note(ctx.services.lc.tr_args(
+                                    "app-config-save-failed",
+                                    &[("error".into(), e.to_string().into())],
                                 ));
                         }
                         if let Some(p) = super::agent::LlmProvider::from_config(cfg) {
@@ -622,7 +630,10 @@ impl PanelComponent for LoginPanel {
                         if !deleted_name.is_empty() {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]
                                 .messages
-                                .push_system_note(format!("已删除 Provider: {}", deleted_name));
+                                .push_system_note(ctx.services.lc.tr_args(
+                                    "app-provider-deleted",
+                                    &[("name".into(), deleted_name.into())],
+                                ));
                         }
                         // Save config and update provider name
                         if let Err(e) = super::App::save_config(
@@ -631,9 +642,9 @@ impl PanelComponent for LoginPanel {
                         ) {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]
                                 .messages
-                                .push_system_note(format!(
-                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
-                                    e
+                                .push_system_note(ctx.services.lc.tr_args(
+                                    "app-config-save-failed",
+                                    &[("error".into(), e.to_string().into())],
                                 ));
                         }
                         if let Some(p) = super::agent::LlmProvider::from_config(cfg) {
@@ -713,26 +724,35 @@ impl PanelComponent for LoginPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         match self.mode {
             LoginPanelMode::Browse => vec![
-                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-                ("Enter", "\u{6fc0}\u{6d3b}"),
-                ("Tab", "\u{7f16}\u{8f91}"),
-                ("Ctrl+N", "\u{65b0}\u{5efa}"),
-                ("Ctrl+D", "\u{5220}\u{9664}"),
-                ("Esc", "\u{5173}\u{95ed}"),
+                (
+                    "\u{2191}\u{2193}".to_string(),
+                    "\u{5bfc}\u{822a}".to_string(),
+                ),
+                ("Enter".to_string(), "\u{6fc0}\u{6d3b}".to_string()),
+                ("Tab".to_string(), "\u{7f16}\u{8f91}".to_string()),
+                ("Ctrl+N".to_string(), "\u{65b0}\u{5efa}".to_string()),
+                ("Ctrl+D".to_string(), "\u{5220}\u{9664}".to_string()),
+                ("Esc".to_string(), "\u{5173}\u{95ed}".to_string()),
             ],
             LoginPanelMode::Edit | LoginPanelMode::New => vec![
-                ("\u{2191}\u{2193}", "\u{5b57}\u{6bb5}"),
-                ("Enter", "\u{4fdd}\u{5b58}"),
-                ("Ctrl+V", "\u{7c98}\u{8d34}"),
-                ("Space", "\u{5207}\u{6362}"),
-                ("Esc", "\u{8fd4}\u{56de}"),
+                (
+                    "\u{2191}\u{2193}".to_string(),
+                    "\u{5b57}\u{6bb5}".to_string(),
+                ),
+                ("Enter".to_string(), "\u{4fdd}\u{5b58}".to_string()),
+                ("Ctrl+V".to_string(), "\u{7c98}\u{8d34}".to_string()),
+                ("Space".to_string(), "\u{5207}\u{6362}".to_string()),
+                ("Esc".to_string(), "\u{8fd4}\u{56de}".to_string()),
             ],
             LoginPanelMode::ConfirmDelete => vec![
-                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
-                ("Esc", "\u{53d6}\u{6d88}"),
+                (
+                    "Enter".to_string(),
+                    "\u{786e}\u{8ba4}\u{5220}\u{9664}".to_string(),
+                ),
+                ("Esc".to_string(), "\u{53d6}\u{6d88}".to_string()),
             ],
         }
     }

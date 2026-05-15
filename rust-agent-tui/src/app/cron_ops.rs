@@ -48,7 +48,10 @@ impl crate::app::App {
                 panel.refresh(&self.services.cron.scheduler);
                 self.session_mgr.sessions[self.session_mgr.active]
                     .messages
-                    .push_system_note(format!("已删除定时任务: {}", prompt_preview));
+                    .push_system_note(self.services.lc.tr_args(
+                        "app-cron-deleted",
+                        &[("preview".into(), prompt_preview.into())],
+                    ));
                 // 列表为空时关闭面板，清理面板元数据
                 if panel.tasks().is_empty() {
                     self.global_panels.close();

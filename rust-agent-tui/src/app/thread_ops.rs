@@ -319,7 +319,7 @@ impl App {
             .agent_state_messages
             .is_empty()
         {
-            self.push_system_note("无可压缩的上下文（历史消息为空）".to_string());
+            self.push_system_note(self.services.lc.tr("app-compact-no-context"));
             self.render_rebuild();
             return;
         }
@@ -333,9 +333,7 @@ impl App {
         {
             Some(p) => p,
             None => {
-                self.push_system_note(
-                    "❌ 压缩失败: 未配置 LLM Provider（请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY）".to_string(),
-                );
+                self.push_system_note(self.services.lc.tr("app-compact-no-provider"));
                 self.render_rebuild();
                 return;
             }
@@ -363,7 +361,7 @@ impl App {
         self.set_loading(true);
         self.session_mgr.sessions[self.session_mgr.active]
             .spinner_state
-            .set_verb(Some("压缩上下文"));
+            .set_verb(Some(self.services.lc.tr("app-compact-compressing").leak()));
 
         self.render_rebuild();
 

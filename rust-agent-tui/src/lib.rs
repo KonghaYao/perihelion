@@ -16,6 +16,7 @@ pub mod app;
 pub mod command;
 pub mod config;
 pub mod event;
+pub mod i18n;
 pub mod langfuse;
 pub mod prompt;
 pub mod thread;

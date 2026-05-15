@@ -386,25 +386,28 @@ impl PanelComponent for ThreadBrowser {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         if self.confirm_delete {
             return vec![
-                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
-                ("Esc", "\u{53d6}\u{6d88}"),
+                ("Enter".to_string(), _lc.tr("hint-history-confirm-delete")),
+                ("Esc".to_string(), _lc.tr("key-cancel")),
             ];
         }
         if self.search_focused {
             return vec![
-                ("\u{2193}/Tab", "\u{9000}\u{51fa}\u{641c}\u{7d22}"),
-                ("Esc", "\u{5173}\u{95ed}"),
+                (
+                    "\u{2193}/Tab".to_string(),
+                    _lc.tr("hint-plugin-exit-search"),
+                ),
+                ("Esc".to_string(), _lc.tr("key-close")),
             ];
         }
         vec![
-            ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-            ("Enter", "\u{6253}\u{5f00}"),
-            ("/", "\u{641c}\u{7d22}"),
-            ("Ctrl+D", "\u{5220}\u{9664}"),
-            ("Esc", "\u{5173}\u{95ed}"),
+            ("\u{2191}\u{2193}".to_string(), _lc.tr("key-move")),
+            ("Enter".to_string(), _lc.tr("key-confirm")),
+            ("/".to_string(), _lc.tr("hint-plugin-search")),
+            ("Ctrl+D".to_string(), _lc.tr("key-delete")),
+            ("Esc".to_string(), _lc.tr("key-close")),
         ]
     }
 }

@@ -268,12 +268,12 @@ impl PanelComponent for ModelPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         vec![
-            ("↑↓", "导航"),
-            ("Enter", "确认"),
-            ("←→/Space", "Effort"),
-            ("Esc", "关闭"),
+            ("↑↓".to_string(), _lc.tr("key-move")),
+            ("Enter".to_string(), _lc.tr("key-confirm")),
+            ("←→/Space".to_string(), _lc.tr("key-effort")),
+            ("Esc".to_string(), _lc.tr("key-close")),
         ]
     }
 }
@@ -299,15 +299,21 @@ impl ModelPanel {
 
         ctx.session_mgr.sessions[ctx.session_mgr.active]
             .messages
-            .push_system_note(format!(
-                "模型已切换为: {} ({} effort)",
-                alias_label, effort_display
+            .push_system_note(ctx.services.lc.tr_args(
+                "app-model-switched",
+                &[
+                    ("alias".into(), alias_label.into()),
+                    ("effort".into(), effort_display.into()),
+                ],
             ));
 
         if let Err(e) = App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
             ctx.session_mgr.sessions[ctx.session_mgr.active]
                 .messages
-                .push_system_note(format!("配置保存失败: {}", e));
+                .push_system_note(ctx.services.lc.tr_args(
+                    "app-config-save-failed",
+                    &[("error".into(), e.to_string().into())],
+                ));
         }
 
         if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {

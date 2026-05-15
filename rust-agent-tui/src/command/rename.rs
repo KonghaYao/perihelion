@@ -9,8 +9,8 @@ impl Command for RenameCommand {
         "rename"
     }
 
-    fn description(&self) -> &str {
-        "查看或修改当前会话标题"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-rename-description")
     }
 
     fn execute(&self, app: &mut App, args: &str) {

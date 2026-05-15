@@ -8,8 +8,8 @@ impl Command for LoginCommand {
         "login"
     }
 
-    fn description(&self) -> &str {
-        "管理 Provider 配置（新建/编辑/删除）"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-login-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

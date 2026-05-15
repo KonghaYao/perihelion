@@ -683,26 +683,26 @@ impl PanelComponent for McpPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         if self.confirm_delete.is_some() {
             return vec![
-                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
-                ("Esc", "\u{53d6}\u{6d88}"),
+                ("Enter".to_string(), _lc.tr("key-delete")),
+                ("Esc".to_string(), _lc.tr("key-cancel")),
             ];
         }
         if self.view.is_server_list() {
             vec![
-                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-                ("Enter", "\u{8be6}\u{60c5}"),
-                ("Ctrl+R", "\u{91cd}\u{8fde}"),
-                ("Ctrl+D", "\u{5220}\u{9664}"),
-                ("Esc", "\u{5173}\u{95ed}"),
+                ("\u{2191}\u{2193}".to_string(), _lc.tr("key-move")),
+                ("Enter".to_string(), _lc.tr("key-detail")),
+                ("Ctrl+R".to_string(), _lc.tr("key-reconnect")),
+                ("Ctrl+D".to_string(), _lc.tr("key-delete")),
+                ("Esc".to_string(), _lc.tr("key-close")),
             ]
         } else {
             vec![
-                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-                ("Enter", "\u{6267}\u{884c}"),
-                ("Esc", "\u{8fd4}\u{56de}"),
+                ("\u{2191}\u{2193}".to_string(), _lc.tr("key-move")),
+                ("Enter".to_string(), _lc.tr("key-execute")),
+                ("Esc".to_string(), _lc.tr("key-back")),
             ]
         }
     }

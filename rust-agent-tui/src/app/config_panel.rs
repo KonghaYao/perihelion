@@ -194,7 +194,11 @@ impl ConfigPanel {
         }
     }
 
-    pub fn apply_edit(&mut self, cfg: &mut PeriConfig) {
+    pub fn apply_edit(
+        &mut self,
+        cfg: &mut PeriConfig,
+        lc: &crate::i18n::LcRegistry,
+    ) -> Result<(), String> {
         // autocompact + threshold
         let compact = cfg
             .config
@@ -204,12 +208,22 @@ impl ConfigPanel {
         let threshold_val: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(50, 99);
         compact.auto_compact_threshold = threshold_val as f64 / 100.0;
 
-        // language
-        cfg.config.language = if self.buf_language.is_empty() || self.buf_language == "auto" {
+        // language: validate against available langs
+        let lang_val = if self.buf_language.is_empty() || self.buf_language == "auto" {
             None
         } else {
-            Some(self.buf_language.clone())
+            let lang_str = self.buf_language.trim().to_string();
+            if lc.available_langs().contains(&lang_str.as_str()) {
+                Some(lang_str)
+            } else {
+                return Err(format!(
+                    "Unsupported language: '{}'. Available: {}",
+                    self.buf_language,
+                    lc.available_langs().join(", ")
+                ));
+            }
         };
+        cfg.config.language = lang_val;
 
         // persona
         cfg.config.persona = if self.buf_persona.is_empty() {
@@ -231,6 +245,8 @@ impl ConfigPanel {
         } else {
             Some(self.buf_proactiveness.clone())
         };
+
+        Ok(())
     }
 
     pub fn field_count() -> usize {
@@ -257,9 +273,9 @@ impl ConfigPanel {
         match index {
             0 => {
                 if self.buf_autocompact {
-                    "开".to_string()
+                    "ON".to_string()
                 } else {
-                    "关".to_string()
+                    "OFF".to_string()
                 }
             }
             1 => format!("{}%", self.buf_threshold),
@@ -267,7 +283,11 @@ impl ConfigPanel {
                 if self.buf_language.is_empty() {
                     "auto".to_string()
                 } else {
-                    self.buf_language.clone()
+                    match self.buf_language.as_str() {
+                        "en" => "English".to_string(),
+                        "zh-CN" => "简体中文".to_string(),
+                        other => other.to_string(),
+                    }
                 }
             }
             3 => {
@@ -329,25 +349,36 @@ impl PanelComponent for ConfigPanel {
                         let Some(cfg) = ctx.services.peri_config.as_mut() else {
                             return EventResult::Consumed;
                         };
-                        self.apply_edit(cfg);
-                        use super::App;
-                        if let Err(e) =
-                            App::save_config(cfg, ctx.services.config_path_override.as_deref())
-                        {
-                            ctx.session_mgr.sessions[ctx.session_mgr.active]
-                                .messages
-                                .push_system_note(format!(
-                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
-                                    e
-                                ));
-                        } else {
-                            ctx.session_mgr.sessions[ctx.session_mgr.active]
-                                .messages
-                                .push_system_note(
-                                    "\u{914d}\u{7f6e}\u{5df2}\u{4fdd}\u{5b58}".to_string(),
-                                );
+                        match self.apply_edit(cfg, &ctx.services.lc) {
+                            Ok(()) => {
+                                if let Some(ref lang) = cfg.config.language {
+                                    let _ = ctx.services.lc.switch(lang);
+                                }
+                                use super::App;
+                                if let Err(e) = App::save_config(
+                                    cfg,
+                                    ctx.services.config_path_override.as_deref(),
+                                ) {
+                                    ctx.session_mgr.sessions[ctx.session_mgr.active]
+                                        .messages
+                                        .push_system_note(ctx.services.lc.tr_args(
+                                            "app-config-save-failed",
+                                            &[("error".into(), e.to_string().into())],
+                                        ));
+                                } else {
+                                    ctx.session_mgr.sessions[ctx.session_mgr.active]
+                                        .messages
+                                        .push_system_note(ctx.services.lc.tr("app-config-saved"));
+                                }
+                                EventResult::ClosePanel
+                            }
+                            Err(err_msg) => {
+                                ctx.session_mgr.sessions[ctx.session_mgr.active]
+                                    .messages
+                                    .push_system_note(err_msg);
+                                EventResult::Consumed
+                            }
                         }
-                        EventResult::ClosePanel
                     }
                     Input { key: Key::Up, .. } => {
                         self.field_prev();
@@ -471,18 +502,24 @@ impl PanelComponent for ConfigPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         match self.mode {
             ConfigPanelMode::Browse => vec![
-                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-                ("Enter", "\u{7f16}\u{8f91}"),
-                ("Esc", "\u{5173}\u{95ed}"),
+                (
+                    "\u{2191}\u{2193}".to_string(),
+                    "\u{5bfc}\u{822a}".to_string(),
+                ),
+                ("Enter".to_string(), "\u{7f16}\u{8f91}".to_string()),
+                ("Esc".to_string(), "\u{5173}\u{95ed}".to_string()),
             ],
             ConfigPanelMode::Edit => vec![
-                ("\u{2191}\u{2193}", "\u{5b57}\u{6bb5}"),
-                ("Enter", "\u{4fdd}\u{5b58}"),
-                ("Space", "\u{5207}\u{6362}"),
-                ("Esc", "\u{53d6}\u{6d88}"),
+                (
+                    "\u{2191}\u{2193}".to_string(),
+                    "\u{5b57}\u{6bb5}".to_string(),
+                ),
+                ("Enter".to_string(), "\u{4fdd}\u{5b58}".to_string()),
+                ("Space".to_string(), "\u{5207}\u{6362}".to_string()),
+                ("Esc".to_string(), "\u{53d6}\u{6d88}".to_string()),
             ],
         }
     }

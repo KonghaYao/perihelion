@@ -12,8 +12,8 @@ impl Command for AgentsCommand {
         "agents"
     }
 
-    fn description(&self) -> &str {
-        "/agents - 打开 Agent 选择面板"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-agents-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

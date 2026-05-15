@@ -89,5 +89,6 @@
     #[test]
     fn test_loop_cmd_description_not_empty() {
         let cmd = LoopCommand;
-        assert!(!cmd.description().is_empty());
+        let lc = crate::i18n::LcRegistry::default();
+        assert!(!cmd.description(&lc).is_empty());
     }

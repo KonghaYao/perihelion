@@ -9,8 +9,8 @@ impl Command for ContextCommand {
         "context"
     }
 
-    fn description(&self) -> &str {
-        "查看上下文使用率和会话统计"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-context-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

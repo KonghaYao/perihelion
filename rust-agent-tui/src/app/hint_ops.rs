@@ -1,13 +1,13 @@
 use super::*;
 
 /// 统一候选项：命令或 Skill，与渲染侧 hints.rs 保持一致
-enum HintItem<'a> {
-    Cmd { name: &'a str },
-    Skill { name: &'a str },
+enum HintItem {
+    Cmd { name: String },
+    Skill { name: String },
 }
 
-impl<'a> HintItem<'a> {
-    fn name(&self) -> &'a str {
+impl HintItem {
+    fn name(&self) -> &str {
         match self {
             HintItem::Cmd { name } => name,
             HintItem::Skill { name } => name,
@@ -22,7 +22,7 @@ impl<'a> HintItem<'a> {
 
 impl App {
     /// 构建统一排序后的候选项列表（与渲染侧一致）
-    fn build_hint_items(&self) -> Vec<HintItem<'_>> {
+    fn build_hint_items(&self) -> Vec<HintItem> {
         let first_line = self.session_mgr.sessions[self.session_mgr.active]
             .ui
             .textarea
@@ -37,7 +37,7 @@ impl App {
         let cmd_candidates: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
             .commands
             .command_registry
-            .match_prefix(prefix);
+            .match_prefix(prefix, &self.services.lc);
         let skill_candidates: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
             .commands
             .skills
@@ -45,12 +45,14 @@ impl App {
             .filter(|s| prefix.is_empty() || s.name.contains(prefix))
             .collect();
 
-        let mut items: Vec<HintItem<'_>> = Vec::new();
+        let mut items: Vec<HintItem> = Vec::new();
         for (name, _) in &cmd_candidates {
-            items.push(HintItem::Cmd { name });
+            items.push(HintItem::Cmd { name: name.clone() });
         }
         for skill in &skill_candidates {
-            items.push(HintItem::Skill { name: &skill.name });
+            items.push(HintItem::Skill {
+                name: skill.name.clone(),
+            });
         }
         items.sort_by(|a, b| {
             let a_starts = a.name().starts_with(prefix) as u8;

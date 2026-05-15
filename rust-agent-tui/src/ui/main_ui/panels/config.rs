@@ -14,14 +14,15 @@ use crate::ui::theme;
 
 /// /config 面板渲染
 pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut App, area: Rect) {
+    let lc = &app.services.lc;
     let border_color = match panel.mode {
         ConfigPanelMode::Browse => theme::BORDER,
         ConfigPanelMode::Edit => theme::WARNING,
     };
 
     let title = match panel.mode {
-        ConfigPanelMode::Browse => " /config — 配置 ",
-        ConfigPanelMode::Edit => " /config — 编辑配置 ",
+        ConfigPanelMode::Browse => lc.tr("config-panel-title-browse"),
+        ConfigPanelMode::Edit => lc.tr("config-panel-title-edit"),
     };
 
     let inner = BorderedPanel::new(Span::styled(
@@ -76,18 +77,24 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 let on_off = if panel.buf_autocompact {
                     vec![
                         Span::styled(
-                            "[开]",
+                            format!("[{}]", lc.tr("config-value-on")),
                             Style::default()
                                 .fg(theme::THINKING)
                                 .add_modifier(Modifier::BOLD),
                         ),
-                        Span::styled("  关", Style::default().fg(theme::MUTED)),
+                        Span::styled(
+                            format!("  {}", lc.tr("config-value-off")),
+                            Style::default().fg(theme::MUTED),
+                        ),
                     ]
                 } else {
                     vec![
-                        Span::styled("开  ", Style::default().fg(theme::MUTED)),
                         Span::styled(
-                            "[关]",
+                            format!("{}  ", lc.tr("config-value-on")),
+                            Style::default().fg(theme::MUTED),
+                        ),
+                        Span::styled(
+                            format!("[{}]", lc.tr("config-value-off")),
                             Style::default()
                                 .fg(theme::THINKING)
                                 .add_modifier(Modifier::BOLD),

@@ -149,7 +149,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
         let is_cursor = cur.in_custom_input;
         let cursor_mark = if is_cursor { "❯" } else { " " };
         let display = if cur.custom_input.is_empty() && !is_cursor {
-            "Type something.".to_string()
+            app.services.lc.tr("ask-user-placeholder")
         } else if is_cursor {
             let (before, after) =
                 crate::app::edit_display_parts(&cur.custom_input, cur.custom_cursor);

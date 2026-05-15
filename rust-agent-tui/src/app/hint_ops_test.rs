@@ -28,7 +28,7 @@
         let cmd_count = app.session_mgr.sessions[app.session_mgr.active]
             .commands
             .command_registry
-            .match_prefix("")
+            .match_prefix("", &app.services.lc)
             .len();
         let expected = cmd_count + 2;
         assert_eq!(count, expected, "/ 前缀应返回命令数 + Skills 数");

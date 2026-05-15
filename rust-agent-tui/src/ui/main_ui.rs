@@ -540,6 +540,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
                 app.session_mgr.sessions[app.session_mgr.active]
                     .spinner_state
                     .raw_tick(),
+                &app.services.lc,
             );
             all_lines.push(Line::from(vec![
                 Span::styled("  ⎿  Tip: ", Style::default().fg(theme::MUTED)),

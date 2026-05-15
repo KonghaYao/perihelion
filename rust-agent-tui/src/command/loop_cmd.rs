@@ -9,8 +9,8 @@ impl Command for LoopCommand {
         "loop"
     }
 
-    fn description(&self) -> &str {
-        "注册定时循环任务（自然语言描述，如 /loop 每隔5分钟提醒我喝水）"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-loop-description")
     }
 
     fn execute(&self, app: &mut App, args: &str) {

@@ -21,13 +21,14 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
         return;
     };
 
+    let lc = &app.services.lc;
     let item_count = prompt.items.len();
     let popup_area = area;
 
     let title = if item_count == 1 {
-        " ⚠ 工具审批 (1 项) "
+        lc.tr("hitl-single-title")
     } else {
-        " ⚠ 批量工具审批 "
+        lc.tr("hitl-batch-title")
     };
 
     let inner = BorderedPanel::new(Span::styled(
@@ -64,7 +65,11 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
                 cursor_indicator,
                 status_icon,
                 item.tool_name,
-                if approved { "[批准]" } else { "[拒绝]" }
+                if approved {
+                    lc.tr("hitl-approved")
+                } else {
+                    lc.tr("hitl-rejected")
+                }
             ),
             if is_cursor {
                 Style::default()
@@ -87,10 +92,18 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
     if item_count > 1 {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            format!(
-                "已选: {} 批准 / {} 拒绝",
-                prompt.approved.iter().filter(|&&v| v).count(),
-                prompt.approved.iter().filter(|&&v| !v).count()
+            lc.tr_args(
+                "hitl-summary",
+                &[
+                    (
+                        "approved".into(),
+                        (prompt.approved.iter().filter(|&&v| v).count() as i64).into(),
+                    ),
+                    (
+                        "rejected".into(),
+                        (prompt.approved.iter().filter(|&&v| !v).count() as i64).into(),
+                    ),
+                ],
             ),
             Style::default().fg(theme::MUTED),
         )));

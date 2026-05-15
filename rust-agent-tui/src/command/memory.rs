@@ -8,8 +8,8 @@ impl Command for MemoryCommand {
         "memory"
     }
 
-    fn description(&self) -> &str {
-        "编辑用户/项目级 CLAUDE.md 记忆文件"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-memory-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

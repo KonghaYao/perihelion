@@ -47,16 +47,22 @@ impl App {
         };
         self.session_mgr.sessions[self.session_mgr.active]
             .messages
-            .push_system_note(format!(
-                "模型已切换为: {} ({} effort)",
-                alias_label, effort_display
+            .push_system_note(self.services.lc.tr_args(
+                "app-model-switched",
+                &[
+                    ("alias".into(), alias_label.into()),
+                    ("effort".into(), effort_display.into()),
+                ],
             ));
         {
             let cfg = self.services.peri_config.as_ref().unwrap();
             if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {
                 self.session_mgr.sessions[self.session_mgr.active]
                     .messages
-                    .push_system_note(format!("配置保存失败: {}", e));
+                    .push_system_note(self.services.lc.tr_args(
+                        "app-config-save-failed",
+                        &[("error".into(), e.to_string().into())],
+                    ));
             }
             if let Some(p) = agent::LlmProvider::from_config(cfg) {
                 self.services.provider_name = p.display_name().to_string();
@@ -107,12 +113,18 @@ impl App {
         if !selected_name.is_empty() {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
-                .push_system_note(format!("已激活 Provider: {}", selected_name));
+                .push_system_note(self.services.lc.tr_args(
+                    "app-provider-activated",
+                    &[("name".into(), selected_name.into())],
+                ));
         }
         if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
-                .push_system_note(format!("配置保存失败: {}", e));
+                .push_system_note(self.services.lc.tr_args(
+                    "app-config-save-failed",
+                    &[("error".into(), e.to_string().into())],
+                ));
         }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.services.provider_name = p.display_name().to_string();
@@ -139,7 +151,7 @@ impl App {
                 .messages
                 .view_messages
                 .push(MessageViewModel::system(
-                    "保存失败：Provider 名称不能为空".to_string(),
+                    self.services.lc.tr("app-provider-name-empty"),
                 ));
             return;
         }
@@ -150,19 +162,27 @@ impl App {
         };
         // 自动激活保存的 provider
         panel.select_provider(cfg);
+        let key = if is_new {
+            "app-provider-created"
+        } else {
+            "app-provider-saved"
+        };
         self.session_mgr.sessions[self.session_mgr.active]
             .messages
             .view_messages
-            .push(MessageViewModel::system(format!(
-                "已{}并激活 Provider: {}",
-                if is_new { "新建" } else { "保存" },
-                display
-            )));
+            .push(MessageViewModel::system(
+                self.services
+                    .lc
+                    .tr_args(key, &[("name".into(), display.into())]),
+            ));
         if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
                 .view_messages
-                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+                .push(MessageViewModel::system(self.services.lc.tr_args(
+                    "app-config-save-failed",
+                    &[("error".into(), e.to_string().into())],
+                )));
         }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.services.provider_name = p.display_name().to_string();
@@ -192,16 +212,19 @@ impl App {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
                 .view_messages
-                .push(MessageViewModel::system(format!(
-                    "已删除 Provider: {}",
-                    deleted_name
+                .push(MessageViewModel::system(self.services.lc.tr_args(
+                    "app-provider-deleted",
+                    &[("name".into(), deleted_name.into())],
                 )));
         }
         if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
                 .view_messages
-                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+                .push(MessageViewModel::system(self.services.lc.tr_args(
+                    "app-config-save-failed",
+                    &[("error".into(), e.to_string().into())],
+                )));
         }
         if let Some(p) = agent::LlmProvider::from_config(cfg) {
             self.services.provider_name = p.display_name().to_string();
@@ -239,17 +262,31 @@ impl App {
         let Some(cfg) = self.services.peri_config.as_mut() else {
             return;
         };
-        panel.apply_edit(cfg);
+        if let Err(err_msg) = panel.apply_edit(cfg, &self.services.lc) {
+            self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .view_messages
+                .push(MessageViewModel::system(err_msg));
+            return;
+        }
+        if let Some(ref lang) = cfg.config.language {
+            let _ = self.services.lc.switch(lang);
+        }
         if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
                 .view_messages
-                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+                .push(MessageViewModel::system(self.services.lc.tr_args(
+                    "app-config-save-failed",
+                    &[("error".into(), e.to_string().into())],
+                )));
         } else {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
                 .view_messages
-                .push(MessageViewModel::system("配置已保存".to_string()));
+                .push(MessageViewModel::system(
+                    self.services.lc.tr("app-config-saved"),
+                ));
         }
         self.session_mgr.sessions[self.session_mgr.active]
             .session_panels
@@ -294,7 +331,7 @@ impl App {
             .unwrap_or_default();
         if infos.is_empty() {
             let vm = crate::ui::message_view::MessageViewModel::system(
-                "无 MCP 服务器配置（请在 .mcp.json 或 settings.json 中添加）".to_string(),
+                self.services.lc.tr("app-no-mcp-configured"),
             );
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
@@ -319,7 +356,9 @@ impl App {
             .cloned()
             .collect();
         if tasks.is_empty() {
-            let vm = crate::ui::message_view::MessageViewModel::system("无定时任务".to_string());
+            let vm = crate::ui::message_view::MessageViewModel::system(
+                self.services.lc.tr("app-no-cron-tasks"),
+            );
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
                 .view_messages
@@ -897,7 +936,7 @@ impl App {
                 .messages
                 .view_messages
                 .push(MessageViewModel::system(
-                    "Agent 已重置（未设置 agent_id）".to_string(),
+                    self.services.lc.tr("app-agent-reset"),
                 ));
         } else if let Some(id) = agent_id {
             self.set_agent_id(Some(id.clone()));
@@ -905,9 +944,9 @@ impl App {
             self.session_mgr.sessions[self.session_mgr.active]
                 .messages
                 .view_messages
-                .push(MessageViewModel::system(format!(
-                    "Agent 已切换为: {} ({})",
-                    name, id
+                .push(MessageViewModel::system(self.services.lc.tr_args(
+                    "app-agent-switched",
+                    &[("name".into(), name.into()), ("id".into(), id.into())],
                 )));
         }
         self.session_mgr.sessions[self.session_mgr.active]
@@ -1012,7 +1051,9 @@ impl App {
 
         let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::channel(32);
 
-        let commands = super::CommandSystem::new(crate::command::default_registry(), Vec::new());
+        let lc = crate::i18n::LcRegistry::default();
+        let commands =
+            super::CommandSystem::new(crate::command::default_registry(), Vec::new(), &lc);
 
         let session = super::ChatSession {
             ui: super::UiState::new(super::build_textarea(false)),
@@ -1060,6 +1101,7 @@ impl App {
                 resource_monitor: parking_lot::Mutex::new(
                     super::service_registry::ProcessResourceMonitor::new(),
                 ),
+                lc: crate::i18n::LcRegistry::default(),
             },
             global_panels: PanelManager::new(),
             global_ui: super::GlobalUiState::new(),

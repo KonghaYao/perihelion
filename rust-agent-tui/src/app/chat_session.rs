@@ -27,10 +27,15 @@ pub struct ChatSession {
 }
 
 impl ChatSession {
-    pub fn new(cwd: String, command_registry: CommandRegistry, skills: Vec<SkillMetadata>) -> Self {
+    pub fn new(
+        cwd: String,
+        command_registry: CommandRegistry,
+        skills: Vec<SkillMetadata>,
+        lc: &crate::i18n::LcRegistry,
+    ) -> Self {
         let (render_tx, render_cache, render_notify) =
             crate::ui::render_thread::spawn_render_thread(80);
-        let commands = CommandSystem::new(command_registry, skills.clone());
+        let commands = CommandSystem::new(command_registry, skills.clone(), lc);
         Self {
             ui: UiState::new(super::build_textarea(false)),
             messages: MessageState::new(

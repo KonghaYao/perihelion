@@ -150,18 +150,18 @@ impl PanelComponent for CronPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         if self.confirm_delete {
             return vec![
-                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
-                ("Esc", "\u{53d6}\u{6d88}"),
+                ("Enter".to_string(), _lc.tr("hint-cron-confirm-delete")),
+                ("Esc".to_string(), _lc.tr("key-cancel")),
             ];
         }
         vec![
-            ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-            ("Enter/Space", "\u{5207}\u{6362}"),
-            ("Ctrl+D", "\u{5220}\u{9664}"),
-            ("Esc", "\u{5173}\u{95ed}"),
+            ("\u{2191}\u{2193}".to_string(), _lc.tr("key-move")),
+            ("Enter/Space".to_string(), _lc.tr("key-switch")),
+            ("Ctrl+D".to_string(), _lc.tr("key-delete")),
+            ("Esc".to_string(), _lc.tr("key-close")),
         ]
     }
 }
@@ -186,9 +186,9 @@ impl CronPanel {
             self.refresh(&ctx.services.cron.scheduler);
             ctx.session_mgr.sessions[ctx.session_mgr.active]
                 .messages
-                .push_system_note(format!(
-                    "\u{5df2}\u{5220}\u{9664}\u{5b9a}\u{65f6}\u{4efb}\u{52a1}: {}",
-                    prompt_preview
+                .push_system_note(ctx.services.lc.tr_args(
+                    "app-cron-deleted",
+                    &[("preview".into(), prompt_preview.into())],
                 ));
         }
     }

@@ -8,8 +8,8 @@ impl Command for CompactCommand {
         "compact"
     }
 
-    fn description(&self) -> &str {
-        "压缩对话上下文（结构化摘要 + 重新注入最近文件/Skills）"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-compact-description")
     }
 
     fn execute(&self, app: &mut App, args: &str) {

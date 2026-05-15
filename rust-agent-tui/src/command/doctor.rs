@@ -9,8 +9,8 @@ impl Command for DoctorCommand {
         "doctor"
     }
 
-    fn description(&self) -> &str {
-        "诊断配置完整性"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-doctor-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

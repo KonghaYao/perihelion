@@ -175,8 +175,14 @@ impl App {
                     let percentage = (rate * 100.0) as u32;
                     let req_id = tracker.last_request_id.as_deref().unwrap_or("-");
                     let msg = format!(
-                        "⚠ Prompt cache 命中率 {}% < 80% (req: {})",
-                        percentage, req_id
+                        "⚠ {}",
+                        self.services.lc.tr_args(
+                            "app-prompt-cache-low",
+                            &[
+                                ("rate".into(), (percentage as i64).into()),
+                                ("req".into(), req_id.to_string().into()),
+                            ]
+                        )
                     );
                     let vm = MessageViewModel::system(msg);
                     self.apply_pipeline_action(PipelineAction::AddMessage(vm));
@@ -564,16 +570,18 @@ impl App {
                             .messages
                             .pipeline
                             .restore_completed(restored);
-                        let vm =
-                            MessageViewModel::system("⚠ 已中断（输入已恢复到输入框）".to_string());
+                        let vm = MessageViewModel::system(
+                            self.services.lc.tr("app-interrupted-resumed"),
+                        );
                         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                     } else {
-                        let vm = MessageViewModel::system("⚠ 已中断".to_string());
+                        let vm =
+                            MessageViewModel::system(self.services.lc.tr("app-interrupt-done"));
                         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                     }
                 } else {
                     self.request_rebuild();
-                    let vm = MessageViewModel::system("⚠ 已中断".to_string());
+                    let vm = MessageViewModel::system(self.services.lc.tr("app-interrupt-done"));
                     self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                     // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖通知消息
                     self.session_mgr.sessions[self.session_mgr.active]
@@ -721,7 +729,7 @@ impl App {
                                     .map(|d| match d {
                                         HitlDecision::Approve => ApprovalDecision::Approve,
                                         HitlDecision::Reject => ApprovalDecision::Reject {
-                                            reason: "用户拒绝".to_string(),
+                                            reason: "User rejected".to_string(),
                                         },
                                         HitlDecision::Edit(v) => {
                                             ApprovalDecision::Edit { new_input: v }
@@ -1036,7 +1044,7 @@ impl App {
                     let vm = MessageViewModel::tool_block(
                         "error".to_string(),
                         "agent-error".to_string(),
-                        Some("Agent 连接异常断开，请重试发送消息".to_string()),
+                        Some(self.services.lc.tr("app-agent-disconnected")),
                         true,
                     );
                     self.apply_pipeline_action(PipelineAction::AddMessage(vm));

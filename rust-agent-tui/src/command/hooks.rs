@@ -9,8 +9,8 @@ impl Command for HooksCommand {
         "hooks"
     }
 
-    fn description(&self) -> &str {
-        "/hooks - 查看 Hook 配置"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-hooks-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {

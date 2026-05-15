@@ -10,18 +10,12 @@ pub struct CommandSystem {
 }
 
 impl CommandSystem {
-    pub fn new(command_registry: CommandRegistry, skills: Vec<SkillMetadata>) -> Self {
-        let command_help_list: Vec<(String, String, Vec<String>)> = command_registry
-            .list()
-            .into_iter()
-            .map(|(n, d, a)| {
-                (
-                    n.to_string(),
-                    d.to_string(),
-                    a.into_iter().map(String::from).collect(),
-                )
-            })
-            .collect();
+    pub fn new(
+        command_registry: CommandRegistry,
+        skills: Vec<SkillMetadata>,
+        lc: &crate::i18n::LcRegistry,
+    ) -> Self {
+        let command_help_list = command_registry.list(lc);
         Self {
             command_registry,
             command_help_list,

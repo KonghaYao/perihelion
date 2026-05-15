@@ -351,10 +351,13 @@ impl PanelComponent for HooksPanel {
         self
     }
 
-    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+    fn status_bar_hints(&self, _lc: &crate::i18n::LcRegistry) -> Vec<(String, String)> {
         vec![
-            ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-            ("Esc", "\u{5173}\u{95ed}"),
+            (
+                "\u{2191}\u{2193}".to_string(),
+                "\u{5bfc}\u{822a}".to_string(),
+            ),
+            ("Esc".to_string(), "\u{5173}\u{95ed}".to_string()),
         ]
     }
 }

@@ -33,10 +33,10 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     }
 
     let prefix = first_line.trim_start_matches('/');
-    let cmd_candidates: Vec<(&str, &str)> = app.session_mgr.sessions[app.session_mgr.active]
+    let cmd_candidates: Vec<(String, String)> = app.session_mgr.sessions[app.session_mgr.active]
         .commands
         .command_registry
-        .match_prefix(prefix);
+        .match_prefix(prefix, &app.services.lc);
     let skill_candidates: Vec<_> = app.session_mgr.sessions[app.session_mgr.active]
         .commands
         .skills
@@ -47,7 +47,10 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     // 合并排序：前缀匹配优先，再按名称字母序
     let mut items: Vec<HintItem<'_>> = Vec::new();
     for (name, desc) in &cmd_candidates {
-        items.push(HintItem::Cmd { name, desc });
+        items.push(HintItem::Cmd {
+            name: name.as_str(),
+            desc: desc.as_str(),
+        });
     }
     for skill in &skill_candidates {
         items.push(HintItem::Skill {
@@ -116,10 +119,25 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
         // 高亮匹配前缀部分
         let highlight = if !prefix.is_empty() {
             name.find(prefix).map(|pos| {
-                let before = &name[..pos];
-                let matched = &name[pos..pos + prefix.len()];
-                let after = &name[pos + prefix.len()..];
-                (before, Some(matched), after)
+                // 字符级切片防止 CJK panic
+                let char_indices: Vec<(usize, char)> = name.char_indices().collect();
+                let before_end = char_indices
+                    .iter()
+                    .position(|(i, _)| *i == pos)
+                    .map(|p| char_indices[p].0)
+                    .unwrap_or(pos);
+                let matched_end = char_indices
+                    .iter()
+                    .skip_while(|(i, _)| *i < pos)
+                    .take(prefix.chars().count())
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
+                    .unwrap_or(pos + prefix.len());
+                (
+                    &name[..before_end],
+                    Some(&name[pos..matched_end]),
+                    &name[matched_end..],
+                )
             })
         } else {
             None

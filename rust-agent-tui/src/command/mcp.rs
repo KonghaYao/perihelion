@@ -8,8 +8,8 @@ impl Command for McpCommand {
         "mcp"
     }
 
-    fn description(&self) -> &str {
-        "管理 MCP 服务器连接"
+    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+        _lc.tr("command-mcp-description")
     }
 
     fn execute(&self, app: &mut App, _args: &str) {
