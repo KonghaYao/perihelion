@@ -6,13 +6,13 @@ description = "Reusable ratatui widget library for Peri"
 
 [dependencies]
 ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info"] }
-pulldown-cmark = { version = "0.12", optional = true }
+pulldown-cmark = { version = "0.13", optional = true }
 syntect = { version = "5", default-features = false, features = [
     "default-fancy",
 ], optional = true }
 once_cell = "1"
 unicode-width = "0.2"
-rand = "0.9"
+rand = "0.10"
 regex = "1"
 
 [features]

@@ -32,7 +32,7 @@ async-trait.workspace = true
 dotenvy = "0.15"
 tracing.workspace = true
 dirs-next.workspace = true
-tui-textarea-2 = "0.10"
+tui-textarea-2 = "0.11"
 parking_lot.workspace = true
 arboard = "3"
 png = "0.18"
@@ -50,6 +50,6 @@ agent-client-protocol-tokio = { version = "0.11" }
 dashmap = "6"
 tokio-util.workspace = true
 sysinfo.workspace = true
-fluent = "0.16"
-fluent-bundle = "0.15"
+fluent = "0.17"
+fluent-bundle = "0.16"
 unic-langid = { version = "0.9", features = ["macros"] }

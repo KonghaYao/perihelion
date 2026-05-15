@@ -62,17 +62,11 @@ parking_lot = "0.12"
 dirs-next = "2"
 url = "2"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
-sysinfo = "0.34"
+sysinfo = "0.39"
 lsp-types = "0.97"
-lru = "0.12"
+lru = "0.18"
 
 # --- Build ---
 tempfile = "3"
 
-# ============================================================================
-# Patch rmcp to handle 200 OK + empty body as Accepted for Streamable HTTP.
-# Upstream bug: https://github.com/anthropics/rmcp/issues/XXX
-# Remove this patch once upstream releases a fix.
-# ============================================================================
-[patch.crates-io]
-rmcp = { path = "rust-mcp-patch" }
+

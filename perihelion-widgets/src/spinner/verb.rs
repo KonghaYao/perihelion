@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 
 /// Claude Code 风格的大量随机动词，用于 loading spinner 显示。
 pub const DEFAULT_VERBS: &[&str] = &[

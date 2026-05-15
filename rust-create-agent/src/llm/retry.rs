@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use rand::Rng;
+use rand::RngExt;
 
 use crate::agent::events::{AgentEvent, AgentEventHandler};
 use crate::agent::react::{ReactLLM, Reasoning};
