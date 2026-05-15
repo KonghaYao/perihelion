@@ -1,4 +1,10 @@
 use super::*;
+use crate::middleware::web_common::{html_to_text, truncate_content, validate_url};
+use crate::middleware::web_search::{
+    decode_html_entities, extract_bing_results, format_search_results, resolve_bing_url,
+    SearchResult,
+};
+use serde_json::Value;
 
 #[test]
 fn test_validate_url_rejects_ftp() {
