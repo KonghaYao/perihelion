@@ -2,6 +2,8 @@ pub mod edit;
 pub mod folder;
 pub mod glob;
 pub mod grep;
+pub(crate) mod grep_args;
+pub(crate) mod grep_format;
 pub mod read;
 pub mod write;
 
