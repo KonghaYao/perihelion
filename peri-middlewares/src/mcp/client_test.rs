@@ -1,3 +1,4 @@
+    #[test]
     fn test_pool_get_all_clients_filters_disconnected() {
         let pool = McpClientPool::new_empty();
         assert!(pool.get_all_clients().is_empty());

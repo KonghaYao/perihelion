@@ -444,6 +444,6 @@ pub(crate) fn build_authed_transport(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
+    #[cfg(test)]
     include!("client_test.rs");
 }

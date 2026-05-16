@@ -512,7 +512,6 @@ fn apply_panel_selection(app: &mut App, lines: &mut Vec<Line>, area: Rect) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::app::{App, DetailAction, McpPanel, McpPanelView};
     use peri_middlewares::mcp::{ClientStatus, ConfigSource, ServerInfo};
     include!("mcp_test.rs");

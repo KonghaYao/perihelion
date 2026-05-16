@@ -156,7 +156,6 @@ pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut Ap
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::app::hooks_panel::HooksPanel;
     use crate::app::App;
     use peri_middlewares::hooks::types::{HookEvent, HookType, RegisteredHook};

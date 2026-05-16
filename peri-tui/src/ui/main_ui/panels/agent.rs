@@ -179,7 +179,6 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::app::agent_panel::AgentPanel;
     use crate::app::App;
     include!("agent_test.rs");

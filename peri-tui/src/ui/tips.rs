@@ -6,6 +6,5 @@ pub fn pick_tip(tick: u64, lc: &crate::i18n::LcRegistry) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     include!("tips_test.rs");
 }

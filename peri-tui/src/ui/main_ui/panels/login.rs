@@ -275,7 +275,6 @@ fn mask_api_key(key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::app::login_panel::{LoginEditField, LoginPanel, LoginPanelMode};
     use crate::app::App;
     use crate::config::ProviderConfig;

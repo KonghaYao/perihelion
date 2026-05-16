@@ -46,7 +46,7 @@
     async fn test_stop_reason_mismatch_with_tool_use_blocks_treated_as_tool_call() {
         use super::*;
         use crate::llm::types::{LlmResponse, StopReason};
-        use crate::messages::{BaseMessage, ContentBlock};
+        use crate::messages::BaseMessage;
 
         // 模拟 DeepSeek 返回 stop_reason=end_turn 但内容含 tool_use
         struct DeepSeekStopReasonMock;

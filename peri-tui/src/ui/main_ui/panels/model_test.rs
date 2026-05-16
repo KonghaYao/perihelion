@@ -33,7 +33,7 @@
         let (_, handle) = render_headless_model_no_provider().await;
         let snap = handle.snapshot().join("\n");
         assert!(
-            snap.contains("effort"),
+            snap.contains("Effort"),
             "Panel should show effort setting, got:\n{}",
             snap
         );

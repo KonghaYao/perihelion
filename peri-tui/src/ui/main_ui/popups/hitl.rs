@@ -148,7 +148,6 @@ fn format_input_preview(input: &serde_json::Value, max_len: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::app::App;
     use crate::app::{HitlBatchPrompt, InteractionPrompt};
     use peri_middlewares::hitl::BatchItem;

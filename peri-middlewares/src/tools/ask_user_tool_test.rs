@@ -2,8 +2,6 @@
         InteractionContext, InteractionResponse, QuestionAnswer, UserInteractionBroker,
     };
 
-    use super::*;
-
     struct MockBroker(InteractionResponse);
 
     #[async_trait::async_trait]
