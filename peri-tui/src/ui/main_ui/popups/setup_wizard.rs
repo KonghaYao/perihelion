@@ -267,7 +267,30 @@ fn render_form_edit(
     lc: &crate::i18n::LcRegistry,
     area: Rect,
 ) {
-    let mp = &wizard.providers[wizard.active_provider];
+    let mp = match wizard.providers.get(wizard.active_provider) {
+        Some(provider) => provider,
+        None => {
+            let inner = BorderedPanel::new(Span::styled(
+                lc.tr("setup-configure-title"),
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .border_style(Style::default().fg(theme::ACCENT))
+            .render(f, area);
+            f.render_widget(
+                Paragraph::new(Text::from(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Internal error: invalid provider index",
+                        Style::default().fg(theme::WARNING),
+                    )),
+                ])),
+                inner,
+            );
+            return;
+        }
+    };
     let header = lc.tr_args(
         "setup-edit-title",
         &[
