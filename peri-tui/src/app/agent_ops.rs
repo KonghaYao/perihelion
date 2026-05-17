@@ -22,7 +22,16 @@ impl App {
                     .langfuse
                     .langfuse_tracer
                 {
+                    let _lock_start = std::time::Instant::now();
                     tracer.lock().on_subagent_start(&agent_id, &task_preview);
+                    let _wait = _lock_start.elapsed();
+                    if _wait.as_millis() > 50 {
+                        tracing::warn!(
+                            "[DEADLOCK] TUI: tracer lock held {:?} for SubAgentStart({})",
+                            _wait,
+                            agent_id
+                        );
+                    }
                 }
                 // Pipeline：创建 SubAgentGroup VM
                 let actions = self.session_mgr.sessions[self.session_mgr.active]
@@ -81,7 +90,30 @@ impl App {
                     .langfuse
                     .langfuse_tracer
                 {
+                    let _lock_start = std::time::Instant::now();
+                    let agent_id_str = agent_id.as_deref().unwrap_or("?");
                     tracer.lock().on_subagent_end(&result, is_error);
+                    let _wait = _lock_start.elapsed();
+                    if _wait.as_millis() > 50 {
+                        tracing::warn!(
+                            "[DEADLOCK] TUI: tracer lock held {:?} for SubAgentEnd({})",
+                            _wait,
+                            agent_id_str
+                        );
+                    }
+                }
+                // 如果所有 SubAgent 已完成，恢复 spinner 到思考模式
+                if self.session_mgr.sessions[self.session_mgr.active]
+                    .agent
+                    .subagent_depth
+                    == 0
+                {
+                    self.session_mgr.sessions[self.session_mgr.active]
+                        .spinner_state
+                        .set_mode(peri_widgets::SpinnerMode::Responding);
+                    self.session_mgr.sessions[self.session_mgr.active]
+                        .spinner_state
+                        .set_verb(Some("思考中…"));
                 }
                 // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
                 let actions = self.session_mgr.sessions[self.session_mgr.active]

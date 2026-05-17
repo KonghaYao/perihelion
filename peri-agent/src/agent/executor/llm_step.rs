@@ -31,6 +31,7 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
     let streaming = agent.event_handler.as_ref().map(|h| StreamingContext {
         event_handler: Arc::clone(h),
         message_id,
+        cancel: cancel.clone(),
     });
 
     let reasoning = tokio::select! {

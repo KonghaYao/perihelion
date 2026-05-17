@@ -90,8 +90,26 @@ pub(super) async fn do_invoke_streaming(
     let mut stop_reason_str: String = "end_turn".to_string();
     let mut stream_request_id: Option<String> = None;
 
-    while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| AgentError::LlmError(format!("流式读取失败: {e}")))?;
+    loop {
+        // 在接收每个 SSE chunk 前检查取消（支持 Ctrl+C 中断长时间 LLM 调用）
+        let chunk = tokio::select! {
+            biased;
+            _ = ctx.cancel.cancelled() => {
+                tracing::info!(
+                    provider = "anthropic",
+                    model = %adapter.model,
+                    "LLM streaming cancelled by user"
+                );
+                return Err(AgentError::Interrupted);
+            }
+            result = stream.next() => {
+                match result {
+                    Some(Ok(c)) => c,
+                    Some(Err(e)) => return Err(AgentError::LlmError(format!("流式读取失败: {e}"))),
+                    None => break,
+                }
+            }
+        };
 
         for (event_type, data) in parser.push(&chunk) {
             let event = event_type.as_deref().unwrap_or("");

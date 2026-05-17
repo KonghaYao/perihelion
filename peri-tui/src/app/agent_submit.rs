@@ -191,7 +191,7 @@ impl App {
             .agent
             .lsp_files_with_errors = 0;
 
-        let (tx, rx) = mpsc::channel(256);
+        let (tx, rx) = mpsc::channel(4096);
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
             .agent_rx = Some(rx);

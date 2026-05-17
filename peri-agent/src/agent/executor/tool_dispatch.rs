@@ -41,6 +41,15 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
 
     // 阶段 A：收集所有工具调用结果（不写 state）
     // 返回 Err 仅在 before_tool 错误路径（此时 state 干净，无 AI 消息）
+    tracing::debug!(
+        "[DEADLOCK] dispatch_tools: {} tool calls to dispatch, names={:?}",
+        reasoning.tool_calls.len(),
+        reasoning
+            .tool_calls
+            .iter()
+            .map(|tc| tc.name.as_str())
+            .collect::<Vec<_>>()
+    );
     let (results, was_cancelled, deferred_error) = collect_tool_results(
         agent,
         state,
@@ -50,6 +59,11 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
         ai_msg_id,
     )
     .await?;
+
+    tracing::debug!(
+        "[DEADLOCK] dispatch_tools: collect_tool_results done, {} results, was_cancelled={}, deferred={}",
+        results.len(), was_cancelled, deferred_error.is_some()
+    );
 
     // 阶段 B：一次性写入 state（Cancel / deferred_error 路径也写入，保证 state 一致）
     agent.emit(AgentEvent::MessageAdded(ai_msg.clone()));
@@ -68,15 +82,24 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
 
     // 写入完成后再返回错误
     if was_cancelled {
+        tracing::warn!("[DEADLOCK] dispatch_tools: returning Interrupted (was_cancelled)");
         return Err(AgentError::Interrupted);
     }
     if let Some(msg) = deferred_error {
+        tracing::warn!(
+            "[DEADLOCK] dispatch_tools: returning MiddlewareError: {}",
+            msg
+        );
         return Err(AgentError::MiddlewareError {
             middleware: "chain".to_string(),
             reason: msg,
         });
     }
 
+    tracing::debug!(
+        "[DEADLOCK] dispatch_tools: complete, {} results",
+        results.len()
+    );
     Ok(results)
 }
 
@@ -245,9 +268,22 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
         }
 
         // Agent 调用：顺序执行（避免并发 SubAgent 死锁）
-        for &i in &agent_indices {
+        tracing::debug!(
+            "[DEADLOCK] dispatch: {} Agent tools to execute sequentially, call_ids={:?}",
+            agent_indices.len(),
+            agent_indices
+                .iter()
+                .map(|&i| &ready_calls[i].id)
+                .collect::<Vec<_>>()
+        );
+        for (agent_seq, &i) in agent_indices.iter().enumerate() {
             if cancel.is_cancelled() {
                 let call = &ready_calls[i];
+                tracing::debug!(
+                    "[DEADLOCK] dispatch: agent_seq={} cancelled before start, call_id={}",
+                    agent_seq,
+                    call.id
+                );
                 results[i] = Some(Err(AgentError::ToolExecutionFailed {
                     tool: call.name.clone(),
                     reason: "interrupted by user".to_string(),
@@ -259,6 +295,17 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
             let tool_name = call.name.clone();
             let input = call.input.clone();
             let cancel_clone = cancel.clone();
+            tracing::info!(
+                "[DEADLOCK] dispatch: agent_seq={}/{} START invoke, call_id={}, subagent_type={}",
+                agent_seq + 1,
+                agent_indices.len(),
+                call.id,
+                input
+                    .get("subagent_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(none)")
+            );
+            let invoke_start = std::time::Instant::now();
             let invoke_fut = async {
                 match tool {
                     Some(t) => t
@@ -274,6 +321,10 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
             let result = tokio::select! {
                 biased;
                 _ = cancel_clone.cancelled() => {
+                    tracing::warn!(
+                        "[DEADLOCK] dispatch: agent_seq={}/{} CANCELLED during invoke, call_id={}",
+                        agent_seq + 1, agent_indices.len(), call.id
+                    );
                     Err(AgentError::ToolExecutionFailed {
                         tool: ready_calls[i].name.clone(),
                         reason: "interrupted by user".to_string(),
@@ -281,6 +332,15 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 }
                 r = invoke_fut => r,
             };
+            let elapsed = invoke_start.elapsed();
+            tracing::info!(
+                "[DEADLOCK] dispatch: agent_seq={}/{} END invoke ({:.1?}), call_id={}, is_ok={}",
+                agent_seq + 1,
+                agent_indices.len(),
+                elapsed,
+                call.id,
+                result.is_ok()
+            );
             results[i] = Some(result);
         }
 
@@ -331,6 +391,12 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
             source_agent_id: None,
         });
 
+        if modified_call.name == "Agent" {
+            tracing::debug!(
+                "[DEADLOCK] dispatch: about to run_after_tool for Agent, call_id={}",
+                modified_call.id
+            );
+        }
         if let Err(e) = agent
             .chain
             .run_after_tool(state, &modified_call, &result)
@@ -338,6 +404,12 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
         {
             let _ = agent.chain.run_on_error(state, &e).await;
             deferred_error = deferred_error.or(Some(e.to_string()));
+        }
+        if modified_call.name == "Agent" {
+            tracing::debug!(
+                "[DEADLOCK] dispatch: run_after_tool for Agent completed, call_id={}",
+                modified_call.id
+            );
         }
 
         exec_results.push((modified_call, result));

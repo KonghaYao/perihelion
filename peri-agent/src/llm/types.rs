@@ -1,5 +1,6 @@
 use crate::messages::BaseMessage;
 use crate::tools::ToolDefinition;
+use tokio_util::sync::CancellationToken;
 
 /// LLM 请求
 pub struct LlmRequest {
@@ -90,6 +91,8 @@ pub struct StreamingContext {
     pub event_handler: Arc<dyn AgentEventHandler>,
     /// 预生成的 AI 消息 ID，所有增量 TextChunk 关联到此 ID
     pub message_id: MessageId,
+    /// 取消令牌：LLM 适配器在流式循环中检查，触发时中断请求
+    pub cancel: CancellationToken,
 }
 
 impl Clone for StreamingContext {
@@ -97,6 +100,7 @@ impl Clone for StreamingContext {
         Self {
             event_handler: Arc::clone(&self.event_handler),
             message_id: self.message_id,
+            cancel: self.cancel.clone(),
         }
     }
 }

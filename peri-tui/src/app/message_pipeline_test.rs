@@ -271,14 +271,14 @@ fn test_subagent_parallel_same_tool_matches_by_call_id() {
         is_background: false,
     });
 
-    // SubAgent 内部并行启动两个 read_file
+    // SubAgent 内部并行启动两个 read_file（带 source_agent_id）
     let _ = pipeline.handle_event(AgentEvent::ToolStart {
         tool_call_id: "tc_a".into(),
         name: "Read".into(),
         display: "ReadFile".into(),
         args: "a.rs".into(),
         input: serde_json::json!({"file_path": "/tmp/a.rs"}),
-        source_agent_id: None,
+        source_agent_id: Some("test-agent".into()),
     });
     let _ = pipeline.handle_event(AgentEvent::ToolStart {
         tool_call_id: "tc_b".into(),
@@ -286,7 +286,7 @@ fn test_subagent_parallel_same_tool_matches_by_call_id() {
         display: "ReadFile".into(),
         args: "b.rs".into(),
         input: serde_json::json!({"file_path": "/tmp/b.rs"}),
-        source_agent_id: None,
+        source_agent_id: Some("test-agent".into()),
     });
 
     // ToolEnd 按不同顺序到达（tc_b 先完成）
@@ -295,14 +295,14 @@ fn test_subagent_parallel_same_tool_matches_by_call_id() {
         name: "Read".into(),
         output: "content of b".into(),
         is_error: false,
-        source_agent_id: None,
+        source_agent_id: Some("test-agent".into()),
     });
     let _ = pipeline.handle_event(AgentEvent::ToolEnd {
         tool_call_id: "tc_a".into(),
         name: "Read".into(),
         output: "content of a".into(),
         is_error: false,
-        source_agent_id: None,
+        source_agent_id: Some("test-agent".into()),
     });
 
     // 验证 recent_messages 中两个 ToolBlock 被正确更新
@@ -501,12 +501,13 @@ fn test_concurrent_subagents_route_by_source_agent_id() {
 fn test_subagent_source_agent_id_none_fallback_to_last_mut() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
 
-    // 启动单个 SubAgent（模拟旧版事件流，无 source_agent_id）
+    // 启动单个 SubAgent（无 source_agent_id 时 last_mut() 回退生效）
     let _ = pipeline.handle_event(AgentEvent::SubAgentStart {
         agent_id: "legacy-agent".into(),
         task_preview: "legacy task".into(),
         is_background: false,
     });
+    // ToolStart 无 source_agent_id → last_mut() 回退到唯一的 SubAgent
     let _ = pipeline.handle_event(AgentEvent::ToolStart {
         tool_call_id: "tc_legacy".into(),
         name: "Bash".into(),
@@ -517,7 +518,11 @@ fn test_subagent_source_agent_id_none_fallback_to_last_mut() {
     });
 
     let sub = pipeline.subagent_stack.last().unwrap();
-    assert_eq!(sub.recent_messages.len(), 1);
+    assert_eq!(
+        sub.recent_messages.len(),
+        1,
+        "source_agent_id=None 通过 last_mut() 回退路由到 SubAgent"
+    );
     if let MessageViewModel::ToolBlock { tool_name, .. } = &sub.recent_messages[0] {
         assert_eq!(tool_name, "Bash");
     }
@@ -1207,12 +1212,12 @@ fn test_frozen_subagent_vms_cleared_on_begin_round() {
     pipeline.handle_event(AgentEvent::SubAgentEnd {
         result: "result sa1".into(),
         is_error: false,
-        agent_id: None,
+        agent_id: Some("sa1".into()),
     });
     pipeline.handle_event(AgentEvent::SubAgentEnd {
         result: "result sa2".into(),
         is_error: false,
-        agent_id: None,
+        agent_id: Some("sa2".into()),
     });
 
     // 验证轮次 1 的 frozen_subagent_vms 包含 2 个冻结 VM

@@ -35,18 +35,31 @@ use crate::ui::theme;
 /// 合并冻结的 SubAgentGroup VM 到 reconcile 重建后的新 VMs 中，防止 Done 后 SubAgent 显示退化。
 ///
 /// `frozen_vms` 是 SubAgentEnd 时构建的完整 SubAgentGroup VM（含 recent_messages、final_result 等），
-/// 按出现顺序与新 VMs 中的 SubAgentGroup 占位符按位置匹配替换。
+/// 按 `agent_id` 精确匹配替换新 VMs 中的 SubAgentGroup 占位符。
+/// 同一 agent_id（重试场景）取 frozen_vms 中最后一次出现的。
 fn merge_frozen_subagents(frozen_vms: &[MessageViewModel], new_vms: &mut [MessageViewModel]) {
     if frozen_vms.is_empty() {
         return;
     }
 
-    // 按位置匹配：新 VMs 中第 N 个 SubAgentGroup 对应 frozen_vms 中第 N 个
-    let mut frozen_idx = 0;
+    // 构建 agent_id → frozen VM 映射（后出现的覆盖先出现的——取最终状态）
+    let frozen_by_id: std::collections::HashMap<&str, &MessageViewModel> = frozen_vms
+        .iter()
+        .filter_map(|vm| {
+            if let MessageViewModel::SubAgentGroup { agent_id, .. } = vm {
+                Some((agent_id.as_str(), vm))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // 按 agent_id 精确匹配替换
     for vm in new_vms.iter_mut() {
-        if matches!(vm, MessageViewModel::SubAgentGroup { .. }) && frozen_idx < frozen_vms.len() {
-            *vm = frozen_vms[frozen_idx].clone();
-            frozen_idx += 1;
+        if let MessageViewModel::SubAgentGroup { agent_id, .. } = vm {
+            if let Some(frozen) = frozen_by_id.get(agent_id.as_str()) {
+                *vm = (*frozen).clone();
+            }
         }
     }
 }
@@ -204,6 +217,7 @@ impl MessagePipeline {
                             Self::push_chunk_to_subagent(sub, &chunk);
                         }
                     } else if self.in_subagent() {
+                        // 顺序执行时 last() 就是当前 subagent（事件顺序到达）
                         if let Some(sub) = self.subagent_stack.last_mut() {
                             Self::push_chunk_to_subagent(sub, &chunk);
                         }
@@ -248,6 +262,7 @@ impl MessagePipeline {
                         Self::push_tool_start_to_subagent(sub, &tool_call_id, &name, &input, &cwd);
                     }
                 } else if self.in_subagent() {
+                    // 顺序执行时 last() 就是当前 subagent
                     let cwd = self.cwd.clone();
                     if let Some(sub) = self.subagent_stack.last_mut() {
                         Self::push_tool_start_to_subagent(sub, &tool_call_id, &name, &input, &cwd);
@@ -271,6 +286,7 @@ impl MessagePipeline {
                         Self::update_tool_end_in_subagent(sub, &tool_call_id, &output, is_error);
                     }
                 } else if self.in_subagent() {
+                    // 顺序执行时 last() 就是当前 subagent
                     if let Some(sub) = self.subagent_stack.last_mut() {
                         Self::update_tool_end_in_subagent(sub, &tool_call_id, &output, is_error);
                     }
@@ -296,12 +312,18 @@ impl MessagePipeline {
                 agent_id,
             } => {
                 let tc_id = if let Some(ref aid) = agent_id {
+                    // 按 agent_id 查找 RUNNING 的 SubAgent（同名 SubAgent 场景：
+                    // 第一个完成后 is_running=false，第二个 match 会命中下一个 running 的）
                     self.subagent_stack
                         .iter()
-                        .find(|s| s.agent_id == *aid)
+                        .find(|s| s.agent_id == *aid && s.is_running)
+                        .or_else(|| self.subagent_stack.iter().find(|s| s.agent_id == *aid))
                         .map(|s| format!("subagent_{}", s.agent_id))
                         .unwrap_or_else(|| "subagent_end".to_string())
                 } else {
+                    // 防御性回退：agent_id=None 仅当 SubagentStopped→SubAgentEnd 映射
+                    // 未生效时到达（如旧版事件），此时无法确定目标 SubAgent，冻结 last()。
+                    // 此路径应极少触发——SubagentStopped 总是携带 agent_name。
                     self.subagent_stack
                         .last()
                         .map(|s| format!("subagent_{}", s.agent_id))
@@ -446,12 +468,14 @@ impl MessagePipeline {
             .unwrap_or(serde_json::Value::Null);
 
         if name == "Agent" {
-            // 从 tool_call_id 中提取 agent_id 用于精确匹配
+            // 从 tool_call_id 中提取 agent_id 用于匹配。
+            // 优先匹配 is_running 的 SubAgent（同名 SubAgent 场景：第一个完成后
+            // is_running=false，后续调用跳过它，命中下一个 running 的）。
             let target_agent_id = tool_call_id.strip_prefix("subagent_").unwrap_or("");
             if let Some(sub) = self
                 .subagent_stack
                 .iter_mut()
-                .find(|s| s.agent_id == target_agent_id)
+                .find(|s| s.agent_id == target_agent_id && s.is_running)
             {
                 if sub.is_background {
                     // 后台 agent 路径：不冻结，保持 is_running=true，解析 bg_hash

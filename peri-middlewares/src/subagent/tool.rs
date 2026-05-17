@@ -449,17 +449,21 @@ impl SubAgentTool {
             .await;
 
         // Emit SubagentStopped event + fire SubagentStop hooks
-        let output_summary = match &fork_result {
-            Ok(output) => output.text.chars().take(500).collect::<String>(),
-            Err(e) => format!("Error: {}", e)
-                .chars()
-                .take(500)
-                .collect::<String>(),
+        let (output_summary, stopped_is_error) = match &fork_result {
+            Ok(output) => (output.text.chars().take(500).collect::<String>(), false),
+            Err(e) => (
+                format!("Error: {}", e)
+                    .chars()
+                    .take(500)
+                    .collect::<String>(),
+                true,
+            ),
         };
         if let Some(ref handler) = self.event_handler {
             handler.on_event(AgentEvent::SubagentStopped {
                 agent_name: "fork".to_string(),
                 result: output_summary.clone(),
+                is_error: stopped_is_error,
             });
         }
         self.fire_subagent_lifecycle_hook(
@@ -988,22 +992,38 @@ impl BaseTool for SubAgentTool {
         self.fire_subagent_lifecycle_hook(HookEvent::SubagentStart, &cwd, &agent_id, None)
             .await;
 
+        tracing::info!(
+            "[DEADLOCK] SubAgentTool: START child execute, agent_id={}, prompt_len={}",
+            agent_id,
+            prompt.len()
+        );
+        let exec_start = std::time::Instant::now();
         let exec_result = agent_builder
             .execute(AgentInput::text(prompt), &mut state, self.cancel.clone())
             .await;
+        tracing::info!(
+            "[DEADLOCK] SubAgentTool: END child execute ({:.1?}), agent_id={}, is_ok={}",
+            exec_start.elapsed(),
+            agent_id,
+            exec_result.is_ok()
+        );
 
         // Emit SubagentStopped event + fire SubagentStop hooks
-        let output_summary = match &exec_result {
-            Ok(output) => output.text.chars().take(500).collect::<String>(),
-            Err(e) => format!("Error: {}", e)
-                .chars()
-                .take(500)
-                .collect::<String>(),
+        let (output_summary, stopped_is_error) = match &exec_result {
+            Ok(output) => (output.text.chars().take(500).collect::<String>(), false),
+            Err(e) => (
+                format!("Error: {}", e)
+                    .chars()
+                    .take(500)
+                    .collect::<String>(),
+                true,
+            ),
         };
         if let Some(ref handler) = self.event_handler {
             handler.on_event(AgentEvent::SubagentStopped {
                 agent_name: agent_id.clone(),
                 result: output_summary.clone(),
+                is_error: stopped_is_error,
             });
         }
         self.fire_subagent_lifecycle_hook(

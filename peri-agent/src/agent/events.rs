@@ -76,7 +76,11 @@ pub enum AgentEvent {
     /// 子 agent 开始执行
     SubagentStarted { agent_name: String },
     /// 子 agent 执行完成
-    SubagentStopped { agent_name: String, result: String },
+    SubagentStopped {
+        agent_name: String,
+        result: String,
+        is_error: bool,
+    },
     /// Session 结束
     SessionEnded,
     /// 上下文压缩开始

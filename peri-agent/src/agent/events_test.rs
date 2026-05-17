@@ -70,13 +70,20 @@ fn test_subagent_stopped_serde_roundtrip() {
     let ev = AgentEvent::SubagentStopped {
         agent_name: "test-agent".to_string(),
         result: "done".to_string(),
+        is_error: false,
     };
     let json = serde_json::to_string(&ev).unwrap();
     assert!(json.contains(r#""type":"subagent_stopped""#));
     let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
-    if let AgentEvent::SubagentStopped { agent_name, result } = deserialized {
+    if let AgentEvent::SubagentStopped {
+        agent_name,
+        result,
+        is_error,
+    } = deserialized
+    {
         assert_eq!(agent_name, "test-agent");
         assert_eq!(result, "done");
+        assert!(!is_error);
     } else {
         panic!("Deserialized to wrong variant");
     }

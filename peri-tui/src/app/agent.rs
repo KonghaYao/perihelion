@@ -397,7 +397,16 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         move |event: ExecutorEvent| {
             // Langfuse hook（在 TUI 事件映射前执行，使用原始 ExecutorEvent）
             if let Some(ref tracer) = langfuse_for_handler {
+                let _lock_start = std::time::Instant::now();
                 let mut t = tracer.lock();
+                let _wait = _lock_start.elapsed();
+                if _wait.as_millis() > 50 {
+                    tracing::warn!(
+                        "[DEADLOCK] handler: tracer lock acquired AFTER {:?} wait for event {:?}",
+                        _wait,
+                        std::mem::discriminant(&event)
+                    );
+                }
                 match &event {
                     ExecutorEvent::LlmCallStart {
                         step,
@@ -432,14 +441,19 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
                     ExecutorEvent::TextChunk { chunk: text, .. } => t.on_text_chunk(text),
                     _ => {}
                 }
+                drop(t);
+                tracing::debug!("[DEADLOCK] handler: tracer lock released");
             }
 
             // 映射为 TUI AgentEvent
             if let Some(msg) = map_executor_event(event, &cwd_for_handler) {
                 if let Err(e) = tx_event.try_send(msg) {
                     match e {
-                        tokio::sync::mpsc::error::TrySendError::Full(_) => {
-                            tracing::warn!("AgentEvent channel full, dropping event");
+                        tokio::sync::mpsc::error::TrySendError::Full(msg) => {
+                            tracing::warn!(
+                                event_type = ?std::mem::discriminant(&msg),
+                                "AgentEvent channel full (4096), dropping event"
+                            );
                         }
                         tokio::sync::mpsc::error::TrySendError::Closed(_) => {
                             tracing::warn!(
@@ -610,18 +624,6 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
             input: input.clone(),
             source_agent_id,
         },
-        // Agent ToolEnd → SubAgentEnd（在通用 ToolEnd 分支之前）
-        ExecutorEvent::ToolEnd {
-            name,
-            output,
-            is_error,
-            source_agent_id,
-            ..
-        } if name == "Agent" => AgentEvent::SubAgentEnd {
-            agent_id: source_agent_id,
-            result: output,
-            is_error,
-        },
         // ask_user 成功：显示用户的回答
         ExecutorEvent::ToolEnd {
             tool_call_id,
@@ -722,10 +724,12 @@ fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<AgentEvent> {
         },
         ExecutorEvent::SubagentStopped {
             agent_name,
-            result: _,
-        } => AgentEvent::SubagentLifecycle {
-            agent_name,
-            started: false,
+            result,
+            is_error,
+        } => AgentEvent::SubAgentEnd {
+            agent_id: Some(agent_name),
+            result,
+            is_error,
         },
         // Other lifecycle events — not yet handled in TUI, ignore
         ExecutorEvent::SessionEnded
