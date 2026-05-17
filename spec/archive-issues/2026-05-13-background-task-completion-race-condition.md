@@ -1,6 +1,7 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-13-background-task-completion-race-condition.md
 # Background task 完成后未触发 agent continuation（竞态条件）
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-05-13
 
@@ -90,6 +91,7 @@ pub pre_done_bg_completions: Vec<String>,
 **位置**: 第 130-198 行
 
 **当前逻辑**：
+
 ```
 if agent_done_pending_bg && background_task_count == 0 {
     → 设 pending_bg_continuation
@@ -97,6 +99,7 @@ if agent_done_pending_bg && background_task_count == 0 {
 ```
 
 **修改为**：
+
 ```rust
 if agent_done_pending_bg && background_task_count == 0 {
     // 原有逻辑不变：agent 已 Done 且所有后台任务完成
@@ -116,6 +119,7 @@ if agent_done_pending_bg && background_task_count == 0 {
 **位置**: 第 360-373 行
 
 **当前逻辑**：
+
 ```rust
 if background_task_count > 0 {
     agent_done_pending_bg = true;
@@ -125,6 +129,7 @@ if background_task_count > 0 {
 ```
 
 **修改为**：
+
 ```rust
 if background_task_count > 0 {
     agent_done_pending_bg = true;

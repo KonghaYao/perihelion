@@ -1,6 +1,7 @@
+> 归档于 2026-05-17，原路径 spec/issues/2026-05-14-llm-adapter-modularization.md
 # LLM 适配器模块化：anthropic.rs 1983 行、openai.rs 1065 行
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-14
 

@@ -476,6 +476,30 @@ launch_agent 工具调用
 **涉及文件:** peri-agent/src/agent/events.rs, peri-agent/src/agent/executor/tool_dispatch.rs, peri-agent/src/agent/executor/llm_step.rs, peri-agent/src/llm/types.rs, peri-agent/src/llm/anthropic/stream.rs, peri-agent/src/llm/openai/stream.rs, peri-middlewares/src/subagent/tool.rs, peri-tui/src/app/agent.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_submit.rs, peri-tui/src/app/message_pipeline.rs
 **CLAUDE.md 链接:** true
 
+### issue_2026-05-14-llm-adapter-modularization
+
+**摘要:** LLM 适配器模块化：anthropic.rs 1983 行、openai.rs 1065 行
+**状态:** Fixed
+**归档日期:** 2026-05-17
+**关键词:** LLM 适配器, 模块化, 大文件拆分, anthropic, openai
+**问题本质:** anthropic.rs（1983 行）和 openai.rs（1065 行）承载完整适配器实现：构造器、序列化、缓存策略、API invoke、流式处理、消息转换——职责过重，修改任一环节需阅读整个文件
+**通用模式:** 按职责维度拆分大文件（构造器 + 缓存 + invoke + 流式），保留原文件路径 re-export 向后兼容
+**技术决策:** 统一子模块结构：anthropic/{mod, cache, invoke, stream}、openai/{mod, invoke, stream}，上游直接 import 新路径
+**涉及文件:** peri-agent/src/llm/anthropic.rs, peri-agent/src/llm/openai.rs, peri-agent/src/llm/mod.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-13-background-task-completion-race-condition
+
+**摘要:** Background task 完成后未触发 agent continuation（竞态条件）
+**状态:** Fixed
+**归档日期:** 2026-05-17
+**关键词:** background task, 竞态条件, continuation, agent_done_pending_bg, 时序耦合
+**问题本质:** BackgroundTaskCompleted 和 Done 通过同一 channel 传递，存在竞态：如果后台任务在 Done 之前完成，BackgroundTaskCompleted 先被消费，此时 agent_done_pending_bg 尚未设置，导致 continuation 永不触发
+**通用模式:** 依赖时序耦合的双事件模式（先 A 后 B）必须处理乱序到达。解决方案：在"先到"事件中暂存结果，在"后到"事件中检查暂存区——用空间（pre_done_bg_completions 缓冲）换时间鲁棒性
+**技术决策:** 新增 pre_done_bg_completions 字段缓存 Done 前完成的后台任务通知；Done/Error 处理时检查暂存区并设置 pending_bg_continuation
+**涉及文件:** peri-tui/src/app/agent_comm.rs, peri-tui/src/app/agent_events_bg.rs, peri-tui/src/app/agent_ops.rs, peri-tui/src/app/agent_submit.rs, peri-tui/src/app/agent_compact.rs, peri-tui/src/ui/headless_test.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

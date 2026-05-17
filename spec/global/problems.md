@@ -517,6 +517,36 @@
 ### 通道容量
 - [并发 SubAgent 工具调用路由错误 + 死锁修复](domains/agent.md#issue_2026-05-16-concurrent-subagent-tool-call-routing-and-background) — agent
 
+### LLM 适配器
+- [LLM 适配器模块化：anthropic.rs 1983 行、openai.rs 1065 行，按职责维度拆分为子模块](domains/agent.md#issue_2026-05-14-llm-adapter-modularization) — agent
+
+### agent_done_pending_bg
+- [Background task 完成后未触发 agent continuation（竞态条件）：pre_done_bg_completions 缓冲乱序到达](domains/agent.md#issue_2026-05-13-background-task-completion-race-condition) — agent
+
+### anthropic
+- [LLM 适配器模块化：anthropic.rs 1983 行、openai.rs 1065 行，按职责维度拆分为子模块](domains/agent.md#issue_2026-05-14-llm-adapter-modularization) — agent
+
+### background task
+- [Background task 完成后未触发 agent continuation（竞态条件）：pre_done_bg_completions 缓冲乱序到达](domains/agent.md#issue_2026-05-13-background-task-completion-race-condition) — agent
+
+### continuation
+- [Background task 完成后未触发 agent continuation（竞态条件）：pre_done_bg_completions 缓冲乱序到达](domains/agent.md#issue_2026-05-13-background-task-completion-race-condition) — agent
+
+### openai
+- [LLM 适配器模块化：anthropic.rs 1983 行、openai.rs 1065 行，按职责维度拆分为子模块](domains/agent.md#issue_2026-05-14-llm-adapter-modularization) — agent
+
+### 大文件拆分
+- [LLM 适配器模块化：anthropic.rs 1983 行、openai.rs 1065 行，按职责维度拆分为子模块](domains/agent.md#issue_2026-05-14-llm-adapter-modularization) — agent
+
+### 时序耦合
+- [Background task 完成后未触发 agent continuation（竞态条件）：pre_done_bg_completions 缓冲乱序到达](domains/agent.md#issue_2026-05-13-background-task-completion-race-condition) — agent
+
+### 模块化
+- [LLM 适配器模块化：anthropic.rs 1983 行、openai.rs 1065 行，按职责维度拆分为子模块](domains/agent.md#issue_2026-05-14-llm-adapter-modularization) — agent
+
+### 竞态条件
+- [Background task 完成后未触发 agent continuation（竞态条件）：pre_done_bg_completions 缓冲乱序到达](domains/agent.md#issue_2026-05-13-background-task-completion-race-condition) — agent
+
 ## 更新记录
 
 - 2026-05-13: 首次创建，归档 22 个 issue，提取 14 条领域认知
@@ -525,3 +555,4 @@
 - 2026-05-16: 第四次归档，归档 11 个 issue，提取 7 条领域认知（agent 6 + tui 1）
 - 2026-05-16: 第五次归档，归档 13 个 issue，提取 11 条领域认知（tui 10 + message-pipeline 1 + cli 1 + tools 1）
 - 2026-05-17: 归档 12 个 issue，新增 ACP 领域，22 个新关键词条目
+- 2026-05-17: 补充归档 2 个 Fixed issue（LLM 适配器模块化 + 后台任务竞态）
