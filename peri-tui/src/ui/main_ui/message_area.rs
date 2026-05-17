@@ -1,13 +1,8 @@
-pub(crate) mod panels;
-mod popups;
-mod status_bar;
-mod sticky_header;
-
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
 
@@ -17,365 +12,14 @@ use crate::ui::theme;
 use crate::ui::welcome;
 use peri_middlewares::prelude::TodoStatus;
 
-pub fn render(f: &mut Frame, app: &mut App) {
-    // Setup 向导：全屏覆盖，优先于所有正常界面
-    if app.global_ui.setup_wizard.is_some() {
-        popups::setup_wizard::render_setup_wizard(f, app);
-        return;
-    }
+use super::sticky_header;
 
-    let area = f.area();
-
-    if app.session_mgr.sessions.len() > 1 {
-        // ── 多 Session 分栏布局 ──
-        // 外层：水平切分（各 session 列）+ 底部共享状态栏
-        let outer = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),    // session 列区域
-                Constraint::Length(3), // 共享状态栏
-            ])
-            .split(area);
-
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![
-                Constraint::Percentage(50);
-                app.session_mgr.sessions.len()
-            ])
-            .split(outer[0]);
-
-        app.session_mgr.session_areas = cols.iter().copied().collect();
-
-        // 先渲染非 active session（不设置光标位置），再渲染 active session
-        for (i, col_area) in cols.iter().enumerate() {
-            if i == app.session_mgr.active {
-                continue;
-            }
-            render_session_column(f, app, i, *col_area, false);
-        }
-        render_session_column(
-            f,
-            app,
-            app.session_mgr.active,
-            cols[app.session_mgr.active],
-            true,
-        );
-
-        status_bar::render_status_bar(f, app, outer[1]);
-    } else {
-        // ── 单 Session 布局（原有行为）──
-        render_session_column(f, app, 0, area, true);
-    }
-}
-
-/// 渲染单个 session 列（含垂直布局拆分）
-fn render_session_column(
+pub(crate) fn render_messages(
     f: &mut Frame,
     app: &mut App,
-    session_idx: usize,
-    area: Rect,
-    is_active: bool,
+    header_area: Rect,
+    messages_area: Rect,
 ) {
-    // 临时切换 active 以便现有 render 函数使用 app.session_mgr.sessions[app.session_mgr.active]
-    let prev_active = app.session_mgr.active;
-    app.session_mgr.active = session_idx;
-
-    // 多 session 模式：外层 block 作为聚焦指示
-    let area = if app.session_mgr.sessions.len() > 1 {
-        let border_color = if is_active {
-            theme::ACCENT
-        } else {
-            theme::BORDER_DIM
-        };
-        let outer_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color));
-        let inner = outer_block.inner(area);
-        f.render_widget(outer_block, area);
-        inner
-    } else {
-        area
-    };
-
-    // 动态输入框高度
-    let line_count = app.session_mgr.sessions[session_idx]
-        .ui
-        .textarea
-        .lines()
-        .len() as u16;
-    let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
-
-    // 缓冲消息高度（loading 时在输入框上方显示待发送消息）
-    let pending_count = app.session_mgr.sessions[session_idx]
-        .messages
-        .pending_messages
-        .len();
-    let queued_height: u16 =
-        if pending_count > 0 && app.session_mgr.sessions[session_idx].ui.loading {
-            (pending_count as u16).min(3)
-        } else {
-            0
-        };
-
-    // 附件栏高度
-    let attachment_height: u16 = if app.session_mgr.sessions[session_idx]
-        .metadata
-        .pending_attachments
-        .is_empty()
-    {
-        0
-    } else {
-        3
-    };
-
-    // 底部展开区高度
-    let panel_height = active_panel_height(app, area.height, area.width);
-
-    // Sticky header 高度
-    let sticky_header_height: u16 = app.session_mgr.sessions[session_idx]
-        .metadata
-        .last_human_message
-        .as_ref()
-        .map(|msg| {
-            let width = area.width.saturating_sub(2).max(1);
-            let lines = sticky_header::estimate_header_lines(msg, width);
-            lines as u16
-        })
-        .unwrap_or(0);
-
-    let status_bar_height = if app.session_mgr.sessions.len() > 1 {
-        0
-    } else {
-        3
-    };
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(sticky_header_height),
-            Constraint::Min(1),
-            Constraint::Length(attachment_height),
-            Constraint::Length(panel_height),
-            Constraint::Length(queued_height),
-            Constraint::Length(input_height),
-            Constraint::Length(status_bar_height),
-        ])
-        .split(area);
-
-    render_messages(f, app, chunks[0], chunks[1]);
-    render_attachment_bar(f, app, chunks[2]);
-
-    // 底部展开区
-    if panel_height > 0 {
-        let panel_area = chunks[3];
-        match &app.session_mgr.sessions[session_idx]
-            .agent
-            .interaction_prompt
-        {
-            Some(crate::app::InteractionPrompt::Approval(_)) => {
-                popups::hitl::render_hitl_popup(f, app, panel_area);
-            }
-            Some(crate::app::InteractionPrompt::Questions(_)) => {
-                popups::ask_user::render_ask_user_popup(f, app, panel_area);
-            }
-            None => {}
-        }
-        if app.global_ui.oauth_prompt.is_some() {
-            popups::oauth::render_oauth_popup(f, app, panel_area);
-        }
-        // PanelManager 统一渲染分发：session 面板优先，global 面板次之
-        if app.session_mgr.sessions[session_idx]
-            .agent
-            .interaction_prompt
-            .is_none()
-            && app.global_ui.oauth_prompt.is_none()
-        {
-            if app.session_mgr.sessions[session_idx]
-                .session_panels
-                .is_any_open()
-            {
-                let mut state = app.session_mgr.sessions[session_idx]
-                    .session_panels
-                    .take_active()
-                    .expect("is_any_open was true");
-                state.render(f, app, panel_area);
-                app.session_mgr.sessions[session_idx]
-                    .session_panels
-                    .put_active(state);
-            } else if app.global_panels.is_any_open() {
-                let mut state = app
-                    .global_panels
-                    .take_active()
-                    .expect("is_any_open was true");
-                state.render(f, app, panel_area);
-                app.global_panels.put_active(state);
-            }
-        }
-    }
-
-    // 缓冲消息预览（loading 时在输入框上方显示待发送消息）
-    if queued_height > 0 {
-        let queued_area = chunks[4];
-        let msgs = &app.session_mgr.sessions[session_idx]
-            .messages
-            .pending_messages;
-        let visible_count = (pending_count).min(queued_height as usize);
-        let pending_style = Style::default().fg(theme::MUTED).bg(theme::USER_BG);
-        for (i, msg) in msgs.iter().take(visible_count).enumerate() {
-            let line_area = Rect {
-                x: queued_area.x + 2,
-                y: queued_area.y + i as u16,
-                width: queued_area.width.saturating_sub(2),
-                height: 1,
-            };
-            // 截断到可用宽度（字符级安全）
-            let max_chars = line_area.width as usize;
-            let display: String = msg.chars().take(max_chars.saturating_sub(3)).collect();
-            let suffix = if msg.chars().count() > max_chars.saturating_sub(3) {
-                "…"
-            } else {
-                ""
-            };
-            f.render_widget(
-                Paragraph::new(format!("{}{}", display, suffix)).style(pending_style),
-                line_area,
-            );
-        }
-        if pending_count > visible_count {
-            let more_area = Rect {
-                x: queued_area.x + 2,
-                y: queued_area.y + visible_count as u16,
-                width: queued_area.width.saturating_sub(2),
-                height: 1,
-            };
-            f.render_widget(
-                Paragraph::new(format!("… +{} more", pending_count - visible_count))
-                    .style(pending_style),
-                more_area,
-            );
-        }
-    }
-
-    // 输入框：非聚焦 session 或应用失焦时隐藏光标（移除 REVERSED 修饰符）
-    let textarea_ref = &app.session_mgr.sessions[session_idx].ui.textarea;
-    // 应用失焦 或 当前 session 未激活 → 隐藏光标
-    let should_hide_cursor = !app.focused || !is_active;
-    if should_hide_cursor {
-        // 克隆并移除光标的 REVERSED 样式，使光标不可见
-        let mut ta = textarea_ref.clone();
-        // 将光标样式设置为与普通文本相同（无 REVERSED），光标字符将融入背景
-        ta.set_cursor_style(Style::default().fg(theme::DIM));
-        f.render_widget(&ta, chunks[5]);
-    } else {
-        f.render_widget(textarea_ref, chunks[5]);
-    }
-    app.session_mgr.sessions[session_idx].ui.textarea_area = Some(chunks[5]);
-
-    // ❯ 前缀
-    let prompt_x = chunks[5].x;
-    let prompt_y = chunks[5].y + 1;
-    let prompt_area = Rect {
-        x: prompt_x,
-        y: prompt_y,
-        width: 2,
-        height: 1,
-    };
-    let loading = app.session_mgr.sessions[session_idx].ui.loading;
-    let prompt_color = if !is_active || loading {
-        theme::MUTED
-    } else {
-        theme::TEXT
-    };
-    let prompt_style = Style::default().fg(prompt_color).add_modifier(if loading {
-        Modifier::empty()
-    } else {
-        Modifier::BOLD
-    });
-    f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
-
-    // 统一命令/Skills 提示条（每个 session 列各自渲染）
-    popups::hints::render_unified_hint(f, app, chunks[5]);
-
-    // 单 session 模式下渲染状态栏
-    if app.session_mgr.sessions.len() == 1 {
-        status_bar::render_status_bar(f, app, chunks[6]);
-    }
-
-    // 恢复原始 active
-    app.session_mgr.active = prev_active;
-}
-
-/// 计算底部展开区所需高度（无激活面板时返回 0）
-fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 {
-    // plugin 面板可以占 70%，其他面板最多 60%
-    let is_plugin_panel = app.global_panels.is_active(crate::app::PanelKind::Plugin);
-    let max_h = if is_plugin_panel {
-        screen_height * 70 / 100
-    } else {
-        screen_height * 3 / 5
-    };
-    let raw = if let Some(h) = app.session_mgr.sessions[app.session_mgr.active]
-        .session_panels
-        .dispatch_desired_height(screen_height, screen_width)
-    {
-        h
-    } else if let Some(h) = app
-        .global_panels
-        .dispatch_desired_height(screen_height, screen_width)
-    {
-        h
-    } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.session_mgr.sessions
-        [app.session_mgr.active]
-        .agent
-        .interaction_prompt
-    {
-        (p.items.len() as u16 * 2 + 5).max(5)
-    } else if app.global_ui.oauth_prompt.is_some() {
-        9 // 标题1 + 提示1 + URL1 + 空行1 + 输入框1 + 错误1 + 快捷键1 + 边框2
-    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.session_mgr.sessions
-        [app.session_mgr.active]
-        .agent
-        .interaction_prompt
-    {
-        let cur = &p.questions[p.active_tab];
-        // 自适应高度：考虑文本自动换行
-        let panel_width = screen_width.saturating_sub(4) as usize; // 减去边框+内边距
-        let mut content_lines: u16 = 0;
-
-        // 问题文本（考虑自动换行）
-        for line in cur.data.question.lines() {
-            let w = unicode_width::UnicodeWidthStr::width(line);
-            content_lines += (w as u16).div_ceil(panel_width.max(1) as u16);
-        }
-
-        // [多选]/[单选] 提示
-        content_lines += 1;
-
-        // 选项（每个选项可能因标签长而换行）
-        for opt in &cur.data.options {
-            let label_w = unicode_width::UnicodeWidthStr::width(opt.label.as_str()) + 6; // " ▶ ○ " 前缀
-            content_lines += (label_w as u16).div_ceil(panel_width.max(1) as u16);
-            if let Some(ref desc) = opt.description {
-                if !desc.is_empty() {
-                    let desc_w = unicode_width::UnicodeWidthStr::width(desc.as_str()) + 6; // "      " 缩进
-                    content_lines += (desc_w as u16).div_ceil(panel_width.max(1) as u16);
-                }
-            }
-        }
-
-        // 自定义输入区 + 空行 + 快捷键提示（固定 3 行）
-        content_lines += 3;
-
-        // header tab + 分隔线 + 边框 = 4
-        (content_lines + 4).max(8)
-    } else {
-        0
-    };
-    raw.min(max_h)
-}
-
-fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_area: Rect) {
     // Welcome Card 或消息列表
     if app.session_mgr.sessions[app.session_mgr.active]
         .messages
@@ -711,53 +355,11 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
     }
 }
 
-/// 待发送附件栏（有附件时显示在输入框上方）
-fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
-    if area.height == 0 {
-        return;
-    }
-
-    let block = Block::default()
-        .title(Span::styled(
-            " 待发送附件 ",
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
-    f.render_widget(&block, area);
-
-    let inner = block.inner(area);
-
-    // 第 1 行：所有附件标签
-    let tags: String = app.session_mgr.sessions[app.session_mgr.active]
-        .metadata
-        .pending_attachments
-        .iter()
-        .map(|att| {
-            let size_kb = (att.size_bytes / 1024).max(1);
-            format!("[img {} {}KB]", att.label, size_kb)
-        })
-        .collect::<Vec<_>>()
-        .join("  ");
-
-    let lines = vec![
-        Line::from(Span::styled(tags, Style::default().fg(theme::TEXT))),
-        Line::from(Span::styled(
-            "Del: 删除最后一张",
-            Style::default().fg(theme::MUTED),
-        )),
-    ];
-
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
-}
-
 /// 对一行的 spans 做字符级选区高亮。
 /// `char_start` / `char_end` 是该行 plain_text 的字符偏移（非 byte 索引）。
 /// 将 spans 中对应范围的字符的 style 追加淡蓝色背景（深色主题选区色），范围外的 span 保持原样。
 /// 使用 char_indices() 保证 unicode 安全切割。
-pub fn highlight_line_spans<'a>(
+pub(crate) fn highlight_line_spans<'a>(
     spans: Vec<Span<'a>>,
     char_start: usize,
     char_end: usize,
@@ -848,5 +450,72 @@ pub fn highlight_line_spans<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    include!("main_ui_test.rs");
+    use crate::ui::theme;
+
+    /// 检查 span 是否有选区背景色
+    fn has_selection_bg(style: Style) -> bool {
+        matches!(style.bg, Some(theme::SELECTION_BG))
+    }
+
+    #[test]
+    fn test_highlight_line_spans_full_span() {
+        let spans = vec![Span::from("Hello"), Span::from("World")];
+        let result = highlight_line_spans(spans, 0, 10);
+        assert_eq!(result.len(), 2);
+        assert!(has_selection_bg(result[0].style));
+        assert!(has_selection_bg(result[1].style));
+    }
+
+    #[test]
+    fn test_highlight_line_spans_partial_start() {
+        let spans = vec![Span::from("Hello")];
+        let result = highlight_line_spans(spans, 3, 10);
+        // 前 3 字符原样，后 2 字符选区背景
+        assert_eq!(result.len(), 2);
+        assert!(!has_selection_bg(result[0].style));
+        assert!(has_selection_bg(result[1].style));
+        assert_eq!(result[0].content, "Hel");
+        assert_eq!(result[1].content, "lo");
+    }
+
+    #[test]
+    fn test_highlight_line_spans_partial_both() {
+        let spans = vec![Span::from("Hello")];
+        let result = highlight_line_spans(spans, 1, 4);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].content, "H");
+        assert!(!has_selection_bg(result[0].style));
+        assert_eq!(result[1].content, "ell");
+        assert!(has_selection_bg(result[1].style));
+        assert_eq!(result[2].content, "o");
+        assert!(!has_selection_bg(result[2].style));
+    }
+
+    #[test]
+    fn test_highlight_line_spans_multi_span() {
+        let spans = vec![Span::from("Hel"), Span::from("lo Wo"), Span::from("rld")];
+        let result = highlight_line_spans(spans, 2, 8);
+        // 选中范围 char 2..8 = "llo Wo"
+        // span0 "Hel": 前 2 原样 + 后 1 选区背景
+        // span1 "lo Wo": 全部选区背景
+        // span2 "rld": 不在选区（span2 starts at char 8）
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].content, "He");
+        assert!(!has_selection_bg(result[0].style));
+        assert_eq!(result[1].content, "l");
+        assert!(has_selection_bg(result[1].style));
+        assert_eq!(result[2].content, "lo Wo");
+        assert!(has_selection_bg(result[2].style));
+        assert_eq!(result[3].content, "rld");
+        assert!(!has_selection_bg(result[3].style));
+    }
+
+    #[test]
+    fn test_highlight_line_spans_outside() {
+        let spans = vec![Span::from("Hello")];
+        let result = highlight_line_spans(spans, 10, 15);
+        assert_eq!(result.len(), 1);
+        assert!(!has_selection_bg(result[0].style));
+        assert_eq!(result[0].content, "Hello");
+    }
 }
