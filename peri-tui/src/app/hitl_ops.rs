@@ -38,7 +38,9 @@ impl App {
                 .agent
                 .pending_hitl_items =
                 Some(p.items.iter().map(|item| item.tool_name.clone()).collect());
+            let approved = p.approved.clone();
             p.confirm();
+            self.send_acp_hitl_response(&approved);
         }
     }
 
@@ -55,7 +57,9 @@ impl App {
                 .agent
                 .pending_hitl_items =
                 Some(p.items.iter().map(|item| item.tool_name.clone()).collect());
+            let approved = p.approved.clone();
             p.confirm();
+            self.send_acp_hitl_response(&approved);
         }
     }
 
@@ -71,7 +75,49 @@ impl App {
                 .agent
                 .pending_hitl_items =
                 Some(p.items.iter().map(|item| item.tool_name.clone()).collect());
+            let approved = p.approved.clone();
             p.confirm();
+            self.send_acp_hitl_response(&approved);
         }
+    }
+
+    /// Send the HITL decision back via ACP transport.
+    ///
+    /// ACP sends one `RequestPermission` per approval item sequentially,
+    /// so there's exactly one pending request id and one decision.
+    fn send_acp_hitl_response(&mut self, approved: &[bool]) {
+        let acp_client = match self.acp_client {
+            Some(ref c) => c.clone(),
+            None => return,
+        };
+        let request_id = match self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .pending_acp_request_id
+            .take()
+        {
+            Some(id) => id,
+            None => return,
+        };
+        // ACP broker sends one item per RequestPermission, so index 0 is the decision.
+        let is_approved = approved.first().copied().unwrap_or(false);
+        let response = if is_approved {
+            serde_json::json!({
+                "outcome": {
+                    "outcome": "selected",
+                    "optionId": "allow_once"
+                }
+            })
+        } else {
+            serde_json::json!({
+                "outcome": {
+                    "outcome": "cancelled"
+                }
+            })
+        };
+        tokio::spawn(async move {
+            if let Err(e) = acp_client.send_response(request_id, Ok(response)).await {
+                tracing::error!(error = %e, "ACP HITL response send failed");
+            }
+        });
     }
 }

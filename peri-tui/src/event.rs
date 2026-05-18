@@ -551,6 +551,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         key: Key::Enter, ..
                     } => app.hitl_confirm(),
 
+                    // Esc：全部拒绝
+                    Input { key: Key::Esc, .. } => app.hitl_reject_all(),
+
                     _ => {}
                 }
                 return Ok(Some(Action::Redraw));

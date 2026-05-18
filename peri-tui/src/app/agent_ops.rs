@@ -104,11 +104,12 @@ impl App {
     ) -> (bool, bool, bool) {
         use tokio::sync::oneshot;
 
-        // ACP protocol serializes with camelCase: toolCall, toolCallId, rawInput
+        // ACP protocol serializes with camelCase: toolCall, title, rawInput
+        // ToolCallUpdate: { toolCallId, title (tool name), rawInput, status, content, ... }
+        // ToolCallUpdateFields is #[serde(flatten)] so all fields are at the same level.
         let tool_call = params.get("toolCall").or_else(|| params.get("tool_call"));
         let tool_name = tool_call
-            .and_then(|tc| tc.get("toolCallId").or_else(|| tc.get("tool_call_id")))
-            .and_then(|v| v.as_str())
+            .and_then(|tc| tc.get("title").and_then(|v| v.as_str()))
             .unwrap_or("unknown")
             .to_string();
         let tool_input = tool_call

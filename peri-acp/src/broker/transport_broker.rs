@@ -55,7 +55,9 @@ impl AcpTransportBroker {
             let tool_update = ToolCallUpdate::new(
                 item.tool_call_id.clone(),
                 ToolCallUpdateFields::new()
+                    .title(item.tool_name.clone())
                     .status(ToolCallStatus::Pending)
+                    .raw_input(item.tool_input.clone())
                     .content(vec![ToolCallContent::Content(Content::new(
                         ContentBlock::Text(TextContent::new(tool_input_str)),
                     ))]),
