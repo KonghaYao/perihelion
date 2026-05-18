@@ -125,76 +125,21 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 
 /// 将 ExecutorEvent 映射为 `peri/*` 自定义通知列表。
 ///
-/// 每元素为 `(&str, serde_json::Value)`，method 形如 `"notifications/peri/subagent/start"`。
-/// `session_id` 由调用方在发送前注入，不包含在此映射中。
-///
-/// 以下事件映射到 peri/*：
-/// - SubagentStarted → `notifications/peri/subagent/start`
-/// - SubagentStopped → `notifications/peri/subagent/end`
-/// - BackgroundTaskCompleted → `notifications/peri/background/completed`
+/// 仅包含 TUI 通过 `map_executor_event` 过滤掉（返回 None）的事件：
 /// - CompactStarted → `notifications/peri/compact/start`
 /// - CompactCompleted → `notifications/peri/compact/end`
-/// - LspDiagnostics → `notifications/peri/lsp/diagnostics`
 /// - SessionEnded → `notifications/peri/session/ended`
 ///
-/// 其余事件返回空 vec。
+/// 其余事件通过 `notifications/agent_event` 由 `map_executor_event` 统一处理。
 pub fn map_executor_to_peri_notifications(
     event: &ExecutorEvent,
 ) -> Vec<(&'static str, serde_json::Value)> {
     match event {
-        ExecutorEvent::SubagentStarted { agent_name } => {
-            vec![(
-                "notifications/peri/subagent/start",
-                json!({ "agent_name": agent_name }),
-            )]
-        }
-        ExecutorEvent::SubagentStopped {
-            agent_name,
-            result,
-            is_error,
-        } => {
-            vec![(
-                "notifications/peri/subagent/end",
-                json!({
-                    "agent_name": agent_name,
-                    "result": truncate_str(result, 500),
-                    "is_error": is_error,
-                }),
-            )]
-        }
-        ExecutorEvent::BackgroundTaskCompleted(r) => {
-            vec![(
-                "notifications/peri/background/completed",
-                json!({
-                    "task_id": r.task_id,
-                    "agent_name": r.agent_name,
-                    "prompt_summary": r.prompt_summary,
-                    "success": r.success,
-                    "output": r.output,
-                    "tool_calls_count": r.tool_calls_count,
-                    "duration_ms": r.duration_ms,
-                }),
-            )]
-        }
         ExecutorEvent::CompactStarted => {
             vec![("notifications/peri/compact/start", json!({}))]
         }
         ExecutorEvent::CompactCompleted => {
             vec![("notifications/peri/compact/end", json!({}))]
-        }
-        ExecutorEvent::LspDiagnostics {
-            errors,
-            warnings,
-            files_with_errors,
-        } => {
-            vec![(
-                "notifications/peri/lsp/diagnostics",
-                json!({
-                    "errors": errors,
-                    "warnings": warnings,
-                    "files_with_errors": files_with_errors,
-                }),
-            )]
         }
         ExecutorEvent::SessionEnded => {
             vec![("notifications/peri/session/ended", json!({}))]
