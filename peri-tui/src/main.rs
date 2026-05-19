@@ -520,15 +520,8 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
             {
                 let ctx = ctx_clone.clone();
                 async move |req: SetSessionModeRequest, responder, _cx| {
-                    use peri_middlewares::prelude::PermissionMode;
                     let mode_id = req.mode_id.0.as_ref();
-                    let mode = match mode_id {
-                        "dont_ask" => PermissionMode::DontAsk,
-                        "accept_edit" => PermissionMode::AcceptEdit,
-                        "auto" => PermissionMode::AutoMode,
-                        "bypass" => PermissionMode::Bypass,
-                        _ => PermissionMode::Default,
-                    };
+                    let mode = acp_server::parse_permission_mode(mode_id);
                     ctx.permission_mode.store(mode);
                     tracing::info!(mode_id = %mode_id, "Permission mode changed");
                     responder.respond(SetSessionModeResponse::new())
@@ -545,10 +538,11 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                     let new_provider = {
                         let cfg = ctx.peri_config.read();
                         peri_tui::app::agent::LlmProvider::from_config_for_alias(&cfg, &model_id)
-                            .unwrap_or_else(|| ctx.provider.read().clone())
                     };
-                    tracing::info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
-                    *ctx.provider.write() = new_provider;
+                    if let Some(new_provider) = new_provider {
+                        tracing::info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
+                        *ctx.provider.write() = new_provider;
+                    }
                     responder.respond(SetSessionModelResponse::new())
                 }
             },
@@ -564,17 +558,7 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                         agent_client_protocol_schema::SessionConfigOptionValue::ValueId { value } => {
                             let effort = value.0.as_ref();
                             if config_id == "thinking_effort" {
-                                let mut cfg = ctx.peri_config.write();
-                                let thinking = cfg.config.thinking.get_or_insert_with(|| {
-                                    peri_tui::config::ThinkingConfig {
-                                        enabled: true,
-                                        budget_tokens: 8000,
-                                        effort: "medium".to_string(),
-                                        max_tokens: 32000,
-                                    }
-                                });
-                                thinking.enabled = true;
-                                thinking.effort = effort.to_string();
+                                acp_server::apply_thinking_effort(&ctx.peri_config, effort);
                                 tracing::info!(effort = %effort, "Thinking effort changed via configOption");
                             }
                         }

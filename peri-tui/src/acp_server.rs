@@ -29,7 +29,8 @@ use peri_middlewares::prelude::*;
 
 use agent_client_protocol::schema::{
     AgentCapabilities, InitializeResponse, NewSessionResponse, PromptResponse, ProtocolVersion,
-    SessionId, StopReason,
+    SessionId, SetSessionConfigOptionResponse, SetSessionModeResponse, SetSessionModelResponse,
+    StopReason,
 };
 use agent_client_protocol_schema::{
     ModelId, ModelInfo, SessionConfigId, SessionConfigOption, SessionConfigOptionCategory,
@@ -201,39 +202,34 @@ async fn handle_request(
         }
 
         "session/set_model" => {
-            let model_id = params
-                .get("modelId")
-                .and_then(|v| v.as_str())
-                .or_else(|| params.get("model").and_then(|v| v.as_str()))
-                .unwrap_or("");
-            let mut provider = cfg.provider.write();
-            let new_provider =
-                LlmProvider::from_config_for_alias(&cfg.peri_config.read(), model_id)
-                    .unwrap_or_else(|| provider.clone());
-            info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
-            *provider = new_provider;
-            Ok(json!({ "status": "ok" }))
+            let model_id = params.get("modelId").and_then(|v| v.as_str()).unwrap_or("");
+            let new_provider = {
+                let cfg = cfg.peri_config.read();
+                LlmProvider::from_config_for_alias(&cfg, model_id)
+            };
+            if let Some(new_provider) = new_provider {
+                info!(model_id = %model_id, model = %new_provider.model_name(), "Model changed");
+                *cfg.provider.write() = new_provider;
+            }
+            let resp = SetSessionModelResponse::new();
+            serde_json::to_value(resp)
+                .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
 
         "session/set_mode" => {
             let mode_id = params
                 .get("modeId")
                 .and_then(|v| v.as_str())
-                .or_else(|| params.get("mode").and_then(|v| v.as_str()))
                 .unwrap_or("default");
-            let mode = match mode_id {
-                "dont_ask" => PermissionMode::DontAsk,
-                "accept_edit" => PermissionMode::AcceptEdit,
-                "auto" => PermissionMode::AutoMode,
-                "bypass" => PermissionMode::Bypass,
-                _ => PermissionMode::Default,
-            };
+            let mode = parse_permission_mode(mode_id);
             cfg.permission_mode.store(mode);
             info!(mode_id = %mode_id, "Permission mode changed");
-            Ok(json!({ "status": "ok" }))
+            let resp = SetSessionModeResponse::new();
+            serde_json::to_value(resp)
+                .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
 
-        "session/setConfigOption" => {
+        "session/set_config_option" => {
             let config_id = params
                 .get("configId")
                 .and_then(|v| v.as_str())
@@ -241,24 +237,20 @@ async fn handle_request(
             let value = params.get("value").and_then(|v| v.as_str()).unwrap_or("");
             match config_id {
                 "thinking_effort" => {
-                    let mut cfg_guard = cfg.peri_config.write();
-                    let thinking = cfg_guard.config.thinking.get_or_insert_with(|| {
-                        crate::config::ThinkingConfig {
-                            enabled: true,
-                            budget_tokens: 8000,
-                            effort: "medium".to_string(),
-                            max_tokens: 32000,
-                        }
-                    });
-                    thinking.enabled = true;
-                    thinking.effort = value.to_string();
+                    apply_thinking_effort(&cfg.peri_config, value);
                     info!(effort = %value, "Thinking effort changed via configOption");
                 }
                 _ => {
                     debug!(config_id = %config_id, "Unknown config option");
                 }
             }
-            Ok(json!({ "status": "ok" }))
+            let config_options = {
+                let c = cfg.peri_config.read();
+                build_config_options(&c)
+            };
+            let resp = SetSessionConfigOptionResponse::new(config_options);
+            serde_json::to_value(resp)
+                .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
 
         "session/set_thinking" => {
@@ -270,21 +262,21 @@ async fn handle_request(
                 .get("enabled")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
+            apply_thinking_effort(&cfg.peri_config, effort);
             {
                 let mut cfg_guard = cfg.peri_config.write();
-                let thinking = cfg_guard.config.thinking.get_or_insert_with(|| {
-                    crate::config::ThinkingConfig {
-                        enabled: true,
-                        budget_tokens: 8000,
-                        effort: "medium".to_string(),
-                        max_tokens: 32000,
-                    }
-                });
-                thinking.enabled = enabled;
-                thinking.effort = effort.to_string();
+                if let Some(ref mut thinking) = cfg_guard.config.thinking {
+                    thinking.enabled = enabled;
+                }
             }
             info!(effort = %effort, enabled = %enabled, "Thinking config changed");
-            Ok(json!({ "status": "ok" }))
+            let config_options = {
+                let c = cfg.peri_config.read();
+                build_config_options(&c)
+            };
+            let resp = SetSessionConfigOptionResponse::new(config_options);
+            serde_json::to_value(resp)
+                .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
 
         _ => Err(AcpError::new(-32601, format!("Method not found: {method}"))),
@@ -296,7 +288,8 @@ async fn handle_request(
 fn handle_notification(method: &str, params: &Value, sessions: &HashMap<String, SessionState>) {
     if method == "$/cancel_request" {
         let session_id = params
-            .get("session_id")
+            .get("sessionId")
+            .or_else(|| params.get("session_id"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if let Some(state) = sessions.get(session_id) {
@@ -330,9 +323,10 @@ async fn execute_prompt(
     transport: &Arc<dyn peri_acp::transport::AcpTransport>,
 ) -> Result<Value, AcpError> {
     let session_id = params
-        .get("session_id")
+        .get("sessionId")
+        .or_else(|| params.get("session_id"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AcpError::new(-32602, "missing session_id"))?
+        .ok_or_else(|| AcpError::new(-32602, "missing sessionId"))?
         .to_string();
     let message = params
         .get("message")
@@ -623,6 +617,31 @@ fn convert_provider(p: &LlmProvider) -> peri_acp::provider::LlmProvider {
 }
 
 // ── ACP standard state builders ────────────────────────────────────────────────
+
+pub fn parse_permission_mode(mode_id: &str) -> PermissionMode {
+    match mode_id {
+        "dont_ask" => PermissionMode::DontAsk,
+        "accept_edit" => PermissionMode::AcceptEdit,
+        "auto" => PermissionMode::AutoMode,
+        "bypass" => PermissionMode::Bypass,
+        _ => PermissionMode::Default,
+    }
+}
+
+pub fn apply_thinking_effort(peri_config: &RwLock<PeriConfig>, effort: &str) {
+    let mut cfg = peri_config.write();
+    let thinking = cfg
+        .config
+        .thinking
+        .get_or_insert_with(|| crate::config::ThinkingConfig {
+            enabled: true,
+            budget_tokens: 8000,
+            effort: "medium".to_string(),
+            max_tokens: 32000,
+        });
+    thinking.enabled = true;
+    thinking.effort = effort.to_string();
+}
 
 pub fn build_mode_state(pm: &SharedPermissionMode) -> SessionModeState {
     let current = pm.load();

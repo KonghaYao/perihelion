@@ -219,7 +219,7 @@ impl AcpTuiClient {
             .clone()
             .ok_or("no active session")?;
         let params = json!({
-            "session_id": session_id,
+            "sessionId": session_id,
             "message": { "role": "user", "content": text },
         });
         self.transport
@@ -237,7 +237,7 @@ impl AcpTuiClient {
             .unwrap()
             .clone()
             .ok_or("no active session")?;
-        let params = json!({ "session_id": session_id, "model": alias });
+        let params = json!({ "sessionId": session_id, "modelId": alias });
         let _ = self
             .transport
             .send_request("session/set_model", params)
@@ -254,7 +254,7 @@ impl AcpTuiClient {
             .unwrap()
             .clone()
             .ok_or("no active session")?;
-        let params = json!({ "session_id": session_id, "mode": mode });
+        let params = json!({ "sessionId": session_id, "modeId": mode });
         let _ = self
             .transport
             .send_request("session/set_mode", params)
@@ -271,7 +271,7 @@ impl AcpTuiClient {
             .unwrap()
             .clone()
             .ok_or("no active session")?;
-        let params = json!({ "session_id": session_id, "effort": effort, "enabled": enabled });
+        let params = json!({ "sessionId": session_id, "effort": effort, "enabled": enabled });
         let _ = self
             .transport
             .send_request("session/set_thinking", params)
@@ -288,7 +288,7 @@ impl AcpTuiClient {
             .unwrap()
             .clone()
             .ok_or("no active session")?;
-        let params = json!({ "session_id": session_id });
+        let params = json!({ "sessionId": session_id });
         self.transport
             .send_notification("$/cancel_request", params)
             .await
