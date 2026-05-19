@@ -60,7 +60,8 @@
 **已解决**：`handle_event`（完成拆分）、`handle_agent_event`（减至 ~360 行分发器）、`open_plugin_panel`（面板文件拆分后函数自然定位）。
 
 **遗留**：
-- `peri-agent/src/llm/anthropic.rs` 的 `invoke`（~300 行）—— 未处理
-- `peri-tui/src/app/agent.rs` 的 `run_universal_agent`（~500 行）—— 未处理
+
+- ~~`peri-agent/src/llm/anthropic.rs` 的 `invoke`（~300 行）~~ → 已拆分：`anthropic.rs` 拆为 `anthropic/` 目录（`mod.rs` + `invoke.rs` + `stream.rs` + `cache.rs`），`build_request_body()` 已提取，`invoke` 方法减至 ~205 行，再提取 `handle_anthropic_response()` → ~45 行
+- ~~`peri-tui/src/app/agent.rs` 的 `run_universal_agent`（~500 行）~~ → 已移除：函数整体被 ACP 架构替代（`agent_submit.rs:188` 注释确认），`agent.rs` 现仅 198 行，只含 `map_executor_event()`
 
 总计减少量：6791 行→19 个文件。Build/525 tests/clippy/fmt 全部通过。
