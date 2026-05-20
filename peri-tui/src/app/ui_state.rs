@@ -22,6 +22,10 @@ pub struct UiState {
     pub panel_area: Option<ratatui::layout::Rect>,
     pub panel_plain_lines: Vec<String>,
     pub panel_scroll_offset: u16,
+    /// 用户是否正在拖拽消息区域右侧滚动条
+    pub scrollbar_dragging: bool,
+    /// 消息区域滚动条的最大偏移量（内容高度 - 可见高度）
+    pub scrollbar_max_offset: u16,
 }
 
 impl UiState {
@@ -45,6 +49,8 @@ impl UiState {
             panel_area: None,
             panel_plain_lines: Vec::new(),
             panel_scroll_offset: 0,
+            scrollbar_dragging: false,
+            scrollbar_max_offset: 0,
         }
     }
 }

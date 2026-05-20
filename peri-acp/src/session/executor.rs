@@ -41,8 +41,6 @@ pub struct PromptResult {
     pub messages: Vec<BaseMessage>,
     /// Whether execution succeeded.
     pub ok: bool,
-    /// Whether a compact occurred during execution.
-    pub compacted: bool,
     /// Why the prompt execution stopped.
     pub stop_reason: PromptStopReason,
 }
@@ -54,7 +52,7 @@ pub struct PromptResult {
 /// 2. Build agent via [`build_system_prompt`] + [`builder::build_agent`]
 /// 3. Spawn background event pump using the provided [`EventSink`]
 /// 4. Execute agent
-/// 5. Check token thresholds → compact if needed (micro or full + resubmit)
+/// 5. Auto-compact handled by CompactMiddleware (before_model hook)
 /// 6. Wait for pump to drain
 /// 7. Return updated messages
 ///
@@ -236,7 +234,6 @@ pub async fn execute_prompt(
     PromptResult {
         messages: agent_state.into_messages(),
         ok,
-        compacted: false, // compact 现在完全在 CompactMiddleware 内处理
         stop_reason,
     }
 }

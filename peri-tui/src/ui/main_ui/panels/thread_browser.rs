@@ -1,7 +1,7 @@
 use chrono::Utc;
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
@@ -14,9 +14,6 @@ use crate::app::App;
 use crate::thread::ThreadBrowser;
 use crate::ui::main_ui::highlight_line_spans;
 use crate::ui::theme;
-
-/// 选中行颜色（偏蓝紫 #b2b9f9）
-const SELECTED: Color = Color::Rgb(178, 185, 249);
 
 /// 搜索框 + 空行占用的固定高度
 const SEARCH_OVERHEAD: u16 = 4; // 3 行搜索框 + 1 行空行
@@ -142,7 +139,9 @@ pub(crate) fn render_thread_browser(
 
     let inner = BorderedPanel::new(Span::styled(
         title_text,
-        Style::default().fg(SELECTED).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(theme::SELECTED_FG)
+            .add_modifier(Modifier::BOLD),
     ))
     .border_style(Style::default().fg(theme::MUTED))
     .render(f, popup_area);
@@ -195,15 +194,23 @@ pub(crate) fn render_thread_browser(
         // 第一行：cursor indicator + 标题
         let cursor_span = Span::styled(
             if is_cursor { "❯ " } else { "  " },
-            Style::default().fg(if is_cursor { SELECTED } else { theme::MUTED }),
+            Style::default().fg(if is_cursor {
+                theme::SELECTED_FG
+            } else {
+                theme::MUTED
+            }),
         );
 
         let current_tag = if is_current { "✓ " } else { "" };
 
         let title_style = if is_cursor {
-            Style::default().fg(SELECTED).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::SELECTED_FG)
+                .add_modifier(Modifier::BOLD)
         } else if is_current {
-            Style::default().fg(SELECTED).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::SELECTED_FG)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme::TEXT)
         };

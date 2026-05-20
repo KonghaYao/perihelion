@@ -201,7 +201,10 @@ pub fn render_view_model(
                         if is_diff {
                             for l in raw.lines() {
                                 let diff_spans =
-                                    peri_widgets::message_block::highlight::highlight_diff_line(l);
+                                    peri_widgets::message_block::highlight::highlight_diff_line(
+                                        l,
+                                        &peri_widgets::DarkTheme,
+                                    );
                                 lines.push(Line::from(diff_spans));
                             }
                         } else {
@@ -364,7 +367,7 @@ pub fn render_view_model(
             if *collapsed {
                 // 折叠状态：两行显示
                 // Header: ❯ Agent(type) #hash
-                let arrow_color = Color::Rgb(147, 197, 253); // 淡蓝紫色 #93C1FD
+                let arrow_color = theme::LOADING; // 淡蓝紫色 #93A5FF
                 let mut header_spans = vec![
                     Span::styled("❯ ".to_string(), Style::default().fg(arrow_color)),
                     Span::styled(
@@ -404,7 +407,7 @@ pub fn render_view_model(
             } else {
                 // 展开状态：名称 + 任务描述
                 // Header: ❯ Agent(type) #hash
-                let arrow_color = Color::Rgb(147, 197, 253); // 淡蓝紫色 #93C1FD
+                let arrow_color = theme::LOADING; // 淡蓝紫色 #93A5FF
                 let mut header_spans = vec![
                     Span::styled("❯ ".to_string(), Style::default().fg(arrow_color)),
                     Span::styled(

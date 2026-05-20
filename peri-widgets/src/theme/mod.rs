@@ -57,4 +57,18 @@ pub trait Theme: Send + Sync + 'static {
     fn bash_border(&self) -> Color {
         Color::Rgb(253, 93, 177)
     }
+
+    // ── Diff 高亮色 ─────────────────────────────────────────
+    /// Diff 新增行颜色
+    fn diff_add(&self) -> Color {
+        Color::Rgb(110, 181, 106)
+    } // DIFF_ADD #6EB56A
+    /// Diff 删除行颜色
+    fn diff_remove(&self) -> Color {
+        Color::Rgb(204, 70, 62)
+    } // DIFF_REMOVE #CC463E
+    /// Diff hunk 头部颜色
+    fn diff_hunk(&self) -> Color {
+        Color::Cyan
+    } // DIFF_HUNK 青色
 }

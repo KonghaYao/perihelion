@@ -173,6 +173,9 @@ pub(crate) fn render_messages(
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
         .scroll_offset = offset;
+    app.session_mgr.sessions[app.session_mgr.active]
+        .ui
+        .scrollbar_max_offset = max_scroll;
     if let Some(line) = spinner_line {
         all_lines.push(Line::from(""));
         all_lines.push(line);

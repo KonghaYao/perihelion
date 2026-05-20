@@ -31,4 +31,4 @@ pub use theme::{DarkTheme, Theme};
 pub use tool_call::{ToolCallState, ToolCallStatus, ToolCallWidget};
 
 #[cfg(feature = "markdown")]
-pub use markdown::{DefaultMarkdownTheme, MarkdownTheme};
+pub use markdown::{DefaultMarkdownTheme, MarkdownTheme, ThemeMarkdownAdapter};

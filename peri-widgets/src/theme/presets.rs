@@ -23,8 +23,8 @@ impl Theme for DarkTheme {
         Color::Rgb(255, 107, 128)
     } // ERROR #FF6B80
     fn thinking(&self) -> Color {
-        Color::Rgb(175, 135, 255)
-    } // THINKING #AF87FF
+        Color::Rgb(162, 169, 228)
+    } // THINKING #A2A9E4（与 TUI theme::THINKING 一致）
     fn text(&self) -> Color {
         Color::Rgb(255, 255, 255)
     } // TEXT #FFFFFF

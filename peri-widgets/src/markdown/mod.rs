@@ -33,6 +33,48 @@ pub trait MarkdownTheme {
     fn separator(&self) -> Color;
 }
 
+/// 将 `Theme` trait 适配为 `MarkdownTheme`
+///
+/// 语义映射：
+/// - heading → warning（标题用警告色，增强可读性）
+/// - code → thinking（行内代码用思考色，蓝紫调）
+/// - link → success（链接用成功色，绿色标识可点击）
+/// - code_prefix → success
+/// - quote_prefix → muted
+/// - list_bullet → text
+/// - separator → muted
+pub struct ThemeMarkdownAdapter<'a>(pub &'a dyn crate::theme::Theme);
+
+impl MarkdownTheme for ThemeMarkdownAdapter<'_> {
+    fn heading(&self) -> Color {
+        self.0.warning()
+    }
+    fn text(&self) -> Color {
+        self.0.text()
+    }
+    fn muted(&self) -> Color {
+        self.0.muted()
+    }
+    fn code(&self) -> Color {
+        self.0.thinking()
+    }
+    fn link(&self) -> Color {
+        self.0.success()
+    }
+    fn code_prefix(&self) -> Color {
+        self.0.success()
+    }
+    fn quote_prefix(&self) -> Color {
+        self.0.muted()
+    }
+    fn list_bullet(&self) -> Color {
+        self.0.text()
+    }
+    fn separator(&self) -> Color {
+        self.0.muted()
+    }
+}
+
 /// 默认 Markdown 主题——色值与 DarkTheme 一致
 #[derive(Debug, Clone)]
 pub struct DefaultMarkdownTheme;

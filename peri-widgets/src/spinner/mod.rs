@@ -12,6 +12,8 @@ use ratatui::{
     widgets::Widget,
 };
 
+use crate::theme::Theme;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpinnerMode {
     Thinking,
@@ -157,6 +159,13 @@ impl<'a> SpinnerWidget<'a> {
     pub fn theme_colors(mut self, primary: Color, secondary: Color) -> Self {
         self.primary_color = primary;
         self.secondary_color = secondary;
+        self
+    }
+
+    /// 从 `Theme` trait 派生 spinner 颜色，替代硬编码默认值。
+    pub fn with_theme(mut self, theme: &dyn Theme) -> Self {
+        self.primary_color = theme.accent();
+        self.secondary_color = theme.muted();
         self
     }
 }

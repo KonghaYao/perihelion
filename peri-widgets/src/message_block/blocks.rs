@@ -36,20 +36,22 @@ pub fn render_block(
             #[cfg(feature = "markdown")]
             {
                 use super::highlight::is_diff_content;
-                use crate::markdown::DefaultMarkdownTheme;
+                use crate::markdown::ThemeMarkdownAdapter;
 
                 if is_diff_content(content) {
                     let mut lines: Vec<Line<'static>> = Vec::new();
                     for line in content.lines() {
-                        lines.push(Line::from(super::highlight::highlight_diff_line(line)));
+                        lines.push(Line::from(super::highlight::highlight_diff_line(
+                            line, theme,
+                        )));
                     }
                     if lines.is_empty() {
                         lines.push(Line::raw(content.clone()));
                     }
                     lines
                 } else {
-                    let theme = DefaultMarkdownTheme;
-                    let text = crate::markdown::parse_markdown(content, &theme, width);
+                    let md_theme = ThemeMarkdownAdapter(theme);
+                    let text = crate::markdown::parse_markdown(content, &md_theme, width);
                     text.lines.into_iter().collect()
                 }
             }

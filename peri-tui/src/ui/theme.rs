@@ -63,6 +63,9 @@ pub const USER_BG: Color = Color::Rgb(55, 55, 55);
 /// 文本选区背景色 #264f78（深色主题下网页默认选中蓝的暗色版本）
 pub const SELECTION_BG: Color = Color::Rgb(38, 79, 120);
 
+/// 选中行前景色（列表高亮文字，蓝紫色系）#B2B9F9
+pub const SELECTED_FG: Color = Color::Rgb(178, 185, 249);
+
 /// Bash 工具调用边框色 #FD5DB1（Claude bashBorder）
 pub const BASH_BORDER: Color = Color::Rgb(253, 93, 177);
 

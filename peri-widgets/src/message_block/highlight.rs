@@ -1,25 +1,23 @@
 use ratatui::style::Color;
 use ratatui::text::Span;
 
-const DIFF_ADD_COLOR: Color = Color::Rgb(110, 181, 106);
-const DIFF_REMOVE_COLOR: Color = Color::Rgb(204, 70, 62);
-const DIFF_HUNK_COLOR: Color = Color::Cyan;
+use crate::theme::Theme;
 
-pub fn highlight_diff_line(line: &str) -> Vec<Span<'static>> {
+pub fn highlight_diff_line(line: &str, theme: &dyn Theme) -> Vec<Span<'static>> {
     if line.starts_with("@@ ") {
         vec![Span::styled(
             line.to_string(),
-            ratatui::style::Style::default().fg(DIFF_HUNK_COLOR),
+            ratatui::style::Style::default().fg(theme.diff_hunk()),
         )]
     } else if line.starts_with('+') {
         vec![Span::styled(
             line.to_string(),
-            ratatui::style::Style::default().fg(DIFF_ADD_COLOR),
+            ratatui::style::Style::default().fg(theme.diff_add()),
         )]
     } else if line.starts_with('-') {
         vec![Span::styled(
             line.to_string(),
-            ratatui::style::Style::default().fg(DIFF_REMOVE_COLOR),
+            ratatui::style::Style::default().fg(theme.diff_remove()),
         )]
     } else {
         vec![Span::raw(line.to_string())]

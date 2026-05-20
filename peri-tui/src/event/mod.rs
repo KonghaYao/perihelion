@@ -312,6 +312,34 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         return Ok(Some(Action::Redraw));
                     }
 
+                    // Scrollbar drag: click on the rightmost scrollbar column
+                    // (▲/▼ buttons already handled above, so this catches the track area)
+                    let scrollbar_col = area.right().saturating_sub(1);
+                    if mouse.column == scrollbar_col
+                        && mouse.row >= area.y
+                        && mouse.row < area.bottom()
+                    {
+                        let track_height = area.height.saturating_sub(1);
+                        if track_height > 0 {
+                            let rel_y = (mouse.row.saturating_sub(area.y)).min(track_height);
+                            let max_scroll = app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .scrollbar_max_offset;
+                            let new_offset =
+                                ((rel_y as f64 / track_height as f64) * max_scroll as f64) as u16;
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .scroll_offset = new_offset.min(max_scroll);
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .scroll_follow = false;
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .scrollbar_dragging = true;
+                        }
+                        return Ok(Some(Action::Redraw));
+                    }
+
                     if mouse.row >= area.y
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
@@ -353,6 +381,32 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
+                // Scrollbar drag: update scroll offset from mouse Y
+                if app.session_mgr.sessions[app.session_mgr.active]
+                    .ui
+                    .scrollbar_dragging
+                {
+                    if let Some(area) = app.session_mgr.sessions[app.session_mgr.active]
+                        .ui
+                        .messages_area
+                    {
+                        let track_height = area.height.saturating_sub(1);
+                        if track_height > 0 {
+                            let rel_y = (mouse.row.saturating_sub(area.y)).min(track_height);
+                            let max_scroll = app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .scrollbar_max_offset;
+                            let new_offset =
+                                ((rel_y as f64 / track_height as f64) * max_scroll as f64) as u16;
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .scroll_offset = new_offset.min(max_scroll);
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .scroll_follow = false;
+                        }
+                    }
+                }
                 // Panel selection drag
                 if app.session_mgr.sessions[app.session_mgr.active]
                     .ui
@@ -421,6 +475,10 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
+                // End scrollbar drag
+                app.session_mgr.sessions[app.session_mgr.active]
+                    .ui
+                    .scrollbar_dragging = false;
                 // Panel selection released
                 if app.session_mgr.sessions[app.session_mgr.active]
                     .ui
