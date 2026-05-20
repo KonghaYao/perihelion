@@ -206,41 +206,9 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                 app.scroll_down();
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                // Panel area: try to dispatch mouse click
-                let panel_area = app.session_mgr.sessions[app.session_mgr.active]
-                    .ui
-                    .panel_area;
-                let mut click_consumed = false;
-                if let Some(area) = panel_area {
-                    if mouse::mouse_in_rect(&mouse, area) {
-                        // Session panels
-                        {
-                            let sp =
-                                &app.session_mgr.sessions[app.session_mgr.active].session_panels;
-                            if sp.is_any_open() {
-                                let result = with_session_panels!(app, |sp, ctx| {
-                                    sp.dispatch_mouse(mouse, area, &mut ctx)
-                                });
-                                if result == EventResult::Consumed {
-                                    click_consumed = true;
-                                }
-                            }
-                        }
-                        // Global panels
-                        if !click_consumed && app.global_panels.is_any_open() {
-                            let result = with_global_panels!(app, |pm, ctx| {
-                                pm.dispatch_mouse(mouse, area, &mut ctx)
-                            });
-                            if result == EventResult::Consumed {
-                                click_consumed = true;
-                            }
-                        }
-                    }
-                }
-                if click_consumed {
-                    return Ok(Some(Action::Redraw));
-                }
                 // Panel scrollbar: ▲/▼ buttons and bar click/drag
+                // Must be checked BEFORE dispatch_mouse so scrollbar clicks
+                // aren't consumed by panel content area handlers.
                 {
                     let session = &mut app.session_mgr.sessions[app.session_mgr.active];
                     if let Some(ref metrics) = session.ui.panel_scrollbar_metrics {
@@ -293,6 +261,40 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                             return Ok(Some(Action::Redraw));
                         }
                     }
+                }
+                // Panel area: dispatch mouse click to panel content
+                let panel_area = app.session_mgr.sessions[app.session_mgr.active]
+                    .ui
+                    .panel_area;
+                let mut click_consumed = false;
+                if let Some(area) = panel_area {
+                    if mouse::mouse_in_rect(&mouse, area) {
+                        // Session panels
+                        {
+                            let sp =
+                                &app.session_mgr.sessions[app.session_mgr.active].session_panels;
+                            if sp.is_any_open() {
+                                let result = with_session_panels!(app, |sp, ctx| {
+                                    sp.dispatch_mouse(mouse, area, &mut ctx)
+                                });
+                                if result == EventResult::Consumed {
+                                    click_consumed = true;
+                                }
+                            }
+                        }
+                        // Global panels
+                        if !click_consumed && app.global_panels.is_any_open() {
+                            let result = with_global_panels!(app, |pm, ctx| {
+                                pm.dispatch_mouse(mouse, area, &mut ctx)
+                            });
+                            if result == EventResult::Consumed {
+                                click_consumed = true;
+                            }
+                        }
+                    }
+                }
+                if click_consumed {
+                    return Ok(Some(Action::Redraw));
                 }
                 // Multi-session: clicking a non-active session column switches focus
                 if app.session_mgr.sessions.len() > 1 {
