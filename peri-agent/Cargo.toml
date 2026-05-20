@@ -3,7 +3,7 @@ name = "peri-agent"
 version = "0.1.0"
 edition = "2021"
 description = "Rust Agent framework with middleware system, aligned with @langgraph-js/standard-agent"
-license = "MIT"
+license = "Apache-2.0"
 
 [dependencies]
 anyhow.workspace = true

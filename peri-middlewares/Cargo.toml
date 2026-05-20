@@ -3,7 +3,7 @@ name = "peri-middlewares"
 version = "0.1.0"
 edition = "2021"
 description = "Rust Agent middleware implementations, aligned with @langgraph-js/agent-middlewares"
-license = "MIT"
+license = "Apache-2.0"
 
 [dependencies]
 peri-agent = { path = "../peri-agent" }

@@ -11,7 +11,7 @@
         "agent",
         "cli"
     ],
-    "license": "MIT",
+    "license": "Apache-2.0",
     "dependencies": {
         "commander": "^14",
         "node-fetch": "^3.3.2",
