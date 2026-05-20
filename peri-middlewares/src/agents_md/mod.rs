@@ -19,6 +19,10 @@ use peri_agent::middleware::r#trait::Middleware;
 pub struct AgentsMdMiddleware {
     extra_search_paths: Vec<PathBuf>,
     excludes: Vec<String>,
+    /// Frozen CLAUDE.md main content (resolved @import). When set, skip disk read.
+    frozen_main: Option<String>,
+    /// Frozen CLAUDE.local.md content.
+    frozen_local: Option<String>,
 }
 
 impl AgentsMdMiddleware {
@@ -26,6 +30,8 @@ impl AgentsMdMiddleware {
         Self {
             extra_search_paths: Vec::new(),
             excludes: Vec::new(),
+            frozen_main: None,
+            frozen_local: None,
         }
     }
 
@@ -39,6 +45,66 @@ impl AgentsMdMiddleware {
     pub fn with_excludes(mut self, patterns: Vec<String>) -> Self {
         self.excludes = patterns;
         self
+    }
+
+    /// Inject frozen CLAUDE.md content (main with resolved @import) and
+    /// optional CLAUDE.local.md content.
+    ///
+    /// When set, `before_agent` skips disk I/O entirely and uses the frozen
+    /// content directly.
+    pub fn with_frozen_content(mut self, main: String, local: Option<String>) -> Self {
+        self.frozen_main = Some(main);
+        self.frozen_local = local;
+        self
+    }
+
+    /// Read and freeze CLAUDE.md content once (with @import resolution).
+    ///
+    /// Returns `(main_content, local_content)`, either may be `None`.
+    /// Called at session creation so the content never drifts mid-session.
+    pub fn read_frozen_content(cwd: &str) -> (Option<String>, Option<String>) {
+        let candidates = vec![
+            Path::new(cwd).join("AGENTS.md"),
+            Path::new(cwd).join("CLAUDE.md"),
+            Path::new(cwd).join(".claude").join("AGENTS.md"),
+        ];
+        let main_content = candidates
+            .into_iter()
+            .find(|p| p.is_file())
+            .and_then(|path| {
+                let content = std::fs::read_to_string(&path).ok()?;
+                if content.trim().is_empty() {
+                    return None;
+                }
+                let is_claude_md = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().starts_with("CLAUDE"))
+                    .unwrap_or(false);
+                if is_claude_md {
+                    let dir = path.parent().unwrap_or(Path::new("."));
+                    let mut visited = HashSet::new();
+                    if let Ok(canonical) = path.canonicalize() {
+                        visited.insert(canonical);
+                    }
+                    Some(resolve_imports(&content, dir, 3, &mut visited))
+                } else {
+                    Some(content)
+                }
+            });
+        let local_content = {
+            let local_path = Path::new(cwd).join("CLAUDE.local.md");
+            if local_path.is_file() {
+                let c = std::fs::read_to_string(&local_path).unwrap_or_default();
+                if c.trim().is_empty() {
+                    None
+                } else {
+                    Some(c)
+                }
+            } else {
+                None
+            }
+        };
+        (main_content, local_content)
     }
 
     /// 根据 cwd 构建候选路径列表（含默认路径 + 额外路径）
@@ -81,7 +147,7 @@ impl AgentsMdMiddleware {
 /// 递归解析 `<!-- @import path -->` 引用，替换为引用文件内容。
 /// `base_dir` 为包含 @import 的文件所在目录。
 /// `depth` 递归深度上限 3，`visited` 防循环。
-fn resolve_imports(
+pub(crate) fn resolve_imports(
     content: &str,
     base_dir: &Path,
     depth: u32,
@@ -142,6 +208,20 @@ impl<S: State> Middleware<S> for AgentsMdMiddleware {
     }
 
     async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
+        // Use frozen content when available — skip all disk I/O.
+        if let Some(ref main) = self.frozen_main {
+            let mut content = main.clone();
+            if let Some(ref local) = self.frozen_local {
+                if !local.trim().is_empty() {
+                    content = format!("{content}\n\n{local}");
+                }
+            }
+            if !content.trim().is_empty() {
+                state.prepend_message(BaseMessage::system(content));
+            }
+            return Ok(());
+        }
+
         let Some(path) = self.find_file(state.cwd()) else {
             // 即使没有主文件，也尝试读取 CLAUDE.local.md
             let local_path = Path::new(state.cwd()).join("CLAUDE.local.md");

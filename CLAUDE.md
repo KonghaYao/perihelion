@@ -62,7 +62,7 @@ scripts/start-relay.sh               # 启动 Relay Server（端口 8080）
 
 **[TRAP]** Ephemeral VM（SystemNote/CacheWarning）依赖锚点机制：`ephemeral_notes: Vec<(MessageId, MessageViewModel)>` 记录锚点消息的 `MessageId`（前一条有 message_id 的消息），RebuildAll 时通过 `position(|v| v.message_id() == Some(anchor_id))` 查找插入位置��`retain()` 路径检查 anchor 消息是否仍存在于 view_messages（HashSet 查找）。新增 ephemeral VM 类型必须同步更新过滤逻辑。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-systemnote-position-drift-on-rebuild）
 
-**系统提示词**：`build_system_prompt(overrides, cwd, features)` 合成，段落文件位于 `peri-tui/prompts/sections/`（共 11 个：01-07 + 10-13），`peri-acp` 通过 `concat!(env!("CARGO_MANIFEST_DIR"), "/../peri-tui/prompts/sections/")` 交叉引用。`PromptFeatures` 控制条件段落注入。静态段落（01-06）与动态段落（07_env + feature-gated 10-13）通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前的内容被 Anthropic prompt cache 命中，标记后的内容变���不影响前缀缓存。`messages_to_anthropic()` 中 `split_system_blocks()` 负责拆分。Agent 构建（`build_agent()` in `peri-acp`）在 system prompt 末尾追加 Git Attribution 段落（`Co-Authored-By` 指令），位于动态区域内不影响缓存前缀。
+**系统提示词**：`build_system_prompt(overrides, cwd, features, extra_agent_dirs, frozen_date)` 合成。`session/new` 时调用一次，传入 `Some(frozen_date)` 冻结日期，产出完整 system prompt 字符串存入 `SessionState.frozen_system_prompt`。后续所有 `session/prompt` 轮次直接使用 frozen 值，不再重建。段落文件位于 `peri-tui/prompts/sections/`（共 11 个：01-07 + 10-13），`peri-acp` 通过 `concat!(env!("CARGO_MANIFEST_DIR"), "/../peri-tui/prompts/sections/")` 交叉引用。`PromptFeatures` 控制条件段落注入。静态段落（01-06）与动态段落（07_env + feature-gated 10-13）通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前的内容被 Anthropic prompt cache 命中，标记后的内容变���不影响前缀缓存。`messages_to_anthropic()` 中 `split_system_blocks()` 负责拆分。Agent 构建（`build_agent()` in `peri-acp`）在 system prompt 末尾追加 Git Attribution 段落（`Co-Authored-By` 指令），位于动态区域内不影响缓存前缀。
 
 ## Thinking/推理模式
 
@@ -146,6 +146,18 @@ Stdio 路径:
     → peri_acp::session::executor::execute_prompt() + StdioEventSink
     → ExecutorEvent → StdioEventSink.push_event() → SessionNotification
     → SDK cx.send_notification() → stdout JSON-RPC
+```
+
+**Frozen Data Flow**（会话内不可变数据）：
+```
+session/new → chrono::Local::now() → frozen_date
+            → AgentsMdMiddleware::read_frozen_content(cwd) → frozen_claude_md + frozen_claude_local_md
+            → SkillsMiddleware::build_frozen_summary(cwd, plugin_skill_dirs) → frozen_skill_summary
+            → build_system_prompt(None, cwd, features, agent_dirs, Some(&frozen_date)) → frozen_system_prompt
+            → SessionState.frozen_*
+            → TUI prompt::execute_prompt → FrozenSessionData
+            → executor::execute_prompt → AcpAgentConfig.frozen_*
+            → AgentsMdMiddleware::with_frozen_content / SkillsMiddleware::with_frozen_summary / system_builder(frozen_date)
 ```
 
 **核心文件**：

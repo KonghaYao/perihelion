@@ -360,6 +360,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         peri_config_snapshot,
                         &agent_cwd,
                         content,
+                        None,                     // No frozen data for stdio sessions
                         history,
                         is_empty_history,
                         ctx.permission_mode.clone(),

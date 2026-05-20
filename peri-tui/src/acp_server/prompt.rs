@@ -68,7 +68,17 @@ pub(crate) async fn execute_prompt(
     }
 
     // Read session data under lock, then release immediately.
-    let (cwd, history, is_empty, thread_id) = {
+    let (
+        cwd,
+        history,
+        is_empty,
+        thread_id,
+        frozen_system_prompt,
+        frozen_claude_md,
+        frozen_claude_local_md,
+        frozen_skill_summary,
+        frozen_date,
+    ) = {
         let sessions = sessions.lock().await;
         let state = sessions
             .get(&session_id)
@@ -78,6 +88,11 @@ pub(crate) async fn execute_prompt(
             state.history.clone(),
             state.history.is_empty(),
             state.thread_id.clone(),
+            state.frozen_system_prompt.clone(),
+            state.frozen_claude_md.clone(),
+            state.frozen_claude_local_md.clone(),
+            state.frozen_skill_summary.clone(),
+            state.frozen_date.clone(),
         )
     };
     let history_len = history.len();
@@ -90,11 +105,21 @@ pub(crate) async fn execute_prompt(
     let provider_snapshot = provider.read().clone();
     let peri_config_snapshot = Arc::new(peri_config.read().clone());
 
+    let frozen = frozen_system_prompt.map(|sp| executor::FrozenSessionData {
+        system_prompt: sp,
+        claude_md: frozen_claude_md,
+        claude_local_md: frozen_claude_local_md,
+        skill_summary: frozen_skill_summary,
+        date: frozen_date.unwrap_or_default(),
+        is_git_repo: std::path::Path::new(&cwd).join(".git").exists(),
+    });
+
     let result = executor::execute_prompt(
         &provider_snapshot,
         peri_config_snapshot,
         &cwd,
         content,
+        frozen,
         history,
         is_empty,
         permission_mode.clone(),

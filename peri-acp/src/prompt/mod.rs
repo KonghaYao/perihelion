@@ -61,6 +61,21 @@ impl PromptEnv {
             date,
         }
     }
+
+    /// 使用冻结日期构造（跳过 `chrono::Local::now()` 调用）。
+    /// `is_git_repo` 仍基于 cwd 实时检查；调用方若需冻结也应缓存。
+    pub fn with_frozen_date(cwd: &str, frozen_date: &str) -> Self {
+        let is_git_repo = std::path::Path::new(cwd).join(".git").exists();
+        let platform = std::env::consts::OS.to_string();
+        let os_version = os_version_string();
+        Self {
+            cwd: cwd.to_string(),
+            is_git_repo,
+            platform,
+            os_version,
+            date: frozen_date.to_string(),
+        }
+    }
 }
 
 /// 扫描 `.claude/agents/` 目录，格式化为 agent 列表字符串。
@@ -92,8 +107,13 @@ pub fn build_system_prompt(
     cwd: &str,
     features: PromptFeatures,
     extra_agent_dirs: &[std::path::PathBuf],
+    frozen_date: Option<&str>,
 ) -> String {
-    let env = PromptEnv::detect(cwd);
+    let env = if let Some(date) = frozen_date {
+        PromptEnv::with_frozen_date(cwd, date)
+    } else {
+        PromptEnv::detect(cwd)
+    };
 
     // 静态段落（编译时嵌入，按编号顺序）—— 01-06 为缓存稳定内容
     // include_str! 路径相对于 source file，从 peri-acp/src/prompt/mod.rs 出发

@@ -43,6 +43,12 @@ pub(crate) struct SessionState {
     cwd: String,
     history: Vec<BaseMessage>,
     cancel_token: Option<AgentCancellationToken>,
+    // ── Frozen session data (populated at creation, immutable thereafter) ──
+    pub(crate) frozen_system_prompt: Option<String>,
+    pub(crate) frozen_claude_md: Option<String>,
+    pub(crate) frozen_claude_local_md: Option<String>,
+    pub(crate) frozen_skill_summary: Option<String>,
+    pub(crate) frozen_date: Option<String>,
 }
 
 // ── Server config ────────────────────────────────────────────────────────────

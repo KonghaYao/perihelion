@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_no_overrides_contains_all_sections() {
-    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None);
     assert!(
         result.contains("Following conventions"),
         "应包含 02_system 段落"
@@ -17,7 +17,7 @@ fn test_no_overrides_contains_all_sections() {
 
 #[test]
 fn test_no_overrides_no_duplicate_tone_proactiveness() {
-    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None);
     // "# Tone and style" 仅出现 1 次（来自 06_tone_style.md 静态段落，不来自覆盖块）
     assert_eq!(
         result.matches("# Tone and style").count(),
@@ -39,7 +39,7 @@ fn test_no_overrides_no_duplicate_tone_proactiveness() {
 
 #[test]
 fn test_no_overrides_no_leading_newlines() {
-    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None);
     assert!(
         !result.starts_with("\n\n"),
         "无 overrides 时提示词不应以空行开头"
@@ -53,7 +53,7 @@ fn test_with_overrides_uses_override_block() {
         tone: None,
         proactiveness: None,
     };
-    let result = build_system_prompt(Some(&overrides), "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(Some(&overrides), "/tmp", PromptFeatures::none(), &[], None);
     // overrides 现在在边界标记之后，不再以 persona 开头
     let boundary = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
     assert!(
@@ -69,20 +69,20 @@ fn test_with_overrides_uses_override_block() {
 
 #[test]
 fn test_placeholders_replaced() {
-    let result = build_system_prompt(None, "/custom/path", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/custom/path", PromptFeatures::none(), &[], None);
     assert!(!result.contains("{{"), "不应包含未替换的占位符");
     assert!(result.contains("/custom/path"), "cwd 占位符应被替换");
 }
 
 #[test]
 fn test_env_contains_cwd() {
-    let result = build_system_prompt(None, "/custom/path", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/custom/path", PromptFeatures::none(), &[], None);
     assert!(result.contains("/custom/path"), "环境信息应包含 cwd");
 }
 
 #[test]
 fn test_features_none_excludes_all_gated_sections() {
-    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None);
     assert!(
         !result.contains("Human-in-the-Loop"),
         "全关闭时不应包含 HITL 段落"
@@ -108,7 +108,7 @@ fn test_hitl_enabled_includes_hitl_section() {
         hitl_enabled: true,
         ..PromptFeatures::none()
     };
-    let result = build_system_prompt(None, "/tmp", features, &[]);
+    let result = build_system_prompt(None, "/tmp", features, &[], None);
     assert!(
         result.contains("Human-in-the-Loop"),
         "hitl_enabled 时应包含 HITL 段落"
@@ -121,7 +121,7 @@ fn test_subagent_enabled_includes_subagent_section() {
         subagent_enabled: true,
         ..PromptFeatures::none()
     };
-    let result = build_system_prompt(None, "/tmp", features, &[]);
+    let result = build_system_prompt(None, "/tmp", features, &[], None);
     assert!(
         result.contains("SubAgent Delegation"),
         "subagent_enabled 时应包含 SubAgent 段落"
@@ -134,7 +134,7 @@ fn test_cron_enabled_includes_cron_section() {
         cron_enabled: true,
         ..PromptFeatures::none()
     };
-    let result = build_system_prompt(None, "/tmp", features, &[]);
+    let result = build_system_prompt(None, "/tmp", features, &[], None);
     assert!(
         result.contains("Scheduled Tasks"),
         "cron_enabled 时应包含 Cron 段落"
@@ -147,7 +147,7 @@ fn test_skills_enabled_includes_skills_section() {
         skills_enabled: true,
         ..PromptFeatures::none()
     };
-    let result = build_system_prompt(None, "/tmp", features, &[]);
+    let result = build_system_prompt(None, "/tmp", features, &[], None);
     assert!(
         result.contains("# Skills"),
         "skills_enabled 时应包含 Skills 段落标题"
@@ -162,7 +162,7 @@ fn test_all_features_enabled_includes_all() {
         cron_enabled: true,
         skills_enabled: true,
     };
-    let result = build_system_prompt(None, "/tmp", features, &[]);
+    let result = build_system_prompt(None, "/tmp", features, &[], None);
     assert!(result.contains("Human-in-the-Loop"), "应包含 HITL 段落");
     assert!(
         result.contains("SubAgent Delegation"),
@@ -186,7 +186,7 @@ fn test_detect_default_values() {
 
 #[test]
 fn test_boundary_marker_present() {
-    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None);
     assert!(
         result.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"),
         "system prompt 应包含边界标记"
@@ -195,7 +195,7 @@ fn test_boundary_marker_present() {
 
 #[test]
 fn test_boundary_marker_before_dynamic_content() {
-    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None);
     let boundary_pos = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
     // 06_tone_style 在边界之前
     assert!(
@@ -217,7 +217,7 @@ fn test_boundary_marker_with_all_features() {
         cron_enabled: true,
         skills_enabled: true,
     };
-    let result = build_system_prompt(None, "/tmp", features, &[]);
+    let result = build_system_prompt(None, "/tmp", features, &[], None);
     let boundary_pos = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
     // feature-gated 段落都应在边界之后
     assert!(
@@ -237,7 +237,7 @@ fn test_overrides_after_boundary_marker() {
         tone: Some("concise".into()),
         proactiveness: None,
     };
-    let result = build_system_prompt(Some(&overrides), "/tmp", PromptFeatures::none(), &[]);
+    let result = build_system_prompt(Some(&overrides), "/tmp", PromptFeatures::none(), &[], None);
     let boundary_pos = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
     // overrides 应在边界之后，不破坏缓存前缀
     assert!(
@@ -280,7 +280,7 @@ fn test_available_agents_placeholder_replaced() {
         subagent_enabled: true,
         ..PromptFeatures::none()
     };
-    let result = build_system_prompt(None, dir.to_str().unwrap(), features, &[]);
+    let result = build_system_prompt(None, dir.to_str().unwrap(), features, &[], None);
     assert!(
         result.contains("- tester: A test agent"),
         "Should contain formatted agent entry, got: {}",
@@ -301,7 +301,7 @@ fn test_available_agents_placeholder_empty_dir() {
         subagent_enabled: true,
         ..PromptFeatures::none()
     };
-    let result = build_system_prompt(None, dir.to_str().unwrap(), features, &[]);
+    let result = build_system_prompt(None, dir.to_str().unwrap(), features, &[], None);
     assert!(
         result.contains("- explore:"),
         "Should contain built-in agents even without .claude/agents/ directory"
@@ -317,7 +317,7 @@ fn test_available_agents_placeholder_empty_dir() {
 fn test_available_agents_not_replaced_when_subagent_disabled() {
     let dir = tmp_dir("prompt_test_agent_disabled");
     let features = PromptFeatures::none();
-    let result = build_system_prompt(None, dir.to_str().unwrap(), features, &[]);
+    let result = build_system_prompt(None, dir.to_str().unwrap(), features, &[], None);
     assert!(
         !result.contains("SubAgent Delegation"),
         "SubAgent section should not be included when disabled"

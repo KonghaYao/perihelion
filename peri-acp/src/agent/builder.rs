@@ -37,6 +37,14 @@ pub struct AcpAgentConfig {
     pub provider: LlmProvider,
     pub cwd: String,
     pub system_prompt: String,
+    /// Frozen CLAUDE.md content (None = read from disk each turn, legacy).
+    pub frozen_claude_md: Option<String>,
+    /// Frozen CLAUDE.local.md content.
+    pub frozen_claude_local_md: Option<String>,
+    /// Frozen skills summary (None = scan each turn).
+    pub frozen_skill_summary: Option<String>,
+    /// Frozen session date in YYYY-MM-DD (None = compute fresh each turn).
+    pub frozen_date: Option<String>,
     pub event_handler: Arc<dyn AgentEventHandler>,
     pub cancel: AgentCancellationToken,
     pub permission_mode: Arc<SharedPermissionMode>,
@@ -84,6 +92,10 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
         provider,
         cwd,
         system_prompt,
+        frozen_claude_md,
+        frozen_claude_local_md,
+        frozen_skill_summary,
+        frozen_date,
         event_handler,
         cancel,
         permission_mode,
@@ -113,7 +125,7 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
         || system_prompt.clone(),
         |ov| {
             let features = crate::prompt::PromptFeatures::detect();
-            crate::prompt::build_system_prompt(Some(ov), &cwd, features, &plugin_agent_dirs)
+            crate::prompt::build_system_prompt(Some(ov), &cwd, features, &plugin_agent_dirs, None)
         },
     );
 
@@ -199,13 +211,20 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
 
     // 系统提示构建器
     #[allow(clippy::type_complexity)]
+    let frozen_date_for_sub = frozen_date.clone();
     let system_builder: Arc<
         dyn Fn(Option<&peri_middlewares::agent_define::AgentOverrides>, &str) -> String
             + Send
             + Sync,
-    > = Arc::new(|overrides, cwd_dir| {
+    > = Arc::new(move |overrides, cwd_dir| {
         let features = crate::prompt::PromptFeatures::detect();
-        crate::prompt::build_system_prompt(overrides, cwd_dir, features, &[])
+        crate::prompt::build_system_prompt(
+            overrides,
+            cwd_dir,
+            features,
+            &[],
+            frozen_date_for_sub.as_deref(),
+        )
     });
 
     // Parent message snapshot
@@ -267,13 +286,21 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
         .with_system_prompt(system_prompt)
         .with_tool_filter(peri_middlewares::tool_search::is_deferred_tool)
         .with_shared_tools(Arc::clone(&shared_tools))
-        .add_middleware(Box::new(
-            AgentsMdMiddleware::new().with_excludes(claude_md_excludes),
-        ))
+        .add_middleware(Box::new({
+            let mut mw = AgentsMdMiddleware::new().with_excludes(claude_md_excludes);
+            if let Some(main) = frozen_claude_md {
+                mw = mw.with_frozen_content(main, frozen_claude_local_md);
+            }
+            mw
+        }))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
-        .add_middleware(Box::new(
-            SkillsMiddleware::new().with_extra_dirs(plugin_skill_dirs),
-        ))
+        .add_middleware(Box::new({
+            let mut mw = SkillsMiddleware::new().with_extra_dirs(plugin_skill_dirs);
+            if let Some(summary) = frozen_skill_summary {
+                mw = mw.with_frozen_summary(summary);
+            }
+            mw
+        }))
         .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd)))
         .add_middleware(Box::new(FilesystemMiddleware::new()))
         .add_middleware(Box::new(peri_middlewares::GitAttributionMiddleware::new(

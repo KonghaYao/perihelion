@@ -45,6 +45,27 @@ pub struct PromptResult {
     pub stop_reason: PromptStopReason,
 }
 
+/// Session-scoped frozen data that locks system prompt stability.
+///
+/// Populated at session creation time by `session/new`, passed through to
+/// every turn's agent build to guarantee the system prompt never changes
+/// within a session.
+#[derive(Clone)]
+pub struct FrozenSessionData {
+    /// Full system prompt string built at session creation.
+    pub system_prompt: String,
+    /// Frozen content of CLAUDE.md (with resolved `@import`), None if no file.
+    pub claude_md: Option<String>,
+    /// Frozen content of CLAUDE.local.md, None if no file.
+    pub claude_local_md: Option<String>,
+    /// Frozen skills summary string, None if no skills.
+    pub skill_summary: Option<String>,
+    /// Session creation date in YYYY-MM-DD format.
+    pub date: String,
+    /// Whether cwd was a git repo at session creation time.
+    pub is_git_repo: bool,
+}
+
 /// Shared agent execution pipeline with auto-compact support.
 ///
 /// This function encapsulates steps 2-7 of the prompt execution flow:
@@ -66,6 +87,7 @@ pub async fn execute_prompt(
     peri_config: Arc<crate::provider::PeriConfig>,
     cwd: &str,
     content: String,
+    frozen: Option<FrozenSessionData>,
     history: Vec<BaseMessage>,
     is_empty_history: bool,
     permission_mode: Arc<peri_middlewares::prelude::SharedPermissionMode>,
@@ -134,8 +156,27 @@ pub async fn execute_prompt(
             }
         }));
 
-    let features = PromptFeatures::detect();
-    let system_prompt = build_system_prompt(None, cwd, features, &plugin_agent_dirs);
+    let (
+        system_prompt,
+        frozen_claude_md,
+        frozen_claude_local_md,
+        frozen_skill_summary,
+        frozen_date,
+    ) = if let Some(ref f) = frozen {
+        // 使用 session 创建时冻结的数据，跳过重建
+        (
+            f.system_prompt.clone(),
+            f.claude_md.clone(),
+            f.claude_local_md.clone(),
+            f.skill_summary.clone(),
+            Some(f.date.clone()),
+        )
+    } else {
+        // Legacy: per-turn rebuild（子 Agent 等场景未提供 frozen 数据时使用）
+        let features = PromptFeatures::detect();
+        let sp = build_system_prompt(None, cwd, features, &plugin_agent_dirs, None);
+        (sp, None, None, None, None)
+    };
 
     // Compact model（用于 CompactMiddleware 的 full compact 摘要生成）
     let compact_model: Arc<dyn peri_agent::llm::BaseModel> = provider.clone().into_model().into();
@@ -144,6 +185,10 @@ pub async fn execute_prompt(
         provider: provider.clone(),
         cwd: cwd.to_string(),
         system_prompt,
+        frozen_claude_md,
+        frozen_claude_local_md,
+        frozen_skill_summary,
+        frozen_date,
         event_handler,
         cancel: cancel.clone(),
         permission_mode: permission_mode.clone(),
