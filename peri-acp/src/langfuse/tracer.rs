@@ -245,7 +245,7 @@ impl LangfuseTracer {
             let mut map = HashMap::new();
             let cache_creation = u.cache_creation_input_tokens.unwrap_or(0);
             let cache_read = u.cache_read_input_tokens.unwrap_or(0);
-            let total = u.input_tokens + u.output_tokens + cache_creation + cache_read;
+            let total = u.input_tokens + u.output_tokens;
             map.insert("input".to_string(), u.input_tokens as i32);
             map.insert("output".to_string(), u.output_tokens as i32);
             map.insert("total".to_string(), total as i32);
