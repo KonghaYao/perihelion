@@ -70,6 +70,23 @@
 - **5 级权限模式:** Default/AcceptEdits/Auto/BypassPermissions/DontAsk，Shift+Tab 循环切换，Arc<AtomicU8> 无锁共享，状态栏实时显示
 - **Background Agent:** Agent 工具 `run_in_background` 参数触发后台执行，最多 3 并发，`mpsc::unbounded_channel` 通知，完成后 Human 消息注入，主 agent Done 后自动 continuation，ToolBlock 样式显示，状态栏 `[BG: N]` 指示器
 
+## ACP 服务层（peri-acp）
+
+- **ACP 传输抽象:** `AcpTransport` trait 统一 MpscTransport（TUI 内存通道）和 StdioTransport（IDE stdio），JSON-RPC 2.0 协议
+- **Session 管理:** SessionManager 管理会话生命周期（new/prompt/compact/set_model/set_mode/cancel）
+- **Agent 构建:** `build_agent()` 统一组装 Middleware Chain + LLM + 工具，TUI 和 stdio 共用
+- **事件映射:** `ExecutorEvent` → `SessionNotification` 标准 ACP 通知转换
+- **HITL/AskUser 桥接:** `AcpTransportBroker` 通过 ACP RPC（`RequestPermission` + `elicitation/create`）替代 oneshot channel
+- **上下文压缩:** auto-compact 触发 + micro/full compact 执行 + resubmit 全部在 executor 循环内完成
+
+## 配置同步（Config Sync）
+
+- **Relay Server:** Hono.js + Cloudflare Durable Objects，WebSocket 密文透传，配对码管理（6 位/5 分钟/一次性）
+- **E2E 加密:** PBKDF2-SHA256 密钥派生 + AES-256-GCM 加密，Relay 无法解密
+- **同步客户端:** `peri sync sender/receiver` 子命令，crossterm CLI 交互（选择/进度/确认）
+- **选择性同步:** receiver 可勾选 settings/skills/mcp/plugins，Sender 打包 MessagePack 序列化传输
+- **路径安全:** `validate_and_resolve()` 三层校验拒绝绝对路径/ParentDir/解析后前缀不匹配
+
 ## 基础设施
 
 - **SQLite 线程持久化:** sqlx SqlitePool(max=5) 原生异步连接池，WAL 模式，`append_messages` 事务保证 crash-safe，`StateSnapshot` 事件驱动增量写入
@@ -78,4 +95,4 @@
 - **配置持久化:** `~/.peri/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
 
 ---
-*最后更新: 2026-05-04 — 由 feature_20260504_F001_sqlx-migration 归档时更新*
+*最后更新: 2026-05-20 — 由 feature_2026-05-18_F001_acp-tui-separation 和 feature_2026-05-17_F001_config-sync 归档时更新*

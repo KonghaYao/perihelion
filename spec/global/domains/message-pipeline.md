@@ -183,6 +183,18 @@ reconcile_tail(round_start_vm_idx)
 **涉及文件:** peri-tui/src/app/message_pipeline/mod.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-20-session-restore-renders-system-prompt
+
+**摘要:** Session 恢复后 System Prompt 和 Compact Summary 被渲染为可见消息
+**状态:** Fixed
+**归档日期:** 2026-05-20
+**关键词:** session恢复, System消息过滤, messages_to_view_models, SystemNote泄漏
+**问题本质:** `messages_to_view_models()` 是所有恢复路径（`open_thread()` + `reconcile()`）的共享入口，但未过滤 `BaseMessage::System` 变体，导致持久化存储中的 system prompt 和 compact summary 被转换为 `SystemNote` VM 渲染为可见卡片。
+**通用模式:** 所有从持久化到渲染的消息转换路径必须在入口处统一过滤 System 变体，不依赖各调用点自行处理。
+**架构影响:** 强化了 `messages_to_view_models()` 作为"唯一转换入口"的架构定位——内部消息（System）与用户可见消息（Human/Ai/Tool）的边界应在此函数内明确。
+**涉及文件:** peri-tui/src/app/thread_ops.rs, peri-tui/src/app/message_pipeline/transform.rs, peri-tui/src/ui/message_view/mod.rs
+**CLAUDE.md 链接:** true
+
 ---
 
 ## 相关 Feature

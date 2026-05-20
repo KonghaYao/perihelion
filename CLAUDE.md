@@ -75,13 +75,19 @@ scripts/start-relay.sh               # 启动 Relay Server（端口 8080）
 
 **[TRAP]** DeepSeek `unknown variant 'thinking'`：不要把 `Reasoning` block 序列化为 `{"type":"thinking"}` 发给不支持的 provider。**[TRAP]** `reasoning_content must be passed back`：过滤 `Reasoning` 时必须同时作为顶层字段回传。两个陷阱互相关联。（详见 spec/global/domains/agent.md#issue_2026-05-12-glm-reasoning-field-not-parsed，spec/global/domains/agent.md#issue_2026-05-14-deepseek-anthropic-thinking-block-dropped，spec/global/domains/agent.md#issue_2026-05-12-thinking-reasoning-dataflow-issues）
 
+## 系统提示词稳定性（第一优先级）
+
+**[原则] 系统提示词稳定性是第一优先级**：会话开始后，系统提示词必须完全稳定、不可变更。任何在会话进行中修改系统提示词的行为（包括通过 runtime config、模型切换、技能加载、中间件注入等方式间接改变其内容）都是禁止的。系统提示词内容的任何变化都会导致 Prompt Cache 失效、模型行为漂移，严重影响会话质量。
+
+唯一例外是 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记之后动态区域内的占位符值变化（如日期、cwd），但即使是动态区域，其**结构/模板/段落数量**也必须在会话内保持不变。新增中间件在 `before_agent` 阶段注入 System 消息时，必须确保注入内容和位置跨轮次稳定。
+
 ## Tool Search 延迟加载
 
 非核心工具通过 `SearchExtraTools` 按需发现、`ExecuteExtraTool` 代理执行。核心工具（12 个）：Read/Write/Edit/Glob/Grep/folder_operations/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite。
 
 **[TRAP]** `Box<dyn BaseTool>` 不能直接转 `Arc<dyn BaseTool>`，用 `box_to_arc()` 通过 `ToolWrapper(ManuallyDrop<Box>)` 透传。**绝不能用 `Box::into_raw` + `Arc::from_raw`**——布局不同导致 UB。
 
-**[TRAP]** Prompt Cache 前缀稳定性——通用原则：所有参与缓存前缀的数据（system prompt、tools 数组、消息顺序）必须保证跨请求稳定。具体规则：
+**[TRAP]** Prompt Cache 前缀稳定性——通用原则：所有参与缓存前缀的数据（system prompt、tools 数组、消息顺序）必须保证跨请求稳定。这是实现上述"系统提示词稳定性"原则的技术手段。具体规则：
 
 - （a）system prompt 中用 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔静态/动态内容，标记前可缓存，标记后不缓存
 - （b）优先用 `add_message`（尾部追加）而非 `prepend_message`（头部插入）
@@ -210,7 +216,9 @@ Stdio 路径:
 
 **[TRAP]** `handle_compact_completed` 必须三步清理：① `pipeline.clear()` ② `pipeline.restore_completed(messages)` ③ `RebuildAll { prefix_len: 0 }`。缺少任一步都会导致旧消息残留或 system 消息泄漏到显示。`CompactCompleted` 事件必须携带 `messages: Vec<BaseMessage>`，TUI 用它更新 `agent_state_messages` 和 pipeline。禁止在 TUI 层触发 auto-compact——所有触发判断在 executor 内部。
 
-**[TRAP]** `restore_completed(messages)` 会把 messages 中的 system 消息放入 pipeline 的 completed 列表。compact 后的 messages 以 `BaseMessage::system(summary)` 开头——这是内部状态，不应被渲染。pipeline 的 reconcile 逻辑通过 `build_tail_vms()` 只渲染非 system 类型的消息，但 `round_start_vm_idx` 和 `completed_len_at_round_start` 必须正确设置，否则 view_messages 会泄漏 system 消息。
+**[TRAP]** compact 后消息结构必须以 `BaseMessage::human(summary + continuation)` 开头（与 Claude Code 实现对齐）。禁止将摘要放在 `BaseMessage::system()` 中——LLM 适配器（`messages_to_json`/`messages_to_anthropic`）将 System 消息提取到 system 字段不进入 messages 数组，导致发给 API 的 messages 数组中无 user/assistant 消息，DeepSeek/OpenAI 兼容 API 返回 400。compact 后的完整结构：`[Human(摘要+续接指令), System(文件)..., System(Skills)...]`。此约束适用于 `CompactMiddleware::do_full_compact()` 和 `acp_server::execute_compact()` 两条路径。
+
+**[TRAP]** `restore_completed(messages)` 会把 messages 中的 system 消息放入 pipeline 的 completed 列表。compact 后的 messages 中 re_inject 产生的 System 消息是内部状态，不应被渲染。pipeline 的 reconcile 逻辑通过 `messages_to_view_models` 跳过 System 消息、`build_tail_vms` 用 `rposition(Human)` 定位到摘要 Human 消息作为 reconcile 起点。`round_start_vm_idx` 和 `completed_len_at_round_start` 必须正确设置，否则 view_messages 会泄漏 system 消息。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-20-session-restore-renders-system-prompt）
 
 ## MCP 中间件
 

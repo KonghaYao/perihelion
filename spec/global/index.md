@@ -136,4 +136,4 @@
 - [tools](./domains/tools.md) — 工具系统（输出截断持久化、通用工具基础设施）— 0 features
 
 ---
-*最后更新: 2026-05-18 — Issue 归档 11 个 Fixed issue*
+*最后更新: 2026-05-20 — Issue 归档 12 个 Fixed issue*

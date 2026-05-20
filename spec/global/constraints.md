@@ -11,6 +11,9 @@
 - **数据库:** sqlx 0.8（runtime-tokio + sqlite，SqlitePool 连接池，WAL 模式）
 - **MCP Client:** rmcp 1.6.0（stdio + Streamable HTTP 传输，auth feature 启用 OAuth 2.0）
 - **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic）
+- **Agent Client Protocol:** agent-client-protocol 0.11（JSON-RPC 2.0，ACP 标准协议）
+- **配置同步:** tokio-tungstenite（WebSocket 客户端）+ aes-gcm（AES-256-GCM 加密）+ ring（PBKDF2 密钥派生）+ rmp-serde（MessagePack 序列化）
+- **Relay Server:** Hono.js（HTTP/WebSocket 框架）+ Cloudflare Workers Durable Objects（配对码状态管理）
 - **peri-widgets**（独立 widget crate，BorderedPanel/ScrollableArea/SelectableList/MarkdownRenderer 等 11 组件）
 - **syntect 5**（代码语法高亮，feature flag `markdown-highlight` 控制）
 - **grep 0.4 + grep-regex**（进程内文件内容搜索，替代外部 rg 进程）
@@ -24,12 +27,12 @@
 
 ## 架构决策
 
-- **Workspace 多 crate 分层:** `peri-agent`（核心 lib）→ `peri-middlewares`（中间件 lib）→ `peri-tui`（应用层），禁止下层依赖上层
+- **Workspace 多 crate 分层:** `peri-agent`（核心 lib）→ `peri-middlewares`（中间件 lib）→ `peri-acp`（ACP 服务层）→ `peri-tui`（应用层），禁止下层依赖上层
 - **异步优先:** 所有 IO 密集操作使用 async/await，trait 方法通过 `async-trait` 标注
 - **Middleware Chain 模式:** 横切关注点（HITL、日志、工具提供、prompt 注入）通过 `Middleware<S>` trait 解耦，不侵入核心 ReAct 执行器
 - **工具系统:** `BaseTool` trait 统一工具接口，`ToolProvider` trait 支持批量动态提供，`register_tool` 手动注册优先级最高
 - **消息不可变历史:** `AgentState` 消息列表只追加，不修改历史，保证 LLM 上下文一致性
-- **事件驱动 TUI 通信:** Agent task 与 TUI 渲染线程通过有界 mpsc channel + oneshot 通信，禁止共享可变状态
+- **事件驱动 ACP 通信:** Agent 执行与 TUI 渲染通过 ACP JSON-RPC 2.0 协议通信，MpscTransport（内存通道）用于本地 TUI，StdioTransport 用于 IDE 对接，禁止共享可变状态
 - **线程持久化事件驱动:** 持久化由 `StateSnapshot` 事件触发增量写入，不做全量序列化
 - **Widget 独立 crate:** peri-widgets 零内部依赖，仅依赖 ratatui + pulldown-cmark，TUI 通过 feature flag 引入
 - **权限模式系统:** 5 级 PermissionMode（Default/AcceptEdits/Auto/BypassPermissions/DontAsk），Arc<AtomicU8> 无锁共享，HITL middleware 根据 mode 决定放行/拦截
@@ -65,6 +68,8 @@
 - **HITL 默认拦截清单:** `bash`、`write_*`、`edit_*`、`delete_*`、`rm_*`、`folder_operations`，需明确审批才执行
 - **API Key 安全:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 可通过环境变量或 `~/.peri/settings.json` 的 `env` 字段配置（用户目录配置文件已 gitignore）
 - **SubAgent 防递归:** `Agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
+- **配置同步 E2E 加密:** 配对码 → PBKDF2-SHA256 → AES-256-GCM 端到端加密，Relay Server 只转发密文无法解密
+- **路径穿越防护:** sync 模块使用 `validate_and_resolve()` 三层校验，拒绝绝对路径、ParentDir 穿越、解析后前缀验证
 
 ---
-*最后更新: 2026-05-04 — 由 feature_20260504_F001_sqlx-migration 归档时更新*
+*最后更新: 2026-05-20 — 由 feature_2026-05-18_F001_acp-tui-separation 和 feature_2026-05-17_F001_config-sync 归档时更新*

@@ -785,6 +785,18 @@
 ### 状态同步
 - [ACP 状态变更后不发通知：ConfigOptionUpdate / AvailableCommandsUpdate / SessionInfoUpdate](domains/acp.md#issue_2026-05-19-acp-missing-state-notifications) — acp
 
+### session恢复
+- [Session 恢复后 System Prompt 和 Compact Summary 被渲染为可见消息](domains/message-pipeline.md#issue_2026-05-20-session-restore-renders-system-prompt) — message-pipeline
+
+### System消息过滤
+- [Session 恢复后 System Prompt 和 Compact Summary 被渲染为可见消息](domains/message-pipeline.md#issue_2026-05-20-session-restore-renders-system-prompt) — message-pipeline
+
+### messages_to_view_models
+- [Session 恢复后 System Prompt 和 Compact Summary 被渲染为可见消息](domains/message-pipeline.md#issue_2026-05-20-session-restore-renders-system-prompt) — message-pipeline
+
+### SystemNote泄漏
+- [Session 恢复后 System Prompt 和 Compact Summary 被渲染为可见消息](domains/message-pipeline.md#issue_2026-05-20-session-restore-renders-system-prompt) — message-pipeline
+
 ## 更新记录
 
 - 2026-05-13: 首次创建，归档 22 个 issue，提取 14 条领域认知
@@ -797,3 +809,4 @@
 - 2026-05-17: 补充归档 2 个 Fixed issue（LLM 适配器模块化 + 后台任务竞态）
 - 2026-05-18: 归档 11 个 Fixed issue（agent 1 + tui 4 + acp 1 + langfuse 1 + message-pipeline 1 + plugin 1 + code-architecture 2），13 个新关键词条目
 - 2026-05-20: 归档 7 个 issue，新增 27 个关键词索引
+- 2026-05-20: 归档 1 个 issue，新增 4 个关键词索引（session恢复/System消息过滤/messages_to_view_models/SystemNote泄漏）

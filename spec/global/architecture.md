@@ -6,7 +6,9 @@
 |------|------|------|
 | `peri-agent` | 核心库 | ReAct 执行器、LLM 适配层、Middleware trait、工具系统、消息类型、线程持久化（SQLite + Filesystem）、遥测（OTel） |
 | `peri-middlewares` | 中间件库 | 文件系统、终端、HITL（含 SharedPermissionMode/Auto 分类器）、SubAgent、Skills、SkillPreload、AgentsMd、AgentDefine、Todo、CronMiddleware、MCP（Client 连接池、OAuth 2.0、工具桥接）、grep 进程内搜索 等具体实现 |
-| `peri-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板、Langfuse 追踪 |
+| `peri-acp` | ACP 服务层 | Agent Client Protocol 实现：Session 管理、Agent 构建（Middleware Chain 组装）、事件映射（ExecutorEvent→SessionNotification）、HITL/AskUser 桥接（AcpTransportBroker）、Langfuse 追踪、Hooks、LSP、系统提示词、Provider/Model 解析、上下文压缩执行 |
+| `peri-tui` | 可执行文件 | 基于 ratatui 的交互式 TUI，通过 ACP 协议与 Agent 通信（AcpTuiClient），MessagePipeline 消费 SessionNotification，异步渲染、多会话管理、HITL/AskUser 弹窗、配置面板 |
+| `peri-widgets` | Widget 库 | 独立 UI 组件库，仅依赖 ratatui + pulldown-cmark |
 
 ## Workspace 依赖关系
 
@@ -15,9 +17,11 @@ peri-agent           ← 零内部依赖，纯核心框架
     ↑
 peri-middlewares      ← 依赖 peri-agent
     ↑
+peri-acp              ← 依赖 peri-agent + peri-middlewares + peri-lsp + langfuse-client
+    ↑
 peri-widgets          ← 零内部依赖，仅依赖 ratatui + pulldown-cmark
     ↑
-peri-tui              ← 依赖 peri-widgets + peri-middlewares
+peri-tui              ← 依赖 peri-widgets + peri-acp
 ```
 
 ## 模块划分
@@ -113,69 +117,87 @@ src/
     └── mod.rs            — BoxToolWrapper / ArcToolWrapper 适配器
 ```
 
-### peri-tui 内部模块
+### peri-acp 内部模块
 
 ```
 src/
-├── main.rs               — 入口：CLI 参数解析、terminal 初始化、事件循环、Langfuse flush
-├── app/
-│   ├── mod.rs            — App 结构体：消息列表、loading、弹窗状态、渲染缓存、Langfuse session
-│   ├── agent.rs          — run_universal_agent()：组装 Agent + 中间件链 + event handler
-│   ├── events.rs         — TUI 层 AgentEvent（包装核心 AgentEvent + Done/Error/Approval 等 TUI 专有事件）
-│   ├── message_pipeline.rs — MessagePipeline 统一消息管线
-│   ├── text_selection.rs — TextSelection 鼠标文字选区
-│   ├── hitl.rs           — ApprovalEvent / BatchApprovalRequest 定义
-│   ├── hitl_prompt.rs    — HitlBatchPrompt 弹窗状态（工具名/参数/选中项/滚动）
-│   ├── hitl_ops.rs       — HITL 弹窗操作逻辑（confirm/navigate/edit）
-│   ├── ask_user_prompt.rs — AskUserBatchPrompt 弹窗状态
-│   ├── ask_user_ops.rs   — AskUser 弹窗操作逻辑
-│   ├── model_panel.rs    — /model 面板状态（三 Tab: AliasConfig/Browse/Edit）
-│   ├── agent_panel.rs    — /agents 面板状态（SubAgent 定义管理）
-│   ├── provider.rs       — Provider/Model 运行时管理
-│   ├── tool_display.rs   — 工具调用显示格式化（颜色 + 路径缩短）
-│   ├── panel_ops.rs      — 通用面板操作（打开/关闭/导航）
-│   ├── thread_ops.rs     — 线程操作（新建/打开/删除会话）
-│   ├── agent_ops.rs      — Agent 启动/停止操作
-│   ├── hint_ops.rs       — Skills 提示浮层操作（# 触发）
-│   └── login_panel.rs    — /login 面板（Provider CRUD）
-├── ui/
-│   ├── main_ui.rs        — 主 render() 入口：区域布局 + 分发到子组件
-│   ├── main_ui/
-│   │   ├── status_bar.rs — 底部状态栏（模型名/cwd/loading/token 计数）
-│   │   ├── panels/       — 侧边面板渲染
-│   │   │   ├── model.rs  — /model 面板 UI
-│   │   │   ├── agent.rs  — /agents 面板 UI
-│   │   │   └── thread_browser.rs — /history 面板 UI
-│   │   └── popups/       — 模态弹窗渲染
-│   │       ├── hitl.rs   — HITL 审批弹窗
-│   │       ├── ask_user.rs — AskUser 问答弹窗
-│   │       └── hints.rs  — Skills 提示浮层
-│   ├── message_render.rs — 消息行渲染（Markdown 解析、代码高亮、工具折叠）
-│   ├── message_view.rs   — MessageViewModel / ContentBlockView（渲染中间层）
-│   ├── markdown.rs       — pulldown-cmark → ratatui Spans 转换
-│   ├── render_thread.rs  — 独立渲染线程（RenderCache + Notify 驱动，零 sleep）
-│   └── headless.rs       — Headless 测试模式（TestBackend + render_notify 同步）
+├── lib.rs                — 模块入口
+├── transport/
+│   ├── mod.rs            — AcpTransport trait（MpscTransport/StdioTransport）
+│   └── event_sink.rs     — EventSink trait + TransportEventSink/StdioEventSink
+├── session/
+│   ├── mod.rs            — Session 管理（SessionManager + SessionState）
+│   ├── executor.rs       — execute_prompt() 共享 Agent 执行管线
+│   ├── compact_runner.rs — run_full_compact()/run_micro_compact()
+│   └── state_builders.rs — ACP 协议状态构建器（modes/models/configOptions）
+├── agent/
+│   └── builder.rs        — build_agent()：组装 Middleware Chain + LLM + 工具
+├── broker.rs             — AcpTransportBroker（实现 UserInteractionBroker，HITL/AskUser 桥接）
+├── dispatch.rs           — ACP 请求分发（session/new/prompt/set_model/set_mode 等）
+├── event.rs              — ExecutorEvent → SessionNotification 事件映射
 ├── langfuse/
-│   ├── config.rs         — LangfuseConfig（从环境变量读取 LANGFUSE_* 配置）
-│   ├── session.rs        — LangfuseSession（Thread 级别，持有 client + batcher + session_id）
-│   └── tracer.rs         — LangfuseTracer（Turn 级别，Trace/Generation/Span 上报）
+│   └── mod.rs            — Langfuse 追踪（Session/Tracer）
+├── hooks/
+│   └── mod.rs            — Hooks 系统集成
+├── lsp/
+│   └── mod.rs            — LSP 中间件集成
+├── prompt/
+│   └── mod.rs            — 系统提示词构建
+├── provider/
+│   └── mod.rs            — Provider/Model 解析
+└── features.rs           — PromptFeatures + GitAttribution
+```
+
+### peri-tui 内部模块（更新后）
+
+```
+src/
+├── main.rs               — 入口：CLI 参数解析、terminal 初始化、事件循环
+├── acp_client/
+│   └── client.rs         — AcpTuiClient：TUI 端 ACP 封装（new_session/prompt/compact/set_model/cancel 等）
+├── acp_server/
+│   ├── mod.rs            — ACP Server 配置（SessionState/AcpServerConfig）
+│   ├── requests.rs       — handle_request()：处理 session/new/prompt/compact 等 ACP 请求
+│   ├── prompt.rs         — TUI 侧 prompt 执行入口，委托 executor::execute_prompt()
+│   ├── compact.rs        — 手动 compact 入口
+│   └── notify.rs         — 通知推送
+├── app/
+│   ├── mod.rs            — App 结构体
+│   ├── agent.rs          — map_executor_event()：ExecutorEvent → AgentEvent 映射
+│   ├── agent_ops/        — Agent 事件处理（acp_bridge/lifecycle/subagent/polling）
+│   ├── agent_submit.rs   — submit_message()
+│   ├── agent_compact.rs  — TUI 侧 compact UI 处理
+│   ├── message_pipeline/ — MessagePipeline 统一消息管线
+│   ├── text_selection.rs — TextSelection 鼠标文字选区
+│   ├── hitl.rs           — 审批/HITL 弹窗
+│   ├── ask_user.rs       — AskUser 弹窗
+│   ├── model_panel.rs    — /model 面板
+│   ├── provider.rs       — Provider/Model 配置管理
+│   ├── thread_ops.rs     — 线程操作
+│   └── ...
+├── ui/
+│   ├── main_ui.rs        — 主渲染入口
+│   ├── message_render.rs — 消息行渲染
+│   ├── message_view.rs   — MessageViewModel
+│   └── render_thread.rs  — 独立渲染线程
+├── sync/                 — 配置同步模块
+│   ├── mod.rs            — 入口
+│   ├── protocol.rs       — WS 消息协议
+│   ├── crypto.rs         — PBKDF2 + AES-256-GCM
+│   ├── packer.rs         — SyncPackage 序列化
+│   ├── scanner.rs        — 配置扫描
+│   ├── writer.rs         — 文件写入 + 路径防护
+│   ├── sender.rs         — sender 模式
+│   ├── receiver.rs       — receiver 模式
+│   └── ui.rs             — CLI 交互
 ├── config/
-│   ├── store.rs          — PeriConfig：~/.peri/settings.json 读写
-│   └── types.rs          — 配置类型定义（Provider/Model）
-├── thread/
-│   ├── mod.rs            — ThreadStore re-export
-│   └── browser.rs        — ThreadBrowser 线程历史浏览状态
+│   ├── store.rs          — PeriConfig
+│   └── types.rs          — 配置类型
 ├── command/
-│   ├── mod.rs            — CommandRegistry + 命令分发
-│   ├── model.rs          — /model 命令处理
-│   ├── history.rs        — /history 命令处理
-│   ├── agents.rs         — /agents 命令处理
-│   ├── compact.rs        — /compact 命令处理
-│   ├── clear.rs          — /clear 命令处理
-│   ├── help.rs           — /help 命令处理
-│   └── agent.rs          — agent 相关命令
-├── event.rs              — crossterm 事件适配（键盘/鼠标/粘贴 → Action 枚举）
-└── prompt.rs             — 系统提示词构建（段落化 sections/ + PromptFeatures 条件注入）
+│   ├── mod.rs            — CommandRegistry
+│   └── ...
+├── event.rs              — crossterm 事件适配
+└── prompt.rs             — 系统提示词构建（已废弃，迁移到 peri-acp）
 ```
 
 ## 事件系统
@@ -238,34 +260,24 @@ chain.after_agent(state, output)
 AgentOutput（最终结果）
 ```
 
-### TUI 异步通信
+### TUI/ACP 通信
 
 ```
-submit_message()
-  ├─ mpsc(32): AgentEvent channel ──→ agent task
-  │                                       └─ run_universal_agent() 产生事件
-  │                                       └─ emit → tx.try_send(AgentEvent)
-  │  ← poll_agent() 每帧 try_recv ←──────
-  │       ToolStart/TextChunk → 追加 view_messages[]
-  │       ApprovalNeeded      → app.hitl_prompt = Some(...)  [break]
-  │       AskUserBatch        → app.ask_user_prompt = Some(...) [break]
-  │       Done/Error          → set_loading(false), agent_rx=None
-  │       LlmCallStart/End   → LangfuseTracer 上报 Generation
-  │
-  ├─ mpsc(4): ApprovalEvent channel ──→ 转发 task
-  │    ApprovalEvent::Batch      → YOLO: 直接 response_tx.send(Approve×N)
-  │                                非YOLO: tx.send(AgentEvent::ApprovalNeeded)
-  │    ApprovalEvent::AskUserBatch → tx.send(AgentEvent::AskUserBatch)  [始终转发]
-  │
-  └─ oneshot: 弹窗确认后
-       hitl_confirm()     → response_tx.send(decisions)
-       ask_user_confirm() → response_tx.send(answers)
+TUI 路径:
+  TUI 输入 → AcpTuiClient.new_session() / .prompt()
+           → MpscClientTransport.send_request/notification()
+           → MpscServerTransport.recv() (ACP Server, tokio::spawn)
+           → acp_server::requests::handle_request() → executor::execute_prompt()
+           → build_agent() → agent.execute()
+           → ExecutorEvent → TransportEventSink.push_event()
+             → peri/agent_event (TUI) + session/update (标准ACP)
+           → AcpTuiClient.pump_notifications() → AgentEvent
+           → MessagePipeline → View Models → Render
 
-渲染管道：
-  render_thread（独立线程）
-    ← RenderEvent::Update 触发 → 更新 RenderCache（parking_lot::RwLock）
-  主线程
-    ← poll 超时 / 用户事件 → 读 RenderCache → terminal.draw()
+Stdio 路径:
+  SDK on_receive_request("session/prompt")
+    → executor::execute_prompt() + StdioEventSink
+    → ExecutorEvent → SessionNotification → stdout JSON-RPC
 ```
 
 ### Langfuse 追踪层次
@@ -295,6 +307,30 @@ LlmCallEnd 携带 usage
   → Full Compact: LLM 生成 9 段摘要替换历史
   → re_inject: 重新注入最近文件 + Skills
 ```
+
+### 配置同步流程
+
+```
+Sender                           Relay                          Receiver
+  │                                │                                │
+  │── request_pair ───────────────►│                                │
+  │◄── pair_created("482917") ─────│                                │
+  │   显示: 配对码 482917          │                                │
+  │                                │◄── join_pair("482917") ────────│
+  │◄── pair_joined ────────────────│─── pair_joined ───────────────►│
+  │                                │                                │
+  │   (等待选择)                    │                                │
+  │                                │◄── sync_config({items}) ───────│
+  │◄── sync_config({items}) ───────│   receiver 选择同步项 → confirm │
+  │                                │                                │
+  │   展示传输清单 → 打包加密        │                                │
+  │── data_chunk(encrypted) ──────►│── data_chunk(encrypted) ──────►│
+  │── data_chunk(encrypted) ──────►│── data_chunk(encrypted) ──────►│
+  │── transfer_complete ──────────►│── transfer_complete ──────────►│
+  │   ✅ 传输完成                   │              解密 → 解压 → 写入  │
+```
+
+Relay Server 为 Hono.js + Cloudflare Durable Objects 无状态密文转发，配对码 6 位数字/5 分钟过期/一次性使用。同步客户端通过 `peri sync sender/receiver` 子命令交互，使用 crossterm CLI 界面。
 
 ## 中间件链执行顺序
 
@@ -334,6 +370,7 @@ LlmCallEnd 携带 usage
 | SQLite | 本地文件 | — | `~/.peri/threads/threads.db` |
 | OpenTelemetry Collector | HTTP OTLP Proto | — | `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Langfuse | HTTPS REST | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | `LANGFUSE_HOST`（默认 cloud） |
+| Relay Server (Sync) | WebSocket | 配对码（PBKDF2 派生 AES 密钥） | `ws://localhost:8080`（可配置） |
 
 ## 部署拓扑
 
@@ -359,4 +396,4 @@ peri-agent（tracing spans）
 ```
 
 ---
-*最后更新: 2026-05-04 — 由 feature_20260504_F001_sqlx-migration 归档时更新*
+*最后更新: 2026-05-20 — 由 feature_2026-05-18_F001_acp-tui-separation 和 feature_2026-05-17_F001_config-sync 归档时更新*
