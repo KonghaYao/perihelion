@@ -210,6 +210,38 @@ fn inject_env_from_settings() {
     }
 }
 
+/// 从指定路径或 JSON 字符串加载额外 settings 并合并到环境变量
+fn inject_settings_override(source: &str) {
+    let json_str = if std::path::Path::new(source).exists() {
+        match std::fs::read_to_string(source) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("警告: 无法读取 settings 文件 '{}': {e}", source);
+                return;
+            }
+        }
+    } else {
+        source.to_string()
+    };
+
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) else {
+        eprintln!("警告: --settings 内容不是有效的 JSON");
+        return;
+    };
+
+    if let Some(env_obj) = json.get("config").and_then(|c| c.get("env")) {
+        if let Some(env_map) = env_obj.as_object() {
+            for (key, value) in env_map {
+                if let Some(value_str) = value.as_str() {
+                    if std::env::var(key).is_err() {
+                        std::env::set_var(key, value_str);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
@@ -240,7 +272,20 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
-        None => run_tui(cli.approve),
+        None => run_tui(TuiOptions {
+            approve: cli.approve,
+            permission_mode: cli.permission_mode,
+            skip_permissions: cli.skip_permissions,
+            model: cli.model,
+            effort: cli.effort,
+            continue_session: cli.cont,
+            resume_session: cli.resume.and_then(|o| o),
+            session_id: cli.session_id,
+            session_name: cli.session_name,
+            settings: cli.settings,
+            allowed_tools: cli.allowed_tools.unwrap_or_default(),
+            disallowed_tools: cli.disallowed_tools.unwrap_or_default(),
+        }),
         Some(Commands::Acp {
             cwd,
             model: _,
@@ -303,9 +348,34 @@ fn main() -> Result<()> {
 
 // ─── TUI 模式 ──────────────────────────────────────────────────────────────
 
-fn run_tui(approve: bool) -> Result<()> {
-    if approve {
+/// TUI 模式启动选项
+struct TuiOptions {
+    approve: bool,
+    permission_mode: Option<String>,
+    skip_permissions: bool,
+    model: Option<String>,
+    effort: Option<String>,
+    continue_session: bool,
+    resume_session: Option<String>,
+    session_id: Option<String>,
+    session_name: Option<String>,
+    settings: Option<String>,
+    allowed_tools: Vec<String>,
+    disallowed_tools: Vec<String>,
+}
+
+fn run_tui(opts: TuiOptions) -> Result<()> {
+    // --settings 覆盖
+    if let Some(ref settings_path) = opts.settings {
+        inject_settings_override(settings_path);
+    }
+
+    if opts.approve {
         std::env::set_var("YOLO_MODE", "false");
+    }
+
+    if opts.skip_permissions {
+        std::env::set_var("YOLO_MODE", "true");
     }
 
     // 在创建 tokio runtime 之前初始化 tracing，确保 reqwest::blocking::Client
@@ -331,7 +401,7 @@ fn run_tui(approve: bool) -> Result<()> {
         let mut terminal = Terminal::new(backend)?;
 
         // 运行应用
-        let result = run_app(&mut terminal).await;
+        let result = run_app(&mut terminal, &opts).await;
 
         // 恢复终端
         disable_raw_mode()?;
@@ -358,13 +428,38 @@ fn run_tui(approve: bool) -> Result<()> {
     Ok(())
 }
 
-async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+async fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    tui_opts: &TuiOptions,
+) -> Result<()> {
     let mut app = App::new().await;
 
     // 根据环境变量/CLI 参数设置初始权限模式
     {
         use peri_middlewares::prelude::PermissionMode;
-        let initial_mode = if std::env::var("YOLO_MODE")
+        let initial_mode = if tui_opts.skip_permissions {
+            PermissionMode::Bypass
+        } else if let Some(ref mode_str) = tui_opts.permission_mode {
+            match mode_str.as_str() {
+                "bypass" => PermissionMode::Bypass,
+                "default" => PermissionMode::Default,
+                "dont-ask" => PermissionMode::DontAsk,
+                "accept-edit" => PermissionMode::AcceptEdit,
+                "auto-mode" => PermissionMode::AutoMode,
+                _ => {
+                    if std::env::var("YOLO_MODE")
+                        .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
+                        .unwrap_or(true)
+                    {
+                        PermissionMode::Bypass
+                    } else {
+                        PermissionMode::Default
+                    }
+                }
+            }
+        } else if tui_opts.approve {
+            PermissionMode::Default
+        } else if std::env::var("YOLO_MODE")
             .map(|v| !v.eq_ignore_ascii_case("false") && v != "0")
             .unwrap_or(true)
         {
@@ -373,6 +468,22 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             PermissionMode::Default
         };
         app.services.permission_mode.store(initial_mode);
+    }
+
+    // --model 覆盖
+    if let Some(ref model_str) = tui_opts.model {
+        if let Some(ref config) = app.services.peri_config {
+            if let Some(new_provider) =
+                peri_tui::app::agent::LlmProvider::from_config_for_alias(config, model_str)
+            {
+                tracing::info!(model = %new_provider.model_name(), "CLI --model 覆盖生效");
+            }
+        }
+    }
+
+    // 会话恢复骨架
+    if tui_opts.continue_session || tui_opts.resume_session.is_some() {
+        tracing::info!("会话恢复功能尚未完全实现");
     }
 
     // 检测是否需要 Setup 向导
