@@ -23,18 +23,81 @@ use std::sync::Arc;
 
 mod acp_stdio;
 mod cli_args;
+mod cli_plugin;
 
 // ─── CLI 定义 ──────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
 #[command(name = "peri", version, about = "Peri AI Agent")]
 struct Cli {
+    // ── 向后兼容 ──
     /// 向后兼容，无操作（YOLO 已是默认行为）
     #[arg(short = 'y', long = "yolo")]
     yolo: bool,
-    /// 启用 HITL 审批模式
+    /// 启用 HITL 审批模式（等同 --permission-mode default）
     #[arg(short = 'a', long = "approve")]
     approve: bool,
+
+    // ── 非交互模式 ──
+    /// 非交互模式：输出响应后退出
+    #[arg(short = 'p', long = "print")]
+    print: Option<Option<String>>,
+    /// 输出格式：text / json / stream-json（需 -p）
+    #[arg(long = "output-format", visible_alias = "outputFormat")]
+    output_format: Option<String>,
+    /// 最大 agentic 轮数（需 -p）
+    #[arg(long = "max-turns", visible_alias = "maxTurns")]
+    max_turns: Option<u32>,
+    /// 极简模式：跳过 hooks/LSP/插件等初始化（需 -p）
+    #[arg(long = "bare")]
+    bare: bool,
+
+    // ── 权限与安全 ──
+    /// 权限模式：bypass / default / dont-ask / accept-edit / auto-mode
+    #[arg(long = "permission-mode", visible_alias = "permissionMode")]
+    permission_mode: Option<String>,
+    /// 绕过所有权限检查（仅限沙箱环境）
+    #[arg(long = "dangerously-skip-permissions")]
+    skip_permissions: bool,
+
+    // ── 模型与推理 ──
+    /// 指定模型（别名如 sonnet 或全名）
+    #[arg(long = "model")]
+    model: Option<String>,
+    /// 推理强度：low / medium / high / max
+    #[arg(long = "effort")]
+    effort: Option<String>,
+
+    // ── 会话与对话 ──
+    /// 继续当前目录最近的对话
+    #[arg(short = 'c', long = "continue")]
+    cont: bool,
+    /// 按 session ID 恢复对话
+    #[arg(short = 'r', long = "resume")]
+    resume: Option<Option<String>>,
+    /// 指定会话 ID（必须是有效 UUID）
+    #[arg(long = "session-id", visible_alias = "sessionId")]
+    session_id: Option<String>,
+    /// 设置会话显示名称
+    #[arg(short = 'n', long = "name")]
+    session_name: Option<String>,
+    /// 禁用会话持久化（需 -p）
+    #[arg(long = "no-session-persistence")]
+    no_session_persistence: bool,
+
+    // ── 工具控制 ──
+    /// 允许的工具列表（如 "Bash(git:*)" "Edit"）
+    #[arg(long = "allowedTools", visible_alias = "allowed-tools")]
+    allowed_tools: Option<Vec<String>>,
+    /// 禁止的工具列表
+    #[arg(long = "disallowedTools", visible_alias = "disallowed-tools")]
+    disallowed_tools: Option<Vec<String>>,
+
+    // ── 配置 ──
+    /// 加载额外 settings 文件或 JSON 字符串
+    #[arg(long = "settings")]
+    settings: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -49,7 +112,7 @@ enum Commands {
         /// 模型名称/别名
         #[arg(long)]
         model: Option<String>,
-        /// Agent 类型（从 .claude/agents/ 中选择，如 code-reviewer、explorer）
+        /// Agent 类型（从 .claude/agents/ 中选择）
         #[arg(short = 'g', long)]
         agent: Option<String>,
     },
@@ -63,6 +126,11 @@ enum Commands {
         #[arg(long, default_value = "wss://peri-sync.claude-code-best.win")]
         server: String,
     },
+    /// 插件管理
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -71,6 +139,32 @@ enum SyncAction {
     Sender,
     /// 从远端设备接收配置
     Receiver,
+}
+
+#[derive(Subcommand)]
+enum PluginAction {
+    /// 列出已安装的插件
+    List {
+        /// JSON 输出
+        #[arg(long)]
+        json: bool,
+    },
+    /// 安装插件
+    Install {
+        /// 插件名称（格式: name@marketplace）
+        plugin: String,
+        /// 安装范围：user / project / local
+        #[arg(short = 's', long, default_value = "user")]
+        scope: String,
+    },
+    /// 卸载插件
+    Uninstall {
+        /// 插件 ID（格式: name@marketplace）
+        plugin: String,
+        /// 卸载范围（不指定则从所有范围移除）
+        #[arg(short = 's', long)]
+        scope: Option<String>,
+    },
 }
 
 // ─── 环境变量注入 ──────────────────────────────────────────────────────────
@@ -164,6 +258,22 @@ fn main() -> Result<()> {
             .map_err(|e| {
                 eprintln!("Sync failed: {e:#}");
                 std::process::exit(1);
+            })
+        }
+        Some(Commands::Plugin { action }) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(async {
+                match action {
+                    PluginAction::List { json } => cli_plugin::run_plugin_list(json),
+                    PluginAction::Install { plugin, scope } => {
+                        cli_plugin::run_plugin_install(&plugin, &scope).await
+                    }
+                    PluginAction::Uninstall { plugin, scope } => {
+                        cli_plugin::run_plugin_uninstall(&plugin, scope.as_deref()).await
+                    }
+                }
             })
         }
     }
