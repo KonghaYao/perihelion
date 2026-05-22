@@ -10,4 +10,3 @@ clap = { version = "4", features = ["derive"] }
 chrono = "0.4"
 regex = "1"
 comfy-table = "7"
-colored = "2"

@@ -45,7 +45,7 @@ pub fn render_table(stats: &[PersonStats]) {
             Cell::new(s.deleted_lines).fg(comfy_table::Color::Red),
             Cell::new(s.files_touched),
             Cell::new(s.feat).fg(comfy_table::Color::Green),
-            Cell::new(s.fix).fg(comfy_table::Color::Yellow),
+            Cell::new(s.fix).fg(comfy_table::Color::Magenta),
             Cell::new(s.refactor_).fg(comfy_table::Color::Blue),
             Cell::new(s.chore),
             Cell::new(s.docs),
