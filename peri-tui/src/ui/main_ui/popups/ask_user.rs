@@ -32,7 +32,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
         .border_style(Style::default().fg(theme::THINKING))
         .render(f, area);
 
-    // ── header 行：每个问题一个 tab，已确认 ✔ 未确认 ☐ ──────────────────────
+    // ── header 行：每个问题一个 tab，已确认 ✔ 未确认 ☐ ─────────────────────
     let header_area = Rect { height: 1, ..inner };
     let labels: Vec<String> = prompt
         .questions
@@ -84,6 +84,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
         ..inner
     };
     let mut lines: Vec<Line> = Vec::new();
+    let mut option_row_map: Vec<u16> = Vec::new();
 
     // 问题文本
     for l in cur.data.question.lines() {
@@ -98,6 +99,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let multi = cur.data.multi_select;
     let option_count = cur.data.options.len();
     for (i, opt) in cur.data.options.iter().enumerate() {
+        option_row_map.push(lines.len() as u16);
         let is_cursor = !cur.in_custom_input && cur.option_cursor == i as isize;
         let is_selected = cur.selected.get(i).copied().unwrap_or(false);
         let num = i + 1;
@@ -180,6 +182,10 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     app.session_mgr.sessions[app.session_mgr.active]
         .ui
         .panel_scrollbar_metrics = metrics;
+    // 存储面板区域供鼠标事件路由
+    app.session_mgr.sessions[app.session_mgr.active]
+        .ui
+        .panel_area = Some(area);
     if let Some(crate::app::InteractionPrompt::Questions(p)) = app.session_mgr.sessions
         [app.session_mgr.active]
         .agent
@@ -187,5 +193,6 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
         .as_mut()
     {
         p.scrollbar_metrics = metrics;
+        p.option_row_map = option_row_map;
     }
 }

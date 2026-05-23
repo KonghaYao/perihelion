@@ -97,7 +97,11 @@ pub struct AskUserBatchPrompt {
     /// 内容滚动偏移
     pub scroll_offset: u16,
     /// 渲染时存储的滚动条几何信息���供事件交互使用
+    /// 渲染时存储的滚动条几何信息，供事件交互使用
     pub scrollbar_metrics: Option<peri_widgets::ScrollbarMetrics>,
+    /// 渲染时构建的选项→行号映射，供滚动定位使用
+    /// option_row_map[i] = 选项 i 在渲染内���中的起始行号
+    pub option_row_map: Vec<u16>,
 }
 
 impl AskUserBatchPrompt {
@@ -111,6 +115,7 @@ impl AskUserBatchPrompt {
             response_tx: req.response_tx,
             scroll_offset: 0,
             scrollbar_metrics: None,
+            option_row_map: Vec::new(),
         }
     }
 

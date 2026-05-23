@@ -31,9 +31,18 @@ impl App {
             .as_mut()
         {
             p.current().move_option_cursor(delta);
-            // 光标跟随滚动
-            let cursor_row = p.current().option_cursor.max(0) as u16;
-            p.scroll_offset = ensure_cursor_visible(cursor_row, p.scroll_offset, 10);
+            // 光标跟随滚动：用渲染时构建的实际行号映射
+            let cursor_opt = p.current().option_cursor.max(0) as usize;
+            let cursor_row = p
+                .option_row_map
+                .get(cursor_opt)
+                .copied()
+                .unwrap_or_default();
+            let visible_h = p
+                .scrollbar_metrics
+                .map(|m| m.bar_area.height)
+                .unwrap_or(20);
+            p.scroll_offset = ensure_cursor_visible(cursor_row, p.scroll_offset, visible_h);
         }
     }
 
@@ -54,19 +63,7 @@ impl App {
             if let Some(m) = p.scrollbar_metrics {
                 p.scroll_offset = p.scroll_offset.min(m.max_offset);
             }
-            // 同步光标位置到可见区域
-            let visible_h = p
-                .scrollbar_metrics
-                .map(|m| m.bar_area.height)
-                .unwrap_or(10);
-            let cursor_row = p.current().option_cursor.max(0) as u16;
-            if cursor_row < p.scroll_offset {
-                p.current().option_cursor = (p.scroll_offset as isize)
-                    .min(p.current().total_rows() - 1);
-            } else if cursor_row >= p.scroll_offset + visible_h {
-                let new_cursor = (p.scroll_offset + visible_h.saturating_sub(1)) as isize;
-                p.current().option_cursor = new_cursor.min(p.current().total_rows() - 1);
-            }
+            // 光标不随滚动移动——用户用 Up/Down 移动光标，光标移动时自动滚动到可见位置
         }
     }
 
