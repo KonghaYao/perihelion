@@ -34,6 +34,7 @@ pub fn handle_key_event(
     // macOS: Alt as character modifier, Alt+M sends 'µ' without ALT modifier
     if matches!(key_event.code, KeyCode::Char('µ'))
         || (key_event.modifiers.contains(KeyModifiers::ALT)
+            && !key_event.modifiers.contains(KeyModifiers::SHIFT)
             && matches!(key_event.code, KeyCode::Char('m')))
     {
         if let Some(cfg) = app.services.peri_config.as_mut() {
@@ -55,6 +56,44 @@ pub fn handle_key_event(
             app.services.sync_peri_config_to_acp();
             app.global_ui.model_highlight_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+        }
+        return Ok(Some(Action::Redraw));
+    }
+
+    // Alt+Shift+M cycles providers
+    // macOS: Alt+Shift+M sends 'Â' without ALT/SHIFT modifiers
+    if matches!(key_event.code, KeyCode::Char('Â'))
+        || (key_event.modifiers.contains(KeyModifiers::ALT)
+            && key_event.modifiers.contains(KeyModifiers::SHIFT)
+            && matches!(key_event.code, KeyCode::Char('M') | KeyCode::Char('m')))
+    {
+        if let Some(cfg) = app.services.peri_config.as_mut() {
+            let providers = &cfg.config.providers;
+            if providers.len() > 1 {
+                let current_id = cfg.config.active_provider_id.as_str();
+                let idx = providers
+                    .iter()
+                    .position(|p| p.id == current_id)
+                    .unwrap_or(0);
+                let next_idx = (idx + 1) % providers.len();
+                let next_provider = &providers[next_idx];
+                cfg.config.active_provider_id = next_provider.id.clone();
+                // 保持当前 alias，但需要确认新 provider 支持该 alias 的模型
+                if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
+                    app.services.provider_name = p.display_name().to_string();
+                    app.services.model_name = p.model_name().to_string();
+                }
+                if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref())
+                {
+                    app.session_mgr.sessions[app.session_mgr.active]
+                        .messages
+                        .view_messages
+                        .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+                }
+                app.services.sync_peri_config_to_acp();
+                app.global_ui.provider_highlight_until =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
+            }
         }
         return Ok(Some(Action::Redraw));
     }
