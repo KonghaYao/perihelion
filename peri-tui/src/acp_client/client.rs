@@ -99,35 +99,40 @@ impl AcpTuiClient {
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
-                        if let Some(event_value) = params.get("event") {
-                            match serde_json::from_value::<peri_agent::agent::events::AgentEvent>(
+                        // Prefer pre-serialized string (avoids clone + double-deserialize).
+                        // Fall back to old "event" Value field for backward compat during rollout.
+                        let event_result = if let Some(event_str) =
+                            params.get("event_json").and_then(|v| v.as_str())
+                        {
+                            serde_json::from_str::<peri_agent::agent::events::AgentEvent>(event_str)
+                        } else if let Some(event_value) = params.get("event") {
+                            serde_json::from_value::<peri_agent::agent::events::AgentEvent>(
                                 event_value.clone(),
-                            ) {
-                                Ok(event) => {
-                                    debug!(
-                                        event_count = event_count,
-                                        session_id = %session_id,
-                                        "ACP client pump: received agent_event"
-                                    );
-                                    let _ = notification_tx
-                                        .send(AcpNotification::AgentEvent { session_id, event });
-                                }
-                                Err(e) => {
-                                    error!(
-                                        event_count = event_count,
-                                        error = %e,
-                                        event_json = %event_value,
-                                        "ACP client pump: failed to parse AgentEvent — event LOST"
-                                    );
-                                    let _ = notification_tx.send(AcpNotification::Other {
-                                        msg: format!("failed to parse AgentEvent: {e}"),
-                                    });
-                                }
-                            }
+                            )
                         } else {
-                            warn!(
-                                "ACP client pump: agent_event notification missing 'event' field"
-                            );
+                            warn!("ACP client pump: agent_event notification missing 'event_json' or 'event' field");
+                            continue;
+                        };
+                        match event_result {
+                            Ok(event) => {
+                                debug!(
+                                    event_count = event_count,
+                                    session_id = %session_id,
+                                    "ACP client pump: received agent_event"
+                                );
+                                let _ = notification_tx
+                                    .send(AcpNotification::AgentEvent { session_id, event });
+                            }
+                            Err(e) => {
+                                error!(
+                                    event_count = event_count,
+                                    error = %e,
+                                    "ACP client pump: failed to parse AgentEvent — event LOST"
+                                );
+                                let _ = notification_tx.send(AcpNotification::Other {
+                                    msg: format!("failed to parse AgentEvent: {e}"),
+                                });
+                            }
                         }
                     } else if method == "session/update" {
                         let session_id = params

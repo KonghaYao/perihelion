@@ -48,9 +48,9 @@ impl TransportEventSink {
 #[async_trait]
 impl EventSink for TransportEventSink {
     async fn push_event(&self, session_id: &str, event: &ExecutorEvent, context_window: u32) {
-        // 1. peri/agent_event — raw ExecutorEvent JSON for TUI consumption
-        let event_value = match serde_json::to_value(event) {
-            Ok(v) => v,
+        // 1. peri/agent_event — serialize ExecutorEvent to JSON string once
+        let event_json = match serde_json::to_string(event) {
+            Ok(s) => s,
             Err(e) => {
                 error!(error = %e, "EventSink: serialize ExecutorEvent failed");
                 return;
@@ -58,7 +58,7 @@ impl EventSink for TransportEventSink {
         };
         let agent_event_params = json!({
             "sessionId": session_id,
-            "event": event_value,
+            "event_json": event_json,
         });
         if let Err(e) = self
             .transport
