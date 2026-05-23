@@ -8,6 +8,72 @@ use peri_agent::messages::BaseMessage;
 
 use super::Action;
 
+// ---------------------------------------------------------------------------
+// macOS key-binding compatibility layer
+// ---------------------------------------------------------------------------
+// On macOS, the Option (Alt) key acts as a character compose modifier.
+// Terminals emit a composed Unicode character *without* any modifier flags.
+// We maintain a central mapping table so each shortcut only needs to be
+// defined once, keeping the macOS workaround auditable.
+// ---------------------------------------------------------------------------
+
+/// A cross-platform key-binding definition that accounts for macOS Option-key
+/// character composition.
+struct KeyBinding {
+    /// Human-readable label (for status bar / docs).
+    label: &'static str,
+    /// Character produced on macOS when Option (+ optional Shift) is held.
+    macos_char: Option<char>,
+    /// Required modifiers on non-macOS terminals (Linux/Windows).
+    modifiers: KeyModifiers,
+    /// The primary key code (ignoring macOS compose).
+    key: KeyCode,
+}
+
+impl KeyBinding {
+    /// Returns `true` if `key_event` matches this binding on *any* platform.
+    fn matches(&self, key_event: &ratatui::crossterm::event::KeyEvent) -> bool {
+        // macOS path: terminal emits a composed char with no modifiers.
+        if let Some(ch) = self.macos_char {
+            if matches!(key_event.code, KeyCode::Char(c) if c == ch) {
+                return true;
+            }
+        }
+        // Standard path: check modifiers + key code.
+        let mods_ok = key_event.modifiers.contains(self.resolved_modifiers());
+        let key_ok = match (&self.key, &key_event.code) {
+            (KeyCode::Char(a), KeyCode::Char(b)) => a.eq_ignore_ascii_case(b),
+            (a, b) => a == b,
+        };
+        mods_ok && key_ok
+    }
+
+    /// Resolve the actual modifiers needed. bitflags `|` is not const,
+    /// so multi-flag bindings store `KeyModifiers::empty()` and reconstruct here.
+    fn resolved_modifiers(&self) -> KeyModifiers {
+        match self.label {
+            "Alt+Shift+M" => KeyModifiers::ALT | KeyModifiers::SHIFT,
+            _ => self.modifiers,
+        }
+    }
+}
+
+/// Central shortcut registry.  Add new shortcuts here — the `matches()` call
+/// in each handler block is the only site that needs updating.
+static SHORTCUT_CYCLE_MODE: KeyBinding = KeyBinding {
+    label: "Alt+M",
+    macos_char: Some('µ'),
+    modifiers: KeyModifiers::ALT,
+    key: KeyCode::Char('m'),
+};
+
+static SHORTCUT_CYCLE_PROVIDER: KeyBinding = KeyBinding {
+    label: "Alt+Shift+M",
+    macos_char: Some('Â'),
+    modifiers: KeyModifiers::empty(), // resolved_modifiers() returns ALT|SHIFT
+    key: KeyCode::Char('m'),
+};
+
 /// Handles a single key event, dispatching to panels, prompts, textarea, or
 /// application-level shortcuts. Returns an `Action` when a redraw or quit is
 /// needed.
@@ -31,12 +97,7 @@ pub fn handle_key_event(
     }
 
     // Alt+M cycles model aliases (opus → sonnet → haiku → opus)
-    // macOS: Alt as character modifier, Alt+M sends 'µ' without ALT modifier
-    if matches!(key_event.code, KeyCode::Char('µ'))
-        || (key_event.modifiers.contains(KeyModifiers::ALT)
-            && !key_event.modifiers.contains(KeyModifiers::SHIFT)
-            && matches!(key_event.code, KeyCode::Char('m')))
-    {
+    if SHORTCUT_CYCLE_MODE.matches(&key_event) {
         if let Some(cfg) = app.services.peri_config.as_mut() {
             let aliases = ["opus", "sonnet", "haiku"];
             let current = cfg.config.active_alias.as_str();
@@ -61,12 +122,7 @@ pub fn handle_key_event(
     }
 
     // Alt+Shift+M cycles providers
-    // macOS: Alt+Shift+M sends 'Â' without ALT/SHIFT modifiers
-    if matches!(key_event.code, KeyCode::Char('Â'))
-        || (key_event.modifiers.contains(KeyModifiers::ALT)
-            && key_event.modifiers.contains(KeyModifiers::SHIFT)
-            && matches!(key_event.code, KeyCode::Char('M') | KeyCode::Char('m')))
-    {
+    if SHORTCUT_CYCLE_PROVIDER.matches(&key_event) {
         if let Some(cfg) = app.services.peri_config.as_mut() {
             let providers = &cfg.config.providers;
             if providers.len() > 1 {
