@@ -285,7 +285,7 @@ pub enum ContentBlockView {
         /// 原始推理全文（仅用于提取尾部预览，不参与哈希/比较）
         text: String,
         /// 尾部行预览：符合条件时由后处理设置。
-        /// 值为最后 1 行原始文本（不含 ⎿ 前缀）。
+        /// 值为最后 3 行原始文本（不含 �� 前缀）。
         /// None = 不显示尾部预览
         tail_lines: Option<String>,
     },

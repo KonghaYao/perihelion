@@ -214,7 +214,7 @@ pub(crate) fn add_thinking_tail_snapshot(tail_vms: &mut [MessageViewModel]) {
                 text, tail_lines, ..
             }) = blocks.last_mut()
             {
-                let tail = extract_tail_lines(text, 1);
+                let tail = extract_tail_lines(text, 3);
                 if !tail.is_empty() {
                     *tail_lines = Some(tail);
                 }
