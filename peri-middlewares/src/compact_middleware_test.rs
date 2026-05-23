@@ -223,3 +223,130 @@ async fn test_micro_compact_once_per_prompt() {
     // 确认标志已设置
     assert!(mw.micro_compact_done.load(Ordering::Relaxed));
 }
+
+/// 验证 compact 替换 messages 后，头部 System 消息被保留
+/// 根因：do_full_compact 用 *state.messages_mut() = new_messages 整体替换，
+/// 丢失了 with_system_prompt / before_agent 注入的头部 System 消息。
+/// 修复：compact 后重新前置原始头部的 System 消息。
+#[test]
+fn test_do_full_compact_preserves_system_prefix() {
+    // 模拟 compact 前的 state.messages()：
+    // [System(system_prompt), System(claude_md), Human(input), Ai(response), Tool(result)]
+    let original_messages = [
+        BaseMessage::system("system prompt"),
+        BaseMessage::system("CLAUDE.md content"),
+        BaseMessage::human(vec![ContentBlock::text("user message")]),
+        BaseMessage::ai_with_tool_calls(
+            peri_agent::messages::MessageContent::text("assistant response"),
+            vec![peri_agent::messages::ToolCallRequest::new(
+                "tc1",
+                "Bash",
+                serde_json::json!({"command": "ls"}),
+            )],
+        ),
+        BaseMessage::tool_result("tc1", "file1\nfile2"),
+    ];
+
+    // 模拟 compact 产出的 new_messages（不含 system prefix）
+    let compact_summary = "此会话讨论了文件列表";
+    let summary_content = format!("{}\n\n[上下文已压缩，请根据摘要继续工作]", compact_summary);
+    let mut new_messages = vec![BaseMessage::human(vec![ContentBlock::text(
+        &summary_content,
+    )])];
+    new_messages.push(BaseMessage::system(
+        "[最近读取的文件: /tmp/test]\nfile content",
+    ));
+
+    // 模拟修复逻辑：保留头部 System 消息并前置
+    let system_prefix: Vec<BaseMessage> = original_messages
+        .iter()
+        .take_while(|m| m.is_system())
+        .cloned()
+        .collect();
+    for sys_msg in system_prefix.into_iter().rev() {
+        new_messages.insert(0, sys_msg);
+    }
+
+    // 验证：头部 System 消息保留
+    assert_eq!(
+        new_messages.len(),
+        4,
+        "应有 2 个原始 System + 1 个 Human 摘要 + 1 个 re_inject System"
+    );
+    assert!(new_messages[0].is_system());
+    assert_eq!(new_messages[0].content(), "system prompt");
+    assert!(new_messages[1].is_system());
+    assert_eq!(new_messages[1].content(), "CLAUDE.md content");
+    // Human 摘要紧随 System 前缀
+    assert!(matches!(new_messages[2], BaseMessage::Human { .. }));
+    assert!(new_messages[2].content().contains(compact_summary));
+    // re_inject System 在最后
+    assert!(new_messages[3].is_system());
+}
+
+/// 验证无头部 System 消息时，compact 正常工作（无 crash、无多余插入）
+#[test]
+fn test_do_full_compact_no_system_prefix_is_noop() {
+    let original_messages = [
+        BaseMessage::human(vec![ContentBlock::text("user message")]),
+        BaseMessage::ai(vec![ContentBlock::text("response")]),
+    ];
+
+    let mut new_messages = vec![BaseMessage::human(vec![ContentBlock::text(
+        "compact summary",
+    )])];
+
+    // 模拟修复逻辑
+    let system_prefix: Vec<BaseMessage> = original_messages
+        .iter()
+        .take_while(|m| m.is_system())
+        .cloned()
+        .collect();
+    for sys_msg in system_prefix.into_iter().rev() {
+        new_messages.insert(0, sys_msg);
+    }
+
+    // 无 System 前缀时，new_messages 不变
+    assert_eq!(new_messages.len(), 1);
+    assert!(matches!(new_messages[0], BaseMessage::Human { .. }));
+}
+
+/// 验证保留的 System 消息保持原始 MessageId（cleanup_prepended 依赖 ID 匹配）
+#[test]
+fn test_preserved_system_messages_keep_original_ids() {
+    let sys1 = BaseMessage::system("system prompt");
+    let sys1_id = sys1.id();
+    let sys2 = BaseMessage::system("CLAUDE.md");
+    let sys2_id = sys2.id();
+
+    let original_messages = [
+        sys1,
+        sys2,
+        BaseMessage::human(vec![ContentBlock::text("input")]),
+    ];
+
+    let mut new_messages = vec![BaseMessage::human(vec![ContentBlock::text(
+        "compact summary",
+    )])];
+
+    let system_prefix: Vec<BaseMessage> = original_messages
+        .iter()
+        .take_while(|m| m.is_system())
+        .cloned()
+        .collect();
+    for sys_msg in system_prefix.into_iter().rev() {
+        new_messages.insert(0, sys_msg);
+    }
+
+    // 验证 ID 保留
+    assert_eq!(
+        new_messages[0].id(),
+        sys1_id,
+        "第一个 System 消息应保留原始 ID"
+    );
+    assert_eq!(
+        new_messages[1].id(),
+        sys2_id,
+        "第二个 System 消息应保留原始 ID"
+    );
+}

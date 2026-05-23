@@ -225,6 +225,15 @@ impl CompactMiddleware {
         let files = Self::extract_file_info(&re_inject_result.messages);
         let skills = Self::extract_skill_names(&re_inject_result.messages);
 
+        // 保留原始头部 System 消息（with_system_prompt + before_agent 注入）
+        // compact 整体替换 messages 时这些消息会丢失，但它们包含系统提示词、
+        // CLAUDE.md、agent 定义等关键内���，必须在 compact 后重新前置。
+        let system_prefix: Vec<BaseMessage> = messages
+            .iter()
+            .take_while(|m| m.is_system())
+            .cloned()
+            .collect();
+
         // 摘要作为 Human 消息（与 Claude Code 实现对齐）。
         // 原因：LLM 适配器将 System 消息提取到 system 字段，不进入 messages 数组。
         // 若摘要为 System 类型，compact 后 messages 数组可能只有 system 角色消息，
@@ -235,6 +244,11 @@ impl CompactMiddleware {
         );
         let mut new_messages = vec![BaseMessage::human(summary_content)];
         new_messages.extend(re_inject_result.messages.clone());
+
+        // 将系统提示词前缀重新前置到 new_messages 头部
+        for sys_msg in system_prefix.into_iter().rev() {
+            new_messages.insert(0, sys_msg);
+        }
 
         self.send_event(ExecutorEvent::CompactCompleted {
             summary: compact_result.summary.clone(),
