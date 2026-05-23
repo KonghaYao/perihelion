@@ -138,8 +138,14 @@ mod tavily_search_deserialize {
         let resp: serde_json::Value = serde_json::from_str(SAMPLE_SEARCH_RESPONSE).unwrap();
         let results = resp["results"].as_array().unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0]["title"].as_str().unwrap(), "Rust Programming Language");
-        assert_eq!(results[0]["url"].as_str().unwrap(), "https://www.rust-lang.org/");
+        assert_eq!(
+            results[0]["title"].as_str().unwrap(),
+            "Rust Programming Language"
+        );
+        assert_eq!(
+            results[0]["url"].as_str().unwrap(),
+            "https://www.rust-lang.org/"
+        );
         assert!(results[0]["content"].as_str().is_some());
         // score 字段被忽略（不在结构体中）
         assert_eq!(results[1]["content"].as_str(), None);
@@ -190,7 +196,10 @@ mod tavily_extract_deserialize {
         let resp: serde_json::Value = serde_json::from_str(SAMPLE_EXTRACT_RESPONSE).unwrap();
         let results = resp["results"].as_array().unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0]["raw_content"].as_str().unwrap(), "This is the extracted content from the page.");
+        assert_eq!(
+            results[0]["raw_content"].as_str().unwrap(),
+            "This is the extracted content from the page."
+        );
         assert!(resp["failed_results"].as_array().unwrap().is_empty());
     }
 
@@ -207,6 +216,9 @@ mod tavily_extract_deserialize {
     fn test_deserialize_extract_missing_failed_field() {
         // failed_results 字段缺失时应默认为空数组（#[serde(default)]）
         let resp: serde_json::Value = serde_json::from_str(SAMPLE_EXTRACT_NO_FAILED_FIELD).unwrap();
-        assert!(resp.get("failed_results").is_none() || resp["failed_results"].as_array().unwrap().is_empty());
+        assert!(
+            resp.get("failed_results").is_none()
+                || resp["failed_results"].as_array().unwrap().is_empty()
+        );
     }
 }

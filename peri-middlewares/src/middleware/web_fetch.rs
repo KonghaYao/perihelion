@@ -150,7 +150,9 @@ impl BaseTool for WebFetchTool {
             .unwrap_or("");
 
         if raw_content.is_empty() {
-            return Ok(format!("{WEB_CREDIBILITY_WARNING}No content extracted from the URL."));
+            return Ok(format!(
+                "{WEB_CREDIBILITY_WARNING}No content extracted from the URL."
+            ));
         }
 
         let truncated = truncate_content(raw_content, MAX_CONTENT_LINES);

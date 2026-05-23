@@ -73,7 +73,7 @@ lru = "0.18"
 
 # --- Memory ---
 tikv-jemallocator = "0.6"
-tikv-jemalloc-ctl = "0.6"
+tikv-jemalloc-ctl = { version = "0.6", features = ["stats", "use_std"] }
 
 # --- Build ---
 tempfile = "3"

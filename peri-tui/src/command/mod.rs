@@ -13,6 +13,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(core::history::HistoryCommand));
     r.register(Box::new(core::doctor::DoctorCommand));
     r.register(Box::new(core::exit::ExitCommand));
+    r.register(Box::new(core::heapdump::HeapdumpCommand));
     r.register(Box::new(panel::model::ModelCommand));
     r.register(Box::new(panel::plugin::PluginCommand));
     r.register(Box::new(panel::mcp::McpCommand));
