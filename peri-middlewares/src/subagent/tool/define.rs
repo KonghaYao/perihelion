@@ -25,6 +25,20 @@ use super::fire_subagent_lifecycle_hooks_static;
 use super::format_subagent_result;
 use super::SourceAgentIdHandler;
 
+/// RAII guard that calls deregister on drop (panic-safe cleanup).
+struct DeregisterGuard {
+    thread_id: String,
+    deregister: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+}
+
+impl Drop for DeregisterGuard {
+    fn drop(&mut self) {
+        if let Some(ref deregister) = self.deregister {
+            deregister(&self.thread_id);
+        }
+    }
+}
+
 /// SubAgentTool - implements the `Agent` tool, allowing LLM to delegate sub-tasks to specialized sub-agents
 const AGENT_DESCRIPTION: &str = r#"Launch a sub-agent with an independent context to handle a specialized sub-task. The sub-agent executes based on the configuration defined in .claude/agents/{subagent_type}.md or .claude/agents/{subagent_type}/agent.md.
 
@@ -338,12 +352,22 @@ impl SubAgentTool {
         .await;
 
         // Register AgentRuntime: only when thread_store is present (non-legacy path)
-        if let Some(ref register) = self.register_runtime {
-            if self.thread_store.is_some() {
+        // Panic-safe: DeregisterGuard ensures deregister runs on drop (panic or early return)
+        let _deregister_guard = if self.thread_store.is_some() {
+            if let Some(ref register) = self.register_runtime {
                 let child_cancel = AgentCancellationToken::new();
                 register(child_thread_id.clone(), child_cancel, "cascade".to_string());
             }
-        }
+            DeregisterGuard {
+                thread_id: child_thread_id.clone(),
+                deregister: self.deregister_runtime.clone(),
+            }
+        } else {
+            DeregisterGuard {
+                thread_id: child_thread_id.clone(),
+                deregister: None,
+            }
+        };
 
         let fork_result = agent_builder
             .execute(
@@ -384,11 +408,6 @@ impl SubAgentTool {
                 if let Some(ref store) = self.thread_store {
                     let _ = store.update_thread_status(&child_thread_id, "done").await;
                 }
-                if let Some(ref deregister) = self.deregister_runtime {
-                    if self.thread_store.is_some() {
-                        deregister(&child_thread_id);
-                    }
-                }
                 let result_text = format_subagent_result(&output);
                 if self.thread_store.is_some() {
                     Ok(format!(
@@ -405,21 +424,11 @@ impl SubAgentTool {
                         .update_thread_status(&child_thread_id, "cancelled")
                         .await;
                 }
-                if let Some(ref deregister) = self.deregister_runtime {
-                    if self.thread_store.is_some() {
-                        deregister(&child_thread_id);
-                    }
-                }
                 Ok("Fork sub-agent execution was interrupted".to_string())
             }
             Err(e) => {
                 if let Some(ref store) = self.thread_store {
                     let _ = store.update_thread_status(&child_thread_id, "error").await;
-                }
-                if let Some(ref deregister) = self.deregister_runtime {
-                    if self.thread_store.is_some() {
-                        deregister(&child_thread_id);
-                    }
                 }
                 let msg = format!("Fork sub-agent execution failed: {}", e);
                 Err(msg.into())
@@ -1088,12 +1097,22 @@ impl BaseTool for SubAgentTool {
         .await;
 
         // Register AgentRuntime: only when thread_store is present (non-legacy path)
-        if let Some(ref register) = self.register_runtime {
-            if self.thread_store.is_some() {
+        // Panic-safe: DeregisterGuard ensures deregister runs on drop (panic or early return)
+        let _deregister_guard = if self.thread_store.is_some() {
+            if let Some(ref register) = self.register_runtime {
                 let child_cancel = AgentCancellationToken::new();
                 register(child_thread_id.clone(), child_cancel, "cascade".to_string());
             }
-        }
+            DeregisterGuard {
+                thread_id: child_thread_id.clone(),
+                deregister: self.deregister_runtime.clone(),
+            }
+        } else {
+            DeregisterGuard {
+                thread_id: child_thread_id.clone(),
+                deregister: None,
+            }
+        };
 
         tracing::info!(
             "[DEADLOCK] SubAgentTool: START child execute, agent_id={}, prompt_len={}",
@@ -1142,11 +1161,6 @@ impl BaseTool for SubAgentTool {
                 if let Some(ref store) = self.thread_store {
                     let _ = store.update_thread_status(&child_thread_id, "done").await;
                 }
-                if let Some(ref deregister) = self.deregister_runtime {
-                    if self.thread_store.is_some() {
-                        deregister(&child_thread_id);
-                    }
-                }
                 let result_text = format_subagent_result(&output);
                 if self.thread_store.is_some() {
                     Ok(format!(
@@ -1164,21 +1178,11 @@ impl BaseTool for SubAgentTool {
                         .update_thread_status(&child_thread_id, "cancelled")
                         .await;
                 }
-                if let Some(ref deregister) = self.deregister_runtime {
-                    if self.thread_store.is_some() {
-                        deregister(&child_thread_id);
-                    }
-                }
                 Ok("Sub-agent execution was interrupted".to_string())
             }
             Err(e) => {
                 if let Some(ref store) = self.thread_store {
                     let _ = store.update_thread_status(&child_thread_id, "error").await;
-                }
-                if let Some(ref deregister) = self.deregister_runtime {
-                    if self.thread_store.is_some() {
-                        deregister(&child_thread_id);
-                    }
                 }
                 let msg = format!("Sub-agent execution failed: {}", e);
                 Err(msg.into())
