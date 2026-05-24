@@ -134,6 +134,24 @@ impl AgentState {
     pub fn set_context(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.context.insert(key.into(), value.into());
     }
+
+    /// 使用 ThreadStore 的 load_context 构建完整上下文（含祖先快照）
+    pub async fn with_thread_context(
+        thread_id: ThreadId,
+        store: Arc<dyn ThreadStore>,
+    ) -> anyhow::Result<Self> {
+        let meta = store.load_meta(&thread_id).await?;
+        let messages = store.load_context(&thread_id).await?;
+        Ok(Self::new(&meta.cwd)
+            .with_messages_from(messages)
+            .with_persistence(store, thread_id))
+    }
+
+    /// 从已有消息列表填充（内部辅助）
+    fn with_messages_from(mut self, messages: Vec<BaseMessage>) -> Self {
+        self.messages = messages;
+        self
+    }
 }
 
 impl State for AgentState {
