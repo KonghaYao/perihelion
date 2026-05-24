@@ -114,6 +114,7 @@ fn meta_from_row(
         updated_at: updated_at.parse::<DateTime<Utc>>()?,
         message_count: message_count as usize,
         content_size: content_size as u64,
+        ..ThreadMeta::default_for_db()
     })
 }
 
