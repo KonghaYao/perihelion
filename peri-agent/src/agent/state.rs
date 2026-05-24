@@ -34,6 +34,11 @@ pub trait State: Send + Sync + Clone + 'static {
 
     /// Drain all recall items (one-time consumption).
     fn drain_recall(&mut self) -> Vec<String>;
+
+    /// messages[..ancestor_len] = 只读祖先消息（compact 边界）
+    fn ancestor_len(&self) -> usize {
+        0
+    }
 }
 
 /// 基础 Agent 状态（与 TypeScript BaseAgentStateType 对齐）
@@ -59,6 +64,9 @@ pub struct AgentState {
     /// 不随 session 持久化，仅存活于当前会话生命周期内。
     #[serde(skip)]
     recall_buffer: Vec<String>,
+    /// messages[..ancestor_len] = 只读祖先消息（compact 边界标记）
+    #[serde(skip)]
+    ancestor_len: usize,
 }
 
 impl std::fmt::Debug for AgentState {
@@ -141,9 +149,12 @@ impl AgentState {
         store: Arc<dyn ThreadStore>,
     ) -> anyhow::Result<Self> {
         let meta = store.load_meta(&thread_id).await?;
-        let messages = store.load_context(&thread_id).await?;
+        let all_messages = store.load_context(&thread_id).await?;
+        let own_messages = store.load_messages(&thread_id).await?;
+        let ancestor_len = all_messages.len().saturating_sub(own_messages.len());
         Ok(Self::new(&meta.cwd)
-            .with_messages_from(messages)
+            .with_messages_from(all_messages)
+            .with_ancestor_len(ancestor_len)
             .with_persistence(store, thread_id))
     }
 
@@ -151,6 +162,24 @@ impl AgentState {
     fn with_messages_from(mut self, messages: Vec<BaseMessage>) -> Self {
         self.messages = messages;
         self
+    }
+
+    /// messages[..ancestor_len] = 只读祖先消息
+    pub fn ancestor_len(&self) -> usize {
+        self.ancestor_len
+    }
+
+    pub fn with_ancestor_len(mut self, len: usize) -> Self {
+        self.ancestor_len = len;
+        self
+    }
+
+    pub fn store(&self) -> Option<&Arc<dyn ThreadStore>> {
+        self.store.as_ref()
+    }
+
+    pub fn own_thread_id(&self) -> Option<&ThreadId> {
+        self.thread_id.as_ref()
     }
 }
 
@@ -223,6 +252,10 @@ impl State for AgentState {
 
     fn drain_recall(&mut self) -> Vec<String> {
         std::mem::take(&mut self.recall_buffer)
+    }
+
+    fn ancestor_len(&self) -> usize {
+        self.ancestor_len
     }
 }
 
