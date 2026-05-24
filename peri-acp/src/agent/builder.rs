@@ -33,6 +33,7 @@ use peri_middlewares::tools::{AskUserTool, TodoItem};
 
 use crate::provider::config::PeriConfig;
 use crate::provider::LlmProvider;
+use crate::session::agent_pool::CachedLlmInstances;
 
 // ── 共享 Agent 构建（ACP 和 TUI 共用）─────────────────────────────────────────
 
@@ -93,7 +94,14 @@ pub struct AcpAgentOutput {
 ///
 /// 迁移自 peri-tui/src/app/agent.rs:build_bare_agent()。
 /// 中间件链和 builder 配置与原函数完全一致。
-pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
+///
+/// `cached_llm` 允许跨 prompt 复用 LLM 实例（compact_model、auto_classifier_model），
+/// 避免每轮重建 reqwest::Client（~1-2 MB/实例）。首次调用传 `None`，
+/// 后续调用传上一次返回的 `Some(CachedLlmInstances)`。
+pub fn build_agent(
+    cfg: AcpAgentConfig,
+    cached_llm: Option<&CachedLlmInstances>,
+) -> (AcpAgentOutput, Option<CachedLlmInstances>) {
     let AcpAgentConfig {
         provider,
         cwd,
@@ -151,11 +159,17 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
     // Todo channel
     let (todo_tx, todo_rx) = tokio::sync::mpsc::channel::<Vec<TodoItem>>(8);
 
-    // HITL middleware
-    let auto_classifier: Option<Arc<dyn AutoClassifier>> =
-        Some(Arc::new(LlmAutoClassifier::new(Arc::new(
-            tokio::sync::Mutex::new(provider_for_factory.clone().into_model()),
-        ))));
+    // HITL middleware — reuse auto_classifier model from cache when available
+    let auto_classifier_model: Arc<tokio::sync::Mutex<Box<dyn BaseModel>>> = cached_llm
+        .map(|c| c.auto_classifier_model.clone())
+        .unwrap_or_else(|| {
+            Arc::new(tokio::sync::Mutex::new(
+                provider_for_factory.clone().into_model(),
+            ))
+        });
+    let auto_classifier: Option<Arc<dyn AutoClassifier>> = Some(Arc::new(LlmAutoClassifier::new(
+        auto_classifier_model.clone(),
+    )));
     let hitl = HumanInTheLoopMiddleware::with_shared_mode(
         permission_broker.clone(),
         default_requires_approval,
@@ -393,6 +407,8 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
     };
 
     // CompactMiddleware（条件注册，当 compact 配置+模型+事件通道均可用时）
+    // 注意：mw_compact_model 可能来自 cache（通过 executor.rs），此时复用同一 Arc
+    let compact_model_for_cache: Option<Arc<dyn BaseModel>> = mw_compact_model.clone();
     let executor = if let (Some(config), Some(budget), Some(model), Some(event_tx)) = (
         mw_compact_config,
         mw_compact_budget,
@@ -415,10 +431,20 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
         executor
     };
 
-    AcpAgentOutput {
-        executor,
-        todo_rx,
-        context_window,
-        bg_event_rx,
-    }
+    // 构建 CachedLlmInstances 供跨 prompt 复用
+    let new_cache = compact_model_for_cache.map(|model| CachedLlmInstances {
+        compact_model: model,
+        auto_classifier_model,
+        fingerprint: format!("{}:{}", provider_name, model_name),
+    });
+
+    (
+        AcpAgentOutput {
+            executor,
+            todo_rx,
+            context_window,
+            bg_event_rx,
+        },
+        new_cache,
+    )
 }

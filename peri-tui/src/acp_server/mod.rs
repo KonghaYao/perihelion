@@ -51,6 +51,8 @@ pub(crate) struct SessionState {
     pub(crate) frozen_date: Option<String>,
     /// Recall items from previous turn (injected as <system-reminder> in next user message).
     pub(crate) recall_items: Vec<String>,
+    /// Session-scoped agent component pool for reusing heavy objects across prompts.
+    pub(crate) agent_pool: peri_acp::session::agent_pool::AgentPool,
 }
 
 // ── Server config ────────────────────────────────────────────────────────────
@@ -110,6 +112,23 @@ pub async fn run_acp_server(
                     let thread_store = cfg.thread_store.clone();
                     let prompt_session_id = extract_session_id(&params, "").to_string();
                     let langfuse_session = cfg.langfuse_session.clone();
+
+                    // Extract AgentPool from session, wrap in Arc<Mutex> for
+                    // in-place modification inside executor.
+                    let pool_arc = {
+                        let mut sessions = sessions.lock().await;
+                        let pool = sessions
+                            .get_mut(&prompt_session_id)
+                            .map(|s| {
+                                std::mem::replace(
+                                    &mut s.agent_pool,
+                                    peri_acp::session::agent_pool::AgentPool::new(),
+                                )
+                            })
+                            .unwrap_or_default();
+                        Arc::new(parking_lot::Mutex::new(pool))
+                    };
+
                     tokio::spawn(async move {
                         let result = execute_prompt(
                             params,
@@ -128,8 +147,18 @@ pub async fn run_acp_server(
                             &transport,
                             &thread_store,
                             langfuse_session,
+                            pool_arc.clone(),
                         )
                         .await;
+
+                        // Restore AgentPool back into session
+                        if let Ok(mutex) = Arc::try_unwrap(pool_arc) {
+                            let mut sessions = sessions.lock().await;
+                            if let Some(state) = sessions.get_mut(&prompt_session_id) {
+                                state.agent_pool = mutex.into_inner();
+                            }
+                        }
+
                         let _ = transport.send_response(id, result).await;
                         if !prompt_session_id.is_empty() {
                             send_session_info_update(transport.as_ref(), &prompt_session_id).await;

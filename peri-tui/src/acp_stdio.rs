@@ -21,6 +21,8 @@ struct SessionInfo {
     frozen_skill_summary: Option<String>,
     /// Session creation date (YYYY-MM-DD).
     frozen_date: Option<String>,
+    /// Session-scoped agent pool for LLM instance reuse.
+    agent_pool: peri_acp::session::agent_pool::AgentPool,
 }
 
 struct StdioContext {
@@ -303,6 +305,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 frozen_claude_local_md,
                                 frozen_skill_summary,
                                 frozen_date: Some(frozen_date),
+                                agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
                     }
@@ -432,6 +435,21 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         }
                     }
 
+                    // Extract AgentPool from session for cross-prompt LLM reuse
+                    let pool_arc = {
+                        let mut sessions = ctx.sessions.write();
+                        let pool = sessions
+                            .get_mut(&sid)
+                            .map(|s| {
+                                std::mem::replace(
+                                    &mut s.agent_pool,
+                                    peri_acp::session::agent_pool::AgentPool::new(),
+                                )
+                            })
+                            .unwrap_or_default();
+                        Arc::new(parking_lot::Mutex::new(pool))
+                    };
+
                     // --- capture everything the background task needs ---
                     let ctx_for_task = Arc::clone(&ctx);
                     let cx_for_task = cx.clone();
@@ -477,8 +495,17 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             ctx_for_task.shared_tools.clone(),
                             ctx_for_task.plugin_lsp_servers.clone(),
                             ctx_for_task.langfuse_session.clone(),
+                            pool_arc.clone(),
                         )
                         .await;
+
+                        // Restore AgentPool back into session
+                        if let Ok(mutex) = Arc::try_unwrap(pool_arc) {
+                            let mut sessions = ctx_for_task.sessions.write();
+                            if let Some(s) = sessions.get_mut(&sid) {
+                                s.agent_pool = mutex.into_inner();
+                            }
+                        }
 
                         // Persist new messages to ThreadStore.
                         if result.ok && history_len < result.messages.len() {
@@ -684,6 +711,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 frozen_claude_local_md: None,
                                 frozen_skill_summary: None,
                                 frozen_date: None,
+                                agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
                         tracing::info!(session_id = %sid, "Session resumed (new)");
@@ -732,6 +760,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     frozen_claude_local_md: None,
                                     frozen_skill_summary: None,
                                     frozen_date: None,
+                                    agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                                 },
                             );
                         }
@@ -832,6 +861,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                 frozen_claude_local_md: None,
                                 frozen_skill_summary: None,
                                 frozen_date: None,
+                                agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
                     }

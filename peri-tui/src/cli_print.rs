@@ -182,6 +182,11 @@ pub async fn run_print(
     let cancel = peri_agent::agent::AgentCancellationToken::new();
     let peri_config_arc = Arc::new(peri_config);
 
+    // 创建一次性 AgentPool（print 模式无跨 prompt 复用）
+    let pool = Arc::new(parking_lot::Mutex::new(
+        peri_acp::session::agent_pool::AgentPool::new(),
+    ));
+
     // execute_prompt 是同步函数（返回 PromptResult，不是 async）
     let result = peri_acp::session::executor::execute_prompt(
         &provider,
@@ -206,6 +211,7 @@ pub async fn run_print(
         shared_tools,
         plugin_lsp_servers,
         None, // langfuse_session（print 模式暂不启用）
+        pool,
     )
     .await;
     let c = collector.lock().unwrap();

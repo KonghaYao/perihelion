@@ -72,6 +72,7 @@ pub(crate) async fn handle_request(
                     frozen_skill_summary: None,
                     frozen_date: None,
                     recall_items: Vec::new(),
+                    agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                 },
             );
 
@@ -262,6 +263,7 @@ pub(crate) async fn handle_request(
                         frozen_skill_summary: None,
                         frozen_date: None,
                         recall_items: Vec::new(),
+                        agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     },
                 );
             }
@@ -369,6 +371,7 @@ pub(crate) async fn handle_request(
                         frozen_skill_summary: None,
                         frozen_date: None,
                         recall_items: Vec::new(),
+                        agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     },
                 );
                 info!(session_id = %req_session_id, "Session resumed (new)");
@@ -415,6 +418,7 @@ pub(crate) async fn handle_request(
                     frozen_skill_summary: None,
                     frozen_date: None,
                     recall_items: Vec::new(),
+                    agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                 },
             );
 

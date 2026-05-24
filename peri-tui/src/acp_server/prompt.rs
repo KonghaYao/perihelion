@@ -43,6 +43,7 @@ pub(crate) async fn execute_prompt(
     transport: &Arc<dyn peri_acp::transport::AcpTransport>,
     thread_store: &Arc<dyn peri_agent::thread::ThreadStore>,
     langfuse_session: Option<Arc<LangfuseSession>>,
+    pool: Arc<parking_lot::Mutex<peri_acp::session::agent_pool::AgentPool>>,
 ) -> Result<Value, AcpError> {
     let session_id = params
         .get("sessionId")
@@ -140,6 +141,7 @@ pub(crate) async fn execute_prompt(
         shared_tools,
         plugin_lsp_servers.to_vec(),
         langfuse_session,
+        pool,
     )
     .await;
 

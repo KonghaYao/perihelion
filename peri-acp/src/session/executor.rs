@@ -24,6 +24,7 @@ use crate::agent::builder::{self, AcpAgentConfig};
 use crate::langfuse::{LangfuseSession, LangfuseTracer};
 use crate::prompt::{build_system_prompt, PromptFeatures};
 use crate::provider::LlmProvider;
+use crate::session::agent_pool::AgentPool;
 use crate::session::event_sink::EventSink;
 
 /// High-level reason why prompt execution stopped, used to derive ACP `StopReason`.
@@ -113,6 +114,7 @@ pub async fn execute_prompt(
     >,
     lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
     langfuse_session: Option<Arc<LangfuseSession>>,
+    pool: Arc<parking_lot::Mutex<AgentPool>>,
 ) -> PromptResult {
     let trace_input = content.text_content();
     let agent_input = if incoming_recalls.is_empty() {
@@ -276,47 +278,67 @@ pub async fn execute_prompt(
     };
 
     // Compact model（用于 CompactMiddleware 的 full compact 摘要生成）
-    let compact_model: Arc<dyn peri_agent::llm::BaseModel> = provider.clone().into_model().into();
+    // 从 AgentPool 复用缓存的 LLM 实例，避免每轮重建 reqwest::Client
+    let cached_llm = {
+        let pool_guard = pool.lock();
+        if pool_guard.has_valid_cache(provider) {
+            pool_guard.get_cached_llm().cloned()
+        } else {
+            None
+        }
+    };
+    let compact_model: Option<Arc<dyn peri_agent::llm::BaseModel>> = if disable_compact {
+        None
+    } else {
+        cached_llm
+            .as_ref()
+            .map(|c| c.compact_model.clone())
+            .or_else(|| Some(provider.clone().into_model().into()))
+    };
 
-    let agent_output = builder::build_agent(AcpAgentConfig {
-        provider: provider.clone(),
-        cwd: cwd.to_string(),
-        system_prompt,
-        frozen_claude_md,
-        frozen_claude_local_md,
-        frozen_skill_summary,
-        frozen_date,
-        event_handler,
-        cancel: cancel.clone(),
-        permission_mode: permission_mode.clone(),
-        peri_config: Arc::new(peri_config.as_ref().clone()),
-        cron_scheduler: cron_scheduler.clone(),
-        agent_overrides: None,
-        preload_skills: Vec::new(),
-        session_id: Some(session_id.clone()),
-        broker: broker.clone(),
-        plugin_skill_dirs: plugin_skill_dirs.clone(),
-        plugin_agent_dirs: plugin_agent_dirs.clone(),
-        hook_groups: hook_groups.clone(),
-        hook_session_start: is_empty_history,
-        mcp_pool: mcp_pool.clone(),
-        tool_search_index: tool_search_index.clone(),
-        shared_tools: shared_tools.clone(),
-        child_handler_factory: None,
-        lsp_servers: lsp_servers.clone(),
-        compact_config: if disable_compact {
-            None
-        } else {
-            Some(compact_config)
+    let (agent_output, new_cache) = builder::build_agent(
+        AcpAgentConfig {
+            provider: provider.clone(),
+            cwd: cwd.to_string(),
+            system_prompt,
+            frozen_claude_md,
+            frozen_claude_local_md,
+            frozen_skill_summary,
+            frozen_date,
+            event_handler,
+            cancel: cancel.clone(),
+            permission_mode: permission_mode.clone(),
+            peri_config: Arc::new(peri_config.as_ref().clone()),
+            cron_scheduler: cron_scheduler.clone(),
+            agent_overrides: None,
+            preload_skills: Vec::new(),
+            session_id: Some(session_id.clone()),
+            broker: broker.clone(),
+            plugin_skill_dirs: plugin_skill_dirs.clone(),
+            plugin_agent_dirs: plugin_agent_dirs.clone(),
+            hook_groups: hook_groups.clone(),
+            hook_session_start: is_empty_history,
+            mcp_pool: mcp_pool.clone(),
+            tool_search_index: tool_search_index.clone(),
+            shared_tools: shared_tools.clone(),
+            child_handler_factory: None,
+            lsp_servers: lsp_servers.clone(),
+            compact_config: if disable_compact {
+                None
+            } else {
+                Some(compact_config)
+            },
+            compact_budget: if disable_compact { None } else { Some(budget) },
+            compact_model, // already Option<Arc<dyn BaseModel>> from pool/fresh logic
+            compact_event_tx: Some(event_tx.clone()),
         },
-        compact_budget: if disable_compact { None } else { Some(budget) },
-        compact_model: if disable_compact {
-            None
-        } else {
-            Some(compact_model)
-        },
-        compact_event_tx: Some(event_tx.clone()),
-    });
+        cached_llm.as_ref(),
+    );
+
+    // Store updated cache back into pool
+    if let Some(cache) = new_cache {
+        pool.lock().store_llm(cache);
+    }
 
     // Phase 2: bg event pump — starts before executor runs so events arrive
     // promptly even for tasks completing mid-execution. Outlives executor;
