@@ -1,6 +1,6 @@
 # SkillPreload / AtMention 注入的 fake Read 工具消息导致 Anthropic API 400 错误
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-05-25
 

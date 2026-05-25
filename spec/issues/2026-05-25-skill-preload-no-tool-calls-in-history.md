@@ -1,8 +1,9 @@
 # SkillPreload 未将工具调用附加到主 Agent 消息历史
 
-**状态**：Open
+**状态**：Closed/Fixed
 **优先级**：中
 **创建日期**：2026-05-25
+**关闭日期**：2026-05-25
 
 ## 问题描述
 
@@ -46,3 +47,14 @@ SubAgent 路径正常工作——agent 定义 frontmatter 中的 `skills` 字段
 - `peri-middlewares/src/subagent/skill_preload.rs:70` —— `before_agent` 空列表时 early return
 - `peri-tui/src/app/agent_submit.rs:11` —— `parse_skill_names_from_input` 死代码，未被调用
 - `peri-tui/src/event/keyboard.rs:762` —— skill 匹配后仅走 Submit 流程，未传递 skill 名称
+
+## 修复方案
+
+采用**中间件自检测**方案（不修改 ACP 协议管线）：
+
+- `SkillPreloadMiddleware::before_agent` 在 `skill_names` 为空时，从 state 最后一条 Human 消息中提取 `/xxx` token，与可用 skill 列表匹配后注入 fake Read 工具调用
+- 新增 `extract_skill_names_from_text()` 公共函数替代 TUI 侧死代码 `parse_skill_names_from_input`
+- SubAgent 路径不受影响（仍使用构造时传入的显式 `skill_names`）
+
+**Commits**: `fd85fb2` + `5745e10`
+**实现计划**: `docs/superpowers/plans/2026-05-25-skill-preload-main-agent.md`
