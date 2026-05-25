@@ -25,16 +25,90 @@ impl Command for HeapdumpCommand {
         let _ = writeln!(buf, "=== HEAPDUMP {} ===", now.format("%Y-%m-%d %H:%M:%S"));
         let _ = writeln!(buf, "RSS: {:.1} MB\n", rss_mb);
 
-        // ── 2. Allocator info ──
+        // ── 2. Allocator info (mimalloc) ──
+        let mut current_commit: usize = 0;
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = writeln!(buf, "=== ALLOCATOR ===");
-            let _ = writeln!(buf, "  backend: mimalloc");
+            let mut elapsed_msecs: usize = 0;
+            let mut user_msecs: usize = 0;
+            let mut system_msecs: usize = 0;
+            let mut mi_current_rss: usize = 0;
+            let mut peak_rss: usize = 0;
+            let mut mi_current_commit: usize = 0;
+            let mut peak_commit: usize = 0;
+            let mut page_faults: usize = 0;
+
+            unsafe {
+                libmimalloc_sys::mi_process_info(
+                    &mut elapsed_msecs,
+                    &mut user_msecs,
+                    &mut system_msecs,
+                    &mut mi_current_rss,
+                    &mut peak_rss,
+                    &mut mi_current_commit,
+                    &mut peak_commit,
+                    &mut page_faults,
+                );
+            }
+            current_commit = mi_current_commit;
+
+            let mi_rss_mb = mi_current_rss as f64 / (1024.0 * 1024.0);
+            let peak_rss_mb = peak_rss as f64 / (1024.0 * 1024.0);
+            let commit_mb = mi_current_commit as f64 / (1024.0 * 1024.0);
+            let peak_commit_mb = peak_commit as f64 / (1024.0 * 1024.0);
+            let rss_overhead_mb = rss_mb - mi_rss_mb;
+
+            let _ = writeln!(buf, "=== MIMALLOC SUMMARY ===");
             let _ = writeln!(
                 buf,
-                "  note: mimalloc automatically returns freed pages to the OS"
+                "  elapsed:          {:.1}s",
+                elapsed_msecs as f64 / 1000.0
             );
+            let _ = writeln!(
+                buf,
+                "  user_time:        {:.1}s",
+                user_msecs as f64 / 1000.0
+            );
+            let _ = writeln!(
+                buf,
+                "  system_time:      {:.1}s",
+                system_msecs as f64 / 1000.0
+            );
+            let _ = writeln!(
+                buf,
+                "  current_rss:      {:.0}MB  (ps RSS: {:.0}MB)",
+                mi_rss_mb, rss_mb
+            );
+            let _ = writeln!(buf, "  peak_rss:         {:.0}MB", peak_rss_mb);
+            let _ = writeln!(buf, "  current_committed:{:.0}MB", commit_mb);
+            let _ = writeln!(buf, "  peak_committed:   {:.0}MB", peak_commit_mb);
+            let _ = writeln!(buf, "  page_faults:      {page_faults}");
+            let _ = writeln!(buf, "  RSS-overhead:     {:.0}MB", rss_overhead_mb);
             let _ = writeln!(buf);
+
+            // Detailed mimalloc stats via callback
+            let mut stats_buf: Vec<u8> = Vec::new();
+            unsafe extern "C" fn write_to_vec(
+                msg: *const std::os::raw::c_char,
+                arg: *mut std::os::raw::c_void,
+            ) {
+                if msg.is_null() {
+                    return;
+                }
+                let cstr = std::ffi::CStr::from_ptr(msg);
+                let bytes = cstr.to_bytes();
+                if !bytes.is_empty() {
+                    let vec = &mut *(arg as *mut Vec<u8>);
+                    vec.extend_from_slice(bytes);
+                }
+            }
+            unsafe {
+                libmimalloc_sys::mi_stats_print_out(
+                    Some(write_to_vec),
+                    &mut stats_buf as *mut Vec<u8> as *mut std::os::raw::c_void,
+                );
+            }
+            buf.extend_from_slice(&stats_buf);
         }
 
         // ── 3. TUI components ──
@@ -112,7 +186,13 @@ impl Command for HeapdumpCommand {
         }
 
         let msg = match std::fs::write(full_path, &buf) {
-            Ok(()) => format!("Heapdump -> {filename}\nRSS: {rss_mb:.0}MB"),
+            Ok(()) => {
+                #[cfg(not(target_os = "windows"))]
+                let commit_str = format!("{:.0}MB", current_commit as f64 / (1024.0 * 1024.0));
+                #[cfg(target_os = "windows")]
+                let commit_str = "N/A".to_string();
+                format!("Heapdump -> {filename}\nRSS: {rss_mb:.0}MB | committed: {commit_str}")
+            }
             Err(e) => format!("heapdump failed: {e}"),
         };
         app.session_mgr.sessions[app.session_mgr.active]
