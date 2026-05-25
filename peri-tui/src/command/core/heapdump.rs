@@ -26,7 +26,10 @@ impl Command for HeapdumpCommand {
         let _ = writeln!(buf, "RSS: {:.1} MB\n", rss_mb);
 
         // ── 2. Allocator info (mimalloc) ──
-        let mut current_commit: usize = 0;
+        #[cfg(not(target_os = "windows"))]
+        let current_commit: usize;
+        #[cfg(target_os = "windows")]
+        let current_commit: usize = 0;
         #[cfg(not(target_os = "windows"))]
         {
             let mut elapsed_msecs: usize = 0;
