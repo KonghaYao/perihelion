@@ -219,6 +219,13 @@ fn read_rss_mb() -> f64 {
                     .map(|kb| kb / 1024.0)
             })
             .unwrap_or(-1.0)
+    } else if cfg!(target_os = "linux") {
+        // /proc/self/statm 第 2 列 = resident pages，乘以 page_size 得字节
+        std::fs::read_to_string("/proc/self/statm")
+            .ok()
+            .and_then(|s| s.split_whitespace().nth(1)?.parse::<f64>().ok())
+            .map(|pages| pages * 4096.0 / (1024.0 * 1024.0))
+            .unwrap_or(-1.0)
     } else {
         -1.0
     }
