@@ -355,36 +355,9 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         .interaction_prompt
     {
         let cur = &p.questions[p.active_tab];
-        // 自适应高度：考虑文本自动换行
-        let panel_width = screen_width.saturating_sub(4) as usize; // 减去边框+内边距
-        let mut content_lines: u16 = 0;
-
-        // 问题文本（考虑自动换行）
-        for line in cur.data.question.lines() {
-            let w = unicode_width::UnicodeWidthStr::width(line);
-            content_lines += (w as u16).div_ceil(panel_width.max(1) as u16);
-        }
-
-        // [多选]/[单选] 提示
-        content_lines += 1;
-
-        // 选项（每个选项可能因标签长而换行）
-        for opt in &cur.data.options {
-            let label_w = unicode_width::UnicodeWidthStr::width(opt.label.as_str()) + 6; // " ▶ ○ " 前缀
-            content_lines += (label_w as u16).div_ceil(panel_width.max(1) as u16);
-            if let Some(ref desc) = opt.description {
-                if !desc.is_empty() {
-                    let desc_w = unicode_width::UnicodeWidthStr::width(desc.as_str()) + 6; // "      " 缩进
-                    content_lines += (desc_w as u16).div_ceil(panel_width.max(1) as u16);
-                }
-            }
-        }
-
-        // 自定义输入区 + 空行 + 快捷键提示（固定 3 行）
-        content_lines += 3;
-
-        // header tab + 分隔线 + 边框 = 4
-        (content_lines + 4).max(8)
+        // BorderedPanel 无左右边框，内容区宽度 = screen_width；滚动条占 1 列
+        let panel_width = screen_width.saturating_sub(1) as usize;
+        popups::ask_user_height::ask_user_content_height(&cur.data, panel_width).max(8)
     } else {
         0
     };
