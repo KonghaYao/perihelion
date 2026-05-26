@@ -29,6 +29,7 @@ async fn test_concurrent_bg_tasks_all_emit_completion() {
                     output: format!("output {}", i),
                     tool_calls_count: 1,
                     duration_ms: 100 + i as u64 * 10,
+                    child_thread_id: None,
                 };
                 let _ = tx.send(AgentEvent::BackgroundTaskCompleted(result));
             })
@@ -120,6 +121,7 @@ async fn test_bg_event_pump_receives_all_completions() {
                     output: "test output".to_string(),
                     tool_calls_count: 1,
                     duration_ms: 100,
+                    child_thread_id: None,
                 };
                 let _ = tx.send(AgentEvent::BackgroundTaskCompleted(result));
             })

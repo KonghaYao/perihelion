@@ -54,6 +54,7 @@
             output: "done".to_string(),
             tool_calls_count: 2,
             duration_ms: 100,
+            child_thread_id: None,
         };
 
         registry.complete("bg-1", result);

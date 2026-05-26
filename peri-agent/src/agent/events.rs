@@ -8,6 +8,9 @@ pub struct BackgroundTaskResult {
     pub output: String,
     pub tool_calls_count: usize,
     pub duration_ms: u64,
+    /// SQLite child thread ID（uuid7），用于 TUI 聚焦时 load_messages
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_thread_id: Option<String>,
 }
 
 impl BackgroundTaskResult {
