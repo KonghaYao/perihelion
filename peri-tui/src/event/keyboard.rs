@@ -91,6 +91,13 @@ static SHORTCUT_CTRL_CYCLE_PROVIDER: KeyBinding = KeyBinding {
     key: KeyCode::Char('t'),
 };
 
+static SHORTCUT_BG_BAR: KeyBinding = KeyBinding {
+    label: "Ctrl+B",
+    macos_char: None,
+    modifiers: KeyModifiers::CONTROL,
+    key: KeyCode::Char('b'),
+};
+
 /// Returns the platform-appropriate label for the model-cycling shortcut.
 pub fn cycle_model_label() -> &'static str {
     "Ctrl+T"
@@ -113,6 +120,33 @@ pub fn handle_key_event(
         return Ok(Some(Action::Redraw));
     }
 
+    // ── Bar 焦点模式拦截 ──
+    {
+        let cursor = app.session_mgr.sessions[app.session_mgr.active]
+            .ui
+            .bg_bar_cursor;
+        if cursor.is_some() {
+            return Ok(Some(handle_bar_key_event(app, key_event)));
+        }
+    }
+    // ── 聚焦只读模式拦截 ──
+    {
+        let focused = app.session_mgr.sessions[app.session_mgr.active]
+            .focused_instance_id
+            .is_some();
+        if focused {
+            if matches!(key_event.code, KeyCode::Esc) {
+                app.session_mgr.sessions[app.session_mgr.active].focused_instance_id = None;
+                app.session_mgr.sessions[app.session_mgr.active]
+                    .ui
+                    .bg_bar_cursor = None;
+                app.request_rebuild();
+                return Ok(Some(Action::Redraw));
+            }
+            return Ok(Some(Action::Redraw));
+        }
+    }
+
     // Shift+Tab is reported as BackTab in crossterm;
     // ratatui-textarea's Key enum does not handle BackTab (maps to Null),
     // so we intercept it here and handle permission-mode cycling directly.
@@ -120,6 +154,19 @@ pub fn handle_key_event(
         let _new_mode = app.services.permission_mode.cycle();
         app.global_ui.mode_highlight_until =
             Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+        return Ok(Some(Action::Redraw));
+    }
+
+    // Ctrl+B: 跳转到后台 agent bar
+    if SHORTCUT_BG_BAR.matches(&key_event) {
+        if !app.session_mgr.sessions[app.session_mgr.active]
+            .background_agents
+            .is_empty()
+        {
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_cursor = Some(0);
+        }
         return Ok(Some(Action::Redraw));
     }
 
@@ -1110,5 +1157,64 @@ fn inject_at_mention_path(app: &mut App) {
             .ui
             .at_mention
             .close();
+    }
+}
+
+/// Bar 焦点模式下的键盘处理
+fn handle_bar_key_event(app: &mut App, key_event: ratatui::crossterm::event::KeyEvent) -> Action {
+    let agents_len = app.session_mgr.sessions[app.session_mgr.active]
+        .background_agents
+        .len();
+    let total_items = 1 + agents_len.min(4);
+
+    let cursor = app.session_mgr.sessions[app.session_mgr.active]
+        .ui
+        .bg_bar_cursor
+        .unwrap_or(0);
+
+    match key_event.code {
+        KeyCode::Esc => {
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_cursor = None;
+            Action::Redraw
+        }
+        KeyCode::Up => {
+            let new_cursor = if cursor > 0 {
+                cursor - 1
+            } else {
+                total_items - 1
+            };
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_cursor = Some(new_cursor);
+            Action::Redraw
+        }
+        KeyCode::Down => {
+            let new_cursor = (cursor + 1) % total_items;
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_cursor = Some(new_cursor);
+            Action::Redraw
+        }
+        KeyCode::Enter => {
+            if cursor == 0 {
+                // 选中 main → 退出聚焦
+                app.session_mgr.sessions[app.session_mgr.active].focused_instance_id = None;
+            } else {
+                // 选中后台 agent → 聚焦
+                let agents = &app.session_mgr.sessions[app.session_mgr.active].background_agents;
+                if let Some(agent) = agents.get(cursor - 1) {
+                    app.session_mgr.sessions[app.session_mgr.active].focused_instance_id =
+                        Some(agent.instance_id.clone());
+                }
+            }
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_cursor = None;
+            app.request_rebuild();
+            Action::Redraw
+        }
+        _ => Action::Redraw,
     }
 }
