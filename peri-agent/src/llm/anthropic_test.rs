@@ -862,3 +862,117 @@ fn test_tool_message_as_first_in_history_is_invalid() {
         "确认：Tool 作为第一条消息时，会被转为 user(tool_result) 作为 messages[0]"
     );
 }
+
+// ── build_system_blocks_json 测试 ───────────────────────────────────────
+
+/// Two blocks (boundary present): static block has cache_control=true from split_system_blocks.
+/// Dynamic block should NOT get cache_control — no fallback needed.
+#[test]
+fn test_system_blocks_cache_control_two_blocks() {
+    let blocks = vec![
+        cache::SystemPromptBlock {
+            text: "static sections".into(),
+            cache_control: true,
+        },
+        cache::SystemPromptBlock {
+            text: "dynamic content with date/cwd/language".into(),
+            cache_control: false,
+        },
+    ];
+    let json_blocks = ChatAnthropic::build_system_blocks_json(&blocks);
+    assert_eq!(json_blocks.len(), 2);
+    assert_eq!(
+        json_blocks[0]["cache_control"]["type"], "ephemeral",
+        "Block 0 (static) must have cache_control"
+    );
+    assert!(
+        !json_blocks[1]
+            .as_object()
+            .unwrap()
+            .contains_key("cache_control"),
+        "Block 1 (dynamic) must NOT have cache_control"
+    );
+}
+
+/// Single block (no boundary): no preceding cache_control.
+/// Fallback MUST apply to the last block.
+#[test]
+fn test_system_blocks_cache_control_single_block() {
+    let blocks = vec![cache::SystemPromptBlock {
+        text: "plain prompt without boundary marker".into(),
+        cache_control: false,
+    }];
+    let json_blocks = ChatAnthropic::build_system_blocks_json(&blocks);
+    assert_eq!(json_blocks.len(), 1);
+    assert_eq!(
+        json_blocks[0]["cache_control"]["type"], "ephemeral",
+        "Single block with no preceding cache_control must get fallback"
+    );
+}
+
+/// Four blocks: middleware chunks (no cache) + split output (static cached, dynamic not).
+/// Only the static block should have cache_control.
+#[test]
+fn test_system_blocks_cache_control_middleware_blocks() {
+    let blocks = vec![
+        cache::SystemPromptBlock {
+            text: "middleware chunk 1".into(),
+            cache_control: false,
+        },
+        cache::SystemPromptBlock {
+            text: "middleware chunk 2".into(),
+            cache_control: false,
+        },
+        cache::SystemPromptBlock {
+            text: "static sections".into(),
+            cache_control: true,
+        },
+        cache::SystemPromptBlock {
+            text: "dynamic content".into(),
+            cache_control: false,
+        },
+    ];
+    let json_blocks = ChatAnthropic::build_system_blocks_json(&blocks);
+    assert_eq!(json_blocks.len(), 4);
+    assert!(!json_blocks[0]
+        .as_object()
+        .unwrap()
+        .contains_key("cache_control"));
+    assert!(!json_blocks[1]
+        .as_object()
+        .unwrap()
+        .contains_key("cache_control"));
+    assert_eq!(json_blocks[2]["cache_control"]["type"], "ephemeral");
+    assert!(
+        !json_blocks[3]
+            .as_object()
+            .unwrap()
+            .contains_key("cache_control"),
+        "Block 3 (dynamic) must NOT get cache_control — Block 2 (static) already has it"
+    );
+}
+
+/// All blocks have cache_control=false: fallback must apply to last block.
+#[test]
+fn test_system_blocks_cache_control_all_false_fallback() {
+    let blocks = vec![
+        cache::SystemPromptBlock {
+            text: "chunk 1".into(),
+            cache_control: false,
+        },
+        cache::SystemPromptBlock {
+            text: "chunk 2".into(),
+            cache_control: false,
+        },
+    ];
+    let json_blocks = ChatAnthropic::build_system_blocks_json(&blocks);
+    assert_eq!(json_blocks.len(), 2);
+    assert!(!json_blocks[0]
+        .as_object()
+        .unwrap()
+        .contains_key("cache_control"));
+    assert_eq!(
+        json_blocks[1]["cache_control"]["type"], "ephemeral",
+        "Last block must get fallback since no preceding cache_control"
+    );
+}

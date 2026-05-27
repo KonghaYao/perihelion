@@ -269,6 +269,28 @@ pub(super) fn parse_content_blocks(
     (blocks, tool_calls)
 }
 
+/// Build system blocks JSON for Anthropic API request.
+///
+/// Cache control rules:
+/// - Blocks with cache_control=true keep their flag (e.g., static block from split_system_blocks)
+/// - The last block gets cache_control as FALLBACK only when no preceding block already has it
+///   (handles the 1-block / no-boundary edge case)
+pub(super) fn build_system_blocks_json(blocks: &[SystemPromptBlock]) -> Vec<Value> {
+    let has_cached = blocks.iter().any(|b| b.cache_control);
+    let last_idx = blocks.len().saturating_sub(1);
+    blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let mut block = json!({"type": "text", "text": &b.text});
+            if b.cache_control || (i == last_idx && !has_cached) {
+                block["cache_control"] = json!({"type": "ephemeral"});
+            }
+            block
+        })
+        .collect()
+}
+
 /// 构建 Anthropic API 请求体（invoke 和 invoke_streaming 共用）
 pub(super) fn build_request_body(
     adapter: &super::ChatAnthropic,
@@ -322,21 +344,9 @@ pub(super) fn build_request_body(
     }
 
     if adapter.enable_cache {
-        // system 多块格式：静态块 + 最后一块标记 cache_control
+        // system 多块格式：静态块已有 cache_control → 动态块不重复标记
         if !system_blocks.is_empty() {
-            let last_idx = system_blocks.len() - 1;
-            let blocks_json: Vec<Value> = system_blocks
-                .iter()
-                .enumerate()
-                .map(|(i, b)| {
-                    let mut block = json!({"type": "text", "text": &b.text});
-                    if b.cache_control || i == last_idx {
-                        block["cache_control"] = json!({"type": "ephemeral"});
-                    }
-                    block
-                })
-                .collect();
-            body["system"] = Value::Array(blocks_json);
+            body["system"] = Value::Array(build_system_blocks_json(&system_blocks));
         }
     } else if !system_blocks.is_empty() {
         // 不启用缓存：合并为单个字符串，移除边界标记

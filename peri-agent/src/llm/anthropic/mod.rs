@@ -103,6 +103,11 @@ impl ChatAnthropic {
     ) {
         invoke::parse_content_blocks(raw_blocks)
     }
+
+    #[cfg(test)]
+    fn build_system_blocks_json(blocks: &[cache::SystemPromptBlock]) -> Vec<serde_json::Value> {
+        invoke::build_system_blocks_json(blocks)
+    }
 }
 
 #[cfg(test)]
