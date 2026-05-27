@@ -175,3 +175,6 @@ vendor/
 
 .claude/skills/*-workspace
 .wrangler.worktrees/
+deploy/peri-tlt153-v0.1.0/peri
+deploy/peri-tlt153-v0.1.0/lib/
+deploy/peri-tlt153-v0.1.0-*.tar.gz
