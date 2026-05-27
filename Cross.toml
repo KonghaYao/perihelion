@@ -1,3 +1,16 @@
+# ============================================================================
+# TLT153-MiniEVM (ARM) — arm-unknown-linux-gnueabihf
+# Toolchain: gcc-linaro-11.3.1-2022.06-x86_64_arm-linux-gnueabihf
+#   From: 4-软件资料/Linux/Tools/gcc-linaro-11.3.1-2022.06-x86_64_arm-linux-gnueabihf.tar.xz
+#   Extract to: /opt/gcc-linaro-11.3.1-2022.06-x86_64_arm-linux-gnueabihf/
+# Build: TOOLCHAIN_ROOT=/opt/gcc-linaro-11.3.1-2022.06-x86_64_arm-linux-gnueabihf ./build-arm.sh release
+#   (Requires Docker for `cross`, use direct cargo otherwise)
+[target.arm-unknown-linux-gnueabihf]
+pre-build = [
+    # For Docker-based cross: install ARM development libraries
+    # "apt-get update && apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf libssl-dev pkg-config",
+]
+
 [target.x86_64-unknown-linux-gnu]
 pre-build = [
     "apt-get update",
