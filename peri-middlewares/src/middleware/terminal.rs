@@ -157,7 +157,7 @@ impl BaseTool for BashTool {
         let _run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
         let result = timeout(Duration::from_millis(timeout_ms), {
-            let mut cmd = crate::process::shell_command(&command, &[]);
+            let mut cmd = crate::process::shell_command(command, &[]);
             cmd.current_dir(&self.cwd)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
