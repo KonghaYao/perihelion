@@ -175,12 +175,12 @@ pub(crate) async fn execute_prompt(
                     }
                 }
                 state.history = result.messages;
-            } else if result.stop_reason == executor::PromptStopReason::Cancelled
-                && result.messages.len() > history_len + 1
-            {
-                // Cancelled but agent made progress (user msg + AI/tool messages beyond
+            } else if result.messages.len() > history_len + 1 {
+                // Error/cancel but agent made progress (user msg + AI/tool messages beyond
                 // just the user message). Preserve history so the agent remembers the
-                // interrupted round's context on the next prompt.
+                // interrupted round's context on the next prompt. Covers all error paths:
+                // LLM stream errors, HTTP errors, tool failures, middleware errors,
+                // MaxIterationsExceeded, and Ctrl+C cancel.
                 //
                 // NOTE: execute() skips cleanup_prepended on error paths (? propagation),
                 // so result.messages may contain leaked system prepends at the beginning.
