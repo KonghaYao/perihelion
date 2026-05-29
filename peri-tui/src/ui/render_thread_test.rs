@@ -1,5 +1,11 @@
 use super::*;
 
+/// 等待 RenderThread 处理完事件：yield 让出执行权给后台 task
+async fn wait_render() {
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+}
+
 #[tokio::test]
 async fn test_rebuild_increments_version() {
     let (tx, cache, _notify) = spawn_render_thread(80);
@@ -11,7 +17,7 @@ async fn test_rebuild_increments_version() {
     )]))
     .unwrap();
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let c = cache.read();
     assert!(c.version > 0, "version should increment after Rebuild");
@@ -30,14 +36,14 @@ async fn test_rebuild_hash_diff_skips_unchanged() {
     let user2 = MessageViewModel::user("Second".to_string());
     tx.send(RenderEvent::Rebuild(vec![user1.clone(), user2.clone()]))
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let v1 = cache.read().version;
     let lines_v1 = cache.read().lines.len();
 
     // 第二次 Rebuild：相同内容，hash diff 应跳过渲染
     tx.send(RenderEvent::Rebuild(vec![user1, user2])).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let c = cache.read();
     // version 仍应递增（即使内容不变）
@@ -54,7 +60,7 @@ async fn test_rebuild_no_trailing_blank() {
         "Hello".to_string(),
     )]))
     .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let c = cache.read();
     let last_is_empty = c.lines.last().is_some_and(|l| {
@@ -72,7 +78,7 @@ async fn test_rebuild_multiple_messages_have_gaps() {
         MessageViewModel::user("Second message".to_string()),
     ]))
     .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let c = cache.read();
     // 找 "Second message" 的行，检查前一行是否为空行
@@ -112,7 +118,7 @@ async fn test_rebuild_with_anchor_sets_scroll_anchor() {
         anchor_message_idx: 1,
     })
     .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let c = cache.read();
     assert!(c.scroll_anchor.is_some(), "scroll_anchor should be set");
@@ -126,10 +132,10 @@ async fn test_clear_resets_cache() {
         "Hello".to_string(),
     )]))
     .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     tx.send(RenderEvent::Clear).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let c = cache.read();
     assert!(c.lines.is_empty(), "lines should be empty after Clear");
@@ -142,14 +148,14 @@ async fn test_resize_rebuilds_with_new_width() {
 
     let user = MessageViewModel::user("Hello world".to_string());
     tx.send(RenderEvent::Rebuild(vec![user.clone()])).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let v1 = cache.read().version;
     let total_v1 = cache.read().total_lines;
 
     // Resize
     tx.send(RenderEvent::Resize(40)).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_render().await;
 
     let c = cache.read();
     assert!(c.version > v1, "version should increment after Resize");

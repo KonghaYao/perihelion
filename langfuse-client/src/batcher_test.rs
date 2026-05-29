@@ -69,7 +69,7 @@
         batcher.add(create_test_event("2")).await.unwrap();
         batcher.add(create_test_event("3")).await.unwrap();
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        batcher.flush().await.unwrap();
 
         mock.assert_async().await;
         drop(batcher);
@@ -90,14 +90,14 @@
         let client = create_test_client(&server.url());
         let config = BatcherConfig {
             max_events: 100,
-            flush_interval: Duration::from_millis(100),
+            flush_interval: Duration::from_millis(10),
             backpressure: BackpressurePolicy::DropNew,
             max_retries: 0,
         };
         let batcher = Batcher::new(client, config);
 
         batcher.add(create_test_event("1")).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         mock.assert_async().await;
         drop(batcher);
@@ -147,7 +147,7 @@
                 .unwrap();
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        batcher.flush().await.unwrap();
         mock.assert_async().await;
         drop(batcher);
     }
@@ -203,11 +203,11 @@
 
         batcher.add(create_test_event("1")).await.unwrap();
         batcher.add(create_test_event("2")).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        batcher.flush().await.unwrap();
 
         batcher.add(create_test_event("3")).await.unwrap();
         batcher.add(create_test_event("4")).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        batcher.flush().await.unwrap();
 
         mock.assert_async().await;
         drop(batcher);
@@ -235,7 +235,7 @@
 
         batcher.add(create_test_event("1")).await.unwrap();
         batcher.add(create_test_event("2")).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        batcher.flush().await.unwrap();
 
         batcher.add(create_test_event("3")).await.unwrap();
         mock.assert_async().await;
@@ -269,7 +269,7 @@
                 .await
                 .unwrap();
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        batcher.flush().await.unwrap();
 
         mock.assert_async().await;
         drop(batcher);
@@ -298,7 +298,7 @@
         batcher.add(create_test_event("1")).await.unwrap();
         batcher.add(create_test_event("2")).await.unwrap();
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        batcher.flush().await.unwrap();
         batcher.add(create_test_event("3")).await.unwrap();
         drop(batcher);
     }

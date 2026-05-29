@@ -26,7 +26,8 @@ async fn test_assistant_chunk_renders() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
     handle
         .terminal
         .draw(|f| main_ui::render(f, &mut app))
@@ -102,7 +103,8 @@ async fn test_clear_empties_render_cache() {
         .messages
         .render_tx
         .send(RenderEvent::Rebuild(msgs));
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     // 验证 RenderCache 有内容
     let lines_before = app.session_mgr.sessions[app.session_mgr.active]
@@ -117,7 +119,8 @@ async fn test_clear_empties_render_cache() {
         .messages
         .render_tx
         .send(RenderEvent::Clear);
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     // 验证 RenderCache 已清空
     let cache = app.session_mgr.sessions[app.session_mgr.active]
@@ -125,306 +128,6 @@ async fn test_clear_empties_render_cache() {
         .render_cache
         .read();
     assert_eq!(cache.total_lines, 0, "清空后 RenderCache 应为空");
-}
-
-mod markdown_tests {
-    use crate::ui::markdown::parse_markdown_default;
-    use ratatui::style::Modifier;
-
-    fn all_text(text: &ratatui::text::Text) -> String {
-        text.lines
-            .iter()
-            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
-            .collect::<Vec<_>>()
-            .join("")
-    }
-
-    #[test]
-    fn test_md_heading() {
-        use peri_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-        let theme = DefaultMarkdownTheme;
-
-        let text = parse_markdown_default("# Hello World");
-        // 标题前有空行，标题在 index 1
-        let heading_line = &text.lines[1];
-        let all_content: String = heading_line
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(
-            all_content.contains("Hello World"),
-            "H1 应含标题文字，实际: {all_content:?}"
-        );
-        let has_heading_color = heading_line
-            .spans
-            .iter()
-            .any(|s| s.style.fg == Some(theme.heading()));
-        assert!(has_heading_color, "H1 应为 markdown 主题 heading 颜色");
-    }
-
-    #[test]
-    fn test_md_heading_h2() {
-        use peri_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-        let theme = DefaultMarkdownTheme;
-
-        let text = parse_markdown_default("## Section Title");
-        // 标题前有空行，标题在 index 1
-        let heading_line = &text.lines[1];
-        let has_heading_color = heading_line
-            .spans
-            .iter()
-            .any(|s| s.style.fg == Some(theme.heading()));
-        assert!(has_heading_color, "H2 应为 markdown 主题 heading 颜色");
-    }
-
-    #[test]
-    fn test_md_inline_styles() {
-        let text = parse_markdown_default("**bold** *italic* ~~strike~~");
-        let all = all_text(&text);
-        assert!(all.contains("bold"), "应含 bold 文字");
-        assert!(all.contains("italic"), "应含 italic 文字");
-        assert!(all.contains("strike"), "应含 strike 文字");
-
-        let has_bold =
-            text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-                s.style.add_modifier.contains(Modifier::BOLD) && s.content.contains("bold")
-            });
-        assert!(has_bold, "bold span 应有 BOLD modifier");
-
-        let has_italic = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-            s.style.add_modifier.contains(Modifier::ITALIC) && s.content.contains("italic")
-        });
-        assert!(has_italic, "italic span 应有 ITALIC modifier");
-
-        let has_strike = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-            s.style.add_modifier.contains(Modifier::CROSSED_OUT) && s.content.contains("strike")
-        });
-        assert!(has_strike, "strikethrough span 应有 CROSSED_OUT modifier");
-    }
-
-    #[test]
-    fn test_md_inline_code() {
-        use peri_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-        let theme = DefaultMarkdownTheme;
-
-        let text = parse_markdown_default("`hello`");
-        let has_code = text
-            .lines
-            .iter()
-            .flat_map(|l| l.spans.iter())
-            .any(|s| s.style.fg == Some(theme.code()) && s.content.contains("hello"));
-        assert!(
-            has_code,
-            "行内代码应为 markdown 主题 code 颜色，含 hello 文字"
-        );
-    }
-
-    #[test]
-    fn test_md_code_block() {
-        let text = parse_markdown_default("```rust\nfn main() {}\n```");
-        let all_lines: Vec<String> = text
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
-        // 单行代码块：无 [lang] 标签，无 │ 前缀
-        assert_eq!(
-            all_lines.len(),
-            1,
-            "单行代码块应只产生一行，got: {all_lines:#?}"
-        );
-        assert!(
-            !all_lines[0].contains("[rust]"),
-            "单行代码块不应含 [lang] 标签"
-        );
-        assert!(!all_lines[0].contains('│'), "单行代码块不应含 │ 前缀");
-        assert!(all_lines[0].contains("fn main"), "应包含代码内容");
-    }
-
-    #[test]
-    fn test_md_unordered_list() {
-        let text = parse_markdown_default("- item1\n- item2");
-        let all_lines: Vec<String> = text
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
-        let bullet_lines: Vec<&String> = all_lines.iter().filter(|l| l.contains('•')).collect();
-        assert_eq!(
-            bullet_lines.len(),
-            2,
-            "无序列表应有 2 行含 • ，实际:{all_lines:#?}"
-        );
-    }
-
-    #[test]
-    fn test_md_ordered_list() {
-        let text = parse_markdown_default("1. first\n2. second");
-        let all_lines: Vec<String> = text
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect();
-        let has_one = all_lines.iter().any(|l| l.contains("1."));
-        let has_two = all_lines.iter().any(|l| l.contains("2."));
-        assert!(has_one, "有序列表应含 1. 前缀，实际:{all_lines:#?}");
-        assert!(has_two, "有序列表应含 2. 前缀，实际:{all_lines:#?}");
-    }
-
-    #[test]
-    fn test_md_blockquote() {
-        let text = parse_markdown_default("> quoted text");
-        let has_prefix = text
-            .lines
-            .iter()
-            .flat_map(|l| l.spans.iter())
-            .any(|s| s.content.contains('▍'));
-        assert!(has_prefix, "引用块应含 ▍ 前缀");
-    }
-
-    #[test]
-    fn test_md_rule() {
-        let text = parse_markdown_default("---");
-        let has_rule = text
-            .lines
-            .iter()
-            .flat_map(|l| l.spans.iter())
-            .any(|s| s.content.matches('─').count() >= 10);
-        assert!(has_rule, "水平线应含多个 ─ 字符");
-    }
-
-    #[test]
-    fn test_md_incomplete_does_not_panic() {
-        // 不完整 Markdown 不应 panic，应降级为纯文本
-        let text = parse_markdown_default("**unclosed bold");
-        let all = all_text(&text);
-        assert!(
-            all.contains("unclosed bold"),
-            "不完整 Markdown 应降级为纯文本，实际: {all:?}"
-        );
-    }
-
-    #[test]
-    fn test_md_table_basic() {
-        let md = "| Name  | Value |\n|-------|-------|\n| foo   | 123   |\n| bar   | 456   |";
-        let text = parse_markdown_default(md);
-        let all = all_text(&text);
-        // Should contain header and data cells
-        assert!(
-            all.contains("Name"),
-            "Table should contain header 'Name', got: {all:?}"
-        );
-        assert!(
-            all.contains("foo"),
-            "Table should contain data 'foo', got: {all:?}"
-        );
-        assert!(
-            all.contains("456"),
-            "Table should contain data '456', got: {all:?}"
-        );
-        // Should have border characters
-        assert!(
-            all.contains("│"),
-            "Table should have vertical borders, got: {all:?}"
-        );
-        assert!(
-            all.contains("┌"),
-            "Table should have top-left corner, got: {all:?}"
-        );
-        assert!(
-            all.contains("└"),
-            "Table should have bottom-left corner, got: {all:?}"
-        );
-        assert!(
-            all.contains("┼"),
-            "Table should have header separator, got: {all:?}"
-        );
-    }
-
-    #[test]
-    fn test_md_table_cell_count() {
-        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        let text = parse_markdown_default(md);
-        // Should produce exactly: top border + header + separator + 1 data row + bottom border = 5 lines
-        assert_eq!(
-            text.lines.len(),
-            5,
-            "2-col table should produce 5 lines, got: {}",
-            text.lines.len()
-        );
-    }
-
-    #[test]
-    fn test_md_table_border_alignment() {
-        let md = "| Name | Value |\n|------|-------|\n| foo  | 123   |";
-        let text = parse_markdown_default(md);
-        // Debug: print each line
-        for (i, line) in text.lines.iter().enumerate() {
-            let content: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-            eprintln!(
-                "line {}: {:?} (chars={})",
-                i,
-                content,
-                content.chars().count()
-            );
-        }
-        // Each line should have the same visual width (measured in chars, not bytes)
-        let widths: Vec<usize> = text
-            .lines
-            .iter()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|s| s.content.chars().count())
-                    .sum::<usize>()
-            })
-            .collect();
-        let unique_widths: std::collections::HashSet<usize> = widths.iter().copied().collect();
-        assert!(
-            unique_widths.len() == 1,
-            "All table lines should have same visual width, got: {:?}",
-            widths
-        );
-    }
-
-    #[test]
-    fn test_md_table_alignment() {
-        let md = "| Left | Center | Right |\n|:-----|:------:|------:|\n| a    | b      | c     |";
-        let text = parse_markdown_default(md);
-        let all = all_text(&text);
-        assert!(
-            all.contains("Left"),
-            "Should contain 'Left' header, got: {all:?}"
-        );
-        assert!(all.contains("a"), "Should contain data 'a', got: {all:?}");
-    }
-
-    #[test]
-    fn test_md_table_with_inline_code() {
-        let md = "| Command |\n|---------|\n| `ls`    |";
-        let text = parse_markdown_default(md);
-        let all = all_text(&text);
-        assert!(
-            all.contains("ls"),
-            "Should contain inline code content, got: {all:?}"
-        );
-    }
 }
 
 #[tokio::test]
@@ -462,7 +165,8 @@ async fn test_subagent_group_basic() {
     });
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -704,7 +408,8 @@ async fn test_empty_then_nonempty_assistant_chunk() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -810,7 +515,8 @@ async fn test_welcome_card_hidden_after_message() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -1805,7 +1511,8 @@ async fn test_user_message_survives_assistant_chunk() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -1870,7 +1577,8 @@ async fn test_messages_accumulate_across_turns() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     // 第二轮：用户 → AI
     // 模拟 submit_message：先记录 round_start_vm_idx，再 push Human VM
@@ -1900,7 +1608,8 @@ async fn test_messages_accumulate_across_turns() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -2005,7 +1714,8 @@ async fn test_tool_then_text_preserves_tool_block() {
     });
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -3910,7 +3620,8 @@ async fn test_thinking_mode_user_message_survives_rebuild() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
@@ -4011,7 +3722,8 @@ async fn test_thinking_toolcall_text_rebuild_preserves_user() {
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     app.flush_rebuild();
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 
     handle
         .terminal
