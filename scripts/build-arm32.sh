@@ -7,13 +7,13 @@
 # Extract to: /opt/gcc-linaro-11.3.1-2022.06-x86_64_arm-linux-gnueabihf/
 #
 # Usage:
-#   ./build-arm.sh          # dev build
-#   ./build-arm.sh release  # release build (default)
-#   ./build-arm.sh pkg      # build release and package deploy tarball
+#   ./scripts/build-arm32.sh          # release build (default)
+#   ./scripts/build-arm32.sh dev      # dev build
+#   ./scripts/build-arm32.sh pkg      # build release and create deploy tarball
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 TOOLCHAIN_ROOT="${TOOLCHAIN_ROOT:-/opt/gcc-linaro-11.3.1-2022.06-x86_64_arm-linux-gnueabihf}"
@@ -33,7 +33,7 @@ export CARGO="${RUSTUP_HOME:-$HOME/.rustup}/toolchains/stable-x86_64-unknown-lin
 MODE="${1:-release}"
 
 build_release() {
-    echo "=== Building peri for ARM (release) ==="
+    echo "=== Building peri for ARM32 (release) ==="
     "$CARGO" build --target "$TARGET" --release
     echo ""
     echo "=== Output ==="
@@ -44,7 +44,7 @@ build_release() {
 }
 
 build_dev() {
-    echo "=== Building peri for ARM (dev) ==="
+    echo "=== Building peri for ARM32 (dev) ==="
     "$CARGO" build --target "$TARGET"
     echo ""
     echo "=== Output ==="
