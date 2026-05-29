@@ -226,8 +226,10 @@ pub fn build_agent(
         auto_classifier,
     );
 
-    // AskUser 工具
-    let ask_user_tool = AskUserTool::new(effective_broker);
+    // AskUser 工具：使用原始 TUI broker（permission_broker），不使用 MultiplexBroker。
+    // ChannelBroker 对 Questions 立即返回空答案，MultiplexBroker 竞速时 Channel 总是先返回，
+    // 导致 AskUserQuestion 弹窗被绕过。
+    let ask_user_tool = AskUserTool::new(permission_broker.clone());
 
     // 父工具集（供子 agent 继承）
     let mut parent_tools: Vec<Box<dyn peri_agent::tools::BaseTool>> =
