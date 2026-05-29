@@ -13,11 +13,8 @@
 //! assert!(handle.contains("Hello"));
 //! ```
 
-use std::sync::Arc;
-#[cfg(test)]
-use std::time::Duration;
-
 use ratatui::{backend::TestBackend, Terminal};
+use std::sync::Arc;
 use tokio::sync::Notify;
 
 /// Headless 测试句柄，包含 TestBackend Terminal 和渲染通知
