@@ -160,8 +160,8 @@ pub fn handle_key_event(
     normal_keys::handle_normal_keys(app, input)
 }
 
-/// 检测 textarea 中 @ 提及模式，更新状态并触发搜索
-/// 使用缓存 + 300ms 节流避免频繁 glob
+/// 检测 textarea 中 @ 提及模式，更新状态并触发异步搜索
+/// 缓存命中时立即更新，否则 spawn 后台任务避免阻塞 UI 线程
 pub(super) fn update_at_mention_detection(app: &mut App) {
     let textarea = &app.session_mgr.sessions[app.session_mgr.active].ui.textarea;
     let text = textarea.lines().join("\n");
@@ -186,7 +186,7 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
         }
         at.activate(query.clone(), start);
 
-        // 尝试从缓存获取结果（零 IO）
+        // 尝试从缓存获取结果（零 IO，立即更新）
         if let Some(cached) = at.try_filter_from_cache(&query) {
             at.update_candidates(cached);
             return;
@@ -197,12 +197,9 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
             return;
         }
 
-        // 执行 glob 搜索
+        // 异步搜索：spawn 后台任务，不阻塞 UI 线程
         let cwd = app.services.cwd.clone();
-        let candidates = crate::app::at_mention::file_search::search_files(&cwd, &query);
-        at.cache_result(&query, candidates.clone());
-        at.set_last_glob_query(&query);
-        at.update_candidates(candidates);
+        at.start_async_search(cwd, query);
     } else if at.active {
         at.close();
     }

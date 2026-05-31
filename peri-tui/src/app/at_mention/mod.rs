@@ -4,6 +4,7 @@ pub mod popup;
 use std::{collections::HashMap, time::Instant};
 
 use file_search::FileCandidate;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// 搜索节流间隔（毫秒）
@@ -22,6 +23,8 @@ pub struct AtMentionState {
     pub scroll_offset: usize,
     /// 异步搜索取消令牌
     pub cancel_token: Option<CancellationToken>,
+    /// 异步搜索结果接收端
+    search_rx: Option<mpsc::UnboundedReceiver<(String, Vec<FileCandidate>)>>,
     /// 缓存：query → 搜索结果（避免重复 glob）
     search_cache: HashMap<String, Vec<FileCandidate>>,
     /// 上次 glob 搜索的时间戳：节流用
@@ -46,6 +49,7 @@ impl AtMentionState {
             selected: 0,
             scroll_offset: 0,
             cancel_token: None,
+            search_rx: None,
             search_cache: HashMap::new(),
             last_search_time: None,
             last_glob_query: String::new(),
@@ -150,6 +154,83 @@ impl AtMentionState {
             Some(t) => t.elapsed().as_millis() as u64 >= SEARCH_DEBOUNCE_MS,
             None => true,
         }
+    }
+
+    /// 启动异步搜索：在后台线程执行 glob，结果通过 channel 回传
+    /// 返回 true 表示成功启动，false 表示已有进行中的搜索或被节流跳过
+    pub fn start_async_search(&mut self, cwd: String, query: String) -> bool {
+        // 取消旧的搜索任务
+        if let Some(token) = self.cancel_token.take() {
+            token.cancel();
+        }
+
+        let (tx, rx) = mpsc::unbounded_channel();
+        let cancel_token = CancellationToken::new();
+        self.cancel_token = Some(cancel_token.clone());
+        self.search_rx = Some(rx);
+
+        let token = cancel_token;
+        tokio::spawn(async move {
+            // 检查取消
+            if token.is_cancelled() {
+                return;
+            }
+            // search_files 是同步阻塞的 IO，用 spawn_blocking 或直接在 spawn 中执行
+            // 由于 glob 是 CPU+IO 密集，使用 blocking 比较合适
+            let query_clone = query.clone();
+            let candidates =
+                tokio::task::spawn_blocking(move || file_search::search_files(&cwd, &query_clone))
+                    .await;
+            // 再次检查取消（搜索期间可能已被取消）
+            if token.is_cancelled() {
+                return;
+            }
+            if let Ok(candidates) = candidates {
+                let _ = tx.send((query, candidates));
+            }
+        });
+
+        true
+    }
+
+    /// 检查异步搜索结果，返回 true 表示有新结果需要更新 UI
+    pub fn poll_search_result(&mut self) -> bool {
+        // 先 take rx 避免借用冲突
+        let mut rx = match self.search_rx.take() {
+            Some(rx) => rx,
+            None => return false,
+        };
+
+        let mut updated = false;
+        let mut disconnected = false;
+        loop {
+            match rx.try_recv() {
+                Ok((query, candidates)) => {
+                    // 确认结果与当前 query 匹配（可能已被取消但消息已发出）
+                    if self.active && self.query == query {
+                        self.cache_result(&query, candidates.clone());
+                        self.set_last_glob_query(&query);
+                        self.update_candidates(candidates);
+                        updated = true;
+                    } else if !self.active || !query.starts_with(&self.query) {
+                        // query 不匹配且不是前缀，缓存结果供后续使用
+                        self.cache_result(&query, candidates);
+                        self.set_last_glob_query(&query);
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(_) => {
+                    disconnected = true;
+                    break;
+                }
+            }
+        }
+
+        // 非 disconnected 时放回 rx
+        if !disconnected {
+            self.search_rx = Some(rx);
+        }
+        updated
     }
 
     /// 上移选择

@@ -702,6 +702,7 @@ async fn run_app(
             let prev_active = app.session_mgr.active;
             app.session_mgr.active = i;
             agent_updated |= app.poll_agent();
+            agent_updated |= app.poll_at_mention();
             app.session_mgr.active = prev_active;
         }
         // 轮询后台事件（MCP OAuth 等）

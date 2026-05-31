@@ -226,4 +226,12 @@ impl App {
             }
         }
     }
+
+    /// 每帧调用：检查 @ mention 异步搜索结果，返回 true 表示 UI 需要更新
+    pub fn poll_at_mention(&mut self) -> bool {
+        self.session_mgr.sessions[self.session_mgr.active]
+            .ui
+            .at_mention
+            .poll_search_result()
+    }
 }
