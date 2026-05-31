@@ -161,6 +161,23 @@ impl GitRepo {
         }
     }
 
+    /// 计算当前分支相对 upstream 的 ahead/behind commit 数
+    /// 返回 (ahead, behind)，如果没有 upstream 返回 None
+    pub fn ahead_behind(&self) -> Option<(usize, usize)> {
+        let branch_name = self.head_branch()?;
+        let branch = self
+            .repo
+            .find_branch(&branch_name, git2::BranchType::Local)
+            .ok()?;
+        let upstream = branch.upstream().ok()?;
+        let local_oid = branch.get().target()?;
+        let upstream_oid = upstream.get().target()?;
+        self.repo
+            .graph_ahead_behind(local_oid, upstream_oid)
+            .ok()
+            .map(|(a, b)| (a, b))
+    }
+
     pub fn branch_map(&self) -> Result<HashMap<Oid, Vec<String>>> {
         let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
         for branch in self.repo.branches(Some(git2::BranchType::Local))? {

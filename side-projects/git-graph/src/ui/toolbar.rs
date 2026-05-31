@@ -1,7 +1,7 @@
 use crate::app::App;
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -275,6 +275,56 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
     let mut spans: Vec<Span> = Vec::new();
     let mut x = area.x;
 
+    // 左侧：分支名 + ahead/behind + dirty 标记
+    if let Some(branch) = app.repo.head_branch() {
+        spans.push(Span::styled(
+            format!(" {} ", branch),
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(80, 50, 130))
+                .add_modifier(Modifier::BOLD),
+        ));
+        x += UnicodeWidthStr::width(format!(" {} ", branch).as_str()) as u16;
+
+        // ahead/behind 标记
+        if let Some((ahead, behind)) = app.ahead_behind {
+            if ahead > 0 || behind > 0 {
+                let mut ab_text = String::new();
+                if behind > 0 {
+                    ab_text = format!("↓{}", behind);
+                }
+                if ahead > 0 {
+                    if !ab_text.is_empty() {
+                        ab_text.push(' ');
+                    }
+                    ab_text.push_str(&format!("↑{}", ahead));
+                }
+                let styled = format!(" {} ", ab_text);
+                spans.push(Span::styled(
+                    styled.clone(),
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Rgb(40, 70, 110)),
+                ));
+                x += UnicodeWidthStr::width(styled.as_str()) as u16;
+            }
+        }
+
+        // dirty 标记：工作区不干净时显示 *
+        if !app.git_status.is_empty() {
+            spans.push(Span::styled(
+                " * ".to_string(),
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Rgb(140, 100, 20)),
+            ));
+            x += 3;
+        }
+
+        spans.push(Span::raw("  "));
+        x += 2;
+    }
+
     for (i, btn) in buttons.iter().enumerate() {
         let text = format!(" {}{} ", btn.emoji, btn.label);
         let text_width = UnicodeWidthStr::width(text.as_str()) as u16;
@@ -290,7 +340,6 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
         }
     }
 
-    // 远程操作状态已迁移到 toast 栏
     let para = Paragraph::new(Line::from(spans));
     f.render_widget(para, area);
 }

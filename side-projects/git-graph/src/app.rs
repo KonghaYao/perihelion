@@ -91,6 +91,8 @@ pub struct App {
     pub remote_result_rx: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub toolbar_state: ToolbarState,
     pub global_toolbar_state: GlobalToolbarState,
+    /// 当前分支相对 upstream 的 ahead/behind（reload 时更新）
+    pub ahead_behind: Option<(usize, usize)>,
     /// graph 面板内容区域的 y 坐标（用于鼠标点击偏移计算）
     pub graph_inner_y: u16,
     /// graph 面板区域（用于鼠标点击检测）
@@ -171,6 +173,7 @@ impl App {
         // 准备 sidebar 数据（在 repo move 之前）
         let workdir = repo.repo().workdir().map(|p| p.to_path_buf());
         let git_status = crate::git::status::read_status(repo.repo()).unwrap_or_default();
+        let ahead_behind = repo.ahead_behind();
 
         let mut file_tree_state = peri_widgets::FileTreeState::new();
         if let Some(wd) = &workdir {
@@ -207,6 +210,7 @@ impl App {
             remote_result_rx: std::sync::Arc::new(std::sync::Mutex::new(None)),
             toolbar_state: ToolbarState::new(),
             global_toolbar_state: GlobalToolbarState::new(),
+            ahead_behind,
             graph_inner_y: 0,
             graph_area: Rect::default(),
             file_tree_state,
@@ -305,6 +309,7 @@ impl App {
             self.topology.tag_map(),
         );
         self.head_oid = self.repo.head_oid()?;
+        self.ahead_behind = self.repo.ahead_behind();
         if let Some(oid) = self.selected_oid {
             if let Some(idx) = self.layout.rows.iter().position(|r| r.oid == Some(oid)) {
                 self.selected_idx = idx;
