@@ -283,6 +283,47 @@ impl GitRepo {
     pub fn repo_mut(&mut self) -> &mut Repository {
         &mut self.repo
     }
+
+    /// 列出 workdir 下所有文件（跳过 .git / target / node_modules 等），供文件搜索使用
+    pub fn list_all_files(&self) -> Result<Vec<String>> {
+        let workdir = self
+            .repo
+            .workdir()
+            .context("bare 仓库无 workdir")?
+            .to_path_buf();
+        let skip_dirs = [".git", "target", "node_modules"];
+        let mut files = Vec::new();
+        // 递归遍历 workdir，跳过 skip_dirs，收集相对路径
+        fn walk_rel(
+            base: &std::path::Path,
+            dir: &std::path::Path,
+            skip: &[&str],
+            out: &mut Vec<String>,
+        ) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if let Ok(ft) = entry.file_type() {
+                        if ft.is_dir() {
+                            if skip.contains(&name_str.as_ref()) {
+                                continue;
+                            }
+                            walk_rel(base, &entry.path(), skip, out);
+                        } else if ft.is_file() {
+                            if let Ok(rel) = entry.path().strip_prefix(base) {
+                                out.push(rel.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        walk_rel(&workdir, &workdir, &skip_dirs, &mut files);
+        // 按路径深度排序，浅层文件（源码）排在前面
+        files.sort_by_key(|p| p.matches('/').count());
+        Ok(files)
+    }
 }
 
 #[cfg(test)]

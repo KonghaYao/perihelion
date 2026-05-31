@@ -207,6 +207,117 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         return;
     }
 
+    // FileSearch 文件搜索弹窗
+    if app.overlay == Overlay::FileSearch {
+        match code {
+            KeyCode::Esc => {
+                app.file_search_query = None;
+                app.file_search_cursor = 0;
+                app.file_search_results.clear();
+                app.file_search_selected = 0;
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Enter => {
+                if let Some(path) = app
+                    .file_search_results
+                    .get(app.file_search_selected)
+                    .cloned()
+                {
+                    app.preview_file = Some((path, true));
+                    app.preview_raw_lines.clear();
+                    app.preview_highlighted.clear();
+                    app.preview_scroll = 0;
+                    app.preview_scroll_x = 0;
+                    app.preview_highlighting = false;
+                    app.preview_hl_rx = None;
+                    app.preview_max_line_width = 0;
+                }
+                app.file_search_query = None;
+                app.file_search_cursor = 0;
+                app.file_search_results.clear();
+                app.file_search_selected = 0;
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Up => {
+                app.file_search_selected = app.file_search_selected.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                let max = app.file_search_results.len().saturating_sub(1);
+                app.file_search_selected = (app.file_search_selected + 1).min(max);
+            }
+            KeyCode::Left => {
+                app.file_search_cursor = app.file_search_cursor.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                if let Some(q) = &app.file_search_query {
+                    app.file_search_cursor = app.file_search_cursor.min(q.chars().count());
+                }
+            }
+            KeyCode::Home => {
+                app.file_search_cursor = 0;
+            }
+            KeyCode::End => {
+                if let Some(q) = &app.file_search_query {
+                    app.file_search_cursor = q.chars().count();
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(query) = &mut app.file_search_query {
+                    if app.file_search_cursor > 0 {
+                        let pos = app.file_search_cursor;
+                        let bp = query.char_indices().nth(pos - 1).map(|(i, _)| i);
+                        let bn = query
+                            .char_indices()
+                            .nth(pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(query.len());
+                        if let Some(b) = bp {
+                            query.drain(b..bn);
+                            app.file_search_cursor -= 1;
+                        }
+                    }
+                    if query.is_empty() {
+                        app.file_search_query = None;
+                    }
+                }
+                app.update_file_search_results();
+            }
+            KeyCode::Delete => {
+                if let Some(query) = &mut app.file_search_query {
+                    let pos = app.file_search_cursor;
+                    let len = query.chars().count();
+                    if pos < len {
+                        let bp = query
+                            .char_indices()
+                            .nth(pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(query.len());
+                        let bn = query
+                            .char_indices()
+                            .nth(pos + 1)
+                            .map(|(i, _)| i)
+                            .unwrap_or(query.len());
+                        query.drain(bp..bn);
+                    }
+                }
+                app.update_file_search_results();
+            }
+            KeyCode::Char(c) => {
+                let query = app.file_search_query.get_or_insert_with(String::new);
+                let bp = query
+                    .char_indices()
+                    .nth(app.file_search_cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(query.len());
+                query.insert(bp, c);
+                app.file_search_cursor += 1;
+                app.update_file_search_results();
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // overlay 打开时处理
     if app.overlay == Overlay::BranchList
         || app.overlay == Overlay::TagList
@@ -462,6 +573,23 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.overlay = Overlay::SearchBar;
             app.search_query = Some(String::new());
         }
+        KeyCode::Char('p') if mods.contains(KeyModifiers::CONTROL) => {
+            app.file_search_query = Some(String::new());
+            app.file_search_cursor = 0;
+            app.file_search_selected = 0;
+            app.file_search_results.clear();
+            if app.all_tracked_files.is_empty() {
+                match app.repo.list_all_files() {
+                    Ok(files) => app.all_tracked_files = files,
+                    Err(e) => {
+                        app.show_toast(format!("文件扫描失败: {}", e), ToastStyle::Error);
+                        // 即使扫描失败也打开弹窗，至少用户能看到错误提示
+                    }
+                }
+            }
+            app.update_file_search_results();
+            app.overlay = Overlay::FileSearch;
+        }
         KeyCode::Char('f') if !mods.contains(KeyModifiers::CONTROL) => {
             spawn_remote(app, RemoteOp::Fetch, None);
         }
@@ -684,15 +812,39 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                             }
                                         }
                                         status_panel::StatusButton::Delete => {
-                                            // 先尝试 git rm（已跟踪），失败则直接删除（未跟踪）
-                                            if app.repo.delete_tracked_file(git_path).is_err() {
+                                            if git_path.ends_with('/') {
+                                                // 目录：丢弃变更而非删除目录
                                                 if let Err(e) =
-                                                    app.repo.delete_untracked_file(git_path)
+                                                    app.repo.discard_dir_changes(git_path)
                                                 {
                                                     app.show_toast(
-                                                        format!("删除失败: {}", e),
+                                                        format!("丢弃变更失败: {}", e),
                                                         ToastStyle::Error,
                                                     );
+                                                } else {
+                                                    app.show_toast(
+                                                        format!("已丢弃 {} 的变更", git_path),
+                                                        ToastStyle::Success,
+                                                    );
+                                                    let _ = app.reload();
+                                                }
+                                            } else {
+                                                // 文件：先尝试 git rm（已跟踪），失败则直接删除（未跟踪）
+                                                if app.repo.delete_tracked_file(git_path).is_err() {
+                                                    if let Err(e) =
+                                                        app.repo.delete_untracked_file(git_path)
+                                                    {
+                                                        app.show_toast(
+                                                            format!("删除失败: {}", e),
+                                                            ToastStyle::Error,
+                                                        );
+                                                    } else {
+                                                        app.show_toast(
+                                                            format!("已删除 {}", git_path),
+                                                            ToastStyle::Success,
+                                                        );
+                                                        let _ = app.reload();
+                                                    }
                                                 } else {
                                                     app.show_toast(
                                                         format!("已删除 {}", git_path),
@@ -700,12 +852,6 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                                     );
                                                     let _ = app.reload();
                                                 }
-                                            } else {
-                                                app.show_toast(
-                                                    format!("已删除 {}", git_path),
-                                                    ToastStyle::Success,
-                                                );
-                                                let _ = app.reload();
                                             }
                                         }
                                     }

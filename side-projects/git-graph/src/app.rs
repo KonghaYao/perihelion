@@ -69,6 +69,7 @@ pub enum Overlay {
     FilterBar,
     SearchBar,
     InputDialog,
+    FileSearch,
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +200,12 @@ pub struct App {
     pub preview_hl_rx: Option<std::sync::mpsc::Receiver<HighlightBatch>>,
     /// 预览内容最大行宽（渲染时计算，水平滚动用）
     pub preview_max_line_width: u16,
+    // === 文件搜索状态 ===
+    pub file_search_query: Option<String>,
+    pub file_search_cursor: usize,
+    pub file_search_results: Vec<String>,
+    pub file_search_selected: usize,
+    pub all_tracked_files: Vec<String>,
 }
 
 impl App {
@@ -312,6 +319,11 @@ impl App {
             preview_highlighting: false,
             preview_hl_rx: None,
             preview_max_line_width: 0,
+            file_search_query: None,
+            file_search_cursor: 0,
+            file_search_results: Vec::new(),
+            file_search_selected: 0,
+            all_tracked_files: Vec::new(),
         };
         app.select(selected_idx);
         Ok(app)
@@ -363,6 +375,28 @@ impl App {
 
     pub fn quit(&mut self) {
         self.running = false;
+    }
+
+    /// 根据查询文本过滤文件搜索结果
+    pub fn update_file_search_results(&mut self) {
+        let query = match self.file_search_query.as_deref() {
+            Some(q) if !q.is_empty() => q.to_ascii_lowercase(),
+            _ => {
+                self.file_search_results =
+                    self.all_tracked_files.iter().take(50).cloned().collect();
+                self.file_search_selected = 0;
+                return;
+            }
+        };
+        let q = &query;
+        self.file_search_results = self
+            .all_tracked_files
+            .iter()
+            .filter(|path| path.to_ascii_lowercase().contains(q))
+            .take(50)
+            .cloned()
+            .collect();
+        self.file_search_selected = 0;
     }
 
     /// 加载文件预览内容：秒读原始行立即可渲染，后台线程渐进高亮。
@@ -512,6 +546,8 @@ impl App {
         }
         self.select_keep_scroll(self.selected_idx);
         self.git_status = crate::git::status::read_status(self.repo.repo()).unwrap_or_default();
+        // 不清空 all_tracked_files——文件列表变化不频繁，清空会导致
+        // 文件搜索弹窗打开期间被后台 reload 把数据清掉，用户看到空列表。
         self.dirty = true;
         Ok(())
     }

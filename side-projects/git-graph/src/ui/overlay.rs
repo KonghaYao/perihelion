@@ -38,6 +38,9 @@ pub fn draw_overlay(f: &mut Frame, area: Rect, app: &App) {
                 draw_input_dialog(f, area, &dialog.title, &dialog.value, dialog.cursor_pos);
             }
         }
+        Overlay::FileSearch => {
+            crate::ui::file_search::draw_file_search(f, area, app);
+        }
         _ => {}
     }
 }

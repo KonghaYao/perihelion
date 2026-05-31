@@ -109,6 +109,16 @@ impl GitRepo {
         Ok(())
     }
 
+    /// 丢弃目录的所有变更（git restore + git clean -fd）
+    /// 不删除目录本身，只丢弃修改和清理未跟踪文件
+    pub fn discard_dir_changes(&self, path: &str) -> Result<()> {
+        let dir_path = path.trim_end_matches('/');
+        // 先丢弃已跟踪文件的修改
+        let _ = self.run_git_allow_fail(&["restore", dir_path]);
+        // 清理未跟踪文件和目录
+        self.run_git(&["clean", "-fd", dir_path])
+    }
+
     fn workdir(&self) -> Result<&std::path::Path> {
         self.repo().workdir().context("bare 仓库不支持此操作")
     }
@@ -123,6 +133,21 @@ impl GitRepo {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!("git {} 失败: {}", args.join(" "), stderr);
+        }
+        Ok(())
+    }
+
+    /// 执行 git 命令但忽略错误（用于 restore 等可能无变更的命令）
+    fn run_git_allow_fail(&self, args: &[&str]) -> Result<()> {
+        let workdir = self.workdir()?;
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(workdir)
+            .output()
+            .with_context(|| format!("执行 git {} 失败", args.join(" ")))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::debug!("git {}（允许失败）: {}", args.join(" "), stderr);
         }
         Ok(())
     }
