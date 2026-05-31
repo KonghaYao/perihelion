@@ -43,6 +43,19 @@ pub fn render_graph_row(
             }
         }
 
+        // remote branch 标记（灰色小字）
+        if !row.remote_branches.is_empty() {
+            for remote_branch in &row.remote_branches {
+                spans.push(Span::styled(
+                    format!(" {} ", remote_branch),
+                    Style::default()
+                        .fg(Color::Rgb(160, 160, 160))
+                        .bg(Color::Rgb(40, 40, 50)),
+                ));
+                spans.push(Span::raw(" "));
+            }
+        }
+
         // tag 标记
         if !row.tags.is_empty() {
             for tag in &row.tags {
@@ -160,6 +173,7 @@ mod tests {
             message_short: "initial commit".to_string(),
             has_stash: false,
             tags: Vec::new(),
+            remote_branches: Vec::new(),
         };
         let theme = GigTheme::new();
         let line = render_graph_row(&row, 40, false, Some(oid(1)), &BranchColors::new(), &theme);
@@ -182,6 +196,7 @@ mod tests {
             message_short: "test".to_string(),
             has_stash: false,
             tags: Vec::new(),
+            remote_branches: Vec::new(),
         };
         let theme = GigTheme::new();
         let line = render_graph_row(&row, 20, true, None, &BranchColors::new(), &theme);
@@ -203,6 +218,7 @@ mod tests {
             message_short: String::new(),
             has_stash: false,
             tags: Vec::new(),
+            remote_branches: Vec::new(),
         };
         let theme = GigTheme::new();
         let line = render_graph_row(&row, 20, false, None, &BranchColors::new(), &theme);

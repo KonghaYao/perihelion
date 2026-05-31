@@ -209,6 +209,26 @@ impl GitRepo {
         Ok(map)
     }
 
+    /// 远程分支 → Oid 映射（过滤 origin/HEAD）
+    pub fn remote_branch_map(&self) -> Result<HashMap<Oid, Vec<String>>> {
+        let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
+        for branch in self.repo.branches(Some(git2::BranchType::Remote))? {
+            let branch = branch?.0;
+            if let (Some(full_name), Some(target)) =
+                (branch.name()?.map(|s| s.to_string()), branch.get().target())
+            {
+                if full_name.ends_with("/HEAD") {
+                    continue;
+                }
+                map.entry(target).or_default().push(full_name);
+            }
+        }
+        for names in map.values_mut() {
+            names.sort();
+        }
+        Ok(map)
+    }
+
     pub fn tag_map(&self) -> Result<HashMap<Oid, Vec<String>>> {
         let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
         for name in (&self.repo.tag_names(None)?).into_iter().flatten() {

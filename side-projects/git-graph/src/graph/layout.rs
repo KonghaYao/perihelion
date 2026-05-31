@@ -46,6 +46,7 @@ pub struct GraphRow {
     pub cells: Vec<CellType>,
     pub branch: Option<String>,
     pub branches: Vec<String>,
+    pub remote_branches: Vec<String>,
     pub message_short: String,
     pub has_stash: bool,
     pub tags: Vec<String>,
@@ -112,6 +113,7 @@ pub fn build_layout(
     stash_map: &HashMap<Oid, Vec<StashInfo>>,
     colors: &mut BranchColors,
     tag_map: &HashMap<Oid, Vec<String>>,
+    remote_branch_map: &HashMap<Oid, Vec<String>>,
 ) -> GraphLayout {
     if nodes.is_empty() {
         return GraphLayout {
@@ -187,6 +189,10 @@ pub fn build_layout(
                 .get(&node.oid)
                 .map(|v| !v.is_empty())
                 .unwrap_or(false);
+        let remote_branches = remote_branch_map
+            .get(&node.oid)
+            .cloned()
+            .unwrap_or_default();
 
         rows.push(GraphRow {
             oid: Some(node.oid),
@@ -194,6 +200,7 @@ pub fn build_layout(
             cells,
             branch: branch_name,
             branches: all_branches,
+            remote_branches,
             message_short: node.message_short.clone(),
             has_stash,
             tags: tag_map.get(&node.oid).cloned().unwrap_or_default(),
@@ -429,6 +436,7 @@ fn push_convergence(
         cells: cc,
         branch: None,
         branches: Vec::new(),
+        remote_branches: Vec::new(),
         message_short: String::new(),
         has_stash: false,
         tags: Vec::new(),
@@ -543,6 +551,7 @@ fn push_fork(
         cells: cc,
         branch: None,
         branches: Vec::new(),
+        remote_branches: Vec::new(),
         message_short: String::new(),
         has_stash: false,
         tags: Vec::new(),
@@ -578,6 +587,7 @@ mod tests {
             &HashMap::new(),
             &mut colors,
             &HashMap::new(),
+            &HashMap::new(),
         );
         assert_eq!(layout.rows.len(), 1);
         assert_eq!(layout.rows[0].oid, Some(oid(1)));
@@ -593,6 +603,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
         assert_eq!(layout.rows.len(), 3);
@@ -610,6 +621,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
         // Should have: commit 3, fork connector, commit 2, commit 1 (or similar)
@@ -646,6 +658,7 @@ mod tests {
             &HashMap::new(),
             &mut colors,
             &HashMap::new(),
+            &HashMap::new(),
         );
         assert!(layout.rows.is_empty());
         assert_eq!(layout.max_lane, 0);
@@ -667,6 +680,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
 
@@ -710,6 +724,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
 
@@ -756,6 +771,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
 
@@ -886,6 +902,7 @@ mod debug_tests {
             &HashMap::new(),
             &mut colors,
             &HashMap::new(),
+            &HashMap::new(),
         );
         dump_layout("Simple Merge: c3->c2,c1", &layout);
         validate_continuity("Simple Merge", &layout);
@@ -906,6 +923,7 @@ mod debug_tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
         dump_layout("Diamond: c4->c3->c2, c5->c2", &layout);
@@ -929,6 +947,7 @@ mod debug_tests {
             &HashMap::new(),
             &mut colors,
             &HashMap::new(),
+            &HashMap::new(),
         );
         dump_layout("Two branches converge at c2", &layout);
         validate_continuity("Two branches", &layout);
@@ -949,6 +968,7 @@ mod debug_tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
         dump_layout("Consecutive merges", &layout);
@@ -974,6 +994,7 @@ mod debug_tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
         dump_layout("Three branches to c1", &layout);
@@ -1004,6 +1025,7 @@ mod debug_tests {
             &HashMap::new(),
             &mut colors,
             &HashMap::new(),
+            &HashMap::new(),
         );
         dump_layout("Realistic: main+feature merge", &layout);
         validate_continuity("Realistic", &layout);
@@ -1029,6 +1051,7 @@ mod debug_tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
         validate_continuity("Three converge", &layout);
@@ -1062,6 +1085,7 @@ mod debug_tests {
             &HashMap::new(),
             &HashMap::new(),
             &mut colors,
+            &HashMap::new(),
             &HashMap::new(),
         );
         validate_continuity("No phantom", &layout);

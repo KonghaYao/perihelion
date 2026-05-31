@@ -169,6 +169,7 @@ impl App {
         let head_oid = repo.head_oid()?;
         let branch_map = repo.branch_map()?;
         let tag_map = repo.tag_map()?;
+        let remote_branch_map = repo.remote_branch_map()?;
         let stash_map = repo.stash_by_commit()?;
         let stash_oids: Vec<git2::Oid> = stash_map.values().flatten().map(|s| s.oid).collect();
         let nodes = repo.scan_topology_with_extra(&stash_oids)?;
@@ -185,6 +186,7 @@ impl App {
             &stash_map,
             &mut colors,
             topology.tag_map(),
+            &remote_branch_map,
         );
         let selected_idx = layout
             .rows
@@ -316,6 +318,7 @@ impl App {
     pub fn reload(&mut self) -> Result<()> {
         let branch_map = self.repo.branch_map()?;
         let tag_map = self.repo.tag_map()?;
+        let remote_branch_map = self.repo.remote_branch_map()?;
         let stash_map = self.repo.stash_by_commit()?;
         let stash_oids: Vec<git2::Oid> = stash_map.values().flatten().map(|s| s.oid).collect();
         let nodes = self.repo.scan_topology_with_extra(&stash_oids)?;
@@ -332,6 +335,7 @@ impl App {
             &self.stash_map,
             &mut self.colors,
             self.topology.tag_map(),
+            &remote_branch_map,
         );
         self.head_oid = self.repo.head_oid()?;
         self.ahead_behind = self.repo.ahead_behind();
