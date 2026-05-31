@@ -326,7 +326,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                         }
                     }
                 }
-                return;
+                // Ctrl+点击不在 sidebar 路径行上，继续走正常逻辑
             }
 
             // 普通左键点击
