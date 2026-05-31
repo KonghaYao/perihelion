@@ -1659,6 +1659,7 @@ dependencies = [
  "peri-widgets",
  "predicates",
  "ratatui",
+ "syntect",
  "tempfile",
  "tokio",
  "tracing",

@@ -51,6 +51,13 @@ pub enum Focus {
     Detail,
 }
 
+/// Status 焦点下的子面板（Staged / Changes）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusSubPanel {
+    Staged,
+    Changes,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum Overlay {
@@ -162,6 +169,23 @@ pub struct App {
     pub sidebar_layout: crate::ui::sidebar::SidebarLayout,
     /// sidebar 上次刷新时间
     last_sidebar_refresh: std::time::Instant,
+    // === 文件预览状态 ===
+    /// 预览文件：(相对路径, 是否 staged)
+    pub preview_file: Option<(String, bool)>,
+    /// Status 焦点下的子面板
+    pub status_sub_panel: StatusSubPanel,
+    /// Status 子面板中的文件光标索引
+    pub status_file_index: usize,
+    /// Staged 面板可见文件路径列表（渲染时更新）
+    pub staged_visible_files: Vec<String>,
+    /// Changes 面板可见文件路径列表（渲染时更新）
+    pub changes_visible_files: Vec<String>,
+    /// 文件预览滚动偏移（虚拟滚动）
+    pub preview_scroll: u16,
+    /// 文件预览内容（一次性高亮后的 styled spans，每行一个 Vec）
+    pub preview_highlighted: Vec<Vec<(ratatui::style::Style, String)>>,
+    /// 文件预览是否被截断（超大文件）
+    pub preview_truncated: bool,
 }
 
 impl App {
@@ -262,6 +286,14 @@ impl App {
             detail_area: Rect::default(),
             sidebar_layout: crate::ui::sidebar::SidebarLayout::default(),
             last_sidebar_refresh: std::time::Instant::now(),
+            preview_file: None,
+            status_sub_panel: StatusSubPanel::Changes,
+            status_file_index: 0,
+            staged_visible_files: Vec::new(),
+            changes_visible_files: Vec::new(),
+            preview_scroll: 0,
+            preview_highlighted: Vec::new(),
+            preview_truncated: false,
         };
         app.select(selected_idx);
         Ok(app)
@@ -313,6 +345,60 @@ impl App {
 
     pub fn quit(&mut self) {
         self.running = false;
+    }
+
+    /// 加载文件预览内容，一次性完成语法高亮。调用前确保 preview_file 已设置。
+    pub fn load_preview(&mut self) {
+        self.preview_highlighted.clear();
+        self.preview_truncated = false;
+        self.preview_scroll = 0;
+        if let Some((ref path, is_staged)) = self.preview_file {
+            let result = if is_staged {
+                self.repo.read_staged_file(path)
+            } else {
+                self.repo.read_working_file(path)
+            };
+            if let Ok(data) = result {
+                let text = String::from_utf8_lossy(&data);
+                const MAX_LINES: usize = 500_000;
+                let lines: Vec<&str> = text.lines().take(MAX_LINES).collect();
+                self.preview_truncated = lines.len() >= MAX_LINES;
+
+                // 一次性高亮全部行
+                let ext = crate::ui::syntax::extension_from_path(path);
+                let syntax = crate::ui::syntax::find_syntax(ext);
+                if let Some(syn) = syntax {
+                    let theme = crate::ui::syntax::get_theme();
+                    let ss = crate::ui::syntax::get_syntax_set();
+                    let mut h = syntect::easy::HighlightLines::new(syn, theme);
+                    for line in lines {
+                        match h.highlight_line(line, ss) {
+                            Ok(segments) => {
+                                let spans: Vec<_> = segments
+                                    .into_iter()
+                                    .map(|(s, t)| {
+                                        (crate::ui::syntax::to_ratatui_style(s), t.to_string())
+                                    })
+                                    .collect();
+                                self.preview_highlighted.push(spans);
+                            }
+                            Err(_) => {
+                                self.preview_highlighted.push(vec![(
+                                    ratatui::style::Style::default(),
+                                    line.to_string(),
+                                )]);
+                            }
+                        }
+                    }
+                } else {
+                    // 无语法高亮，存纯文本
+                    for line in lines {
+                        self.preview_highlighted
+                            .push(vec![(ratatui::style::Style::default(), line.to_string())]);
+                    }
+                }
+            }
+        }
     }
 
     pub fn reload(&mut self) -> Result<()> {

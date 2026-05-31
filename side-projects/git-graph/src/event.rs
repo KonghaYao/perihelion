@@ -1,4 +1,6 @@
-use crate::app::{App, ConfirmAction, Focus, InputAction, InputDialog, Overlay, ToastStyle};
+use crate::app::{
+    App, ConfirmAction, Focus, InputAction, InputDialog, Overlay, StatusSubPanel, ToastStyle,
+};
 use crate::git::remote::{self, RemoteOp, RemoteResult};
 use crate::ui::sidebar::status_panel;
 use crate::ui::toolbar::{GlobalAction, ToolbarAction};
@@ -266,6 +268,12 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 return;
             }
             KeyCode::Char('u') => {
+                if app.preview_file.is_some() {
+                    // 在文件预览中向上翻页
+                    let delta = (app.preview_highlighted.len() as u16).min(10);
+                    app.preview_scroll = app.preview_scroll.saturating_sub(delta);
+                    return;
+                }
                 let delta = app.viewport_height.min(3);
                 if app.selected_idx >= delta {
                     app.select(app.selected_idx - delta);
@@ -274,6 +282,19 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 return;
             }
             KeyCode::Char('d') => {
+                if app.preview_file.is_some() {
+                    // 在文件预览中向下翻页
+                    let delta = (app.preview_highlighted.len() as u16).min(10);
+                    let max = app
+                        .preview_highlighted
+                        .len()
+                        .saturating_sub(app.preview_highlighted.len().min(40));
+                    let new = (app.preview_scroll + delta).min(max as u16);
+                    if new != app.preview_scroll {
+                        app.preview_scroll = new;
+                    }
+                    return;
+                }
                 let delta = app.viewport_height.min(3);
                 let new_idx =
                     (app.selected_idx + delta).min(app.layout.rows.len().saturating_sub(1));
@@ -310,10 +331,62 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             _ => {}
         },
         Focus::Status => {
-            // Status 面板暂时只读
-            #[allow(clippy::collapsible_match)]
-            if !matches!(code, KeyCode::Esc | KeyCode::Tab | KeyCode::BackTab) {
-                return;
+            match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    let files = match app.status_sub_panel {
+                        StatusSubPanel::Staged => &app.staged_visible_files,
+                        StatusSubPanel::Changes => &app.changes_visible_files,
+                    };
+                    if !files.is_empty() && app.status_file_index > 0 {
+                        app.status_file_index -= 1;
+                    }
+                    return;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let files = match app.status_sub_panel {
+                        StatusSubPanel::Staged => &app.staged_visible_files,
+                        StatusSubPanel::Changes => &app.changes_visible_files,
+                    };
+                    if !files.is_empty() && app.status_file_index + 1 < files.len() {
+                        app.status_file_index += 1;
+                    }
+                    return;
+                }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    // 切换到 Staged 子面板
+                    app.status_sub_panel = StatusSubPanel::Staged;
+                    if app.status_file_index >= app.staged_visible_files.len() {
+                        app.status_file_index = app.staged_visible_files.len().saturating_sub(1);
+                    }
+                    return;
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    // 切换到 Changes 子面板
+                    app.status_sub_panel = StatusSubPanel::Changes;
+                    if app.status_file_index >= app.changes_visible_files.len() {
+                        app.status_file_index = app.changes_visible_files.len().saturating_sub(1);
+                    }
+                    return;
+                }
+                KeyCode::Enter => {
+                    // 选中文件进行预览
+                    let files = match app.status_sub_panel {
+                        StatusSubPanel::Staged => &app.staged_visible_files,
+                        StatusSubPanel::Changes => &app.changes_visible_files,
+                    };
+                    if let Some(path) = files.get(app.status_file_index) {
+                        let is_staged = matches!(app.status_sub_panel, StatusSubPanel::Staged);
+                        app.preview_file = Some((path.clone(), is_staged));
+                        app.preview_highlighted.clear(); // 触发懒加载
+                        app.preview_scroll = 0;
+                    }
+                    return;
+                }
+                _ => {
+                    if !matches!(code, KeyCode::Esc | KeyCode::Tab | KeyCode::BackTab) {
+                        return;
+                    }
+                }
             }
         }
         _ => {}
@@ -385,6 +458,15 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.focus = Focus::Detail;
         }
         KeyCode::Esc => {
+            // 先关闭文件预览
+            if app.preview_file.is_some() {
+                app.preview_file = None;
+                app.preview_highlighted.clear();
+                app.preview_truncated = false;
+                app.preview_scroll = 0;
+                app.focus = Focus::Status;
+                return;
+            }
             if app.overlay != Overlay::None {
                 app.overlay = Overlay::None;
             } else if app.focus != Focus::Graph {
@@ -527,12 +609,16 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
             {
                 app.focus = Focus::Status;
                 let sl = &app.sidebar_layout;
-                let panels: [(ratatui::layout::Rect, &Option<status_panel::PanelLayout>); 2] = [
-                    (sl.staged_inner, &sl.staged_layout),
-                    (sl.changes_inner, &sl.changes_layout),
+                let panels: [(
+                    ratatui::layout::Rect,
+                    &Option<status_panel::PanelLayout>,
+                    bool,
+                ); 2] = [
+                    (sl.staged_inner, &sl.staged_layout, true),
+                    (sl.changes_inner, &sl.changes_layout, false),
                 ];
 
-                for (inner, panel_layout) in &panels {
+                for (inner, panel_layout, is_staged) in &panels {
                     if mouse.row < inner.y || mouse.row >= inner.y + inner.height {
                         continue;
                     }
@@ -606,6 +692,31 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                 }
                             }
                         }
+                        // 文件行点击 → 预览
+                        for &(path_row, ref path, is_dir) in &layout.path_rows {
+                            if !is_dir && rel_row == path_row {
+                                app.status_sub_panel = if *is_staged {
+                                    StatusSubPanel::Staged
+                                } else {
+                                    StatusSubPanel::Changes
+                                };
+                                // 更新光标索引
+                                let files = if *is_staged {
+                                    &app.staged_visible_files
+                                } else {
+                                    &app.changes_visible_files
+                                };
+                                if let Some(idx) = files.iter().position(|f| f == path) {
+                                    app.status_file_index = idx;
+                                }
+                                app.preview_file = Some((path.clone(), *is_staged));
+                                app.preview_highlighted.clear();
+                                app.preview_scroll = 0;
+                                app.dirty = true;
+                                return;
+                            }
+                        }
+                        return;
                     }
                 }
                 return;
@@ -700,6 +811,35 @@ fn scroll_panel(app: &mut App, col: u16, row: u16, dir: ScrollDirection) {
             }
         }
         app.dirty = true;
+        return;
+    }
+
+    // 文件预览滚动（预览激活时，右侧 75% 区域为预览面板）
+    if app.preview_file.is_some() {
+        let da = app.detail_area;
+        if col >= da.x && col < da.x + da.width && row >= da.y && row < da.y + da.height {
+            let max = app
+                .preview_highlighted
+                .len()
+                .saturating_sub(da.height.saturating_sub(2) as usize)
+                .min(u16::MAX as usize) as u16;
+            match dir {
+                ScrollDirection::Up => {
+                    let new = app.preview_scroll.saturating_sub(delta);
+                    if new != app.preview_scroll {
+                        app.preview_scroll = new;
+                        app.dirty = true;
+                    }
+                }
+                ScrollDirection::Down => {
+                    let new = (app.preview_scroll + delta).min(max);
+                    if new != app.preview_scroll {
+                        app.preview_scroll = new;
+                        app.dirty = true;
+                    }
+                }
+            }
+        }
         return;
     }
 

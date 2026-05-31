@@ -1,10 +1,26 @@
 use anyhow::{Context, Result};
 use git2::Oid;
+use std::path::Path;
 use std::process::Command;
 
 use super::repo::GitRepo;
 
 impl GitRepo {
+    /// 从 git 索引读取暂存区文件内容
+    pub fn read_staged_file(&self, path: &str) -> Result<Vec<u8>> {
+        let index = self.repo().index()?;
+        let entry = index
+            .get_path(Path::new(path), 0)
+            .with_context(|| format!("文件不在索引中: {}", path))?;
+        let blob = self.repo().find_blob(entry.id)?;
+        Ok(blob.content().to_vec())
+    }
+
+    /// 从工作区读取文件内容
+    pub fn read_working_file(&self, path: &str) -> Result<Vec<u8>> {
+        let full = self.workdir()?.join(path);
+        std::fs::read(&full).with_context(|| format!("读取文件失败: {}", full.display()))
+    }
     pub fn checkout(&self, oid: Oid) -> Result<()> {
         let short = format!("{:.7}", oid);
         self.run_git(&["checkout", &short])

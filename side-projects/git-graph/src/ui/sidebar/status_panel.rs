@@ -222,6 +222,7 @@ fn render_tree(
     theme: &crate::theme::GigTheme,
     section: &[StatusButton],
     area_width: u16,
+    highlight_path: Option<&str>,
 ) {
     for node in nodes {
         match node {
@@ -259,6 +260,7 @@ fn render_tree(
                         theme,
                         section,
                         area_width,
+                        highlight_path,
                     );
                 }
             }
@@ -271,6 +273,11 @@ fn render_tree(
                 ));
                 spans.push(Span::styled(format!(" {}", ch), Style::default().fg(color)));
                 let fk = format!("{}{}", prefix, name);
+                // 高亮选中的文件
+                let should_highlight = highlight_path == Some(fk.as_str());
+                if should_highlight {
+                    spans = theme.highlight_line(spans);
+                }
                 path_rows.push((*row, fk.clone(), false));
                 let btns = append_buttons(&mut spans, section, area_width);
                 for (bx, btn) in btns {
@@ -316,6 +323,7 @@ fn draw_panel(
     scroll: &mut u16,
     total_lines: &mut u16,
     viewport: &mut u16,
+    highlight_path: Option<&str>,
 ) -> (Rect, Option<PanelLayout>) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -357,6 +365,7 @@ fn draw_panel(
             theme,
             section,
             content_width,
+            highlight_path,
         );
     }
 
@@ -409,6 +418,23 @@ fn draw_panel(
     (inner, Some(layout))
 }
 
+/// 计算当前需要高亮的文件路径
+fn compute_highlight_path(app: &App, sub: crate::app::StatusSubPanel) -> Option<String> {
+    // 如果正在预览某文件，高亮该文件
+    if let Some((ref path, _)) = app.preview_file {
+        return Some(path.clone());
+    }
+    // 如果焦点在 Status，高亮当前光标位置的文件
+    if app.focus == crate::app::Focus::Status && app.status_sub_panel == sub {
+        let files = match sub {
+            crate::app::StatusSubPanel::Staged => &app.staged_visible_files,
+            crate::app::StatusSubPanel::Changes => &app.changes_visible_files,
+        };
+        return files.get(app.status_file_index).cloned();
+    }
+    None
+}
+
 /// 渲染 Staged 面板
 pub fn draw_staged(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<PanelLayout>) {
     let status = &app.git_status;
@@ -429,9 +455,11 @@ pub fn draw_staged(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<Pa
         };
         app.staged_total_lines = 0;
         app.staged_viewport = inner.height;
+        app.staged_visible_files.clear();
         return (inner, None);
     }
-    draw_panel(
+    let highlight = compute_highlight_path(app, crate::app::StatusSubPanel::Staged);
+    let (inner, layout) = draw_panel(
         f,
         area,
         &title,
@@ -443,7 +471,27 @@ pub fn draw_staged(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<Pa
         &mut app.staged_scroll,
         &mut app.staged_total_lines,
         &mut app.staged_viewport,
-    )
+        highlight.as_deref(),
+    );
+    // 提取可见文件路径列表
+    if let Some(ref l) = layout {
+        app.staged_visible_files = l
+            .path_rows
+            .iter()
+            .filter(|(_, _, is_dir)| !is_dir)
+            .map(|(_, p, _)| p.clone())
+            .collect();
+    } else {
+        app.staged_visible_files.clear();
+    }
+    // clamp cursor
+    if app.status_sub_panel == crate::app::StatusSubPanel::Staged
+        && app.status_file_index >= app.staged_visible_files.len()
+        && !app.staged_visible_files.is_empty()
+    {
+        app.status_file_index = app.staged_visible_files.len().saturating_sub(1);
+    }
+    (inner, layout)
 }
 
 /// 渲染 Changes 面板（unstaged + untracked）
@@ -467,11 +515,13 @@ pub fn draw_changes(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<P
         };
         app.changes_total_lines = 0;
         app.changes_viewport = inner.height;
+        app.changes_visible_files.clear();
         return (inner, None);
     }
     let mut all = status.unstaged.clone();
     all.extend(status.untracked.clone());
-    draw_panel(
+    let highlight = compute_highlight_path(app, crate::app::StatusSubPanel::Changes);
+    let (inner, layout) = draw_panel(
         f,
         area,
         &title,
@@ -483,5 +533,25 @@ pub fn draw_changes(f: &mut Frame, area: Rect, app: &mut App) -> (Rect, Option<P
         &mut app.changes_scroll,
         &mut app.changes_total_lines,
         &mut app.changes_viewport,
-    )
+        highlight.as_deref(),
+    );
+    // 提取可见文件路径列表
+    if let Some(ref l) = layout {
+        app.changes_visible_files = l
+            .path_rows
+            .iter()
+            .filter(|(_, _, is_dir)| !is_dir)
+            .map(|(_, p, _)| p.clone())
+            .collect();
+    } else {
+        app.changes_visible_files.clear();
+    }
+    // clamp cursor
+    if app.status_sub_panel == crate::app::StatusSubPanel::Changes
+        && app.status_file_index >= app.changes_visible_files.len()
+        && !app.changes_visible_files.is_empty()
+    {
+        app.status_file_index = app.changes_visible_files.len().saturating_sub(1);
+    }
+    (inner, layout)
 }
