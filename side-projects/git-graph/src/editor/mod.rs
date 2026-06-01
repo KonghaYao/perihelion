@@ -89,6 +89,8 @@ pub struct TextEditor {
     highlight_cache: Vec<Option<Vec<(Style, String)>>>,
     /// 标记缓存是否需要重建（编辑后置 true，下次渲染前同步重建）
     highlight_dirty: bool,
+    /// 防抖计时器：编辑后等 200ms 再重建高亮
+    highlight_debounce: Option<std::time::Instant>,
 }
 
 impl TextEditor {
@@ -117,6 +119,8 @@ impl TextEditor {
             redo_stack: Vec::new(),
             highlight_cache: Vec::new(),
             highlight_dirty: true,
+            // 首次打开立即高亮（防抖已过期）
+            highlight_debounce: Some(std::time::Instant::now() - std::time::Duration::from_secs(1)),
         })
     }
 
@@ -169,6 +173,12 @@ impl TextEditor {
         if !self.highlight_dirty {
             return false;
         }
+        // 防抖：编辑后 200ms 内不触发重高亮（显示旧缓存）
+        if let Some(t) = self.highlight_debounce {
+            if t.elapsed() < std::time::Duration::from_millis(200) {
+                return false;
+            }
+        }
 
         let ext = crate::ui::syntax::extension_from_path(self.path.to_str().unwrap_or(""));
         let syntax = match crate::ui::syntax::find_syntax(ext) {
@@ -185,12 +195,14 @@ impl TextEditor {
         self.highlight_cache.resize(total, None);
 
         let end = (scroll_y + viewport_height).min(total);
+        // warmup 5 行以覆盖多行语法（注释、字符串等）
+        let warmup_start = scroll_y.saturating_sub(5);
 
         let theme = crate::ui::syntax::get_theme();
         let ss = crate::ui::syntax::get_syntax_set();
         let mut h = syntect::easy::HighlightLines::new(syntax, theme);
 
-        for i in 0..end {
+        for i in warmup_start..end {
             let line = self.line_text(i);
             let spans = match h.highlight_line(&line, ss) {
                 Ok(segments) => segments
@@ -199,9 +211,13 @@ impl TextEditor {
                     .collect(),
                 Err(_) => vec![(Style::default(), line)],
             };
-            self.highlight_cache[i] = Some(spans);
+            // warmup 行不存缓存（不在视口内）
+            if i >= scroll_y {
+                self.highlight_cache[i] = Some(spans);
+            }
         }
         self.highlight_dirty = false;
+        self.highlight_debounce = None;
         true
     }
 
@@ -224,6 +240,7 @@ impl TextEditor {
     /// 编辑后标记缓存失效
     fn invalidate_highlight(&mut self) {
         self.highlight_dirty = true;
+        self.highlight_debounce = Some(std::time::Instant::now());
     }
 
     /// 将缓冲区内容写入磁盘。成功后清除 modified 标记。

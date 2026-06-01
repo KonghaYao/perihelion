@@ -11,8 +11,7 @@ fn open_file_in_editor(app: &mut App, relative_path: &str) {
     if let Some(wd) = app.repo.repo().workdir() {
         let abs_path = wd.join(relative_path);
         match crate::editor::TextEditor::open(abs_path) {
-            Ok(mut ed) => {
-                ed.rehighlight_all();
+            Ok(ed) => {
                 app.editor = Some(ed);
                 app.preview_file = None;
             }
