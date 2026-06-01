@@ -1,0 +1,19 @@
+{
+  "name": "peri-agent-defect-analyzer",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "analyze": "bun run src/main.ts",
+    "analyze:errors": "bun run src/main.ts --focus errors",
+    "analyze:efficiency": "bun run src/main.ts --focus efficiency",
+    "analyze:strategy": "bun run src/main.ts --focus strategy",
+    "analyze:ux": "bun run src/main.ts --focus ux"
+  },
+  "dependencies": {
+    "cli-table3": "^0.6.5",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
