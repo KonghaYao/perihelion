@@ -225,7 +225,7 @@ pub fn build_agent(
     let hitl = HumanInTheLoopMiddleware::with_shared_mode(
         effective_broker.clone(),
         default_requires_approval,
-        permission_mode,
+        permission_mode.clone(),
         auto_classifier,
     );
 
@@ -453,7 +453,7 @@ pub fn build_agent(
                 &cwd,
                 "",
                 "",
-                "",
+                permission_mode.clone(),
                 provider_name.clone(),
                 hook_session_start && i == 0,
             );
