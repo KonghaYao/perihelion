@@ -1,4 +1,5 @@
 mod app;
+mod editor;
 mod event;
 mod git;
 mod graph;
@@ -73,14 +74,21 @@ fn run_tui(repo_path: &std::path::Path) -> Result<()> {
             }
         }
 
+        // 检查后台语法高亮进度（非阻塞）
+        app.check_preview_progress();
+        if let Some(ref mut editor) = app.editor {
+            let scroll_y = editor.scroll_y();
+            let vp_h = app.editor_area.height.saturating_sub(1) as usize; // -1 status bar
+            if editor.sync_highlight_visible(scroll_y, vp_h) {
+                app.dirty = true;
+            }
+        }
+
         // 只在 dirty 时重绘
         if app.dirty {
             terminal.draw(|f| render::draw(f, &mut app))?;
             app.dirty = false;
         }
-
-        // 检查后台语法高亮进度（非阻塞）
-        app.check_preview_progress();
 
         // 更新视口尺寸（实际高度由 graph_panel 渲染时设置）
         let area = terminal.size()?;

@@ -325,26 +325,6 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
         x += 2;
     }
 
-    // 远程跟踪信息
-    let mut remote_info = String::new();
-    if let Some(upstream) = app.repo.upstream_name() {
-        remote_info.push_str(&format!(" {} ", upstream));
-    }
-    if let Some(remote_head) = app.repo.remote_head_branch() {
-        remote_info.push_str(&format!(" ▸ {} ", remote_head));
-    }
-    if !remote_info.is_empty() {
-        spans.push(Span::styled(
-            remote_info.clone(),
-            Style::default()
-                .fg(Color::Rgb(180, 180, 180))
-                .bg(Color::Rgb(30, 30, 35)),
-        ));
-        x += UnicodeWidthStr::width(remote_info.as_str()) as u16;
-        spans.push(Span::raw("  "));
-        x += 2;
-    }
-
     for (i, btn) in buttons.iter().enumerate() {
         let text = format!(" {}{} ", btn.emoji, btn.label);
         let text_width = UnicodeWidthStr::width(text.as_str()) as u16;

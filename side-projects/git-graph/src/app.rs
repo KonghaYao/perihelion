@@ -210,6 +210,11 @@ pub struct App {
     pub all_tracked_files: Vec<String>,
     /// all_tracked_files 的小写版本，仅用于过滤比较
     pub all_tracked_files_lower: Vec<String>,
+    // === 编辑器状态 ===
+    /// 激活的文本编辑器（Some = 编辑器打开）
+    pub editor: Option<crate::editor::TextEditor>,
+    /// 编辑器渲染区域（渲染时更新）
+    pub editor_area: ratatui::layout::Rect,
 }
 
 impl App {
@@ -329,6 +334,8 @@ impl App {
             file_search_selected: 0,
             all_tracked_files: Vec::new(),
             all_tracked_files_lower: Vec::new(),
+            editor: None,
+            editor_area: ratatui::layout::Rect::default(),
         };
         app.select(selected_idx);
         Ok(app)

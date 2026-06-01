@@ -39,8 +39,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .split(content_area);
     app.sidebar_layout = crate::ui::sidebar::draw(f, h_chunks[0], app);
 
-    // 右侧：有文件预览时显示预览，否则显示 graph + detail
-    if app.preview_file.is_some() {
+    // 右侧：编辑器 > 文件预览 > graph+detail
+    if app.editor.is_some() {
+        if let Some(ref editor) = app.editor {
+            crate::editor::render::render_to_buffer(editor, f.buffer_mut(), h_chunks[1]);
+        }
+        app.editor_area = h_chunks[1];
+        app.detail_area = h_chunks[1];
+    } else if app.preview_file.is_some() {
         // 文件预览占满右侧全部
         crate::ui::file_preview::draw(f, h_chunks[1], app);
         app.detail_area = h_chunks[1];
