@@ -167,35 +167,42 @@ impl TextEditor {
         self.highlight_dirty = false;
     }
 
-    /// 主循环调用：缓存 dirty 时同步重建高亮。
-    /// 只处理到可视区域末尾，避免大文件全量重建。
+    /// 主循环调用：同步高亮可见行。
+    ///
+    /// 两种触发路径：
+    /// 1. 编辑后（highlight_dirty=true）：防抖 200ms 后重建可见行高亮
+    /// 2. 滚动后（无 dirty 标记）：补高亮新进入视口的未高亮行
     pub fn sync_highlight_visible(&mut self, scroll_y: usize, viewport_height: usize) -> bool {
-        if !self.highlight_dirty {
-            return false;
-        }
-        // 防抖：编辑后 200ms 内不触发重高亮（显示旧缓存）
-        if let Some(t) = self.highlight_debounce {
-            if t.elapsed() < std::time::Duration::from_millis(200) {
-                return false;
+        // 检查可见区域内是否有未高亮行
+        let total = self.rope.len_lines();
+        self.highlight_cache.resize(total, None);
+        let end = (scroll_y + viewport_height).min(total);
+
+        let needs_fill = (scroll_y..end).any(|i| self.highlight_cache[i].is_none());
+
+        if self.highlight_dirty {
+            // 编辑后防抖：200ms 内不重建（显示旧缓存）
+            if let Some(t) = self.highlight_debounce {
+                if t.elapsed() < std::time::Duration::from_millis(200) {
+                    return false;
+                }
             }
+            // 防抖到期 → 重建全部可见行
+        } else if needs_fill {
+            // 滚动导致新行进入视口 → 只补高亮缺失行
+        } else {
+            return false;
         }
 
         let ext = crate::ui::syntax::extension_from_path(self.path.to_str().unwrap_or(""));
         let syntax = match crate::ui::syntax::find_syntax(ext) {
             Some(s) => s,
             None => {
-                let total = self.rope.len_lines();
-                self.highlight_cache.resize(total, None);
                 self.highlight_dirty = false;
-                return true;
+                return needs_fill;
             }
         };
 
-        let total = self.rope.len_lines();
-        self.highlight_cache.resize(total, None);
-
-        let end = (scroll_y + viewport_height).min(total);
-        // warmup 5 行以覆盖多行语法（注释、字符串等）
         let warmup_start = scroll_y.saturating_sub(5);
 
         let theme = crate::ui::syntax::get_theme();
@@ -203,6 +210,13 @@ impl TextEditor {
         let mut h = syntect::easy::HighlightLines::new(syntax, theme);
 
         for i in warmup_start..end {
+            // 非 dirty 模式：跳过已有缓存的行
+            if !self.highlight_dirty && i >= scroll_y && self.highlight_cache[i].is_some() {
+                // warmup 行仍需跑过以维持 syntect 状态
+                let line = self.line_text(i);
+                let _ = h.highlight_line(&line, ss);
+                continue;
+            }
             let line = self.line_text(i);
             let spans = match h.highlight_line(&line, ss) {
                 Ok(segments) => segments
@@ -211,7 +225,6 @@ impl TextEditor {
                     .collect(),
                 Err(_) => vec![(Style::default(), line)],
             };
-            // warmup 行不存缓存（不在视口内）
             if i >= scroll_y {
                 self.highlight_cache[i] = Some(spans);
             }
