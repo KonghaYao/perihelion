@@ -163,7 +163,7 @@ pub fn handle_key_event(
 /// 检测 textarea 中 @ 提及模式，更新状态并触发异步搜索
 /// 缓存命中时立即更新，否则 spawn 后台任务避免阻塞 UI 线程
 pub(super) fn update_at_mention_detection(app: &mut App) {
-    let textarea = &app.session_mgr.sessions[app.session_mgr.active].ui.textarea;
+    let textarea = &app.session_mgr.current_mut().ui.textarea;
     let text = textarea.lines().join("\n");
     let (row, col) = textarea.cursor();
     // 将 (row, col) 转为字节偏移
@@ -176,9 +176,7 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
         pos += line.len() + 1; // +1 for \n
     }
 
-    let at = &mut app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .at_mention;
+    let at = &mut app.session_mgr.current_mut().ui.at_mention;
 
     at.ensure_cwd(app.services.cwd.clone());
 
@@ -208,9 +206,7 @@ pub(super) fn update_at_mention_detection(app: &mut App) {
 
 /// 将选中的 @ 提及路径注入 textarea
 pub(super) fn inject_at_mention_path(app: &mut App) {
-    let at = &app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .at_mention;
+    let at = &app.session_mgr.current_mut().ui.at_mention;
     let candidate = match at.selected_candidate() {
         Some(c) => c.clone(),
         None => return,
@@ -218,7 +214,7 @@ pub(super) fn inject_at_mention_path(app: &mut App) {
     let query_start = at.query_start;
     let query_len = at.query.len();
 
-    let textarea = &app.session_mgr.sessions[app.session_mgr.active].ui.textarea;
+    let textarea = &app.session_mgr.current_mut().ui.textarea;
     let full_text: String = textarea.lines().join("\n");
 
     let needs_quotes = candidate.path.contains(' ');
@@ -241,22 +237,13 @@ pub(super) fn inject_at_mention_path(app: &mut App) {
 
     let mut new_ta = crate::app::build_textarea(false);
     new_ta.insert_str(&new_text);
-    app.session_mgr.sessions[app.session_mgr.active].ui.textarea = new_ta;
+    app.session_mgr.current_mut().ui.textarea = new_ta;
 
     if is_dir {
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .textarea
-            .insert_str("/");
+        app.session_mgr.current_mut().ui.textarea.insert_str("/");
         update_at_mention_detection(app);
     } else {
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .textarea
-            .insert_str(" ");
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .at_mention
-            .close();
+        app.session_mgr.current_mut().ui.textarea.insert_str(" ");
+        app.session_mgr.current_mut().ui.at_mention.close();
     }
 }

@@ -95,13 +95,11 @@ impl PluginPanel {
         marketplaces.push(new_entry);
         save_known_marketplaces(&marketplaces, None)?;
 
-        ctx.session_mgr.sessions[ctx.session_mgr.active]
-            .messages
-            .push_system_note(
-                ctx.services
-                    .lc
-                    .tr_args("app-plugin-added", &[("name".into(), name.clone().into())]),
-            );
+        ctx.session_mgr.current_mut().messages.push_system_note(
+            ctx.services
+                .lc
+                .tr_args("app-plugin-added", &[("name".into(), name.clone().into())]),
+        );
 
         // Add placeholder entry to marketplace_entries
         self.marketplace_entries.push(MarketplaceViewEntry {

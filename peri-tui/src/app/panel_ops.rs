@@ -14,7 +14,8 @@ use super::*;
 impl App {
     /// 向事件队列注入 AgentEvent（测试用）
     pub fn push_agent_event(&mut self, event: AgentEvent) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .agent
             .agent_event_queue
             .push(event);
@@ -23,10 +24,10 @@ impl App {
     /// 强制从 pipeline 规范状态重建 view_messages 并发送 RenderEvent。
     /// 用于 headless 测试：确保流式缓冲区内容（throttle 未触发的 chunk）也被渲染。
     pub fn flush_rebuild(&mut self) {
-        let prefix_len = self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .round_start_vm_idx;
-        let action = self.session_mgr.sessions[self.session_mgr.active]
+        let prefix_len = self.session_mgr.current_mut().messages.round_start_vm_idx;
+        let action = self
+            .session_mgr
+            .current_mut()
             .messages
             .pipeline
             .build_rebuild_all(prefix_len);
@@ -35,11 +36,8 @@ impl App {
 
     /// 批量处理队列中所有待处理事件，复用 handle_agent_event 逻辑
     pub fn process_pending_events(&mut self) {
-        let events: Vec<AgentEvent> = std::mem::take(
-            &mut self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_event_queue,
-        );
+        let events: Vec<AgentEvent> =
+            std::mem::take(&mut self.session_mgr.current_mut().agent.agent_event_queue);
         for event in events {
             let (_updated, should_break, should_return) = self.handle_agent_event(event);
             if should_return || should_break {

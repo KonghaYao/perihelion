@@ -17,13 +17,13 @@ impl Command for AgentCommand {
         if id.is_empty() {
             // 清除 agent_id
             app.set_agent_id(None);
-            app.session_mgr.sessions[app.session_mgr.active].messages.view_messages.push(MessageViewModel::system(
+            app.session_mgr.current_mut().messages.view_messages.push(MessageViewModel::system(
                 "Agent 已重置（未设置 agent_id）".to_string(),
             ));
         } else {
             app.set_agent_id(Some(id.to_string()));
             let name = peri_middlewares::format_agent_id(id);
-            app.session_mgr.sessions[app.session_mgr.active].messages.view_messages.push(MessageViewModel::system(format!(
+            app.session_mgr.current_mut().messages.view_messages.push(MessageViewModel::system(format!(
                 "Agent 已切换为: {} ({})",
                 name, id
             )));

@@ -119,7 +119,7 @@ impl BaseTool for ReadFileTool {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let file_path = input["file_path"]
             .as_str()
-            .ok_or("Missing file_path parameter")?;
+            .ok_or("The 'file_path' parameter is required for the Read tool. Provide the absolute path to the file.")?;
 
         let offset = input["offset"].as_u64().unwrap_or(0) as usize;
         let limit = input["limit"].as_u64().unwrap_or(MAX_LINES as u64) as usize;

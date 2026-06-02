@@ -18,7 +18,8 @@ impl Command for LoopCommand {
                 "用法: /loop <自然语言时间描述> <提示词>\n例如: /loop 每隔5分钟提醒我喝水"
                     .to_string(),
             );
-            app.session_mgr.sessions[app.session_mgr.active]
+            app.session_mgr
+                .current_mut()
                 .messages
                 .view_messages
                 .push(vm);

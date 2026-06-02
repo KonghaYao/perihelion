@@ -179,10 +179,7 @@ pub(crate) fn render_welcome(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
-    let skills_count = app.session_mgr.sessions[app.session_mgr.active]
-        .commands
-        .skills
-        .len();
+    let skills_count = app.session_mgr.current().commands.skills.len();
     if skills_count > 0 {
         lines.push(Line::from(vec![
             Span::styled(" #", Style::default().fg(theme::WARNING)),

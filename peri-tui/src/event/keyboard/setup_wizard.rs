@@ -50,7 +50,8 @@ pub(super) fn handle_setup_wizard(app: &mut App, input: &Input) -> Option<Action
                                 &BaseMessage::system(format!("配置保存失败: {}", e)),
                                 &[],
                             );
-                            app.session_mgr.sessions[app.session_mgr.active]
+                            app.session_mgr
+                                .current_mut()
                                 .messages
                                 .view_messages
                                 .push(msg);

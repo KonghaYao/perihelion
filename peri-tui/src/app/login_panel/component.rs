@@ -44,22 +44,22 @@ impl PanelComponent for LoginPanel {
                     };
                     self.select_provider(cfg);
                     if !selected_name.is_empty() {
-                        ctx.session_mgr.sessions[ctx.session_mgr.active]
-                            .messages
-                            .push_system_note(ctx.services.lc.tr_args(
+                        ctx.session_mgr.current_mut().messages.push_system_note(
+                            ctx.services.lc.tr_args(
                                 "app-provider-activated",
                                 &[("name".into(), selected_name.into())],
-                            ));
+                            ),
+                        );
                     }
                     if let Err(e) =
                         App::save_config(cfg, ctx.services.config_path_override.as_deref())
                     {
-                        ctx.session_mgr.sessions[ctx.session_mgr.active]
-                            .messages
-                            .push_system_note(ctx.services.lc.tr_args(
+                        ctx.session_mgr.current_mut().messages.push_system_note(
+                            ctx.services.lc.tr_args(
                                 "app-config-save-failed",
                                 &[("error".into(), e.to_string().into())],
-                            ));
+                            ),
+                        );
                     }
                     if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
                         ctx.services.provider_name = p.display_name().to_string();
@@ -173,7 +173,8 @@ impl PanelComponent for LoginPanel {
                             return EventResult::Consumed;
                         };
                         if !self.apply_edit(cfg) {
-                            ctx.session_mgr.sessions[ctx.session_mgr.active]
+                            ctx.session_mgr
+                                .current_mut()
                                 .messages
                                 .push_system_note(ctx.services.lc.tr("app-provider-name-empty"));
                             return EventResult::Consumed;
@@ -189,22 +190,20 @@ impl PanelComponent for LoginPanel {
                         } else {
                             "app-provider-saved"
                         };
-                        ctx.session_mgr.sessions[ctx.session_mgr.active]
-                            .messages
-                            .push_system_note(
-                                ctx.services
-                                    .lc
-                                    .tr_args(key, &[("name".into(), display.into())]),
-                            );
+                        ctx.session_mgr.current_mut().messages.push_system_note(
+                            ctx.services
+                                .lc
+                                .tr_args(key, &[("name".into(), display.into())]),
+                        );
                         if let Err(e) =
                             App::save_config(cfg, ctx.services.config_path_override.as_deref())
                         {
-                            ctx.session_mgr.sessions[ctx.session_mgr.active]
-                                .messages
-                                .push_system_note(ctx.services.lc.tr_args(
+                            ctx.session_mgr.current_mut().messages.push_system_note(
+                                ctx.services.lc.tr_args(
                                     "app-config-save-failed",
                                     &[("error".into(), e.to_string().into())],
-                                ));
+                                ),
+                            );
                         }
                         if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
                             ctx.services.provider_name = p.display_name().to_string();
@@ -237,22 +236,22 @@ impl PanelComponent for LoginPanel {
                         .unwrap_or_default();
                     self.confirm_delete(cfg);
                     if !deleted_name.is_empty() {
-                        ctx.session_mgr.sessions[ctx.session_mgr.active]
-                            .messages
-                            .push_system_note(ctx.services.lc.tr_args(
+                        ctx.session_mgr.current_mut().messages.push_system_note(
+                            ctx.services.lc.tr_args(
                                 "app-provider-deleted",
                                 &[("name".into(), deleted_name.into())],
-                            ));
+                            ),
+                        );
                     }
                     if let Err(e) =
                         App::save_config(cfg, ctx.services.config_path_override.as_deref())
                     {
-                        ctx.session_mgr.sessions[ctx.session_mgr.active]
-                            .messages
-                            .push_system_note(ctx.services.lc.tr_args(
+                        ctx.session_mgr.current_mut().messages.push_system_note(
+                            ctx.services.lc.tr_args(
                                 "app-config-save-failed",
                                 &[("error".into(), e.to_string().into())],
-                            ));
+                            ),
+                        );
                     }
                     if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
                         ctx.services.provider_name = p.display_name().to_string();

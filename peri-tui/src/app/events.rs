@@ -55,6 +55,11 @@ pub enum AgentEvent {
     },
     /// 上下文压缩失败，携带错误信息
     CompactError(String),
+    /// 对话回退完成（rewind 命令）
+    RewindCompleted {
+        summary: String,
+        messages: Vec<peri_agent::messages::BaseMessage>,
+    },
     /// SubAgent 生命周期事件（中间件发出，用于 UI 状态同步）
     ///
     /// 在 SubAgent 实际开始/停止执行时由 SubAgentMiddleware 发出。

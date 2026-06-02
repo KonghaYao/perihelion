@@ -6,9 +6,10 @@ use std::collections::HashMap;
 use serde_json::Value;
 use tracing::{debug, info};
 
-use agent_client_protocol::schema::{AvailableCommandsUpdate, ConfigOptionUpdate, SessionUpdate};
+use agent_client_protocol::schema::{AvailableCommandsUpdate, SessionUpdate};
 
-use super::{build_config_options, AcpServerConfig, SessionState};
+use super::{AcpServerConfig, SessionState};
+use peri_acp::dispatch::config_update;
 use peri_middlewares::skills::SkillMetadata;
 
 // ── Notification dispatch ────────────────────────────────────────────────────
@@ -51,12 +52,15 @@ pub(crate) async fn send_config_option_update(
     if session_id.is_empty() {
         return;
     }
-    let config_options = {
+    let update = {
         let c = cfg.peri_config.read();
         let p = cfg.provider.read();
-        build_config_options(&c, &p, cfg.permission_mode.load())
+        SessionUpdate::ConfigOptionUpdate(config_update::make_config_option_update(
+            &c,
+            &p,
+            cfg.permission_mode.load(),
+        ))
     };
-    let update = SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(config_options));
     let update_value = match serde_json::to_value(&update) {
         Ok(p) => p,
         Err(e) => {

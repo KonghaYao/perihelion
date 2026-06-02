@@ -95,7 +95,8 @@ pub enum AgentEvent {
     /// LLM 调用开始（携带完整 input messages 快照 + 工具定义，用于 Langfuse Generation）
     LlmCallStart {
         step: usize,
-        messages: Vec<crate::messages::BaseMessage>,
+        /// Arc 共享引用——Clone AgentEvent 时为浅拷贝（引用计数 +1），不产生独立副本
+        messages: std::sync::Arc<Vec<crate::messages::BaseMessage>>,
         tools: Vec<crate::tools::ToolDefinition>,
     },
     /// LLM 调用结束（携带模型名、输出文本、token 使用量）
@@ -151,6 +152,13 @@ pub enum AgentEvent {
         /// micro-compact 清除的工具结果数量（>0 表示 micro-compact）
         micro_cleared: usize,
         /// 压缩后的新消息列表（full compact 时非空）
+        messages: Vec<crate::messages::BaseMessage>,
+    },
+    /// 对话回退完成（rewind 命令，移除目标用户消息及其之后的所有消息）
+    RewindCompleted {
+        /// 摘要文本（如"已回滚 N 条消息"）
+        summary: String,
+        /// 回退后的新消息列表（目标消息之前，不含目标本身）
         messages: Vec<crate::messages::BaseMessage>,
     },
     /// 上下文压缩失败

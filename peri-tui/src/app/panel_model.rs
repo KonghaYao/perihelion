@@ -13,7 +13,8 @@ impl App {
 
     /// 关闭 /model 面板（不保存）
     pub fn close_model_panel(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .session_panels
             .close_if(PanelKind::Model);
     }
@@ -23,7 +24,9 @@ impl App {
         let alias_label;
         let effort;
         {
-            let Some(panel) = self.session_mgr.sessions[self.session_mgr.active]
+            let Some(panel) = self
+                .session_mgr
+                .current_mut()
                 .session_panels
                 .get::<ModelPanel>()
             else {
@@ -43,7 +46,8 @@ impl App {
             "max" => "Max",
             _ => "Medium",
         };
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .push_system_note(self.services.lc.tr_args(
                 "app-model-switched",
@@ -55,7 +59,8 @@ impl App {
         {
             let cfg = self.services.peri_config.as_ref().unwrap();
             if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .messages
                     .push_system_note(self.services.lc.tr_args(
                         "app-config-save-failed",
@@ -67,7 +72,8 @@ impl App {
                 self.services.model_name = p.model_name().to_string();
             }
         }
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .session_panels
             .close_if(PanelKind::Model);
 

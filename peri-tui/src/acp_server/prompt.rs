@@ -76,19 +76,7 @@ pub(crate) async fn execute_prompt(
     }
 
     // Read session data under lock, then release immediately.
-    let (
-        cwd,
-        history,
-        is_empty,
-        thread_id,
-        frozen_system_prompt,
-        frozen_claude_md,
-        frozen_claude_local_md,
-        frozen_skill_summary,
-        frozen_date,
-        frozen_language,
-        incoming_recalls,
-    ) = {
+    let (cwd, history, is_empty, thread_id, frozen, incoming_recalls) = {
         let mut sessions = sessions.lock().await;
         let state = sessions
             .get_mut(&session_id)
@@ -98,12 +86,7 @@ pub(crate) async fn execute_prompt(
             state.history.clone(),
             state.history.is_empty(),
             state.thread_id.clone(),
-            state.frozen_system_prompt.clone(),
-            state.frozen_claude_md.clone(),
-            state.frozen_claude_local_md.clone(),
-            state.frozen_skill_summary.clone(),
-            state.frozen_date.clone(),
-            state.frozen_language.clone(),
+            state.frozen.clone(),
             std::mem::take(&mut state.recall_items),
         )
     };
@@ -117,18 +100,9 @@ pub(crate) async fn execute_prompt(
     let provider_snapshot = provider.read().clone();
     let peri_config_snapshot = Arc::new(peri_config.read().clone());
 
-    let frozen = frozen_system_prompt.map(|sp| executor::FrozenSessionData {
-        system_prompt: sp,
-        claude_md: frozen_claude_md,
-        claude_local_md: frozen_claude_local_md,
-        skill_summary: frozen_skill_summary,
-        date: frozen_date.unwrap_or_default(),
-        is_git_repo: std::path::Path::new(&cwd).join(".git").exists(),
-        language: frozen_language,
-    });
-
-    // Keep a reference for the cancel-with-progress path (history is moved below)
-    let history_for_cancel = history.clone();
+    // Track first history message ID for cancel-with-progress path (history is moved below)
+    // Uses Option<MessageId> (16 bytes) instead of cloning the entire history.
+    let first_history_id = history.first().map(|m| m.id());
     let result = executor::execute_prompt(
         &provider_snapshot,
         peri_config_snapshot,
@@ -185,7 +159,7 @@ pub(crate) async fn execute_prompt(
                 // NOTE: execute() skips cleanup_prepended on error paths (? propagation),
                 // so result.messages may contain leaked system prepends at the beginning.
                 // Strip them by locating where the original history starts (ID matching).
-                let cleaned = strip_leaked_prepends(&result.messages, &history_for_cancel);
+                let cleaned = strip_leaked_prepends(&result.messages, first_history_id);
                 let new_count = cleaned.len().saturating_sub(history_len);
                 // Persist newly added messages to ThreadStore
                 if new_count > 0 && history_len < cleaned.len() {
@@ -230,12 +204,12 @@ pub(crate) async fn execute_prompt(
 /// (by matching the first message ID) and returns messages from that point onward.
 fn strip_leaked_prepends(
     result_messages: &[peri_agent::messages::BaseMessage],
-    original_history: &[peri_agent::messages::BaseMessage],
+    first_history_id: Option<peri_agent::messages::MessageId>,
 ) -> Vec<peri_agent::messages::BaseMessage> {
-    match original_history.first() {
-        Some(first) => {
+    match first_history_id {
+        Some(first_id) => {
             // Find where original history starts in result (skip leaked prepends)
-            match result_messages.iter().position(|m| m.id() == first.id()) {
+            match result_messages.iter().position(|m| m.id() == first_id) {
                 Some(start) => result_messages[start..].to_vec(),
                 None => {
                     // Original history not found — compact may have replaced messages.

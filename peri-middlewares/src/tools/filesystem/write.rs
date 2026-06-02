@@ -61,10 +61,10 @@ impl BaseTool for WriteFileTool {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let file_path = input["file_path"]
             .as_str()
-            .ok_or("Missing file_path parameter")?;
+            .ok_or("The 'file_path' parameter is required for the Write tool.")?;
         let content = input["content"]
             .as_str()
-            .ok_or("Missing content parameter")?;
+            .ok_or("The 'content' parameter is required for the Write tool.")?;
 
         let resolved = resolve_path(&self.cwd, file_path);
         let line_count = content.lines().count();

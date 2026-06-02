@@ -11,7 +11,7 @@ impl App {
     /// 而非过滤内存中的 view_messages。这保证了 drain_subagent_stack 后
     /// 后台 agent 的消息仍然完整可用。
     pub(crate) fn render_rebuild(&self) {
-        let session = &self.session_mgr.sessions[self.session_mgr.active];
+        let session = &self.session_mgr.current();
         let vms = self.resolve_render_vms(session);
         let _ = session
             .messages
@@ -24,7 +24,7 @@ impl App {
     /// 聚焦后台 agent 时忽略锚点（直接 Rebuild），因为 agent 视图与主视图
     /// 的滚动位置不共享。
     pub(crate) fn render_rebuild_with_anchor(&self, anchor_message_idx: usize) {
-        let session = &self.session_mgr.sessions[self.session_mgr.active];
+        let session = &self.session_mgr.current();
         if session.focused_instance_id.is_some() {
             // 聚焦模式：从 SQLite 加载，��保留主视图锚点
             let vms = self.resolve_render_vms(session);
@@ -70,10 +70,10 @@ impl App {
 
     /// 从 pipeline 规范状态触发 RebuildAll（统一入口）。
     pub(crate) fn request_rebuild(&mut self) {
-        let prefix_len = self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .round_start_vm_idx;
-        let action = self.session_mgr.sessions[self.session_mgr.active]
+        let prefix_len = self.session_mgr.current().messages.round_start_vm_idx;
+        let action = self
+            .session_mgr
+            .current()
             .messages
             .pipeline
             .build_rebuild_all(prefix_len);
@@ -84,7 +84,8 @@ impl App {
     ///
     /// 面板代码和中断处理等路径 B 调用点应使用此方法，而非直接 push 到 view_messages。
     pub(crate) fn push_system_note(&mut self, content: String) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .push_system_note(content);
     }
@@ -94,7 +95,7 @@ impl App {
         match action {
             PipelineAction::None => {}
             PipelineAction::AddMessage(vm) => {
-                let session = &mut self.session_mgr.sessions[self.session_mgr.active];
+                let session = self.session_mgr.current_mut();
                 let anchor = session.messages.view_messages.len();
                 session.messages.ephemeral_notes.push((anchor, vm.clone()));
                 session.messages.view_messages.push(vm);
@@ -104,7 +105,7 @@ impl App {
                 prefix_len,
                 mut tail_vms,
             } => {
-                let session = &mut self.session_mgr.sessions[self.session_mgr.active];
+                let session = self.session_mgr.current_mut();
                 // 防御性边界检查：prefix_len 可能因 pipeline 内部 RebuildAll
                 // (如 ToolStart 的 throttle flush) 导致 view_messages 缩短后仍然
                 // 保持旧值，此时 drain 会 panic。
@@ -173,13 +174,8 @@ impl App {
                 }
 
                 let anchor_message_idx = {
-                    let cache = self.session_mgr.sessions[self.session_mgr.active]
-                        .messages
-                        .render_cache
-                        .read();
-                    let scroll_row = self.session_mgr.sessions[self.session_mgr.active]
-                        .ui
-                        .scroll_offset as usize;
+                    let cache = self.session_mgr.current().messages.render_cache.read();
+                    let scroll_row = self.session_mgr.current().ui.scroll_offset as usize;
                     let msg_idx = cache
                         .message_offsets
                         .iter()
@@ -190,12 +186,7 @@ impl App {
                         })
                         .map(|(idx, _)| idx)
                         .unwrap_or(prefix_len);
-                    msg_idx.min(
-                        self.session_mgr.sessions[self.session_mgr.active]
-                            .messages
-                            .view_messages
-                            .len(),
-                    )
+                    msg_idx.min(self.session_mgr.current().messages.view_messages.len())
                 };
                 self.render_rebuild_with_anchor(anchor_message_idx);
             }

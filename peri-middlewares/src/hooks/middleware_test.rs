@@ -1,4 +1,5 @@
 use super::*;
+use crate::hitl::{PermissionMode, SharedPermissionMode};
 use std::path::PathBuf;
 
 fn make_registered(event: HookEvent, hook: HookType) -> RegisteredHook {
@@ -25,21 +26,25 @@ fn make_middleware(hooks: Vec<RegisteredHook>) -> HookMiddleware {
         "/test-cwd",
         "test-session",
         "/test/transcript.json",
-        "yolo",
+        SharedPermissionMode::new(PermissionMode::Bypass),
         "opus",
     )
 }
 
-fn make_middleware_hitl(hooks: Vec<RegisteredHook>) -> HookMiddleware {
+fn make_middleware_with_mode(hooks: Vec<RegisteredHook>, mode: PermissionMode) -> HookMiddleware {
     HookMiddleware::new(
         hooks,
         make_llm_factory(),
         "/test-cwd",
         "test-session",
         "/test/transcript.json",
-        "hitl",
+        SharedPermissionMode::new(mode),
         "opus",
     )
+}
+
+fn make_middleware_hitl(hooks: Vec<RegisteredHook>) -> HookMiddleware {
+    make_middleware_with_mode(hooks, PermissionMode::Default)
 }
 
 #[tokio::test]
@@ -270,7 +275,7 @@ async fn test_before_agent_session_start_controlled_by_flag() {
         "/test-cwd",
         "test-session",
         "/test/transcript.json",
-        "yolo",
+        SharedPermissionMode::new(PermissionMode::Bypass),
         "opus",
         true,
     );
@@ -286,7 +291,7 @@ async fn test_before_agent_session_start_controlled_by_flag() {
         "/test-cwd",
         "test-session",
         "/test/transcript.json",
-        "yolo",
+        SharedPermissionMode::new(PermissionMode::Bypass),
         "opus",
         false,
     );
@@ -452,6 +457,67 @@ async fn test_async_permission_request_hook_actually_fires() {
     let _ = std::fs::remove_file(marker_path);
 }
 
+/// Bypass 模式下 PermissionRequest 不应触发（对齐 Claude Code 行为）
+#[cfg(unix)]
+#[tokio::test]
+async fn test_permission_request_skipped_in_bypass_mode() {
+    let marker_path = "/tmp/peri_bypass_hook_test_marker";
+    let _ = std::fs::remove_file(marker_path);
+
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": format!("echo fired > {}", marker_path)
+    }))
+    .unwrap();
+
+    let registered = make_registered(HookEvent::PermissionRequest, hook);
+    // Bypass 模式
+    let mw = make_middleware_with_mode(vec![registered], PermissionMode::Bypass);
+
+    let tool_call = ToolCall::new("c1", "Write", serde_json::json!({"path": "/tmp/test"}));
+    let result = mw
+        .before_tool(
+            &mut peri_agent::agent::state::AgentState::new("/test"),
+            &tool_call,
+        )
+        .await;
+    // Bypass 模式下工具应放行（不被 hook 拒绝）
+    assert!(result.is_ok(), "Bypass 模式下工具应放行");
+
+    // 等待一下确保异步没写入
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        !std::path::Path::new(marker_path).exists(),
+        "Bypass 模式下 PermissionRequest hook 不应被触发"
+    );
+}
+
+/// Default 模式下 PermissionRequest 应触发
+#[cfg(unix)]
+#[tokio::test]
+async fn test_permission_request_fires_in_default_mode() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "exit 2"
+    }))
+    .unwrap();
+
+    let registered = make_registered(HookEvent::PermissionRequest, hook);
+    let mw = make_middleware_with_mode(vec![registered], PermissionMode::Default);
+
+    let tool_call = ToolCall::new("c1", "Write", serde_json::json!({"path": "/tmp/test"}));
+    let result = mw
+        .before_tool(
+            &mut peri_agent::agent::state::AgentState::new("/test"),
+            &tool_call,
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "Default 模式下 PermissionRequest 应触发并 block"
+    );
+}
+
 /// Verify async hook receives correct HookInput with hook_event_name = PermissionRequest
 #[cfg(unix)]
 #[tokio::test]
@@ -496,11 +562,11 @@ async fn test_async_hook_receives_correct_event_name() {
     let _ = std::fs::remove_file(marker_path);
 }
 
-/// Verify PermissionRequest DOES fire in YOLO mode for sensitive tools,
-/// but the hook returning Allow means the tool proceeds normally.
+/// Verify PermissionRequest does NOT fire in Bypass (YOLO) mode,
+/// aligned with Claude Code behavior.
 #[cfg(unix)]
 #[tokio::test]
-async fn test_permission_request_fires_even_in_yolo_mode() {
+async fn test_permission_request_does_not_fire_in_yolo_mode() {
     let marker_path = "/tmp/peri_yolo_fire_marker";
     let _ = std::fs::remove_file(marker_path);
 
@@ -512,7 +578,7 @@ async fn test_permission_request_fires_even_in_yolo_mode() {
     .unwrap();
 
     let registered = make_registered(HookEvent::PermissionRequest, hook);
-    let mw = make_middleware(vec![registered]); // "yolo" mode
+    let mw = make_middleware(vec![registered]); // Bypass 模式
 
     let tool_call = ToolCall::new("c1", "Bash", serde_json::json!({"command": "ls"}));
     let result = mw
@@ -522,11 +588,14 @@ async fn test_permission_request_fires_even_in_yolo_mode() {
         )
         .await;
 
-    // Hook fires (exit 0 → Allow), tool proceeds
-    assert!(result.is_ok(), "YOLO mode: hook allows, tool proceeds");
+    // Bypass 模式下工具放行，PermissionRequest 不触发
     assert!(
-        std::path::Path::new(marker_path).exists(),
-        "PermissionRequest hook SHOULD fire even in YOLO mode for sensitive tools"
+        result.is_ok(),
+        "Bypass mode: tool proceeds without PermissionRequest"
+    );
+    assert!(
+        !std::path::Path::new(marker_path).exists(),
+        "PermissionRequest hook should NOT fire in Bypass mode"
     );
     let _ = std::fs::remove_file(marker_path);
 }

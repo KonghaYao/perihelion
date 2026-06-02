@@ -157,13 +157,12 @@ impl PanelComponent for ThreadBrowser {
                 } => {
                     self.confirm_delete = false;
                     if let Some(title) = self.delete_selected() {
-                        ctx.session_mgr.sessions[ctx.session_mgr.active]
-                            .messages
-                            .view_messages
-                            .push(crate::ui::message_view::MessageViewModel::system(format!(
+                        ctx.session_mgr.current_mut().messages.view_messages.push(
+                            crate::ui::message_view::MessageViewModel::system(format!(
                                 "\u{5df2}\u{5220}\u{9664}\u{5bf9}\u{8bdd}: {}",
                                 title
-                            )));
+                            )),
+                        );
                     }
                     // if empty after delete, close
                     if self.total() == 0 {

@@ -390,15 +390,9 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
     .border_style(Style::default().fg(theme::BORDER))
     .render(f, area);
 
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scroll_offset = 0;
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_plain_lines = lines
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_scroll_offset = 0;
+    app.session_mgr.current_mut().ui.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
@@ -411,9 +405,8 @@ pub(crate) fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, are
         p.set_scroll_offset(scroll_state.offset());
     }
 
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scrollbar_metrics = ScrollableArea::new(Text::from(lines))
-        .scrollbar_style(Style::default().fg(theme::MUTED))
-        .render(f, inner, &mut scroll_state);
+    app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
+        ScrollableArea::new(Text::from(lines))
+            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .render(f, inner, &mut scroll_state);
 }

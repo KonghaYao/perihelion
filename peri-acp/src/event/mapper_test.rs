@@ -509,7 +509,7 @@ fn test_llm_call_start_produces_no_output() {
     assert_filtered(
         &ExecutorEvent::LlmCallStart {
             step: 1,
-            messages: vec![BaseMessage::human("hello")],
+            messages: std::sync::Arc::new(vec![BaseMessage::human("hello")]),
             tools: vec![ToolDefinition {
                 name: "Bash".to_string(),
                 description: "Run command".to_string(),

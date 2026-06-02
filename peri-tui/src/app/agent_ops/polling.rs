@@ -6,21 +6,14 @@ use crate::app::App;
 impl App {
     pub fn poll_agent(&mut self) -> bool {
         // Cancel 超时安全网：5 秒后仍未收到 Interrupted/Done，强制清理
-        if let Some(cancel_at) = self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .cancel_sent_at
-        {
+        if let Some(cancel_at) = self.session_mgr.current_mut().agent.cancel_sent_at {
             if cancel_at.elapsed() > std::time::Duration::from_secs(5)
-                && self.session_mgr.sessions[self.session_mgr.active]
-                    .ui
-                    .loading
+                && self.session_mgr.current_mut().ui.loading
             {
                 tracing::warn!(
                     "cancel timeout: 5s elapsed without Interrupted/Done, force cleanup"
                 );
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .cancel_sent_at = None;
+                self.session_mgr.current_mut().agent.cancel_sent_at = None;
                 self.cleanup_agent_state(None);
                 return true;
             }
@@ -28,11 +21,10 @@ impl App {
         // 优先处理延迟的后台任务 continuation（由 BackgroundTaskCompleted 处理器设置）
         // 只有在 loading=false 时才 take()，避免 loading=true（如 compact 中）时
         // continuation 被消费但未使用而永久丢失
-        if !self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .loading
-        {
-            if let Some(results) = self.session_mgr.sessions[self.session_mgr.active]
+        if !self.session_mgr.current_mut().ui.loading {
+            if let Some(results) = self
+                .session_mgr
+                .current_mut()
                 .agent
                 .pending_bg_continuation
                 .take()
@@ -44,7 +36,9 @@ impl App {
         }
 
         // Check for events from ACP notification channel (primary path)
-        let has_acp = self.session_mgr.sessions[self.session_mgr.active]
+        let has_acp = self
+            .session_mgr
+            .current_mut()
             .agent
             .acp_notification_rx
             .is_some();
@@ -57,10 +51,10 @@ impl App {
 
         // 节流检查（每帧开始时，确保上一批 chunk 的尾部也被显示）
         {
-            let prefix_len = self.session_mgr.sessions[self.session_mgr.active]
-                .messages
-                .round_start_vm_idx;
-            if let Some(action) = self.session_mgr.sessions[self.session_mgr.active]
+            let prefix_len = self.session_mgr.current_mut().messages.round_start_vm_idx;
+            if let Some(action) = self
+                .session_mgr
+                .current_mut()
                 .messages
                 .pipeline
                 .check_throttle(prefix_len)
@@ -72,7 +66,9 @@ impl App {
 
         loop {
             // Try ACP notification channel first (new path)
-            let acp_result = self.session_mgr.sessions[self.session_mgr.active]
+            let acp_result = self
+                .session_mgr
+                .current_mut()
                 .agent
                 .acp_notification_rx
                 .as_mut()
@@ -95,9 +91,7 @@ impl App {
 
         // 当 loading=true 时（如 compact 中），即使没有新事件也返回 true，
         // 确保 spinner 动画持续渲染而非冻结
-        let loading = self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .loading;
+        let loading = self.session_mgr.current_mut().ui.loading;
         if loading {
             return true;
         }
@@ -116,7 +110,7 @@ impl App {
         // Drain notifications from channel receiver first (no self borrow across submit)
         let mut channel_notifications = Vec::new();
         {
-            let session = &mut self.session_mgr.sessions[self.session_mgr.active];
+            let session = &mut self.session_mgr.current_mut();
             if let Some(ref mut rx) = session.messages.channel_notification_rx {
                 while let Ok(notif) = rx.try_recv() {
                     channel_notifications.push(notif);
@@ -130,16 +124,13 @@ impl App {
                 notif.source, notif.chat_id, notif.text
             );
 
-            let loading = self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .loading;
+            let loading = self.session_mgr.current_mut().ui.loading;
             if !loading {
                 // Agent is idle: submit immediately
                 self.submit_message(xml);
             } else {
-                let pending_messages = &mut self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .pending_messages;
+                let pending_messages =
+                    &mut self.session_mgr.current_mut().messages.pending_messages;
                 if pending_messages.len() < MAX_PENDING {
                     tracing::debug!(source = %notif.source, "channel 消息排队（agent 运行中）");
                     pending_messages.push(xml);
@@ -201,22 +192,22 @@ impl App {
             })
             .unwrap_or_default();
         for trigger in cron_triggers {
-            if !self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .loading
-            {
+            if !self.session_mgr.current_mut().ui.loading {
                 self.submit_message(trigger.prompt);
             } else {
                 // Agent 正在执行，缓冲触发事件等待 Done 后自动发送
                 const MAX_PENDING: usize = 10;
-                if self.session_mgr.sessions[self.session_mgr.active]
+                if self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .pending_messages
                     .len()
                     < MAX_PENDING
                 {
                     tracing::debug!(prompt = %trigger.prompt, "cron trigger buffered (agent busy)");
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    self.session_mgr
+                        .current_mut()
                         .messages
                         .pending_messages
                         .push(trigger.prompt);
@@ -229,7 +220,8 @@ impl App {
 
     /// 每帧调用：检查 @ mention 异步搜索结果，返回 true 表示 UI 需要更新
     pub fn poll_at_mention(&mut self) -> bool {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .ui
             .at_mention
             .poll_search_result()

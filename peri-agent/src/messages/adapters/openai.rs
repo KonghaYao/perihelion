@@ -141,12 +141,23 @@ impl MessageAdapter for OpenAiAdapter {
                 BaseMessage::Tool {
                     tool_call_id,
                     content,
+                    is_error,
                     ..
                 } => {
+                    let content_val = Self::content_to_openai(content);
+                    let final_content = if *is_error {
+                        let text = content_val
+                            .as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| content_val.to_string());
+                        json!(format!("[ERROR] {}", text))
+                    } else {
+                        content_val
+                    };
                     result.push(json!({
                         "role": "tool",
                         "tool_call_id": tool_call_id,
-                        "content": Self::content_to_openai(content)
+                        "content": final_content,
                     }));
                 }
             }
@@ -224,8 +235,13 @@ impl MessageAdapter for OpenAiAdapter {
                 let tool_call_id = value["tool_call_id"]
                     .as_str()
                     .ok_or_else(|| anyhow!("tool 消息缺少 tool_call_id"))?;
-                let content = parse_openai_content(&value["content"]);
-                Ok(BaseMessage::tool_result(tool_call_id, content))
+                let raw_content = value["content"].as_str().unwrap_or("");
+                if let Some(stripped) = raw_content.strip_prefix("[ERROR] ") {
+                    Ok(BaseMessage::tool_error(tool_call_id, stripped))
+                } else {
+                    let content = parse_openai_content(&value["content"]);
+                    Ok(BaseMessage::tool_result(tool_call_id, content))
+                }
             }
             other => Err(anyhow!("未知 role: {other}")),
         }

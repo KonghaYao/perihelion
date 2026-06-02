@@ -117,15 +117,9 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
     .render(f, area);
 
     // Phase 3: 写入元数据和渲染内容（可变借用 app）
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scroll_offset = 0;
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_plain_lines = lines
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_scroll_offset = 0;
+    app.session_mgr.current_mut().ui.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
@@ -133,11 +127,10 @@ fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect
     apply_panel_selection(app, &mut lines, inner);
 
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scrollbar_metrics = ScrollableArea::new(Text::from(lines))
-        .scrollbar_style(Style::default().fg(theme::MUTED))
-        .render(f, inner, &mut scroll_state);
+    app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
+        ScrollableArea::new(Text::from(lines))
+            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .render(f, inner, &mut scroll_state);
 }
 
 fn render_server_group(
@@ -411,15 +404,9 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
     }
 
     // 存储面板元数据
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scroll_offset = 0;
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_plain_lines = lines
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_scroll_offset = 0;
+    app.session_mgr.current_mut().ui.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
@@ -427,11 +414,10 @@ fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Re
     apply_panel_selection(app, &mut lines, inner);
 
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scrollbar_metrics = ScrollableArea::new(Text::from(lines))
-        .scrollbar_style(Style::default().fg(theme::MUTED))
-        .render(f, inner, &mut scroll_state);
+    app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
+        ScrollableArea::new(Text::from(lines))
+            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .render(f, inner, &mut scroll_state);
 }
 
 /// 生成对齐的 key-value 行
@@ -475,14 +461,8 @@ fn user_start_offset(servers: &[ServerInfo]) -> usize {
 }
 
 fn apply_panel_selection(app: &mut App, lines: &mut Vec<Line>, area: Rect) {
-    if app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_selection
-        .is_active()
-    {
-        let sel = &app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .panel_selection;
+    if app.session_mgr.current_mut().ui.panel_selection.is_active() {
+        let sel = &app.session_mgr.current_mut().ui.panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
             let ((sr, sc), (er, ec)) = if start <= end {
                 (start, end)

@@ -20,7 +20,9 @@ impl HintItem {
 impl App {
     /// 构建统一排序后的候选项列表（与渲染侧一致）
     fn build_hint_items(&self) -> Vec<HintItem> {
-        let first_line = self.session_mgr.sessions[self.session_mgr.active]
+        let first_line = self
+            .session_mgr
+            .current()
             .ui
             .textarea
             .lines()
@@ -31,18 +33,24 @@ impl App {
             return vec![];
         }
         let prefix = first_line.trim_start_matches('/');
-        let cmd_candidates: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
+        let cmd_candidates: Vec<_> = self
+            .session_mgr
+            .current()
             .commands
             .command_registry
             .match_prefix(prefix, &self.services.lc);
-        let skill_candidates: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
+        let skill_candidates: Vec<_> = self
+            .session_mgr
+            .current()
             .commands
             .skills
             .iter()
             .filter(|s| prefix.is_empty() || s.name.contains(prefix))
             .collect();
         // Agent commands from ACP AvailableCommandsUpdate (e.g. /compact)
-        let agent_cmd_candidates: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
+        let agent_cmd_candidates: Vec<_> = self
+            .session_mgr
+            .current()
             .commands
             .agent_commands
             .iter()
@@ -94,24 +102,18 @@ impl App {
     pub fn hint_complete(&mut self) {
         let selected_name = {
             let items = self.build_hint_items();
-            let cursor = self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .hint_cursor
-                .unwrap_or(0);
+            let cursor = self.session_mgr.current().ui.hint_cursor.unwrap_or(0);
             items.get(cursor).map(|item| item.name().to_string())
         };
 
         if let Some(name) = selected_name {
-            self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .textarea = build_textarea(false);
-            self.session_mgr.sessions[self.session_mgr.active]
+            self.session_mgr.current_mut().ui.textarea = build_textarea(false);
+            self.session_mgr
+                .current_mut()
                 .ui
                 .textarea
                 .insert_str(format!("/{} ", name));
-            self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .hint_cursor = None;
+            self.session_mgr.current_mut().ui.hint_cursor = None;
         }
     }
 }

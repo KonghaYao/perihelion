@@ -83,12 +83,12 @@ impl PluginPanel {
                         self.sync_marketplace_list_items();
 
                         if let Err(e) = self.persist_marketplace_delete(&name) {
-                            ctx.session_mgr.sessions[ctx.session_mgr.active]
-                                .messages
-                                .push_system_note(ctx.services.lc.tr_args(
+                            ctx.session_mgr.current_mut().messages.push_system_note(
+                                ctx.services.lc.tr_args(
                                     "app-plugin-delete-failed",
                                     &[("error".into(), e.to_string().into())],
-                                ));
+                                ),
+                            );
                         }
                     }
                 }

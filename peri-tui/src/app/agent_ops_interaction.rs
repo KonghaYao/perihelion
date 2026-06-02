@@ -40,14 +40,11 @@ impl App {
         let (bridge_tx, _bridge_rx) = oneshot::channel::<Vec<HitlDecision>>();
 
         // Store ACP request id for response dispatch in hitl_ops.rs
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pending_acp_request_id = Some(id);
+        self.session_mgr.current_mut().agent.pending_acp_request_id = Some(id);
 
         let prompt = HitlBatchPrompt::new(batch_items, bridge_tx);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .interaction_prompt = Some(InteractionPrompt::Approval(prompt));
+        self.session_mgr.current_mut().agent.interaction_prompt =
+            Some(InteractionPrompt::Approval(prompt));
 
         (true, true, false) // pause event consumption, wait for user confirmation
     }
@@ -134,23 +131,17 @@ impl App {
         let (bridge_tx, _bridge_rx) = oneshot::channel::<Vec<String>>();
 
         // Store ACP request id for response dispatch in ask_user_ops.rs
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pending_acp_request_id = Some(id);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pending_ask_user = Some(false);
+        self.session_mgr.current_mut().agent.pending_acp_request_id = Some(id);
+        self.session_mgr.current_mut().agent.pending_ask_user = Some(false);
 
         let (batch_req, _) = AskUserBatchRequest::new(questions);
         let batch_req_bridged = AskUserBatchRequest {
             questions: batch_req.questions,
             response_tx: bridge_tx,
         };
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .interaction_prompt = Some(InteractionPrompt::Questions(
-            AskUserBatchPrompt::from_request(batch_req_bridged),
-        ));
+        self.session_mgr.current_mut().agent.interaction_prompt = Some(
+            InteractionPrompt::Questions(AskUserBatchPrompt::from_request(batch_req_bridged)),
+        );
 
         (true, true, false) // pause event consumption, wait for user input
     }
@@ -197,12 +188,9 @@ impl App {
                             response_tx.send(InteractionResponse::Decisions(approval_decisions));
                     }
                 });
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .interaction_prompt = Some(InteractionPrompt::Approval(HitlBatchPrompt::new(
-                    batch_items,
-                    bridge_tx,
-                )));
+                self.session_mgr.current_mut().agent.interaction_prompt = Some(
+                    InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)),
+                );
                 (true, true, false) // 暂停消费，等待用户确认
             }
             InteractionContext::Questions { requests } => {
@@ -239,19 +227,16 @@ impl App {
                         let _ = response_tx.send(InteractionResponse::Answers(question_answers));
                     }
                 });
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .pending_ask_user = Some(false);
+                self.session_mgr.current_mut().agent.pending_ask_user = Some(false);
                 let (batch_req, _) = AskUserBatchRequest::new(ask_questions);
                 let batch_req_bridged = AskUserBatchRequest {
                     questions: batch_req.questions,
                     response_tx: bridge_tx,
                 };
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .interaction_prompt = Some(InteractionPrompt::Questions(
-                    AskUserBatchPrompt::from_request(batch_req_bridged),
-                ));
+                self.session_mgr.current_mut().agent.interaction_prompt =
+                    Some(InteractionPrompt::Questions(
+                        AskUserBatchPrompt::from_request(batch_req_bridged),
+                    ));
                 (true, true, false) // 暂停消费，等待用户输入
             }
         }

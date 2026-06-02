@@ -166,6 +166,7 @@ node_modules/
 *.log
 
 process.md
+progress.md
 .claude/autonomy/.lock
 .claude/autonomy/runs.json
 *.db

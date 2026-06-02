@@ -185,6 +185,8 @@ pub async fn execute_prompt(
                         event_sink: event_sink.clone(),
                         args: args.to_string(),
                         cancel_token: cancel.clone(),
+                        thread_store: thread_store.clone(),
+                        thread_id: thread_id.clone(),
                     };
                     let result = tokio::select! {
                         r = cmd.execute(ctx) => r,

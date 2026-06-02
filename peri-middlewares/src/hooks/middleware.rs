@@ -16,6 +16,7 @@ use peri_agent::{
     middleware::Middleware,
 };
 
+use crate::hitl::{PermissionMode, SharedPermissionMode};
 use crate::hooks::{
     executor::{execute_agent_hook, execute_command_hook, execute_http_hook, execute_prompt_hook},
     matcher::{matches_if_condition, matches_matcher},
@@ -29,7 +30,9 @@ pub struct HookMiddleware {
     cwd: String,
     session_id: String,
     transcript_path: String,
-    permission_mode: String,
+    /// 共享权限模式（运行时可变，Shift+Tab 切换）。
+    /// PermissionRequest 仅在权限对话框即将展示时触发。
+    permission_mode: Arc<SharedPermissionMode>,
     current_model: String,
     once_fired: Arc<Mutex<HashSet<String>>>,
     /// Whether this is the first message of a new session (triggers SessionStart).
@@ -47,7 +50,7 @@ impl HookMiddleware {
         cwd: impl Into<String>,
         session_id: impl Into<String>,
         transcript_path: impl Into<String>,
-        permission_mode: impl Into<String>,
+        permission_mode: Arc<SharedPermissionMode>,
         current_model: impl Into<String>,
     ) -> Self {
         Self::with_session_start(
@@ -69,7 +72,7 @@ impl HookMiddleware {
         cwd: impl Into<String>,
         session_id: impl Into<String>,
         transcript_path: impl Into<String>,
-        permission_mode: impl Into<String>,
+        permission_mode: Arc<SharedPermissionMode>,
         current_model: impl Into<String>,
         is_session_start: bool,
     ) -> Self {
@@ -91,11 +94,34 @@ impl HookMiddleware {
             cwd: cwd.into(),
             session_id: session_id.into(),
             transcript_path: transcript_path.into(),
-            permission_mode: permission_mode.into(),
+            permission_mode,
             current_model: current_model.into(),
             once_fired: Arc::new(Mutex::new(HashSet::new())),
             is_session_start,
             requires_approval: crate::hitl::default_requires_approval,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    /// 判断当前权限模式下，给定工具是否会触发权限对话框。
+    ///
+    /// 对齐 Claude Code：PermissionRequest 仅在权限对话框即将展示时触发。
+    fn needs_permission_dialog(&self, tool_name: &str) -> bool {
+        match self.permission_mode.load() {
+            // Bypass: 所有工具直接放行，无对话框
+            PermissionMode::Bypass => false,
+            // DontAsk: 直接拒绝敏感工具，无对话框
+            PermissionMode::DontAsk => false,
+            // AcceptEdit: 编辑工具放行，其他弹窗
+            PermissionMode::AcceptEdit => !crate::hitl::is_edit_tool(tool_name),
+            // AutoMode: 分类器决定；简化处理——当无分类器或 Unsure 时弹窗
+            // 为避免 hook 系统依赖分类器，AutoMode 下始终触发 PermissionRequest
+            PermissionMode::AutoMode => true,
+            // Default: 敏感工具始终弹窗
+            PermissionMode::Default => true,
         }
     }
 
@@ -358,11 +384,12 @@ impl<S: State> Middleware<S> for HookMiddleware {
     }
 
     async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+        let permission_mode_str = format!("{:?}", self.permission_mode.load());
         let input = HookInput::tool_call(
             &self.session_id,
             &self.transcript_path,
             &self.cwd,
-            &self.permission_mode,
+            &permission_mode_str,
             &tool_call.name,
             &tool_call.input,
             &tool_call.id,
@@ -404,16 +431,17 @@ impl<S: State> Middleware<S> for HookMiddleware {
             _ => {}
         }
 
-        // PermissionRequest 门控：仅对敏感工具触发。
+        // PermissionRequest 门控：仅对敏感工具 + 权限对话框即将展示时触发。
+        //
+        // Claude Code 行为：PermissionRequest 仅在权限对话框即将展示给用户时触发。
+        // Bypass/AutoMode(DontAsk 的 auto-allow 路径) 不展示对话框，因此不触发。
         //
         // 使用 hitl::default_requires_approval 判断工具是否需要审批（Bash/Write/Edit/Agent/
         // mcp__*/WebFetch/WebSearch 等）。非敏感工具（Read/Glob/Grep 等）不触发。
-        //
-        // 不检查 permission_mode（YOLO/审批）：hook 始终触发以便观察/日志，HITL 弹窗是否显示
-        // 由 HITL 中间件独立决定。
         let is_sensitive = (self.requires_approval)(&tool_call.name);
+        let needs_dialog = self.needs_permission_dialog(&tool_call.name);
 
-        if is_sensitive {
+        if is_sensitive && needs_dialog {
             let action = self
                 .fire_event(
                     HookEvent::PermissionRequest,
@@ -474,11 +502,12 @@ impl<S: State> Middleware<S> for HookMiddleware {
             HookEvent::PostToolUse
         };
 
+        let permission_mode_str = format!("{:?}", self.permission_mode.load());
         let input = HookInput::tool_result(
             &self.session_id,
             &self.transcript_path,
             &self.cwd,
-            &self.permission_mode,
+            &permission_mode_str,
             &tool_call.name,
             &tool_call.input,
             &serde_json::json!(result.output),
@@ -500,7 +529,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
             session_id: self.session_id.clone(),
             transcript_path: self.transcript_path.clone(),
             cwd: self.cwd.clone(),
-            permission_mode: Some(self.permission_mode.clone()),
+            permission_mode: Some(format!("{:?}", self.permission_mode.load())),
             agent_id: None,
             agent_type: None,
             hook_event_name: HookEvent::Stop,
@@ -541,7 +570,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
             session_id: self.session_id.clone(),
             transcript_path: self.transcript_path.clone(),
             cwd: self.cwd.clone(),
-            permission_mode: Some(self.permission_mode.clone()),
+            permission_mode: Some(format!("{:?}", self.permission_mode.load())),
             agent_id: None,
             agent_type: None,
             hook_event_name: HookEvent::StopFailure,

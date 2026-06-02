@@ -24,15 +24,14 @@ macro_rules! with_global_panels {
 #[macro_export]
 macro_rules! with_session_panels {
     ($app:expr, |$sp:ident, $ctx:ident| $body:expr) => {{
-        let active_idx = $app.session_mgr.active;
-        let mut $sp = std::mem::take(&mut $app.session_mgr.sessions[active_idx].session_panels);
+        let mut $sp = std::mem::take(&mut $app.session_mgr.current_mut().session_panels);
         let mut $ctx = $crate::app::panel_manager::PanelContext {
             services: &mut $app.services,
             session_mgr: &mut $app.session_mgr,
             acp_client: $app.acp_client.clone(),
         };
         let result = { $body };
-        $app.session_mgr.sessions[active_idx].session_panels = $sp;
+        $app.session_mgr.current_mut().session_panels = $sp;
         result
     }};
 }

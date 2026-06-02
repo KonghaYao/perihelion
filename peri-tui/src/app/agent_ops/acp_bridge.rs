@@ -265,15 +265,13 @@ impl App {
                         .collect();
                     tracing::debug!(?names, "ACP→TUI: parsed command names");
                     if !names.is_empty() {
-                        self.session_mgr.sessions[self.session_mgr.active]
+                        self.session_mgr
+                            .current_mut()
                             .commands
                             .update_agent_commands(names);
                         tracing::debug!(
                             "ACP→TUI: learned {} agent commands from AvailableCommandsUpdate",
-                            self.session_mgr.sessions[self.session_mgr.active]
-                                .commands
-                                .agent_commands
-                                .len()
+                            self.session_mgr.current_mut().commands.agent_commands.len()
                         );
                     }
                 }

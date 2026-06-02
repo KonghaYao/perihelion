@@ -119,7 +119,9 @@ pub fn rgba_to_png_base64(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<
 /// Copies the current text selection to the system clipboard and updates UI
 /// hints. Returns `true` if text was successfully copied.
 pub fn copy_selection_to_clipboard(app: &mut App) -> bool {
-    if let Some(text) = app.session_mgr.sessions[app.session_mgr.active]
+    if let Some(text) = app
+        .session_mgr
+        .current_mut()
         .ui
         .text_selection
         .selected_text
@@ -129,17 +131,10 @@ pub fn copy_selection_to_clipboard(app: &mut App) -> bool {
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
             let _ = clipboard.set_text(&text);
         }
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .copy_char_count = char_count;
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .copy_message_until =
+        app.session_mgr.current_mut().ui.copy_char_count = char_count;
+        app.session_mgr.current_mut().ui.copy_message_until =
             Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .text_selection
-            .clear();
+        app.session_mgr.current_mut().ui.text_selection.clear();
         return true;
     }
     false
@@ -148,7 +143,9 @@ pub fn copy_selection_to_clipboard(app: &mut App) -> bool {
 /// Copies the current panel selection to the system clipboard. Returns `true`
 /// if text was successfully copied.
 pub fn copy_panel_selection_to_clipboard(app: &mut App) -> bool {
-    if let Some(text) = app.session_mgr.sessions[app.session_mgr.active]
+    if let Some(text) = app
+        .session_mgr
+        .current_mut()
         .ui
         .panel_selection
         .selected_text
@@ -158,17 +155,10 @@ pub fn copy_panel_selection_to_clipboard(app: &mut App) -> bool {
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
             let _ = clipboard.set_text(&text);
         }
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .copy_char_count = char_count;
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .copy_message_until =
+        app.session_mgr.current_mut().ui.copy_char_count = char_count;
+        app.session_mgr.current_mut().ui.copy_message_until =
             Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .panel_selection
-            .clear();
+        app.session_mgr.current_mut().ui.panel_selection.clear();
         return true;
     }
     false

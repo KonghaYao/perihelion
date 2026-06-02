@@ -4,7 +4,7 @@ use agent_client_protocol_schema::AvailableCommand;
 use peri_middlewares::skills::SkillMetadata;
 
 /// Build the list of available slash commands for ACP clients,
-/// including discovered skills as `skill:<name>` entries.
+/// including discovered skills as command entries using their plain name.
 pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableCommand> {
     let mut commands = vec![
         AvailableCommand::new("help", "Show available commands and their descriptions"),
@@ -28,14 +28,13 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
         AvailableCommand::new("agents", "Manage sub-agent definitions"),
         AvailableCommand::new("memory", "Manage persistent memory entries"),
         AvailableCommand::new("login", "Configure authentication"),
-        AvailableCommand::new("split", "Manage split session layouts"),
         AvailableCommand::new("rename", "Rename the current session"),
         AvailableCommand::new("lang", "Switch display language / locale"),
         AvailableCommand::new("exit", "Exit the application"),
     ];
     for skill in skills {
         commands.push(AvailableCommand::new(
-            format!("skill:{}", skill.name),
+            skill.name.clone(),
             skill.description.clone(),
         ));
     }

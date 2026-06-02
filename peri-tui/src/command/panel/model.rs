@@ -25,7 +25,8 @@ impl Command for ModelCommand {
                 cfg.config.active_alias = alias.clone();
                 if let Err(e) = App::save_config(cfg, app.services.config_path_override.as_deref())
                 {
-                    app.session_mgr.sessions[app.session_mgr.active]
+                    app.session_mgr
+                        .current_mut()
                         .messages
                         .view_messages
                         .push(MessageViewModel::system(format!("配置保存失败: {}", e)));

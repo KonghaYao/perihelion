@@ -39,9 +39,7 @@ fn format_elapsed(start: std::time::Instant) -> String {
 
 /// 计算 bar 需要的高度（0 = 隐藏）
 pub(crate) fn bg_bar_height(app: &App) -> u16 {
-    let count = app.session_mgr.sessions[app.session_mgr.active]
-        .background_agents
-        .len();
+    let count = app.session_mgr.current().background_agents.len();
     if count == 0 {
         0
     } else {
@@ -73,7 +71,7 @@ pub(crate) fn render_bg_agent_bar(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    let session = &app.session_mgr.sessions[app.session_mgr.active];
+    let session = &app.session_mgr.current();
     let agents = &session.background_agents;
     let focused_id = &session.focused_instance_id;
     let view_messages = &session.messages.view_messages;

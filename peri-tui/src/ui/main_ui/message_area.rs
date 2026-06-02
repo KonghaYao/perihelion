@@ -29,94 +29,79 @@ pub(crate) fn render_messages(
     messages_area: Rect,
 ) {
     // Welcome Card 或消息列表
-    if app.session_mgr.sessions[app.session_mgr.active]
-        .messages
-        .view_messages
-        .is_empty()
-    {
+    if app.session_mgr.current().messages.view_messages.is_empty() {
         welcome::render_welcome(f, app, messages_area);
         return;
     }
 
     let inner = messages_area;
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .messages_area = Some(inner);
+    app.session_mgr.current_mut().ui.messages_area = Some(inner);
     let visible_height = inner.height;
 
     // 计算 loading spinner 行（Claude Code 风格：✻ verb (Xm Xs · ↓ X.Xk tokens)）
     // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
-    let spinner_line: Option<Line<'static>> =
-        if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
-            let frame = peri_widgets::spinner::animation::tick_to_frame(
-                app.session_mgr.sessions[app.session_mgr.active]
-                    .spinner_state
-                    .tick(),
-            );
-            let verb = app.session_mgr.sessions[app.session_mgr.active]
-                .spinner_state
-                .verb();
-            let elapsed = peri_widgets::spinner::animation::format_elapsed(
-                app.session_mgr.sessions[app.session_mgr.active]
-                    .spinner_state
-                    .elapsed_ms(),
-            );
-            let tokens = app.session_mgr.sessions[app.session_mgr.active]
-                .spinner_state
-                .displayed_tokens();
+    let spinner_line: Option<Line<'static>> = if app.session_mgr.current().ui.loading {
+        let session = app.session_mgr.current();
+        let frame = peri_widgets::spinner::animation::tick_to_frame(session.spinner_state.tick());
+        let verb = session.spinner_state.verb();
+        let elapsed =
+            peri_widgets::spinner::animation::format_elapsed(session.spinner_state.elapsed_ms());
+        let tokens = session.spinner_state.displayed_tokens();
 
-            let is_compact = verb.starts_with("压缩上下文");
-            let accent = if is_compact {
-                Style::default().fg(theme::THINKING)
-            } else {
-                Style::default().fg(theme::ACCENT)
-            };
-            let gray = Style::default().fg(theme::MUTED);
-            let mut parts = vec![
-                Span::styled(format!(" {} {}", frame, verb), accent),
-                Span::styled(format!(" ({elapsed}"), gray),
-            ];
-            if tokens > 0 {
-                let tokens_fmt = peri_widgets::spinner::animation::format_tokens(tokens);
-                parts.push(Span::styled(format!(" · ↓ {tokens_fmt} tokens"), gray));
-            }
-            parts.push(Span::styled(")", gray));
-            Some(Line::from(parts))
-        } else if app.session_mgr.sessions[app.session_mgr.active]
-            .spinner_state
-            .last_summary_elapsed_ms()
-            > 0
-        {
-            let elapsed = peri_widgets::spinner::animation::format_elapsed(
-                app.session_mgr.sessions[app.session_mgr.active]
-                    .spinner_state
-                    .last_summary_elapsed_ms(),
-            );
-            Some(Line::from(Span::styled(
-                format!("  ✻  Brewed for {elapsed}"),
-                Style::default().fg(theme::MUTED),
-            )))
+        let is_compact = verb.starts_with("压缩上下文");
+        let accent = if is_compact {
+            Style::default().fg(theme::THINKING)
         } else {
-            None
+            Style::default().fg(theme::ACCENT)
         };
+        let gray = Style::default().fg(theme::MUTED);
+        let mut parts = vec![
+            Span::styled(format!(" {} {}", frame, verb), accent),
+            Span::styled(format!(" ({elapsed}"), gray),
+        ];
+        if tokens > 0 {
+            let tokens_fmt = peri_widgets::spinner::animation::format_tokens(tokens);
+            parts.push(Span::styled(format!(" · ↓ {tokens_fmt} tokens"), gray));
+        }
+        parts.push(Span::styled(")", gray));
+        Some(Line::from(parts))
+    } else if app
+        .session_mgr
+        .current()
+        .spinner_state
+        .last_summary_elapsed_ms()
+        > 0
+    {
+        let elapsed = peri_widgets::spinner::animation::format_elapsed(
+            app.session_mgr
+                .current()
+                .spinner_state
+                .last_summary_elapsed_ms(),
+        );
+        Some(Line::from(Span::styled(
+            format!("  ✻  Brewed for {elapsed}"),
+            Style::default().fg(theme::MUTED),
+        )))
+    } else {
+        None
+    };
 
     // 渲染驱动宽度同步：用 last_resize_width 去抖——宽度未变时跳过重复发送，
     // 避免每秒 N 次 resize 事件导致渲染线程队列积压和 CPU 暴涨
     // （参见 spec/issues/2026-05-14-streaming-resize-cpu-spike）。
     {
         let text_area_width = inner.width.saturating_sub(1);
-        let cache_width = app.session_mgr.sessions[app.session_mgr.active]
-            .messages
-            .render_cache
-            .read()
-            .width;
-        let messages = &mut app.session_mgr.sessions[app.session_mgr.active].messages;
-        if messages.last_resize_width != Some(text_area_width)
+        let cache_width = app.session_mgr.current().messages.render_cache.read().width;
+        let last_resize = app.session_mgr.current().messages.last_resize_width;
+        if last_resize != Some(text_area_width)
             && cache_width != text_area_width
             && text_area_width > 0
         {
-            messages.last_resize_width = Some(text_area_width);
-            let _ = messages
+            app.session_mgr.current_mut().messages.last_resize_width = Some(text_area_width);
+            let _ = app
+                .session_mgr
+                .current_mut()
+                .messages
                 .render_tx
                 .try_send(RenderEvent::Resize(text_area_width));
         }
@@ -129,20 +114,13 @@ pub(crate) fn render_messages(
         0
     };
     let (max_scroll, offset) = {
-        let cache = app.session_mgr.sessions[app.session_mgr.active]
-            .messages
-            .render_cache
-            .read();
+        let cache = app.session_mgr.current().messages.render_cache.read();
 
         let total_lines = cache.total_lines;
         let visual_total = (total_lines as u16).saturating_add(spinner_extra);
         let max_scroll = visual_total.saturating_sub(visible_height);
-        let scroll_follow = app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .scroll_follow;
-        let scroll_offset = app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .scroll_offset;
+        let scroll_follow = app.session_mgr.current().ui.scroll_follow;
+        let scroll_offset = app.session_mgr.current().ui.scroll_offset;
         let (new_follow, off) = if scroll_follow {
             (true, max_scroll)
         } else {
@@ -152,22 +130,12 @@ pub(crate) fn render_messages(
         };
 
         let version = cache.version;
-
-        // 先 drop cache 再写入 app state（避免 &sessions 借用冲突）
         drop(cache);
 
-        app.session_mgr.sessions[app.session_mgr.active]
-            .messages
-            .last_render_version = version;
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .scroll_follow = new_follow;
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .scroll_offset = off;
-        app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .scrollbar_max_offset = max_scroll;
+        app.session_mgr.current_mut().messages.last_render_version = version;
+        app.session_mgr.current_mut().ui.scroll_follow = new_follow;
+        app.session_mgr.current_mut().ui.scroll_offset = off;
+        app.session_mgr.current_mut().ui.scrollbar_max_offset = max_scroll;
 
         (max_scroll, off)
     };
@@ -255,10 +223,7 @@ fn viewport_clip(
 ) -> ViewportClip {
     // ── 阶段 1：从 cache 提取可见行（cache guard 在 block 结束时 drop） ──
     let (mut lines, local_offset, first_idx, total_lines) = {
-        let cache = app.session_mgr.sessions[app.session_mgr.active]
-            .messages
-            .render_cache
-            .read();
+        let cache = app.session_mgr.current().messages.render_cache.read();
 
         let vis_start = offset as usize;
         // +1 给 wrap 行留余量
@@ -309,11 +274,9 @@ fn viewport_clip(
             lines.push(Line::from(""));
             lines.push(line.clone());
             // Tip + TODO
-            if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
+            if app.session_mgr.current().ui.loading {
                 let tip = crate::ui::tips::pick_tip(
-                    app.session_mgr.sessions[app.session_mgr.active]
-                        .spinner_state
-                        .raw_tick(),
+                    app.session_mgr.current().spinner_state.raw_tick(),
                     &app.services.lc,
                 );
                 lines.push(Line::from(vec![
@@ -321,7 +284,7 @@ fn viewport_clip(
                     Span::styled(tip, Style::default().fg(theme::MUTED)),
                 ]));
                 lines.push(Line::from(""));
-                for item in &app.session_mgr.sessions[app.session_mgr.active].todo_items {
+                for item in &app.session_mgr.current().todo_items {
                     let (icon, icon_style, text_style) = match item.status {
                         TodoStatus::InProgress => (
                             "  ◼  ",
@@ -372,21 +335,14 @@ fn viewport_clip(
 
     // ── 阶段 3：字符级选区高亮（需要再次读 cache 获取 wrap_map） ──
     // 只在裁剪后的可见行上做高亮（减少工作量）
-    if app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .text_selection
-        .is_active()
-    {
-        let ts = &app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .text_selection;
+    if app.session_mgr.current().ui.text_selection.is_active() {
+        let ts = &app.session_mgr.current().ui.text_selection;
         if let (Some(start), Some(end)) = (ts.start, ts.end) {
-            let cache = app.session_mgr.sessions[app.session_mgr.active]
-                .messages
-                .render_cache
-                .read();
+            let cache = app.session_mgr.current().messages.render_cache.read();
             let wrap_map = &cache.wrap_map;
-            let usable_width = app.session_mgr.sessions[app.session_mgr.active]
+            let usable_width = app
+                .session_mgr
+                .current()
                 .ui
                 .messages_area
                 .map(|a| a.width.saturating_sub(1))
@@ -436,12 +392,10 @@ fn viewport_clip(
 
 /// 计算 spinner 区域的额外逻辑行数
 fn spinner_extra_count(app: &App) -> u16 {
-    if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
+    if app.session_mgr.current().ui.loading {
         // 空行(1) + spinner(1) + tip(1) + 空行(1) + todo_items(N) + trailing(3) = 7 + N
         let base = 7u16;
-        base + app.session_mgr.sessions[app.session_mgr.active]
-            .todo_items
-            .len() as u16
+        base + app.session_mgr.current().todo_items.len() as u16
     } else {
         // 空行(1) + spinner(1) + trailing(3) = 5
         5

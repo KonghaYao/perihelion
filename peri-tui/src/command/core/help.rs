@@ -17,10 +17,7 @@ impl Command for HelpCommand {
     fn execute(&self, app: &mut App, _args: &str) {
         // 使用启动时预计算的列表（command_registry 在 dispatch 时已被 std::mem::take 取出）
         let mut lines = vec!["可用命令：".to_string()];
-        for (name, desc, aliases) in &app.session_mgr.sessions[app.session_mgr.active]
-            .commands
-            .command_help_list
-        {
+        for (name, desc, aliases) in &app.session_mgr.current_mut().commands.command_help_list {
             let alias_str = if aliases.is_empty() {
                 String::new()
             } else {
@@ -30,10 +27,7 @@ impl Command for HelpCommand {
         }
 
         // Skills 说明
-        let skills_count = app.session_mgr.sessions[app.session_mgr.active]
-            .commands
-            .skills
-            .len();
+        let skills_count = app.session_mgr.current_mut().commands.skills.len();
         if skills_count > 0 {
             lines.push("".to_string());
             lines.push(format!(
@@ -55,7 +49,8 @@ impl Command for HelpCommand {
         );
 
         let vm = MessageViewModel::system(lines.join("\n"));
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr
+            .current_mut()
             .messages
             .view_messages
             .push(vm);

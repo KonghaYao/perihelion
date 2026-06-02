@@ -1,10 +1,10 @@
     async fn render_headless_agent_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
         let panel = AgentPanel::new(vec![], None);
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .session_panels
             .open(crate::app::panel_manager::PanelState::Agent(panel.clone()));
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .session_panels
             .open(crate::app::panel_manager::PanelState::Agent(panel));
         handle

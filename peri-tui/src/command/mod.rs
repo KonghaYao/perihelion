@@ -13,6 +13,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(core::history::HistoryCommand));
     r.register(Box::new(core::doctor::DoctorCommand));
     r.register(Box::new(core::exit::ExitCommand));
+    r.register(Box::new(core::gc::GcCommand));
 
     r.register(Box::new(panel::model::ModelCommand));
     r.register(Box::new(panel::plugin::PluginCommand));
@@ -23,7 +24,6 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(panel::memory::MemoryCommand));
     r.register(Box::new(panel::login::LoginCommand));
     r.register(Box::new(panel::tasks::TasksCommand));
-    r.register(Box::new(session::split::SplitCommand));
     r.register(Box::new(session::rename::RenameCommand));
     r.register(Box::new(session::channel::ChannelCommand));
     r.register(Box::new(session::context_cmd::ContextCommand));

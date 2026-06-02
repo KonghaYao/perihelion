@@ -21,7 +21,6 @@ Peri is a terminal coding agent, built the **Nobody Coding** way — powered by 
 - **IDE-ready via [ACP](https://github.com/Azure/agent-client-protocol).** Connects to [Zed](https://zed.dev) and other ACP clients out of the box. We're also building a "Cloud Code" platform where any ACP-compatible agent can plug in and go.
 - **Unchecked but ready.**
   - Built-in LSP.
-  - Built-in split screen.
   - Background agents: fork work to sub-agents that run while you keep going.
 
 ## Install

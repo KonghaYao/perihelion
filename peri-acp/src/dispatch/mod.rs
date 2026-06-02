@@ -6,6 +6,7 @@
 //! in their respective transport layers.
 
 pub mod commands;
+pub mod config_update;
 pub mod init;
 pub mod list_sessions;
 pub mod session_fork;
@@ -16,3 +17,6 @@ pub use init::build_initialize_response;
 pub use list_sessions::list_sessions_as_info;
 pub use session_fork::fork_session;
 pub use session_load::load_session_messages;
+
+#[cfg(test)]
+mod commands_test;

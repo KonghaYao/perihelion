@@ -53,4 +53,11 @@ pub trait ThreadStore: Send + Sync {
 
     /// 清除 thread 的 cached_context
     async fn invalidate_context_cache(&self, thread_id: &ThreadId) -> Result<()>;
+
+    /// 按 message_id 列表精确删除消息，并刷新 cached_context。
+    async fn delete_messages(
+        &self,
+        thread_id: &ThreadId,
+        message_ids: &[crate::messages::MessageId],
+    ) -> Result<()>;
 }

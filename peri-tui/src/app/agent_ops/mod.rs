@@ -10,6 +10,7 @@ use super::{agent_events_bg::BackgroundTaskResult, *};
 mod acp_bridge;
 mod lifecycle;
 mod polling;
+mod rewind;
 mod subagent;
 
 impl App {
@@ -28,18 +29,22 @@ impl App {
                 if started {
                     // SubAgent 实际开始执行：更新 spinner 为工具使用模式
                     let verb = format!("Agent: {}", agent_name);
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    self.session_mgr
+                        .current_mut()
                         .spinner_state
                         .set_mode(peri_widgets::SpinnerMode::ToolUse);
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    self.session_mgr
+                        .current_mut()
                         .spinner_state
                         .set_verb(Some(&verb));
                 } else {
                     // SubAgent 执行结束：恢复 spinner 为响应模式
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    self.session_mgr
+                        .current_mut()
                         .spinner_state
                         .set_mode(peri_widgets::SpinnerMode::Responding);
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    self.session_mgr
+                        .current_mut()
                         .spinner_state
                         .set_verb(Some("思考中…"));
                 }
@@ -53,27 +58,27 @@ impl App {
                 agent_id,
                 instance_id,
             } => {
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .subagent_depth = self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr.current_mut().agent.subagent_depth = self
+                    .session_mgr
+                    .current_mut()
                     .agent
                     .subagent_depth
                     .saturating_sub(1);
                 // 如果所有 SubAgent 已完成，恢复 spinner 到思考模式
-                if self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .subagent_depth
-                    == 0
-                {
-                    self.session_mgr.sessions[self.session_mgr.active]
+                if self.session_mgr.current_mut().agent.subagent_depth == 0 {
+                    self.session_mgr
+                        .current_mut()
                         .spinner_state
                         .set_mode(peri_widgets::SpinnerMode::Responding);
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    self.session_mgr
+                        .current_mut()
                         .spinner_state
                         .set_verb(Some("思考中…"));
                 }
                 // Pipeline：更新 SubAgentGroup（is_running=false, final_result）
-                let actions = self.session_mgr.sessions[self.session_mgr.active]
+                let actions = self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .pipeline
                     .handle_event(AgentEvent::SubAgentEnd {
@@ -94,31 +99,18 @@ impl App {
                 percentage: _,
             } => {
                 // 子 Agent 的 ContextWarning 不应触发父 Agent 的 auto-compact
-                if self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .subagent_depth
-                    > 0
-                {
+                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
                     return (true, false, false);
                 }
                 // 从核心层同步 context_window（核心层通过 model.context_window() 获取正确值）
                 let cw = total_tokens as u32;
-                if cw > 0
-                    && self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .context_window
-                        != cw
-                {
+                if cw > 0 && self.session_mgr.current_mut().agent.context_window != cw {
                     tracing::debug!(
-                        old = self.session_mgr.sessions[self.session_mgr.active]
-                            .agent
-                            .context_window,
+                        old = self.session_mgr.current_mut().agent.context_window,
                         new = cw,
                         "context_window updated from core layer"
                     );
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .context_window = cw;
+                    self.session_mgr.current_mut().agent.context_window = cw;
                 }
                 (true, false, false)
             }
@@ -157,17 +149,12 @@ impl App {
                 input,
                 source_agent_id,
             } => {
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .retry_status = None;
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .agent_replied = true;
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .tool_call_count += 1;
+                self.session_mgr.current_mut().agent.retry_status = None;
+                self.session_mgr.current_mut().agent.agent_replied = true;
+                self.session_mgr.current_mut().agent.tool_call_count += 1;
                 // 跨切面：spinner
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .spinner_state
                     .set_mode(peri_widgets::SpinnerMode::ToolUse);
                 let verb_text = if !args.is_empty() {
@@ -176,11 +163,14 @@ impl App {
                 } else {
                     format!("{}…", display)
                 };
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .spinner_state
                     .set_verb(Some(&verb_text));
                 // Pipeline：创建 ToolBlock / 路由进 SubAgentGroup
-                let actions = self.session_mgr.sessions[self.session_mgr.active]
+                let actions = self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .pipeline
                     .handle_event(AgentEvent::ToolStart {
@@ -204,7 +194,9 @@ impl App {
                 is_error,
                 source_agent_id,
             } => {
-                let actions = self.session_mgr.sessions[self.session_mgr.active]
+                let actions = self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .pipeline
                     .handle_event(AgentEvent::ToolEnd {
@@ -224,18 +216,17 @@ impl App {
                 chunk,
                 source_agent_id,
             } => {
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .retry_status = None;
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .agent_replied = true;
+                self.session_mgr.current_mut().agent.retry_status = None;
+                self.session_mgr.current_mut().agent.agent_replied = true;
                 // 跨切面：spinner
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .spinner_state
                     .set_mode(peri_widgets::SpinnerMode::Responding);
                 // Pipeline：路由到 SubAgentGroup 或父 Agent AssistantBubble
-                let actions = self.session_mgr.sessions[self.session_mgr.active]
+                let actions = self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .pipeline
                     .handle_event(AgentEvent::AssistantChunk {
@@ -254,24 +245,23 @@ impl App {
                 self.handle_interaction_request(ctx, response_tx)
             }
             AgentEvent::TodoUpdate(todos) => {
-                self.session_mgr.sessions[self.session_mgr.active].todo_items = todos;
+                self.session_mgr.current_mut().todo_items = todos;
                 (true, false, false)
             }
             AgentEvent::StateSnapshot(msgs) => {
                 // 子 Agent 的 StateSnapshot 不应污染父 Agent 的 origin_messages，
                 // 否则子 Agent 的全部内部消息会混入父 Agent 的对话历史和持久化。
-                if self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .subagent_depth
-                    > 0
-                {
+                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
                     return (true, false, false);
                 }
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .agent
                     .origin_messages
                     .extend(msgs.clone());
-                let actions = self.session_mgr.sessions[self.session_mgr.active]
+                let actions = self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .pipeline
                     .handle_event(AgentEvent::StateSnapshot(msgs));
@@ -290,6 +280,9 @@ impl App {
             } => self.handle_compact_completed(summary, files, skills, micro_cleared, messages),
             AgentEvent::CompactStarted => self.handle_compact_started(),
             AgentEvent::CompactError(msg) => self.handle_compact_error(msg),
+            AgentEvent::RewindCompleted { summary, messages } => {
+                self.handle_rewind_completed(summary, messages)
+            }
             AgentEvent::LlmRetrying {
                 attempt,
                 max_attempts,
@@ -297,25 +290,22 @@ impl App {
                 error,
             } => {
                 // 子 Agent 的 LlmRetrying 不应覆盖父 Agent 的 retry_status 显示
-                if self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .subagent_depth
-                    > 0
-                {
+                if self.session_mgr.current_mut().agent.subagent_depth > 0 {
                     return (true, false, false);
                 }
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .retry_status = Some(super::agent_comm::RetryStatus {
-                    attempt,
-                    max_attempts,
-                    delay_ms,
-                    error,
-                });
+                self.session_mgr.current_mut().agent.retry_status =
+                    Some(super::agent_comm::RetryStatus {
+                        attempt,
+                        max_attempts,
+                        delay_ms,
+                        error,
+                    });
                 (true, false, false)
             }
             AgentEvent::AiReasoning(text) => {
-                let actions = self.session_mgr.sessions[self.session_mgr.active]
+                let actions = self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .pipeline
                     .handle_event(AgentEvent::AiReasoning(text));
@@ -346,15 +336,9 @@ impl App {
                 warnings,
                 files_with_errors,
             } => {
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .lsp_errors = errors;
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .lsp_warnings = warnings;
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .lsp_files_with_errors = files_with_errors;
+                self.session_mgr.current_mut().agent.lsp_errors = errors;
+                self.session_mgr.current_mut().agent.lsp_warnings = warnings;
+                self.session_mgr.current_mut().agent.lsp_files_with_errors = files_with_errors;
                 (true, false, false)
             }
         }

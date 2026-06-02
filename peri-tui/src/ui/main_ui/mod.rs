@@ -11,7 +11,7 @@ pub(crate) use message_area::highlight_line_spans;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Borders, Padding, Paragraph},
+    widgets::{Padding, Paragraph},
     Frame,
 };
 
@@ -25,118 +25,32 @@ pub fn render(f: &mut Frame, app: &mut App) {
     }
 
     let area = f.area();
-
-    if app.session_mgr.sessions.len() > 1 {
-        // ── 多 Session 分栏布局 ──
-        // 外层：水平切分（各 session 列）+ 底部共享状态栏
-        let bg_bar_h = bg_agent_bar::bg_bar_height(app);
-
-        let outer = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),               // session 列区域
-                Constraint::Length(3 + bg_bar_h), // 共享状态栏 + bg agent bar
-            ])
-            .split(area);
-
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![
-                Constraint::Percentage(50);
-                app.session_mgr.sessions.len()
-            ])
-            .split(outer[0]);
-
-        app.session_mgr.session_areas = cols.iter().copied().collect();
-
-        // 先渲染非 active session（不设置光标位置），再渲染 active session
-        for (i, col_area) in cols.iter().enumerate() {
-            if i == app.session_mgr.active {
-                continue;
-            }
-            render_session_column(f, app, i, *col_area, false);
-        }
-        render_session_column(
-            f,
-            app,
-            app.session_mgr.active,
-            cols[app.session_mgr.active],
-            true,
-        );
-
-        if bg_bar_h > 0 {
-            let bottom_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(3), Constraint::Length(bg_bar_h)])
-                .split(outer[1]);
-            status_bar::render_status_bar(f, app, bottom_chunks[0]);
-            bg_agent_bar::render_bg_agent_bar(f, app, bottom_chunks[1]);
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_area = Some(bottom_chunks[1]);
-        } else {
-            status_bar::render_status_bar(f, app, outer[1]);
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_area = None;
-        }
-    } else {
-        // ── 单 Session 布局（原有行为）──
-        render_session_column(f, app, 0, area, true);
-    }
+    render_session_column(f, app, area);
 }
 
 /// 渲染单个 session 列（含垂直布局拆分）
-fn render_session_column(
-    f: &mut Frame,
-    app: &mut App,
-    session_idx: usize,
-    area: Rect,
-    is_active: bool,
-) {
-    // 临时切换 active 以便现有 render 函数使用 app.session_mgr.sessions[app.session_mgr.active]
-    let prev_active = app.session_mgr.active;
-    app.session_mgr.active = session_idx;
-
-    // 多 session 模式：外层 block 作为聚焦指示
-    let area = if app.session_mgr.sessions.len() > 1 {
-        let border_color = if is_active {
-            theme::ACCENT
-        } else {
-            theme::BORDER_DIM
-        };
-        let outer_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color));
-        let inner = outer_block.inner(area);
-        f.render_widget(outer_block, area);
-        inner
-    } else {
-        area
-    };
-
+fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     // 动态输入框高度
-    let line_count = app.session_mgr.sessions[session_idx]
-        .ui
-        .textarea
-        .lines()
-        .len() as u16;
+    let line_count = app.session_mgr.current_mut().ui.textarea.lines().len() as u16;
     let input_height = (line_count + 2).min(area.height * 2 / 5).max(3);
 
     // 缓冲消息高度（loading 时在输入框上方显示待发送消息）
-    let pending_count = app.session_mgr.sessions[session_idx]
+    let pending_count = app
+        .session_mgr
+        .current_mut()
         .messages
         .pending_messages
         .len();
-    let queued_height: u16 =
-        if pending_count > 0 && app.session_mgr.sessions[session_idx].ui.loading {
-            (pending_count as u16).min(3)
-        } else {
-            0
-        };
+    let queued_height: u16 = if pending_count > 0 && app.session_mgr.current_mut().ui.loading {
+        (pending_count as u16).min(3)
+    } else {
+        0
+    };
 
     // 附件栏高度
-    let attachment_height: u16 = if app.session_mgr.sessions[session_idx]
+    let attachment_height: u16 = if app
+        .session_mgr
+        .current_mut()
         .metadata
         .pending_attachments
         .is_empty()
@@ -150,7 +64,9 @@ fn render_session_column(
     let panel_height = active_panel_height(app, area.height, area.width);
 
     // Sticky header 高度
-    let sticky_header_height: u16 = app.session_mgr.sessions[session_idx]
+    let sticky_header_height: u16 = app
+        .session_mgr
+        .current()
         .metadata
         .last_human_message
         .as_ref()
@@ -161,11 +77,7 @@ fn render_session_column(
         })
         .unwrap_or(0);
 
-    let status_bar_height = if app.session_mgr.sessions.len() > 1 {
-        0
-    } else {
-        3
-    };
+    let status_bar_height: u16 = 3;
 
     let bg_bar_height_val = bg_agent_bar::bg_bar_height(app);
 
@@ -189,15 +101,15 @@ fn render_session_column(
     // 底部展开区
     if panel_height > 0 {
         let panel_area = chunks[3];
-        match &app.session_mgr.sessions[session_idx]
-            .agent
-            .interaction_prompt
-        {
+        match &app.session_mgr.current_mut().agent.interaction_prompt {
             Some(crate::app::InteractionPrompt::Approval(_)) => {
                 popups::hitl::render_hitl_popup(f, app, panel_area);
             }
             Some(crate::app::InteractionPrompt::Questions(_)) => {
                 popups::ask_user::render_ask_user_popup(f, app, panel_area);
+            }
+            Some(crate::app::InteractionPrompt::Rewind(_)) => {
+                popups::rewind::render_rewind_popup(f, app, panel_area);
             }
             None => {}
         }
@@ -205,22 +117,24 @@ fn render_session_column(
             popups::oauth::render_oauth_popup(f, app, panel_area);
         }
         // PanelManager 统一渲染分发：session 面板优先，global 面板次之
-        if app.session_mgr.sessions[session_idx]
+        if app
+            .session_mgr
+            .current_mut()
             .agent
             .interaction_prompt
             .is_none()
             && app.global_ui.oauth_prompt.is_none()
         {
-            if app.session_mgr.sessions[session_idx]
-                .session_panels
-                .is_any_open()
-            {
-                let mut state = app.session_mgr.sessions[session_idx]
+            if app.session_mgr.current_mut().session_panels.is_any_open() {
+                let mut state = app
+                    .session_mgr
+                    .current_mut()
                     .session_panels
                     .take_active()
                     .expect("is_any_open was true");
                 state.render(f, app, panel_area);
-                app.session_mgr.sessions[session_idx]
+                app.session_mgr
+                    .current_mut()
                     .session_panels
                     .put_active(state);
             } else if app.global_panels.is_any_open() {
@@ -237,9 +151,7 @@ fn render_session_column(
     // 缓冲消息预览（loading 时在输入框上方显示待发送消息）
     if queued_height > 0 {
         let queued_area = chunks[4];
-        let msgs = &app.session_mgr.sessions[session_idx]
-            .messages
-            .pending_messages;
+        let msgs = &app.session_mgr.current_mut().messages.pending_messages;
         let visible_count = (pending_count).min(queued_height as usize);
         let pending_style = Style::default().fg(theme::MUTED).bg(theme::USER_BG);
         for (i, msg) in msgs.iter().take(visible_count).enumerate() {
@@ -278,16 +190,13 @@ fn render_session_column(
     }
 
     // 输入框样式：Bar 焦点变暗 / 聚焦只读模式 / 正常模式
-    let bar_focused = app.session_mgr.sessions[session_idx]
-        .ui
-        .bg_bar_cursor
-        .is_some();
-    let focused_id = app.session_mgr.sessions[session_idx]
-        .focused_instance_id
-        .clone();
+    let bar_focused = app.session_mgr.current_mut().ui.bg_bar_cursor.is_some();
+    let focused_id = app.session_mgr.current_mut().focused_instance_id.clone();
 
     let popup_active = app.global_ui.oauth_prompt.is_some()
-        || app.session_mgr.sessions[session_idx]
+        || app
+            .session_mgr
+            .current_mut()
             .agent
             .interaction_prompt
             .is_some();
@@ -298,13 +207,10 @@ fn render_session_column(
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
             .border_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray))
             .padding(Padding::new(2, 0, 0, 0));
-        app.session_mgr.sessions[session_idx]
-            .ui
-            .textarea
-            .set_block(block);
+        app.session_mgr.current_mut().ui.textarea.set_block(block);
     } else if let Some(ref id) = focused_id {
         // 聚焦只读模式：彩色边框 + agent 名称标签 + 暗色文本
-        let agents = &app.session_mgr.sessions[session_idx].background_agents;
+        let agents = &app.session_mgr.current_mut().background_agents;
         let color_idx = agents.iter().position(|a| a.instance_id == *id);
         let color = color_idx
             .map(bg_agent_bar::agent_color)
@@ -320,11 +226,9 @@ fn render_session_column(
             .border_style(ratatui::style::Style::default().fg(color))
             .padding(Padding::new(2, 0, 0, 0))
             .title(title);
-        app.session_mgr.sessions[session_idx]
-            .ui
-            .textarea
-            .set_block(block);
-        app.session_mgr.sessions[session_idx]
+        app.session_mgr.current_mut().ui.textarea.set_block(block);
+        app.session_mgr
+            .current_mut()
             .ui
             .textarea
             .set_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
@@ -335,30 +239,26 @@ fn render_session_column(
             .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
             .border_style(ratatui::style::Style::default().fg(border_color))
             .padding(Padding::new(2, 0, 0, 0));
-        app.session_mgr.sessions[session_idx]
-            .ui
-            .textarea
-            .set_block(block);
-        app.session_mgr.sessions[session_idx]
+        app.session_mgr.current_mut().ui.textarea.set_block(block);
+        app.session_mgr
+            .current_mut()
             .ui
             .textarea
             .set_style(ratatui::style::Style::default().fg(theme::TEXT));
     }
 
-    // 输入框：非聚焦 session 或应用失焦时隐藏光标（移除 REVERSED 修饰符）
-    let textarea_ref = &app.session_mgr.sessions[session_idx].ui.textarea;
-    // 应用失焦 或 当前 session 未激活 → 隐藏光标
-    let should_hide_cursor = !app.focused || !is_active;
+    // 输入框渲染
+    let textarea_ref = &app.session_mgr.current_mut().ui.textarea;
+    // 应用失焦时隐藏光标
+    let should_hide_cursor = !app.focused;
     if should_hide_cursor {
-        // 克隆并移除光标的 REVERSED 样式，使光标不可见
         let mut ta = textarea_ref.clone();
-        // 将光标样式设置为与普通文本相同（无 REVERSED），光标字符将融入背景
         ta.set_cursor_style(Style::default().fg(theme::DIM));
         f.render_widget(&ta, chunks[5]);
     } else {
         f.render_widget(textarea_ref, chunks[5]);
     }
-    app.session_mgr.sessions[session_idx].ui.textarea_area = Some(chunks[5]);
+    app.session_mgr.current_mut().ui.textarea_area = Some(chunks[5]);
 
     // ❯ 前缀
     let prompt_x = chunks[5].x;
@@ -369,12 +269,8 @@ fn render_session_column(
         width: 2,
         height: 1,
     };
-    let loading = app.session_mgr.sessions[session_idx].ui.loading;
-    let prompt_color = if !is_active || loading {
-        theme::MUTED
-    } else {
-        theme::TEXT
-    };
+    let loading = app.session_mgr.current_mut().ui.loading;
+    let prompt_color = if loading { theme::MUTED } else { theme::TEXT };
     let prompt_style = Style::default().fg(prompt_color).add_modifier(if loading {
         Modifier::empty()
     } else {
@@ -383,33 +279,24 @@ fn render_session_column(
     f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
 
     // 统一命令/Skills 提示条 或 @ 提及弹窗（互斥）
-    if app.session_mgr.sessions[session_idx].ui.at_mention.active {
+    if app.session_mgr.current_mut().ui.at_mention.active {
         crate::app::at_mention::popup::render_at_mention_popup(
             f,
-            &app.session_mgr.sessions[session_idx].ui.at_mention,
+            &app.session_mgr.current_mut().ui.at_mention,
             chunks[5],
         );
     } else {
         popups::hints::render_unified_hint(f, app, chunks[5]);
     }
 
-    // 单 session 模式下渲染状态栏
-    if app.session_mgr.sessions.len() == 1 {
-        status_bar::render_status_bar(f, app, chunks[6]);
-        if bg_bar_height_val > 0 {
-            bg_agent_bar::render_bg_agent_bar(f, app, chunks[7]);
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_area = Some(chunks[7]);
-        } else {
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_area = None;
-        }
+    // 状态栏
+    status_bar::render_status_bar(f, app, chunks[6]);
+    if bg_bar_height_val > 0 {
+        bg_agent_bar::render_bg_agent_bar(f, app, chunks[7]);
+        app.session_mgr.current_mut().ui.bg_bar_area = Some(chunks[7]);
+    } else {
+        app.session_mgr.current_mut().ui.bg_bar_area = None;
     }
-
-    // 恢复原始 active
-    app.session_mgr.active = prev_active;
 }
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
@@ -417,9 +304,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
     // plugin 面板可以占 70%，AskUser 弹窗允许 75%（选项多/文字长需要更多空间），其他最多 60%
     let is_plugin_panel = app.global_panels.is_active(crate::app::PanelKind::Plugin);
     let has_ask_user = matches!(
-        &app.session_mgr.sessions[app.session_mgr.active]
-            .agent
-            .interaction_prompt,
+        &app.session_mgr.current().agent.interaction_prompt,
         Some(crate::app::InteractionPrompt::Questions(_))
     );
     let max_h = if is_plugin_panel {
@@ -429,7 +314,9 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
     } else {
         screen_height * 3 / 5
     };
-    let raw = if let Some(h) = app.session_mgr.sessions[app.session_mgr.active]
+    let raw = if let Some(h) = app
+        .session_mgr
+        .current()
         .session_panels
         .dispatch_desired_height(screen_height, screen_width)
     {
@@ -439,23 +326,30 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
         .dispatch_desired_height(screen_height, screen_width)
     {
         h
-    } else if let Some(crate::app::InteractionPrompt::Approval(p)) = &app.session_mgr.sessions
-        [app.session_mgr.active]
-        .agent
-        .interaction_prompt
+    } else if let Some(crate::app::InteractionPrompt::Approval(p)) =
+        &app.session_mgr.current().agent.interaction_prompt
     {
         (p.items.len() as u16 * 2 + 5).max(5)
     } else if app.global_ui.oauth_prompt.is_some() {
         9 // 标题1 + 提示1 + URL1 + 空行1 + 输入框1 + 错误1 + 快捷键1 + 边框2
-    } else if let Some(crate::app::InteractionPrompt::Questions(p)) = &app.session_mgr.sessions
-        [app.session_mgr.active]
-        .agent
-        .interaction_prompt
+    } else if let Some(crate::app::InteractionPrompt::Questions(p)) =
+        &app.session_mgr.current().agent.interaction_prompt
     {
         let cur = &p.questions[p.active_tab];
         // BorderedPanel 无左右边框，内容区宽度 = screen_width；滚动条占 1 列
         let panel_width = screen_width.saturating_sub(1) as usize;
         popups::ask_user_height::ask_user_content_height(&cur.data, panel_width).max(8)
+    } else if let Some(crate::app::InteractionPrompt::Rewind(p)) =
+        &app.session_mgr.current().agent.interaction_prompt
+    {
+        let base = p.items.len() as u16 + 3;
+        let confirm_extra = if p.mode == crate::app::RewindMode::ConfirmRevert {
+            let selected = &p.items[p.cursor];
+            (selected.file_changes.len() as u16 + 3).min(10)
+        } else {
+            0
+        };
+        (base + confirm_extra).max(5)
     } else {
         0
     };

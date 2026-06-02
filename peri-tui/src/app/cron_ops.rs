@@ -46,7 +46,8 @@ impl crate::app::App {
                 let id = panel.tasks()[idx].id.clone();
                 self.services.cron.scheduler.lock().remove(&id);
                 panel.refresh(&self.services.cron.scheduler);
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .messages
                     .push_system_note(self.services.lc.tr_args(
                         "app-cron-deleted",
@@ -55,13 +56,8 @@ impl crate::app::App {
                 // 列表为空时关闭面板，清理面板元数据
                 if panel.tasks().is_empty() {
                     self.global_panels.close();
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .ui
-                        .panel_selection
-                        .clear();
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .ui
-                        .panel_area = None;
+                    self.session_mgr.current_mut().ui.panel_selection.clear();
+                    self.session_mgr.current_mut().ui.panel_area = None;
                 }
             }
         }

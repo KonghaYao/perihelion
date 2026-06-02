@@ -72,13 +72,13 @@ impl BaseTool for EditFileTool {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let file_path = input["file_path"]
             .as_str()
-            .ok_or("Missing file_path parameter")?;
+            .ok_or("The 'file_path' parameter is required for the Edit tool.")?;
         let old_string = input["old_string"]
             .as_str()
-            .ok_or("Missing old_string parameter")?;
+            .ok_or("The 'old_string' parameter is required for the Edit tool.")?;
         let new_string = input["new_string"]
             .as_str()
-            .ok_or("Missing new_string parameter")?;
+            .ok_or("The 'new_string' parameter is required for the Edit tool.")?;
         let replace_all = input["replace_all"].as_bool().unwrap_or(false);
 
         if old_string.is_empty() {

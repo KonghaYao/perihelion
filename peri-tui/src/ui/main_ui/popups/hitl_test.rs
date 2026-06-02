@@ -6,7 +6,7 @@
             input: serde_json::json!({"command": "ls"}),
         }];
         let prompt = HitlBatchPrompt::new(items, tx);
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .agent
             .interaction_prompt = Some(InteractionPrompt::Approval(prompt));
         handle
@@ -30,7 +30,7 @@
             },
         ];
         let prompt = HitlBatchPrompt::new(items, tx);
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .agent
             .interaction_prompt = Some(InteractionPrompt::Approval(prompt));
         // 通过 main_ui::render 渲染完整布局，确保面板高度正确

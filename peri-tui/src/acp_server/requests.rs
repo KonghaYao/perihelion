@@ -15,10 +15,12 @@ use agent_client_protocol::schema::{
     SetSessionConfigOptionResponse, SetSessionModeResponse, SetSessionModelResponse,
 };
 
+use peri_acp::dispatch::config_update::make_config_options;
+
 use crate::{app::agent::LlmProvider, config::save_to};
 
 use super::{
-    apply_thinking_effort, build_config_options, build_mode_state, build_model_state,
+    apply_thinking_effort, build_mode_state, build_model_state,
     notify::{extract_session_id, send_available_commands_update, send_config_option_update},
     parse_permission_mode, AcpServerConfig, SessionState,
 };
@@ -70,12 +72,7 @@ pub(crate) async fn handle_request(
                     cwd: cwd.clone(),
                     history: Vec::new(),
                     cancel_token: None,
-                    frozen_system_prompt: None,
-                    frozen_claude_md: None,
-                    frozen_claude_local_md: None,
-                    frozen_skill_summary: None,
-                    frozen_date: None,
-                    frozen_language: None,
+                    frozen: None,
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                 },
@@ -85,31 +82,16 @@ pub(crate) async fn handle_request(
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
             let frozen_language = cfg.peri_config.read().config.language.clone();
 
-            let (frozen_claude_md, frozen_claude_local_md) =
-                peri_middlewares::AgentsMdMiddleware::read_frozen_content(&cwd);
-
-            let frozen_skill_summary = peri_middlewares::SkillsMiddleware::build_frozen_summary(
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
                 &cwd,
-                &cfg.plugin_skill_dirs,
-            );
-
-            let features = peri_acp::prompt::PromptFeatures::detect();
-            let system_prompt = peri_acp::prompt::build_system_prompt(
-                None,
-                &cwd,
-                features,
-                &cfg.plugin_agent_dirs,
-                Some(&frozen_date),
                 frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
             );
 
             let state = sessions.get_mut(&session_id).unwrap();
-            state.frozen_system_prompt = Some(system_prompt);
-            state.frozen_claude_md = frozen_claude_md;
-            state.frozen_claude_local_md = frozen_claude_local_md;
-            state.frozen_skill_summary = frozen_skill_summary;
-            state.frozen_date = Some(frozen_date);
-            state.frozen_language = frozen_language;
+            state.frozen = Some(frozen_data);
             info!(session_id = %session_id, "ACP session created with ThreadStore");
             let modes = build_mode_state(&cfg.permission_mode);
             let models = {
@@ -120,7 +102,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = NewSessionResponse::new(SessionId::new(&*session_id))
                 .modes(modes)
@@ -231,7 +213,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = SetSessionConfigOptionResponse::new(config_options);
             send_config_option_update(transport, session_id, cfg).await;
@@ -264,16 +246,25 @@ pub(crate) async fn handle_request(
                         cwd: cwd.to_string(),
                         history,
                         cancel_token: None,
-                        frozen_system_prompt: None,
-                        frozen_claude_md: None,
-                        frozen_claude_local_md: None,
-                        frozen_skill_summary: None,
-                        frozen_date: None,
-                        frozen_language: None,
+                        frozen: None,
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     },
                 );
+            }
+
+            // ── Freeze session data at load time ──
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let frozen_language = cfg.peri_config.read().config.language.clone();
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                cwd,
+                frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+            );
+            if let Some(s) = sessions.get_mut(req_session_id) {
+                s.frozen = Some(frozen_data);
             }
 
             let modes = build_mode_state(&cfg.permission_mode);
@@ -285,7 +276,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = LoadSessionResponse::new()
                 .modes(modes)
@@ -368,12 +359,7 @@ pub(crate) async fn handle_request(
                         cwd: cwd.to_string(),
                         history: Vec::new(),
                         cancel_token: None,
-                        frozen_system_prompt: None,
-                        frozen_claude_md: None,
-                        frozen_claude_local_md: None,
-                        frozen_skill_summary: None,
-                        frozen_date: None,
-                        frozen_language: None,
+                        frozen: None,
                         recall_items: Vec::new(),
                         agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                     },
@@ -381,6 +367,20 @@ pub(crate) async fn handle_request(
                 info!(session_id = %req_session_id, "Session resumed (new)");
             } else {
                 info!(session_id = %req_session_id, "Session resumed (existing)");
+            }
+
+            // ── Freeze session data at resume time ──
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let frozen_language = cfg.peri_config.read().config.language.clone();
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                cwd,
+                frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+            );
+            if let Some(s) = sessions.get_mut(req_session_id) {
+                s.frozen = Some(frozen_data);
             }
 
             let resp = ResumeSessionResponse::new();
@@ -416,16 +416,25 @@ pub(crate) async fn handle_request(
                     cwd: cwd.to_string(),
                     history: copied_history,
                     cancel_token: None,
-                    frozen_system_prompt: None,
-                    frozen_claude_md: None,
-                    frozen_claude_local_md: None,
-                    frozen_skill_summary: None,
-                    frozen_date: None,
-                    frozen_language: None,
+                    frozen: None,
                     recall_items: Vec::new(),
                     agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
                 },
             );
+
+            // ── Freeze session data at fork time ──
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let frozen_language = cfg.peri_config.read().config.language.clone();
+            let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+                cwd,
+                frozen_language.as_deref(),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+            );
+            if let Some(s) = sessions.get_mut(&new_session_id) {
+                s.frozen = Some(frozen_data);
+            }
 
             info!(source = %source_id, new = %new_session_id, "Session forked");
             let resp = ForkSessionResponse::new(SessionId::new(new_session_id));
@@ -472,7 +481,7 @@ pub(crate) async fn handle_request(
             let config_options = {
                 let c = cfg.peri_config.read();
                 let p = cfg.provider.read();
-                build_config_options(&c, &p, cfg.permission_mode.load())
+                make_config_options(&c, &p, cfg.permission_mode.load())
             };
             send_config_option_update(transport, session_id, cfg).await;
             serde_json::to_value(SetSessionConfigOptionResponse::new(config_options))

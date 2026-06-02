@@ -2,74 +2,59 @@ use super::*;
 
 impl App {
     pub fn scroll_up(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_offset = self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().ui.scroll_offset = self
+            .session_mgr
+            .current_mut()
             .ui
             .scroll_offset
             .saturating_sub(3);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_follow = false;
+        self.session_mgr.current_mut().ui.scroll_follow = false;
     }
 
     pub fn scroll_down(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_offset = self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().ui.scroll_offset = self
+            .session_mgr
+            .current_mut()
             .ui
             .scroll_offset
             .saturating_add(3);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_follow = false;
+        self.session_mgr.current_mut().ui.scroll_follow = false;
     }
 
     /// 滚动到底部（恢复 follow 模式）
     pub fn scroll_to_bottom(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_offset = u16::MAX;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_follow = true;
+        self.session_mgr.current_mut().ui.scroll_offset = u16::MAX;
+        self.session_mgr.current_mut().ui.scroll_follow = true;
     }
 
     /// 滚动到顶部
     pub fn scroll_to_top(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_offset = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_follow = false;
+        self.session_mgr.current_mut().ui.scroll_offset = 0;
+        self.session_mgr.current_mut().ui.scroll_follow = false;
     }
 
     /// 展开/折叠所有工具调用消息
     pub fn toggle_collapsed_messages(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .show_tool_messages = !self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .show_tool_messages;
-        let _ = self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().ui.show_tool_messages =
+            !self.session_mgr.current_mut().ui.show_tool_messages;
+        let show_tool_messages = self.session_mgr.current().ui.show_tool_messages;
+        let _ = self
+            .session_mgr
+            .current_mut()
             .messages
             .render_tx
-            .try_send(RenderEvent::ToggleToolMessages(
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .ui
-                    .show_tool_messages,
-            ));
+            .try_send(RenderEvent::ToggleToolMessages(show_tool_messages));
     }
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐
     pub fn toggle_diff(&mut self) {
-        let active = self.session_mgr.active;
-        let new_visible = !self.session_mgr.sessions[active].ui.diff_visible;
-        self.session_mgr.sessions[active].ui.diff_visible = new_visible;
+        let new_visible = !self.session_mgr.current_mut().ui.diff_visible;
+        self.session_mgr.current_mut().ui.diff_visible = new_visible;
 
         // ToggleDiff 会清空 hash 缓存并触发全量重渲染
-        let _ = self.session_mgr.sessions[active]
+        let _ = self
+            .session_mgr
+            .current()
             .messages
             .render_tx
             .try_send(RenderEvent::ToggleDiff(new_visible));
@@ -77,7 +62,8 @@ impl App {
 
     /// 添加一个图片附件到待发送列表
     pub fn add_pending_attachment(&mut self, att: PendingAttachment) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .metadata
             .pending_attachments
             .push(att);
@@ -85,7 +71,8 @@ impl App {
 
     /// 删除最后一个图片附件
     pub fn pop_pending_attachment(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .metadata
             .pending_attachments
             .pop();
@@ -96,43 +83,22 @@ impl App {
     /// 重置 AgentComm 会话状态（token tracker、重试、subagent 等）
     /// 在 open_thread / new_thread 时调用，确保切换 thread 后上下文干净
     fn reset_agent_session(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .agent
             .session_token_tracker
             .reset();
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .retry_status = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .subagent_depth = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .task_start_time = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .last_task_duration = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_id = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .interaction_prompt = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pending_hitl_items = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pending_ask_user = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .cancel_token = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .last_submitted_text = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .spinner_state
-            .reset();
+        self.session_mgr.current_mut().agent.retry_status = None;
+        self.session_mgr.current_mut().agent.subagent_depth = 0;
+        self.session_mgr.current_mut().agent.task_start_time = None;
+        self.session_mgr.current_mut().agent.last_task_duration = None;
+        self.session_mgr.current_mut().agent.agent_id = None;
+        self.session_mgr.current_mut().agent.interaction_prompt = None;
+        self.session_mgr.current_mut().agent.pending_hitl_items = None;
+        self.session_mgr.current_mut().agent.pending_ask_user = None;
+        self.session_mgr.current_mut().agent.cancel_token = None;
+        self.session_mgr.current_mut().messages.last_submitted_text = None;
+        self.session_mgr.current_mut().spinner_state.reset();
     }
 
     /// 恢复历史 thread：加载消息，关闭 browser
@@ -144,17 +110,17 @@ impl App {
                 .block_on(store.load_context(&tid))
                 .unwrap_or_default()
         });
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .view_messages
             .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .ephemeral_notes
             .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .origin_messages = base_msgs.clone();
+        self.session_mgr.current_mut().agent.origin_messages = base_msgs.clone();
 
         // 使用统一管线转换：与流式路径共享同一个 messages_to_view_models()
         let mut view_msgs = message_pipeline::MessagePipeline::messages_to_view_models(
@@ -163,22 +129,18 @@ impl App {
         );
         // 历史恢复时聚合连续的已完成 SubAgentGroup 为批次汇总
         message_pipeline::aggregate_batch_groups(&mut view_msgs);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .view_messages = view_msgs;
+        self.session_mgr.current_mut().messages.view_messages = view_msgs;
 
         // 同步 Pipeline 内部状态，确保后续流式事件能正确续接
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .pipeline
-            .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().messages.pipeline.clear();
+        self.session_mgr
+            .current_mut()
             .messages
             .pipeline
             .restore_completed(base_msgs.clone());
 
         let thread_id_str = thread_id.to_string();
-        self.session_mgr.sessions[self.session_mgr.active].current_thread_id = Some(thread_id);
+        self.session_mgr.current_mut().current_thread_id = Some(thread_id);
         // 同步 ACP 服务器端 session 状态：确保 state.history 包含当前 thread 的消息，
         // 这样 /compact 命令和后续 prompt 能正确读到完整历史
         if let Some(ref acp_client) = self.acp_client {
@@ -194,28 +156,24 @@ impl App {
                 })
             });
         }
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .session_panels
             .close_if(PanelKind::ThreadBrowser);
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .metadata
             .pending_attachments
             .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
-            .langfuse
-            .langfuse_session = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .todo_items
-            .clear();
+        self.session_mgr.current_mut().langfuse.langfuse_session = None;
+        self.session_mgr.current_mut().todo_items.clear();
 
         self.reset_agent_session();
         // 回收释放的内存给 OS
-        crate::mimalloc_config::alloc_collect();
+        crate::alloc_config::alloc_collect();
 
         // 恢复 sticky header：找到 thread 中最后一条 Human 消息
-        self.session_mgr.sessions[self.session_mgr.active]
-            .metadata
-            .last_human_message = base_msgs
+        self.session_mgr.current_mut().metadata.last_human_message = base_msgs
             .iter()
             .filter_map(|m| {
                 if let BaseMessage::Human { content, .. } = m {
@@ -232,15 +190,13 @@ impl App {
             .next_back();
 
         // 通知渲染线程加载历史消息
-        let _ = self.session_mgr.sessions[self.session_mgr.active]
+        let vms = self.session_mgr.current().messages.view_messages.clone();
+        let _ = self
+            .session_mgr
+            .current_mut()
             .messages
             .render_tx
-            .try_send(RenderEvent::Rebuild(
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .view_messages
-                    .clone(),
-            ));
+            .try_send(RenderEvent::Rebuild(vms));
     }
 
     pub fn open_thread_with_feedback(&mut self, thread_id: ThreadId) {
@@ -257,6 +213,7 @@ impl App {
                 .as_ref()
                 .map(|pd| pd.all_hooks.clone())
                 .unwrap_or_default();
+            hooks.extend(peri_middlewares::hooks::loader::load_global_settings_hooks());
             hooks.extend(peri_middlewares::hooks::loader::load_settings_local_hooks(
                 &self.services.cwd,
             ));
@@ -278,57 +235,48 @@ impl App {
             }
         }
 
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .view_messages
             .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .view_messages
             .shrink_to_fit();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .ephemeral_notes
             .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .origin_messages
-            .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().agent.origin_messages.clear();
+        self.session_mgr
+            .current_mut()
             .agent
             .origin_messages
             .shrink_to_fit();
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .pipeline
-            .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().messages.pipeline.clear();
+        self.session_mgr
+            .current_mut()
             .messages
             .pipeline
             .shrink_to_fit();
-        self.session_mgr.sessions[self.session_mgr.active].current_thread_id = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .todo_items
-            .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().current_thread_id = None;
+        self.session_mgr.current_mut().todo_items.clear();
+        self.session_mgr
+            .current_mut()
             .metadata
             .pending_attachments
             .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .session_panels
             .close_if(PanelKind::ThreadBrowser);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .langfuse
-            .langfuse_session = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .metadata
-            .last_human_message = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .last_submitted_text = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .metadata
-            .pre_submit_state_len = 0;
+        self.session_mgr.current_mut().langfuse.langfuse_session = None;
+        self.session_mgr.current_mut().metadata.last_human_message = None;
+        self.session_mgr.current_mut().messages.last_submitted_text = None;
+        self.session_mgr.current_mut().metadata.pre_submit_state_len = 0;
 
         self.reset_agent_session();
 
@@ -347,15 +295,17 @@ impl App {
             });
         }
         // 回收释放的内存给 OS
-        crate::mimalloc_config::alloc_collect();
+        crate::alloc_config::alloc_collect();
 
-        let _ = self.session_mgr.sessions[self.session_mgr.active]
+        let _ = self
+            .session_mgr
+            .current_mut()
             .messages
             .render_tx
             .try_send(RenderEvent::Clear);
 
         // 归还已释放内存页给 OS
-        crate::mimalloc_config::alloc_collect();
+        crate::alloc_config::alloc_collect();
     }
 
     /// 打开 thread 浏览面板（通过命令触发）

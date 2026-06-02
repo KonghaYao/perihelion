@@ -370,7 +370,8 @@ impl ModelPanel {
             _ => "Medium",
         };
 
-        ctx.session_mgr.sessions[ctx.session_mgr.active]
+        ctx.session_mgr
+            .current_mut()
             .messages
             .push_system_note(ctx.services.lc.tr_args(
                 "app-model-switched",
@@ -381,7 +382,8 @@ impl ModelPanel {
             ));
 
         if let Err(e) = App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
-            ctx.session_mgr.sessions[ctx.session_mgr.active]
+            ctx.session_mgr
+                .current_mut()
                 .messages
                 .push_system_note(ctx.services.lc.tr_args(
                     "app-config-save-failed",
@@ -399,9 +401,7 @@ impl ModelPanel {
                 cw = 1_000_000;
             }
             if cw > 0 {
-                ctx.session_mgr.sessions[ctx.session_mgr.active]
-                    .agent
-                    .context_window = cw;
+                ctx.session_mgr.current_mut().agent.context_window = cw;
             }
         }
 
@@ -432,13 +432,15 @@ impl ModelPanel {
         cfg.config.context_1m = Some(panel.buf_context_1m);
 
         if panel.buf_context_1m {
-            ctx.session_mgr.sessions[ctx.session_mgr.active]
+            ctx.session_mgr
+                .current_mut()
                 .messages
                 .push_system_note(ctx.services.lc.tr("app-1m-context-enabled"));
         }
 
         if let Err(e) = App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
-            ctx.session_mgr.sessions[ctx.session_mgr.active]
+            ctx.session_mgr
+                .current_mut()
                 .messages
                 .push_system_note(ctx.services.lc.tr_args(
                     "app-config-save-failed",
@@ -453,9 +455,7 @@ impl ModelPanel {
                 cw = 1_000_000;
             }
             if cw > 0 {
-                ctx.session_mgr.sessions[ctx.session_mgr.active]
-                    .agent
-                    .context_window = cw;
+                ctx.session_mgr.current_mut().agent.context_window = cw;
             }
         }
 

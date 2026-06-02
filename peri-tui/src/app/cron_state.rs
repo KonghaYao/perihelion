@@ -190,7 +190,8 @@ impl CronPanel {
             let id = self.tasks()[idx].id.clone();
             ctx.services.cron.scheduler.lock().remove(&id);
             self.refresh(&ctx.services.cron.scheduler);
-            ctx.session_mgr.sessions[ctx.session_mgr.active]
+            ctx.session_mgr
+                .current_mut()
                 .messages
                 .push_system_note(ctx.services.lc.tr_args(
                     "app-cron-deleted",

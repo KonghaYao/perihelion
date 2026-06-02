@@ -32,9 +32,7 @@ pub(crate) fn render_add_marketplace(
     .border_style(Style::default().fg(theme::BORDER))
     .render(f, area);
 
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
 
     let mut lines = Vec::new();
 
@@ -106,9 +104,7 @@ pub(crate) fn render_add_marketplace(
         ),
     ]));
 
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_plain_lines = lines
+    app.session_mgr.current_mut().ui.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();

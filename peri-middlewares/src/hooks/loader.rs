@@ -25,6 +25,86 @@ pub(crate) fn extract_hooks(manifest: &PluginManifest, install_path: &Path) -> O
     manifest.hooks.clone()
 }
 
+/// Load hooks from `~/.claude/settings.json` global `hooks` field.
+///
+/// Returns a list of `RegisteredHook` with `plugin_name = "settings.json"`.
+pub fn load_global_settings_hooks() -> Vec<RegisteredHook> {
+    let claude_dir = match dirs_next::home_dir() {
+        Some(d) => d.join(".claude"),
+        None => {
+            tracing::debug!("Cannot determine home directory for global settings");
+            return Vec::new();
+        }
+    };
+    let settings_path = claude_dir.join("settings.json");
+    if !settings_path.exists() {
+        tracing::debug!("No settings.json at {}", settings_path.display());
+        return Vec::new();
+    }
+
+    let content = match fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Failed to read {}: {}", settings_path.display(), e);
+            return Vec::new();
+        }
+    };
+
+    let value: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("Failed to parse {}: {}", settings_path.display(), e);
+            return Vec::new();
+        }
+    };
+
+    let hooks_value = match value.get("hooks") {
+        Some(h) if h.is_object() => h,
+        _ => return Vec::new(),
+    };
+
+    let hooks_config: HooksConfig = match serde_json::from_value(hooks_value.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to parse hooks config from {}: {}",
+                settings_path.display(),
+                e
+            );
+            return Vec::new();
+        }
+    };
+
+    let mut hooks = Vec::new();
+    for (event, rules) in &hooks_config {
+        for rule in rules {
+            for hook_def in &rule.hooks {
+                hooks.push(RegisteredHook {
+                    hook: hook_def.clone(),
+                    event: event.clone(),
+                    matcher: rule
+                        .matcher
+                        .clone()
+                        .or_else(|| hook_def.get_matcher().cloned()),
+                    plugin_name: "settings.json".to_string(),
+                    plugin_id: "settings.global".to_string(),
+                    plugin_root: claude_dir.clone(),
+                    plugin_data_dir: claude_dir.clone(),
+                    plugin_options: std::collections::HashMap::new(),
+                });
+            }
+        }
+    }
+
+    tracing::info!(
+        "Loaded {} hooks from ~/.claude/settings.json ({} events)",
+        hooks.len(),
+        hooks_config.len()
+    );
+
+    hooks
+}
+
 /// Load hooks from `{cwd}/.claude/settings.local.json` `hooks` field.
 ///
 /// Returns a list of `RegisteredHook` with `plugin_name = "settings.local.json"`.

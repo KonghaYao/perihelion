@@ -4,7 +4,7 @@
 **优先级**：高
 **类型**：性能
 **创建日期**：2026-05-22
-**更新日期**：2026-05-30
+**更新日期**：2026-06-01
 
 ## 问题描述
 
@@ -114,18 +114,86 @@ RSS 增长/轮 (~40 MB)
 13. **考虑定期重启策略**：对于长时间运行的 TUI 会话，在 N 轮对话后提示用户重启或自动重置 runtime
 14. **外部内存 profiling**：使用 macOS Instruments (Allocations/Leaks) 或 `sample` 命令获取非分配器内存分布
 
+## 2026-06-01 深度排查：分配风暴源定位
+
+通过 3 个并行 agent 对 `peri-agent`/`peri-acp`/`peri-tui`/`peri-middlewares` 全量扫描，定位到碎片化的根本原因是**大块临时分配/释放循环**。
+
+### 根因链条
+
+```
+RSS ~200MB = 活跃对象(~9MB) + 分配器碎片(~70MB) + 非分配器运行时(~120MB)
+                                ↑                        ↑
+                        ← 风暴源 A/B →             ← 进程级资源 →
+```
+
+### 风暴源 A（最严重）：`before_agent` 每轮 ReAct 迭代全量 clone
+
+**位置**：`peri-middlewares/src/subagent/mod.rs:456-457`
+
+```rust
+if let Some(ref pm) = self.parent_messages {
+    *pm.write() = state.messages().to_vec();  // 全量深拷贝
+}
+```
+
+- **触发频率**：每个 ReAct **迭代**（不是 SubAgent 调用），一次对话可能 10-50 次迭代
+- **影响**：500 条消息时每次 clone ~1-2MB × 50 次迭代 = 50-100MB 临时分配/释放
+- **根因**：这些大型 Vec 跨越多个内存页，释放后页面因相邻存活对象（MCP Pool、ToolSearchIndex 等）无法归还 OS
+
+### 风暴源 B：`state.history.clone()` 每轮 prompt 全量克隆
+
+**位置**：`peri-tui/src/acp_server/prompt.rs:86`
+
+```rust
+state.history.clone()  // 可用 std::mem::take 替代
+```
+
+- **影响**：1-2MB/轮，但可用 `std::mem::take` 完全消除
+
+### 风暴源 C：`prompt_locks` HashMap 泄漏
+
+**位置**：`peri-tui/src/acp_server/mod.rs:87`
+
+- `session/prompt` 时 `or_insert` 创建 lock，但 `session/close` **不清理**
+- 每次 `/clear` = 1 废弃 + 1 新 lock 条目（单条目 ~50 bytes，非主因但需修复）
+
+### 风暴源 D：`Arc::try_unwrap` 失败导致 AgentPool 残留
+
+**位置**：`peri-tui/src/acp_server/mod.rs:165`
+
+- `build_agent` 将 pool Arc clone 到中间件链 → 引用计数 > 1 → `try_unwrap` 失败
+- 失败时 AgentPool 中 `reqwest::Client`（~1-2MB）+ LLM 缓存不会被恢复或 invalidate
+
+### 消息历史三重存储（/clear 可清理，但正常使用时占 3x 内存）
+
+| # | 位置 | 生命周期 |
+|---|------|----------|
+| 1 | `AcpSession.state_messages`（ACP 层） | session 级 |
+| 2 | `AgentComm.origin_messages`（TUI 层） | session 级 |
+| 3 | `MessagePipeline.completed`（TUI pipeline） | session 级 |
+
+### 修复方向（按影响排序）
+
+| 优先级 | 修复 | 预估效果 | 复杂度 |
+|--------|------|----------|--------|
+| P0 | `before_agent` 延迟 clone：仅在 SubAgent 工具实际调用时才 clone | 减少 50-100MB/轮 | 中 |
+| P0 | `prompt.rs:86` 用 `std::mem::take` 替代 `.clone()` | 减少 1-2MB/轮 | 低 |
+| P1 | `session/close` 清理 prompt_locks | 消除 HashMap 泄漏 | 低 |
+| P1 | `Arc::try_unwrap` 失败时 `pool.lock().invalidate()` | 释放残留 LLM 实例 | 低 |
+
 ## 涉及文件（当前代码库）
 
 | 文件 | 角色 |
 |------|------|
-| `peri-tui/src/main.rs:28-29` | `#[global_allocator]` mimalloc 声明 |
+| `peri-tui/src/main.rs:266-268` | `#[global_allocator]` mimalloc + tokio runtime 配置 |
 | `peri-tui/src/mimalloc_config.rs` | `init_mimalloc_conf()` + `alloc_collect()` |
-| `peri-tui/src/app/thread_ops.rs` | `/clear` 时调用 `alloc_collect()` |
-| `peri-tui/src/acp_server/mod.rs` | ACP 服务器端 SessionState.history |
-| `peri-tui/src/app/agent_comm.rs` | TUI 端 agent_state_messages |
-| `peri-tui/src/acp_client/client.rs` | notification pump 事件序列化路径 |
-| `peri-acp/src/session/executor.rs` | execute_prompt 内 event channel + spawn 闭包生命周期 |
-| `peri-acp/src/session/event_sink.rs` | event 序列化 |
+| `peri-tui/src/app/thread_ops.rs` | `/clear` 路径（new_thread） |
+| `peri-tui/src/acp_server/mod.rs:87` | prompt_locks HashMap（泄漏源 C） |
+| `peri-tui/src/acp_server/prompt.rs:86` | history.clone()（风暴源 B） |
+| `peri-tui/src/acp_server/mod.rs:165` | Arc::try_unwrap 失败（风暴源 D） |
+| `peri-middlewares/src/subagent/mod.rs:456-457` | before_agent 全量 clone（风暴源 A） |
+| `peri-acp/src/session/executor.rs` | execute_prompt 内 event channel + spawn 闭包 |
+| `peri-acp/src/session/agent_pool.rs:47` | subagent_llm_cache |
 
 ## 关联 Issue
 

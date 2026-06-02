@@ -10,6 +10,8 @@ impl App {
             .map(|pd| pd.all_hooks.clone())
             .unwrap_or_default();
         // 合并 settings.local.json 中的 hooks
+        let global_hooks = peri_middlewares::hooks::loader::load_global_settings_hooks();
+        hooks.extend(global_hooks);
         let local_hooks =
             peri_middlewares::hooks::loader::load_settings_local_hooks(&self.services.cwd);
         hooks.extend(local_hooks);
@@ -19,7 +21,8 @@ impl App {
 
     /// 关闭 /hooks 面板
     pub fn close_hooks_panel(&mut self) {
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .session_panels
             .close_if(PanelKind::Hooks);
     }

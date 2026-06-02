@@ -31,7 +31,6 @@ command-hooks-description = 查看 Hook 配置
 command-effort-description = 查看或设置推理力度（low/medium/high/xhigh/max）
 command-doctor-description = 诊断配置完整性
 command-rename-description = 查看或修改当前会话标题
-command-split-description = 新建分栏会话
 command-lang-description = 切换界面语言（如 /lang zh-CN）
 command-setup-description = 打开配置向导，设置 Provider
 command-agent-description = 设置 Agent 定义，切换不同的 Agent 角色

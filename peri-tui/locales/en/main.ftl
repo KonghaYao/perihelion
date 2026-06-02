@@ -32,7 +32,6 @@ command-hooks-description = View Hook configuration
 command-effort-description = View or set reasoning effort (low/medium/high/xhigh/max)
 command-doctor-description = Diagnose configuration completeness
 command-rename-description = View or modify current session title
-command-split-description = Create a new split session
 command-lang-description = Switch interface language (e.g. /lang zh-CN)
 command-setup-description = Open setup wizard to configure providers
 command-agent-description = Set Agent definition, switch different Agent roles

@@ -128,7 +128,7 @@ impl BaseTool for GlobFilesTool {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let pattern = input["pattern"]
             .as_str()
-            .ok_or("Missing pattern parameter")?;
+            .ok_or("The 'pattern' parameter is required for the Glob tool.")?;
 
         let search_root = if let Some(p) = input["path"].as_str() {
             resolve_path(&self.cwd, p)

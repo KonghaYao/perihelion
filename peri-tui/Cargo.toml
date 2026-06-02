@@ -61,3 +61,6 @@ fuzzy-matcher = "0.3"
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 mimalloc.workspace = true
 libmimalloc-sys.workspace = true
+tikv-jemallocator.workspace = true
+tikv-jemalloc-ctl.workspace = true
+tikv-jemalloc-sys.workspace = true

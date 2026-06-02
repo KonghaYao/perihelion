@@ -31,10 +31,10 @@
             cur_haiku_model: 0,
         };
         panel.browse_list.set_items(vec![(); 1]);
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .session_panels
             .open(crate::app::panel_manager::PanelState::Login(panel.clone()));
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .session_panels
             .open(crate::app::panel_manager::PanelState::Login(panel));
         handle
@@ -81,10 +81,10 @@
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
         };
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .session_panels
             .open(crate::app::panel_manager::PanelState::Login(panel.clone()));
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .session_panels
             .open(crate::app::panel_manager::PanelState::Login(panel));
         handle

@@ -5,6 +5,7 @@
 
 pub mod clear;
 pub mod compact;
+pub mod rewind;
 
 use std::sync::Arc;
 
@@ -41,6 +42,10 @@ pub struct CommandContext {
     pub args: String,
     /// 取消令牌，用于 Ctrl+C 打断长时间运行的命令（如 compact 的 LLM 调用）。
     pub cancel_token: AgentCancellationToken,
+    /// 持久化存储，用于 rewind 等需要删除消息的命令。
+    pub thread_store: Option<Arc<dyn peri_agent::thread::ThreadStore>>,
+    /// 当前会话的 thread ID，配合 thread_store 使用。
+    pub thread_id: Option<String>,
 }
 
 /// 命令执行结果。
@@ -130,6 +135,7 @@ pub fn default_command_registry() -> CommandRegistry {
     let mut reg = CommandRegistry::new();
     reg.register(Box::new(compact::CompactCommand));
     reg.register(Box::new(clear::ClearCommand));
+    reg.register(Box::new(rewind::RewindCommand));
     reg
 }
 

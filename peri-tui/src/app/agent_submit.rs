@@ -7,21 +7,14 @@ impl App {
         }
 
         // 记录提交前的状态长度，用于中断时回滚 origin_messages
-        self.session_mgr.sessions[self.session_mgr.active]
-            .metadata
-            .pre_submit_state_len = self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .origin_messages
-            .len();
+        self.session_mgr.current_mut().metadata.pre_submit_state_len =
+            self.session_mgr.current_mut().agent.origin_messages.len();
 
         self.push_input_history(input.clone());
 
         // 消费待发送附件
-        let attachments = std::mem::take(
-            &mut self.session_mgr.sessions[self.session_mgr.active]
-                .metadata
-                .pending_attachments,
-        );
+        let attachments =
+            std::mem::take(&mut self.session_mgr.current_mut().metadata.pending_attachments);
 
         // 构建用于显示的文字（附件摘要追加在末尾）
         let display = if attachments.is_empty() {
@@ -49,7 +42,8 @@ impl App {
             }
             peri_agent::messages::MessageContent::Blocks(blocks)
         };
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .pipeline
             .begin_round();
@@ -57,44 +51,27 @@ impl App {
         self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
         // round_start_vm_idx 在 UserBubble 推入之后设置，
         // 确保 RebuildAll 不会截掉当前轮次的用户消息
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .round_start_vm_idx = self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .view_messages
-            .len();
-        self.session_mgr.sessions[self.session_mgr.active]
-            .metadata
-            .last_human_message = Some(display);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .last_submitted_text = Some(input.clone());
+        self.session_mgr.current_mut().messages.round_start_vm_idx =
+            self.session_mgr.current_mut().messages.view_messages.len();
+        self.session_mgr.current_mut().metadata.last_human_message = Some(display);
+        self.session_mgr.current_mut().messages.last_submitted_text = Some(input.clone());
         self.set_loading(true);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_offset = u16::MAX;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_follow = true;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .todo_items
-            .clear();
+        self.session_mgr.current_mut().ui.scroll_offset = u16::MAX;
+        self.session_mgr.current_mut().ui.scroll_follow = true;
+        self.session_mgr.current_mut().todo_items.clear();
 
         // 开始计时新任务
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .task_start_time = Some(std::time::Instant::now());
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .last_task_duration = None;
-        if self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().agent.task_start_time = Some(std::time::Instant::now());
+        self.session_mgr.current_mut().agent.last_task_duration = None;
+        if self
+            .session_mgr
+            .current_mut()
             .agent
             .session_start_time
             .is_none()
         {
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .session_start_time = Some(std::time::Instant::now());
+            self.session_mgr.current_mut().agent.session_start_time =
+                Some(std::time::Instant::now());
         }
 
         let provider = match self
@@ -127,61 +104,38 @@ impl App {
             {
                 model_cw = 1_000_000;
             }
-            if model_cw > 0
-                && self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .context_window
-                    != model_cw
-            {
+            if model_cw > 0 && self.session_mgr.current_mut().agent.context_window != model_cw {
                 tracing::debug!(
-                    old = self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .context_window,
+                    old = self.session_mgr.current_mut().agent.context_window,
                     new = model_cw,
                     "context_window updated from provider model"
                 );
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .context_window = model_cw;
+                self.session_mgr.current_mut().agent.context_window = model_cw;
             }
         }
 
         // 防御性重置：上次 agent 任务若 SubAgentEnd 因通道溢出被丢弃，
         // subagent_depth 会永久 > 0，导致所有后续 TokenUsageUpdate 被过滤（ctx 显示为 0）
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .subagent_depth = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_replied = false;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .reconcile_already_done = false;
+        self.session_mgr.current_mut().agent.subagent_depth = 0;
+        self.session_mgr.current_mut().agent.agent_replied = false;
+        self.session_mgr.current_mut().agent.reconcile_already_done = false;
         // 清理后台任务 continuation 状态（用户主动发消息时覆盖自动 continuation）
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_done_pending_bg = false;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pending_bg_continuation = None;
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().agent.agent_done_pending_bg = false;
+        self.session_mgr.current_mut().agent.pending_bg_continuation = None;
+        self.session_mgr
+            .current_mut()
             .agent
             .pre_done_bg_completions
             .clear();
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .agent
             .pre_done_bg_results
             .clear();
         // 重置 LSP 诊断计数
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .lsp_errors = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .lsp_warnings = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .lsp_files_with_errors = 0;
+        self.session_mgr.current_mut().agent.lsp_errors = 0;
+        self.session_mgr.current_mut().agent.lsp_warnings = 0;
+        self.session_mgr.current_mut().agent.lsp_files_with_errors = 0;
 
         // ── ACP-based agent submission (replaces direct run_universal_agent spawn) ──
         let cwd = self.services.cwd.clone();
@@ -192,9 +146,7 @@ impl App {
             let message_content_clone = message_content.clone();
             let cwd_clone = cwd.clone();
             // 恢复的历史 thread_id：存在时用 load_session 加载历史上下文
-            let existing_thread_id = self.session_mgr.sessions[self.session_mgr.active]
-                .current_thread_id
-                .clone();
+            let existing_thread_id = self.session_mgr.current_mut().current_thread_id.clone();
 
             // Spawn the ACP calls as a background task — NEVER block the TUI event loop.
             // Events will arrive via acp_notification_rx and be processed by poll_agent().
@@ -247,13 +199,16 @@ impl App {
     /// 发送缓冲的 cron 消息（每次只发一条，其余留待后续 Done 周期发送）
     /// 多条独立 cron 任务不应合并为一个 LLM 消息，避免语义混淆
     pub(crate) fn flush_pending_messages(&mut self) {
-        if let Some(msg) = self.session_mgr.sessions[self.session_mgr.active]
+        if let Some(msg) = self
+            .session_mgr
+            .current_mut()
             .messages
             .pending_messages
             .first()
             .cloned()
         {
-            self.session_mgr.sessions[self.session_mgr.active]
+            self.session_mgr
+                .current_mut()
                 .messages
                 .pending_messages
                 .remove(0);
@@ -274,12 +229,8 @@ impl App {
         }
 
         // 记录提交前的状态长度，用于中断时回滚
-        self.session_mgr.sessions[self.session_mgr.active]
-            .metadata
-            .pre_submit_state_len = self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .origin_messages
-            .len();
+        self.session_mgr.current_mut().metadata.pre_submit_state_len =
+            self.session_mgr.current_mut().agent.origin_messages.len();
 
         // 构建 display 文本（用于 UserBubble 显示）
         let count = results.len();
@@ -288,71 +239,43 @@ impl App {
             &[("count".into(), (count as i64).into())],
         );
 
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .messages
             .pipeline
             .begin_round();
         let user_vm = MessageViewModel::user(display.clone());
         self.apply_pipeline_action(PipelineAction::AddMessage(user_vm));
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .round_start_vm_idx = self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .view_messages
-            .len();
-        self.session_mgr.sessions[self.session_mgr.active]
-            .metadata
-            .last_human_message = Some(display);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .last_submitted_text = None; // bg continuation 不恢复到输入框
+        self.session_mgr.current_mut().messages.round_start_vm_idx =
+            self.session_mgr.current_mut().messages.view_messages.len();
+        self.session_mgr.current_mut().metadata.last_human_message = Some(display);
+        self.session_mgr.current_mut().messages.last_submitted_text = None; // bg continuation 不恢复到输入框
         self.set_loading(true);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_offset = u16::MAX;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .scroll_follow = true;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .todo_items
-            .clear();
+        self.session_mgr.current_mut().ui.scroll_offset = u16::MAX;
+        self.session_mgr.current_mut().ui.scroll_follow = true;
+        self.session_mgr.current_mut().todo_items.clear();
 
         // 开始计时新任务
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .task_start_time = Some(std::time::Instant::now());
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .last_task_duration = None;
-        if self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr.current_mut().agent.task_start_time = Some(std::time::Instant::now());
+        self.session_mgr.current_mut().agent.last_task_duration = None;
+        if self
+            .session_mgr
+            .current_mut()
             .agent
             .session_start_time
             .is_none()
         {
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .session_start_time = Some(std::time::Instant::now());
+            self.session_mgr.current_mut().agent.session_start_time =
+                Some(std::time::Instant::now());
         }
 
         // 重置状态
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .subagent_depth = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_replied = false;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .reconcile_already_done = false;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .lsp_errors = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .lsp_warnings = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .lsp_files_with_errors = 0;
+        self.session_mgr.current_mut().agent.subagent_depth = 0;
+        self.session_mgr.current_mut().agent.agent_replied = false;
+        self.session_mgr.current_mut().agent.reconcile_already_done = false;
+        self.session_mgr.current_mut().agent.lsp_errors = 0;
+        self.session_mgr.current_mut().agent.lsp_warnings = 0;
+        self.session_mgr.current_mut().agent.lsp_files_with_errors = 0;
 
         // 通过 ACP client 提交 bg continuation
         if let Some(ref acp_client) = self.acp_client {

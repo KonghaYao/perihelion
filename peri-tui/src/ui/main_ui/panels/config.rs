@@ -58,9 +58,7 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
     .border_style(Style::default().fg(theme::BORDER))
     .render(f, area);
 
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
 
     let mut lines: Vec<Line> = Vec::new();
 

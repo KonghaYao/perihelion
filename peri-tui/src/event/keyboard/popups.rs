@@ -4,7 +4,7 @@ use crate::app::App;
 
 use super::super::Action;
 
-/// 弹窗处理：OAuth > AskUser > HITL（优先级链）
+/// 弹窗处理：OAuth > AskUser > Rewind > HITL（优先级链）
 pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
     // OAuth prompt takes priority
     if app.global_ui.oauth_prompt.is_some() {
@@ -14,9 +14,7 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
 
     // AskUser batch popup
     if matches!(
-        &app.session_mgr.sessions[app.session_mgr.active]
-            .agent
-            .interaction_prompt,
+        &app.session_mgr.current_mut().agent.interaction_prompt,
         Some(crate::app::InteractionPrompt::Questions(_))
     ) {
         match input {
@@ -67,11 +65,41 @@ pub(super) fn handle_popups(app: &mut App, input: &Input) -> Option<Action> {
         return Some(Action::Redraw);
     }
 
+    // Rewind popup
+    if matches!(
+        &app.session_mgr.current_mut().agent.interaction_prompt,
+        Some(crate::app::InteractionPrompt::Rewind(_))
+    ) {
+        match input {
+            Input { key: Key::Up, .. } => {
+                app.rewind_cursor_up();
+                return Some(Action::Redraw);
+            }
+            Input { key: Key::Down, .. } => {
+                app.rewind_cursor_down();
+                return Some(Action::Redraw);
+            }
+            Input { key: Key::Tab, .. } => {
+                app.rewind_toggle_files();
+                return Some(Action::Redraw);
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                app.rewind_confirm();
+                return Some(Action::Redraw);
+            }
+            Input { key: Key::Esc, .. } => {
+                app.cancel_rewind();
+                return Some(Action::Redraw);
+            }
+            _ => return Some(Action::Redraw),
+        }
+    }
+
     // HITL batch popup active — handle popup keys first
     if matches!(
-        &app.session_mgr.sessions[app.session_mgr.active]
-            .agent
-            .interaction_prompt,
+        &app.session_mgr.current_mut().agent.interaction_prompt,
         Some(crate::app::InteractionPrompt::Approval(_))
     ) {
         match input {

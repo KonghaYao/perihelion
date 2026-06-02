@@ -241,6 +241,14 @@ impl ThreadStore for FilesystemThreadStore {
         meta.cached_context = None;
         self.update_meta(thread_id, meta).await
     }
+
+    async fn delete_messages(
+        &self,
+        _thread_id: &ThreadId,
+        _message_ids: &[crate::messages::MessageId],
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// 从消息列表中提取标题（取第一条 Human 消息的前 50 字符）

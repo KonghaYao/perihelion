@@ -51,6 +51,9 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             messages,
         },
         ExecutorEvent::CompactError { message } => AgentEvent::CompactError(message),
+        ExecutorEvent::RewindCompleted { summary, messages } => {
+            AgentEvent::RewindCompleted { summary, messages }
+        }
         ExecutorEvent::BackgroundTaskCompleted(result) => AgentEvent::BackgroundTaskCompleted {
             task_id: result.task_id,
             agent_name: result.agent_name,

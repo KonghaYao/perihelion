@@ -71,37 +71,23 @@ pub(crate) fn render_tasks_panel(f: &mut Frame, panel: &mut TasksPanel, app: &mu
     }
 
     // Store panel metadata for mouse selection
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scroll_offset = panel.active_scroll_offset();
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_plain_lines = lines
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_scroll_offset = panel.active_scroll_offset();
+    app.session_mgr.current_mut().ui.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
 
     // Apply selection highlighting
-    if app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_selection
-        .is_active()
-    {
-        let sel = &app.session_mgr.sessions[app.session_mgr.active]
-            .ui
-            .panel_selection;
+    if app.session_mgr.current_mut().ui.panel_selection.is_active() {
+        let sel = &app.session_mgr.current_mut().ui.panel_selection;
         if let (Some(start), Some(end)) = (sel.start, sel.end) {
             let ((sr, sc), (er, ec)) = if start <= end {
                 (start, end)
             } else {
                 (end, start)
             };
-            let scroll = app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .panel_scroll_offset as usize;
+            let scroll = app.session_mgr.current_mut().ui.panel_scroll_offset as usize;
             let visible_start = scroll;
             let visible_end = scroll + inner.height as usize;
             for line_idx in sr as usize..=er as usize {
@@ -129,11 +115,10 @@ pub(crate) fn render_tasks_panel(f: &mut Frame, panel: &mut TasksPanel, app: &mu
 
     let scroll_offset = panel.active_scroll_offset();
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scrollbar_metrics = ScrollableArea::new(Text::from(lines))
-        .scrollbar_style(Style::default().fg(theme::MUTED))
-        .render(f, inner, &mut scroll_state);
+    app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
+        ScrollableArea::new(Text::from(lines))
+            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .render(f, inner, &mut scroll_state);
 }
 
 fn render_agent_threads(panel: &mut TasksPanel, lines: &mut Vec<Line>) {

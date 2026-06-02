@@ -74,40 +74,40 @@ impl App {
         } = result;
         // 优先按 child_thread_id 匹配 background_agents，回退到 agent_name
         if let Some(ref ctid) = child_thread_id {
-            if let Some(pos) = self.session_mgr.sessions[self.session_mgr.active]
+            if let Some(pos) = self
+                .session_mgr
+                .current_mut()
                 .background_agents
                 .iter()
                 .position(|a| a.instance_id == *ctid)
             {
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .background_agents
-                    .remove(pos);
+                self.session_mgr.current_mut().background_agents.remove(pos);
             }
         } else {
             // 回退：按 agent_name 匹配
-            if let Some(pos) = self.session_mgr.sessions[self.session_mgr.active]
+            if let Some(pos) = self
+                .session_mgr
+                .current_mut()
                 .background_agents
                 .iter()
                 .position(|a| a.agent_name == agent_name)
             {
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .background_agents
-                    .remove(pos);
+                self.session_mgr.current_mut().background_agents.remove(pos);
             }
         }
 
         // 聚焦检查：用 child_thread_id 直接比较 focused_instance_id
         let was_focused = child_thread_id.as_deref()
-            == self.session_mgr.sessions[self.session_mgr.active]
+            == self
+                .session_mgr
+                .current_mut()
                 .focused_instance_id
                 .as_deref();
 
         // 聚焦检查：如果被移除的是当前聚焦的 agent，退出聚焦
         if was_focused {
-            self.session_mgr.sessions[self.session_mgr.active].focused_instance_id = None;
-            self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .bg_bar_cursor = None;
+            self.session_mgr.current_mut().focused_instance_id = None;
+            self.session_mgr.current_mut().ui.bg_bar_cursor = None;
             self.request_rebuild();
         }
 
@@ -116,9 +116,9 @@ impl App {
             agent_name = %agent_name,
             child_thread_id = ?child_thread_id,
             success = success,
-            bg_count_before = self.session_mgr.sessions[self.session_mgr.active].background_agents.len() + 1,
-            bg_count_after = self.session_mgr.sessions[self.session_mgr.active].background_agents.len(),
-            agent_done_pending = self.session_mgr.sessions[self.session_mgr.active].agent.agent_done_pending_bg,
+            bg_count_before = self.session_mgr.current_mut().background_agents.len() + 1,
+            bg_count_after = self.session_mgr.current_mut().background_agents.len(),
+            agent_done_pending = self.session_mgr.current_mut().agent.agent_done_pending_bg,
             "[bg-diag] TUI: handle_background_task_completed called"
         );
 
@@ -150,22 +150,16 @@ impl App {
         // 仅在 executor 已结束（agent_done_pending_bg）时直接 push 作为兜底；
         // executor 运行期间的通知由 drain_notifications → StateSnapshot 路径写入，
         // 此处 push 会导致 origin_messages 中出现重复消息。
-        if self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_done_pending_bg
-        {
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .origin_messages
-                .push(peri_agent::messages::BaseMessage::human(
-                    state_notification.as_str(),
-                ));
+        if self.session_mgr.current_mut().agent.agent_done_pending_bg {
+            self.session_mgr.current_mut().agent.origin_messages.push(
+                peri_agent::messages::BaseMessage::human(state_notification.as_str()),
+            );
         }
 
         // 尝试在 view_messages 中找到匹配的 SubAgentGroup 并更新。
         let short_id = &task_id[..8.min(task_id.len())];
         let mut found_and_updated = false;
-        let session = &mut self.session_mgr.sessions[self.session_mgr.active];
+        let session = &mut self.session_mgr.current_mut();
 
         // 第一遍：按 instance_id 精确匹配（child_thread_id → SubAgentGroup.instance_id）
         if let Some(ref ctid) = child_thread_id {
@@ -278,13 +272,17 @@ impl App {
 
         // 诊断日志：记录 BackgroundTaskCompleted 处理后的 view_messages 中 SubAgentGroup 数量
         {
-            let subagent_count = self.session_mgr.sessions[self.session_mgr.active]
+            let subagent_count = self
+                .session_mgr
+                .current_mut()
                 .messages
                 .view_messages
                 .iter()
                 .filter(|vm| vm.is_subagent_group())
                 .count();
-            let frozen_count = self.session_mgr.sessions[self.session_mgr.active]
+            let frozen_count = self
+                .session_mgr
+                .current_mut()
                 .messages
                 .pipeline
                 .frozen_subagent_vms_count();
@@ -294,8 +292,8 @@ impl App {
                 child_thread_id = ?child_thread_id,
                 subagent_count_in_view = subagent_count,
                 frozen_count,
-                background_agents_count = self.session_mgr.sessions[self.session_mgr.active].background_agents.len(),
-                agent_done_pending_bg = self.session_mgr.sessions[self.session_mgr.active].agent.agent_done_pending_bg,
+                background_agents_count = self.session_mgr.current_mut().background_agents.len(),
+                agent_done_pending_bg = self.session_mgr.current_mut().agent.agent_done_pending_bg,
                 "[bg-diag] after BackgroundTaskCompleted"
             );
         }
@@ -310,13 +308,15 @@ impl App {
             duration_ms,
             &self.services.lc,
         );
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .agent
             .pre_done_bg_completions
             .push(display_notification);
 
         // 累积结构化结果到 pre_done_bg_results（供 auto-continuation 注入合成消息）
-        self.session_mgr.sessions[self.session_mgr.active]
+        self.session_mgr
+            .current_mut()
             .agent
             .pre_done_bg_results
             .push(peri_agent::agent::events::BackgroundTaskResult {
@@ -331,34 +331,24 @@ impl App {
             });
 
         // 如果 agent 已完成（Done）且所有后台任务都已完成，关闭通道并自动提交 continuation
-        if self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_done_pending_bg
-            && self.session_mgr.sessions[self.session_mgr.active]
-                .background_agents
-                .is_empty()
+        if self.session_mgr.current_mut().agent.agent_done_pending_bg
+            && self.session_mgr.current_mut().background_agents.is_empty()
         {
             tracing::info!("all background tasks completed, auto-submitting continuation");
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_done_pending_bg = false;
+            self.session_mgr.current_mut().agent.agent_done_pending_bg = false;
             // 使用结构化结果（而非显示文本）驱动 continuation
-            let all_results: Vec<_> = self.session_mgr.sessions[self.session_mgr.active]
+            let all_results: Vec<_> = self
+                .session_mgr
+                .current_mut()
                 .agent
                 .pre_done_bg_results
                 .drain(..)
                 .collect();
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .pending_bg_continuation = Some(all_results);
+            self.session_mgr.current_mut().agent.pending_bg_continuation = Some(all_results);
 
             return (true, false, true);
-        } else if !self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_done_pending_bg
-            && self.session_mgr.sessions[self.session_mgr.active]
-                .background_agents
-                .is_empty()
+        } else if !self.session_mgr.current_mut().agent.agent_done_pending_bg
+            && self.session_mgr.current_mut().background_agents.is_empty()
         {
             // 竞态修复：agent 尚未 Done，但所有后台任务已完成。
             // 暂存通知已在上方 push，待 Done 处理时检查此字段并设置 pending_bg_continuation。

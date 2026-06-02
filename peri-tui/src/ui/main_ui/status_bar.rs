@@ -120,17 +120,11 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
 
     // 上下文使用率（放最后）
     {
-        let tracker = &app.session_mgr.sessions[app.session_mgr.active]
-            .agent
-            .session_token_tracker;
-        if let Some(pct) = tracker.context_usage_percent(
-            app.session_mgr.sessions[app.session_mgr.active]
-                .agent
-                .context_window,
-        ) {
-            let total = app.session_mgr.sessions[app.session_mgr.active]
-                .agent
-                .context_window;
+        let tracker = &app.session_mgr.current().agent.session_token_tracker;
+        if let Some(pct) =
+            tracker.context_usage_percent(app.session_mgr.current().agent.context_window)
+        {
+            let total = app.session_mgr.current().agent.context_window;
             let color = if pct >= 85.0 {
                 theme::ERROR
             } else if pct >= 70.0 {
@@ -161,14 +155,9 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     let mut has_content = false;
 
     // 复制成功提示
-    if let Some(until) = app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .copy_message_until
-    {
+    if let Some(until) = app.session_mgr.current().ui.copy_message_until {
         if std::time::Instant::now() < until {
-            let count = app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .copy_char_count;
+            let count = app.session_mgr.current().ui.copy_char_count;
             left_spans.push(Span::styled(
                 format!(
                     " {}",
@@ -184,10 +173,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 后台任务指示器
-    if !app.session_mgr.sessions[app.session_mgr.active]
-        .background_agents
-        .is_empty()
-    {
+    if !app.session_mgr.current().background_agents.is_empty() {
         if has_content {
             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         }
@@ -196,10 +182,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 "statusbar-bg-indicator",
                 &[(
                     "count".into(),
-                    (app.session_mgr.sessions[app.session_mgr.active]
-                        .background_agents
-                        .len() as i64)
-                        .into(),
+                    (app.session_mgr.current().background_agents.len() as i64).into(),
                 )],
             ),
             Style::default().fg(theme::WARNING),
@@ -208,10 +191,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // Agent 面板信息（仅面板激活时）
-    if let Some(panel) = app.session_mgr.sessions[app.session_mgr.active]
-        .session_panels
-        .get::<AgentPanel>()
-    {
+    if let Some(panel) = app.session_mgr.current().session_panels.get::<AgentPanel>() {
         if has_content {
             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         }
@@ -237,10 +217,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // 重试状态（放在左侧）
-    if let Some(ref retry) = app.session_mgr.sessions[app.session_mgr.active]
-        .agent
-        .retry_status
-    {
+    if let Some(ref retry) = app.session_mgr.current().agent.retry_status {
         if has_content {
             left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
         }
@@ -330,7 +307,7 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
 
     // LSP 诊断计数（瞬时事件）
     {
-        let agent = &app.session_mgr.sessions[app.session_mgr.active].agent;
+        let agent = &app.session_mgr.current().agent;
         if agent.lsp_errors > 0 || agent.lsp_warnings > 0 {
             if has_content {
                 left_spans.push(Span::styled(" · ", Style::default().fg(theme::MUTED)));
@@ -348,16 +325,23 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    // Rewind 忙碌提示
+    if let Some(until) = app.global_ui.rewind_busy_hint_until {
+        if std::time::Instant::now() < until {
+            left_spans.push(Span::styled(
+                " Agent 运行中，请等待后再撤销 ",
+                Style::default().fg(theme::WARNING),
+            ));
+        }
+    }
+
     // 右侧：快捷键提示（统一灰色显示）
     let key_style = Style::default()
         .fg(theme::MUTED)
         .add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(theme::MUTED);
 
-    let right_spans: Vec<Span> = match &app.session_mgr.sessions[app.session_mgr.active]
-        .agent
-        .interaction_prompt
-    {
+    let right_spans: Vec<Span> = match &app.session_mgr.current().agent.interaction_prompt {
         Some(_) if app.global_ui.oauth_prompt.is_some() => {
             let lc = &app.services.lc;
             format_hints(
@@ -395,33 +379,39 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                 desc_style,
             )
         }
+        Some(crate::app::InteractionPrompt::Rewind(prompt)) => {
+            use crate::app::RewindMode;
+            match prompt.mode {
+                RewindMode::ConfirmRevert => format_hints(
+                    &[
+                        ("Enter".to_string(), lc.tr("key-confirm")),
+                        ("Esc".to_string(), lc.tr("key-cancel")),
+                    ],
+                    key_style,
+                    desc_style,
+                ),
+                _ => format_hints(
+                    &[
+                        ("↑↓".to_string(), "移动".to_string()),
+                        ("Tab".to_string(), "切换回退文件".to_string()),
+                        ("Enter".to_string(), lc.tr("key-confirm")),
+                        ("Esc".to_string(), lc.tr("key-cancel")),
+                    ],
+                    key_style,
+                    desc_style,
+                ),
+            }
+        }
         None => {
             let no_mouse = app.global_ui.mouse_available == Some(false);
             let lc = &app.services.lc;
-            let hints = if app.session_mgr.sessions[app.session_mgr.active]
-                .session_panels
-                .is_any_open()
-            {
-                app.session_mgr.sessions[app.session_mgr.active]
+            let hints = if app.session_mgr.current().session_panels.is_any_open() {
+                app.session_mgr
+                    .current()
                     .session_panels
                     .status_bar_hints(lc)
             } else if app.global_panels.is_any_open() {
                 app.global_panels.status_bar_hints(lc)
-            } else if app.session_mgr.sessions.len() > 1 {
-                if no_mouse {
-                    vec![
-                        ("/".to_string(), lc.tr("key-command")),
-                        ("Ctrl+N/P".to_string(), lc.tr("key-switch-session")),
-                        ("Ctrl+W".to_string(), lc.tr("key-close")),
-                        ("Ctrl+U/D".to_string(), lc.tr("key-scroll")),
-                    ]
-                } else {
-                    vec![
-                        ("/".to_string(), lc.tr("key-command")),
-                        ("Ctrl+N/P".to_string(), lc.tr("key-switch-session")),
-                        ("Ctrl+W".to_string(), lc.tr("key-close")),
-                    ]
-                }
             } else if app.global_ui.quit_pending_since.is_some() {
                 vec![
                     ("Ctrl+C".to_string(), lc.tr("key-close")),

@@ -109,12 +109,12 @@ impl PluginPanel {
                             }
                         }
                     });
-                    ctx.session_mgr.sessions[ctx.session_mgr.active]
-                        .messages
-                        .push_system_note(ctx.services.lc.tr_args(
+                    ctx.session_mgr.current_mut().messages.push_system_note(
+                        ctx.services.lc.tr_args(
                             "app-plugin-updating",
                             &[("name".into(), name_for_msg.into())],
-                        ));
+                        ),
+                    );
                 }
                 EventResult::Consumed
             }
@@ -154,12 +154,12 @@ impl PluginPanel {
                 self.add_marketplace_input = InputState::new();
                 if !input_str.is_empty() {
                     if let Err(e) = self.persist_marketplace_add(&input_str, ctx) {
-                        ctx.session_mgr.sessions[ctx.session_mgr.active]
-                            .messages
-                            .push_system_note(ctx.services.lc.tr_args(
+                        ctx.session_mgr.current_mut().messages.push_system_note(
+                            ctx.services.lc.tr_args(
                                 "app-plugin-add-failed",
                                 &[("error".into(), e.to_string().into())],
-                            ));
+                            ),
+                        );
                     }
                 }
                 EventResult::Consumed

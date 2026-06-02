@@ -208,7 +208,19 @@ impl AcpTuiClient {
     // ── High-level RPC wrappers ──
 
     /// Create a new agent session.
+    ///
+    /// Closes the previous session (if any) to release its history, AgentPool,
+    /// and FrozenSessionData from the server-side sessions HashMap.
     pub async fn new_session(&self, cwd: &str, model: Option<&str>) -> Result<String, String> {
+        // Close previous session to free server-side memory
+        let old_id = self.current_session_id.lock().unwrap().take();
+        if let Some(ref old_sid) = old_id {
+            let params = json!({ "sessionId": old_sid });
+            if let Err(e) = self.transport.send_request("session/close", params).await {
+                debug!(error = %e, "Failed to close previous session (non-fatal)");
+            }
+        }
+
         let params = json!({ "cwd": cwd, "model": model });
         let result = self
             .transport
@@ -228,12 +240,25 @@ impl AcpTuiClient {
 
     /// Load an existing session from ThreadStore history.
     /// Used when restoring a historical thread so the ACP server has the full context.
+    ///
+    /// Closes the previous session (if any) to release server-side memory.
     pub async fn load_session(
         &self,
         session_id: &str,
         cwd: &str,
         model: Option<&str>,
     ) -> Result<String, String> {
+        // Close previous session (if different from the one being loaded)
+        let old_id = self.current_session_id.lock().unwrap().take();
+        if let Some(ref old_sid) = old_id {
+            if old_sid != session_id {
+                let params = json!({ "sessionId": old_sid });
+                if let Err(e) = self.transport.send_request("session/close", params).await {
+                    debug!(error = %e, "Failed to close previous session (non-fatal)");
+                }
+            }
+        }
+
         let params = json!({ "sessionId": session_id, "cwd": cwd, "model": model });
         let _ = self
             .transport

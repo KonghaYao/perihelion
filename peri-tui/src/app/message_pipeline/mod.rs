@@ -482,6 +482,7 @@ impl MessagePipeline {
             | AgentEvent::CompactStarted
             | AgentEvent::CompactCompleted { .. }
             | AgentEvent::CompactError(_)
+            | AgentEvent::RewindCompleted { .. }
             | AgentEvent::TokenUsageUpdate { .. }
             | AgentEvent::LlmRetrying { .. }
             | AgentEvent::ContextWarning { .. }
@@ -903,6 +904,13 @@ impl MessagePipeline {
         self.has_snapshot_this_round = true;
         self.pending_tools.clear();
         self.completed_tools.clear();
+    }
+
+    /// 返回 completed 的条数和估算堆内存（字节），供 /gc 诊断用
+    pub fn completed_stats(&self) -> (usize, usize) {
+        let count = self.completed.len();
+        let bytes = super::super::command::core::gc::estimate_messages_heap(&self.completed);
+        (count, bytes)
     }
 
     /// 从外部加载全量 BaseMessages（用于历史恢复后覆盖），并清除所有状态

@@ -115,24 +115,12 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
 
     // 存储面板元数据供鼠标选区使用
     let scroll_offset = panel.scroll_offset();
-    let panel_selection_active = app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_selection
-        .is_active();
-    let panel_selection = app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_selection
-        .clone();
+    let panel_selection_active = app.session_mgr.current_mut().ui.panel_selection.is_active();
+    let panel_selection = app.session_mgr.current_mut().ui.panel_selection.clone();
 
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scroll_offset = scroll_offset;
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_plain_lines = lines
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_scroll_offset = scroll_offset;
+    app.session_mgr.current_mut().ui.panel_plain_lines = lines
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
@@ -172,11 +160,10 @@ pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut Ap
     }
 
     let mut scroll_state = ScrollState::with_offset(scroll_offset);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scrollbar_metrics = ScrollableArea::new(Text::from(lines))
-        .scrollbar_style(Style::default().fg(theme::MUTED))
-        .render(f, inner, &mut scroll_state);
+    app.session_mgr.current_mut().ui.panel_scrollbar_metrics =
+        ScrollableArea::new(Text::from(lines))
+            .scrollbar_style(Style::default().fg(theme::MUTED))
+            .render(f, inner, &mut scroll_state);
 }
 
 #[cfg(test)]

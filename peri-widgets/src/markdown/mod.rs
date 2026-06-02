@@ -1,4 +1,4 @@
-mod cache;
+pub mod cache;
 mod render_state;
 
 #[cfg(feature = "markdown-highlight")]

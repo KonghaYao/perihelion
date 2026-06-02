@@ -13,7 +13,8 @@ impl App {
             let vm = crate::ui::message_view::MessageViewModel::system(
                 self.services.lc.tr("app-no-mcp-configured"),
             );
-            self.session_mgr.sessions[self.session_mgr.active]
+            self.session_mgr
+                .current_mut()
                 .messages
                 .view_messages
                 .push(vm);
@@ -39,7 +40,8 @@ impl App {
             let vm = crate::ui::message_view::MessageViewModel::system(
                 self.services.lc.tr("app-no-cron-tasks"),
             );
-            self.session_mgr.sessions[self.session_mgr.active]
+            self.session_mgr
+                .current_mut()
                 .messages
                 .view_messages
                 .push(vm);
@@ -450,9 +452,7 @@ impl App {
             .collect();
 
         // Sort: mark current thread as active if we have one
-        if let Some(ref current_id) =
-            self.session_mgr.sessions[self.session_mgr.active].current_thread_id
-        {
+        if let Some(ref current_id) = self.session_mgr.current().current_thread_id {
             for entry in &mut entries {
                 if entry.thread_id == *current_id {
                     entry.is_active = true;
@@ -506,13 +506,12 @@ impl App {
         save_known_marketplaces(&marketplaces, None)?;
 
         // 显示成功消息
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .view_messages
-            .push(crate::app::MessageViewModel::system(format!(
+        self.session_mgr.current_mut().messages.view_messages.push(
+            crate::app::MessageViewModel::system(format!(
                 "Marketplace 已添加: {} (正在获取内容...)",
                 name
-            )));
+            )),
+        );
 
         // 刷新面板以显示新添加的 marketplace
         self.open_plugin_panel();
@@ -611,13 +610,9 @@ impl App {
         save_known_marketplaces(&filtered, None)?;
 
         // 显示成功消息
-        self.session_mgr.sessions[self.session_mgr.active]
-            .messages
-            .view_messages
-            .push(crate::app::MessageViewModel::system(format!(
-                "Marketplace 已移除: {}",
-                name
-            )));
+        self.session_mgr.current_mut().messages.view_messages.push(
+            crate::app::MessageViewModel::system(format!("Marketplace 已移除: {}", name)),
+        );
 
         // 刷新面板并恢复到 Marketplaces 视图
         self.open_plugin_panel();

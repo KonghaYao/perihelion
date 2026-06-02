@@ -26,7 +26,7 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
     // ── LLM 推理（与 cancel 竞争）────────────────────────────────────
     agent.emit(AgentEvent::LlmCallStart {
         step,
-        messages: state.messages().to_vec(),
+        messages: Arc::new(state.messages().to_vec()),
         tools: tool_refs.iter().map(|t| t.definition()).collect(),
     });
 

@@ -135,23 +135,20 @@ impl PanelComponent for AgentPanel {
                 };
 
                 if is_none {
-                    ctx.session_mgr.sessions[ctx.session_mgr.active]
-                        .agent
-                        .agent_id = None;
-                    ctx.session_mgr.sessions[ctx.session_mgr.active]
+                    ctx.session_mgr.current_mut().agent.agent_id = None;
+                    ctx.session_mgr
+                        .current_mut()
                         .messages
                         .push_system_note(ctx.services.lc.tr("app-agent-reset"));
                 } else if let Some(id) = agent_id {
-                    ctx.session_mgr.sessions[ctx.session_mgr.active]
-                        .agent
-                        .agent_id = Some(id.clone());
+                    ctx.session_mgr.current_mut().agent.agent_id = Some(id.clone());
                     let name = agent_name.unwrap_or_else(|| id.clone());
-                    ctx.session_mgr.sessions[ctx.session_mgr.active]
-                        .messages
-                        .push_system_note(ctx.services.lc.tr_args(
+                    ctx.session_mgr.current_mut().messages.push_system_note(
+                        ctx.services.lc.tr_args(
                             "app-agent-switched",
                             &[("name".into(), name.into()), ("id".into(), id.into())],
-                        ));
+                        ),
+                    );
                 }
                 EventResult::ClosePanel
             }

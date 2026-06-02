@@ -6,6 +6,44 @@ use crate::ui::sidebar::status_panel;
 use crate::ui::toolbar::{GlobalAction, ToolbarAction};
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
+/// 打开文件搜索弹窗（Ctrl+P 或工具栏按钮共用）
+fn open_file_search(app: &mut App) {
+    app.file_search_query = Some(String::new());
+    app.file_search_cursor = 0;
+    app.file_search_selected = 0;
+    app.file_search_results.clear();
+    if app.all_tracked_files.is_empty() {
+        match app.repo.list_all_files() {
+            Ok(files) => {
+                app.all_tracked_files_lower =
+                    files.iter().map(|f| f.to_ascii_lowercase()).collect();
+                app.all_tracked_files = files;
+            }
+            Err(e) => {
+                app.show_toast(format!("文件扫描失败: {}", e), ToastStyle::Error);
+            }
+        }
+    }
+    app.update_file_search_results();
+    app.overlay = Overlay::FileSearch;
+}
+
+/// 打开文件编辑器（替代旧的 preview_file 逻辑）
+fn open_file_in_editor(app: &mut App, relative_path: &str) {
+    if let Some(wd) = app.repo.repo().workdir() {
+        let abs_path = wd.join(relative_path);
+        match crate::editor::TextEditor::open(abs_path) {
+            Ok(ed) => {
+                app.editor = Some(ed);
+                app.preview_file = None;
+            }
+            Err(e) => {
+                app.show_toast(format!("无法打开文件: {}", e), ToastStyle::Error);
+            }
+        }
+    }
+}
+
 pub fn handle_event(app: &mut App, event: crossterm::event::Event) -> anyhow::Result<()> {
     match event {
         crossterm::event::Event::Key(key) => handle_key(app, key.code, key.modifiers),
@@ -16,6 +54,26 @@ pub fn handle_event(app: &mut App, event: crossterm::event::Event) -> anyhow::Re
 }
 
 fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
+    // 编辑器激活时，优先路由到编辑器
+    if let Some(ref mut editor) = app.editor {
+        let consumed = crate::editor::input::handle_key(editor, code, mods);
+        if consumed {
+            let area = app.editor_area;
+            let gutter_w = crate::editor::render::gutter_width(editor.line_count());
+            // content_width = area.width - gutter - separator - scrollbar
+            let content_w = area.width.saturating_sub(gutter_w + 1 + 1) as usize;
+            editor.scroll_to_cursor(area.height.saturating_sub(1) as usize); // -1 status bar
+            editor.scroll_to_cursor_x(content_w);
+            return;
+        }
+        // Esc 或其他未消费键 → 关闭编辑器
+        if code == KeyCode::Esc {
+            app.editor = None;
+            return;
+        }
+        return; // 编辑器激活时忽略其他键
+    }
+
     // 确认弹窗优先拦截
     if app.confirm_message.is_some() {
         match code {
@@ -219,15 +277,8 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             }
             KeyCode::Enter => {
                 if let Some(idx) = app.file_search_results.get(app.file_search_selected) {
-                    if let Some(path) = app.all_tracked_files.get(*idx) {
-                        app.preview_file = Some((path.clone(), true));
-                        app.preview_raw_lines.clear();
-                        app.preview_highlighted.clear();
-                        app.preview_scroll = 0;
-                        app.preview_scroll_x = 0;
-                        app.preview_highlighting = false;
-                        app.preview_hl_rx = None;
-                        app.preview_max_line_width = 0;
+                    if let Some(path) = app.all_tracked_files.get(*idx).cloned() {
+                        open_file_in_editor(app, &path);
                     }
                 }
                 app.file_search_query = None;
@@ -377,12 +428,6 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 return;
             }
             KeyCode::Char('u') => {
-                if app.preview_file.is_some() {
-                    // 在文件预览中向上翻页
-                    let delta = (app.preview_raw_lines.len() as u16).min(10);
-                    app.preview_scroll = app.preview_scroll.saturating_sub(delta);
-                    return;
-                }
                 let delta = app.viewport_height.min(3);
                 if app.selected_idx >= delta {
                     app.select(app.selected_idx - delta);
@@ -391,46 +436,11 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 return;
             }
             KeyCode::Char('d') => {
-                if app.preview_file.is_some() {
-                    // 在文件预览中向下翻页
-                    let delta = (app.preview_raw_lines.len() as u16).min(10);
-                    let max = app
-                        .preview_raw_lines
-                        .len()
-                        .saturating_sub(40)
-                        .min(u16::MAX as usize) as u16;
-                    let new = (app.preview_scroll + delta).min(max);
-                    if new != app.preview_scroll {
-                        app.preview_scroll = new;
-                    }
-                    return;
-                }
                 let delta = app.viewport_height.min(3);
                 let new_idx =
                     (app.selected_idx + delta).min(app.layout.rows.len().saturating_sub(1));
                 app.select(new_idx);
                 ensure_selected_visible(app);
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    // 文件预览模式下的键盘操作（优先于 Sidebar 焦点处理）
-    if app.preview_file.is_some() {
-        match code {
-            KeyCode::Left => {
-                app.preview_scroll_x = app.preview_scroll_x.saturating_sub(3);
-                return;
-            }
-            KeyCode::Right => {
-                let max_x = app
-                    .preview_max_line_width
-                    .saturating_sub(app.preview_max_line_width.min(80));
-                let new = (app.preview_scroll_x + 3).min(max_x);
-                if new != app.preview_scroll_x {
-                    app.preview_scroll_x = new;
-                }
                 return;
             }
             _ => {}
@@ -500,21 +510,13 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                     return;
                 }
                 KeyCode::Enter => {
-                    // 选中文件进行预览
+                    // 选中文件打开编辑器
                     let files = match app.status_sub_panel {
                         StatusSubPanel::Staged => &app.staged_visible_files,
                         StatusSubPanel::Changes => &app.changes_visible_files,
                     };
-                    if let Some(path) = files.get(app.status_file_index) {
-                        let is_staged = matches!(app.status_sub_panel, StatusSubPanel::Staged);
-                        app.preview_file = Some((path.clone(), is_staged));
-                        app.preview_raw_lines.clear(); // 触发懒加载
-                        app.preview_highlighted.clear();
-                        app.preview_scroll = 0;
-                        app.preview_scroll_x = 0;
-                        app.preview_highlighting = false;
-                        app.preview_hl_rx = None;
-                        app.preview_max_line_width = 0;
+                    if let Some(path) = files.get(app.status_file_index).cloned() {
+                        open_file_in_editor(app, &path);
                     }
                     return;
                 }
@@ -572,24 +574,7 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.search_query = Some(String::new());
         }
         KeyCode::Char('p') if mods.contains(KeyModifiers::CONTROL) => {
-            app.file_search_query = Some(String::new());
-            app.file_search_cursor = 0;
-            app.file_search_selected = 0;
-            app.file_search_results.clear();
-            if app.all_tracked_files.is_empty() {
-                match app.repo.list_all_files() {
-                    Ok(files) => {
-                        app.all_tracked_files_lower =
-                            files.iter().map(|f| f.to_ascii_lowercase()).collect();
-                        app.all_tracked_files = files;
-                    }
-                    Err(e) => {
-                        app.show_toast(format!("文件扫描失败: {}", e), ToastStyle::Error);
-                    }
-                }
-            }
-            app.update_file_search_results();
-            app.overlay = Overlay::FileSearch;
+            open_file_search(app);
         }
         KeyCode::Char('f') if !mods.contains(KeyModifiers::CONTROL) => {
             spawn_remote(app, RemoteOp::Fetch, None);
@@ -614,17 +599,8 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.focus = Focus::Detail;
         }
         KeyCode::Esc => {
-            // 先关闭文件预览
             if app.preview_file.is_some() {
                 app.preview_file = None;
-                app.preview_raw_lines.clear();
-                app.preview_highlighted.clear();
-                app.preview_truncated = false;
-                app.preview_scroll = 0;
-                app.preview_scroll_x = 0;
-                app.preview_highlighting = false;
-                app.preview_hl_rx = None;
-                app.preview_max_line_width = 0;
                 app.focus = Focus::Status;
                 return;
             }
@@ -639,6 +615,21 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
 }
 
 fn handle_mouse(app: &mut App, mouse: MouseEvent) {
+    // 编辑器激活时，鼠标事件优先路由到编辑器
+    if let Some(ref mut editor) = app.editor {
+        let gutter_w = crate::editor::render::gutter_width(editor.line_count());
+        let consumed = crate::editor::input::handle_mouse(editor, mouse, app.editor_area, gutter_w);
+        if consumed {
+            if matches!(mouse.kind, MouseEventKind::Drag(_)) {
+                let area = app.editor_area;
+                let content_w = area.width.saturating_sub(gutter_w + 1 + 1) as usize;
+                editor.scroll_to_cursor(area.height.saturating_sub(1) as usize);
+                editor.scroll_to_cursor_x(content_w);
+            }
+            return;
+        }
+    }
+
     // 确认弹窗优先处理：检测 [Y]es / [N]o 按钮点击
     if app.confirm_message.is_some() {
         if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
@@ -888,14 +879,8 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                                 if let Some(idx) = files.iter().position(|f| f == path) {
                                     app.status_file_index = idx;
                                 }
-                                app.preview_file = Some((path.clone(), *is_staged));
-                                app.preview_raw_lines.clear();
-                                app.preview_highlighted.clear();
-                                app.preview_scroll = 0;
-                                app.preview_scroll_x = 0;
-                                app.preview_highlighting = false;
-                                app.preview_hl_rx = None;
-                                app.preview_max_line_width = 0;
+                                let path_owned = path.clone();
+                                open_file_in_editor(app, &path_owned);
                                 app.dirty = true;
                                 return;
                             }
@@ -995,35 +980,6 @@ fn scroll_panel(app: &mut App, col: u16, row: u16, dir: ScrollDirection) {
             }
         }
         app.dirty = true;
-        return;
-    }
-
-    // 文件预览滚动（预览激活时，右侧 75% 区域为预览面板）
-    if app.preview_file.is_some() {
-        let da = app.detail_area;
-        if col >= da.x && col < da.x + da.width && row >= da.y && row < da.y + da.height {
-            let max = app
-                .preview_raw_lines
-                .len()
-                .saturating_sub(da.height.saturating_sub(2) as usize)
-                .min(u16::MAX as usize) as u16;
-            match dir {
-                ScrollDirection::Up => {
-                    let new = app.preview_scroll.saturating_sub(delta);
-                    if new != app.preview_scroll {
-                        app.preview_scroll = new;
-                        app.dirty = true;
-                    }
-                }
-                ScrollDirection::Down => {
-                    let new = (app.preview_scroll + delta).min(max);
-                    if new != app.preview_scroll {
-                        app.preview_scroll = new;
-                        app.dirty = true;
-                    }
-                }
-            }
-        }
         return;
     }
 
@@ -1288,6 +1244,9 @@ fn handle_global_action(app: &mut App, action: GlobalAction) {
         }
         GlobalAction::ToggleStash => {
             app.overlay = Overlay::StashList;
+        }
+        GlobalAction::FileSearch => {
+            open_file_search(app);
         }
     }
 }

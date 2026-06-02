@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 #[cfg(not(target_os = "windows"))]
 #[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod acp_stdio;
 mod cli_args;
@@ -252,9 +252,9 @@ fn inject_settings_override(source: &str) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
-    // Set mimalloc env vars BEFORE any allocation.
-    // Must be the very first line — mimalloc reads these during init.
-    peri_tui::mimalloc_config::init_mimalloc_conf();
+    // Set jemalloc MALLOC_CONF env vars BEFORE any allocation.
+    // Must be the very first line — jemalloc reads these during init.
+    peri_tui::alloc_config::init_alloc_conf();
 
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();
@@ -264,7 +264,8 @@ fn main() -> Result<()> {
     // -p/--print 模式（优先级高于子命令）
     if cli.print.is_some() {
         let rt = tokio::runtime::Builder::new_multi_thread()
-            .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+            .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+            .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
             .enable_all()
             .build()?;
         return rt.block_on(cli_print::run_print(
@@ -304,14 +305,16 @@ fn main() -> Result<()> {
             agent: _,
         }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(acp_stdio::run_acp_stdio(cwd))
         }
         Some(Commands::Update) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(async {
@@ -327,7 +330,8 @@ fn main() -> Result<()> {
         }
         Some(Commands::Sync { action, server }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(async {
@@ -344,7 +348,8 @@ fn main() -> Result<()> {
         }
         Some(Commands::Plugin { action }) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+                .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+                .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
                 .enable_all()
                 .build()?;
             rt.block_on(async {
@@ -400,7 +405,8 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
     let _telemetry = peri_agent::telemetry::init_tracing("agent-tui");
 
     let rt = tokio::runtime::Builder::new_multi_thread()
-        .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB) — saves ~32 MB RSS on 8-core
+        .worker_threads(4) // 限制 worker 数（默认=CPU 核数，18 核=72MB 栈空间浪费）
+        .thread_stack_size(4 * 1024 * 1024) // 4 MB (default: 8 MB)
         .enable_all()
         .build()?;
 
@@ -556,23 +562,21 @@ async fn run_app(
             .map(|pd| pd.all_skill_dirs.clone())
             .unwrap_or_default();
         let plugin_skills = peri_middlewares::skills::list_skills(&plugin_skill_dirs);
-        for session in &mut app.session_mgr.sessions {
-            session
-                .commands
-                .command_registry
-                .register_plugin_commands(plugin_commands.clone());
-        }
-        for session in &mut app.session_mgr.sessions {
-            let existing_names: std::collections::HashSet<String> = session
-                .commands
-                .skills
-                .iter()
-                .map(|s| s.name.clone())
-                .collect();
-            for skill in &plugin_skills {
-                if !existing_names.contains(&skill.name) {
-                    session.commands.skills.push(skill.clone());
-                }
+        app.session_mgr
+            .current_mut()
+            .commands
+            .command_registry
+            .register_plugin_commands(plugin_commands.clone());
+        let session = app.session_mgr.current_mut();
+        let existing_names: std::collections::HashSet<String> = session
+            .commands
+            .skills
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        for skill in &plugin_skills {
+            if !existing_names.contains(&skill.name) {
+                session.commands.skills.push(skill.clone());
             }
         }
     }
@@ -613,10 +617,14 @@ async fn run_app(
                 .map(|pd| pd.all_hooks.clone())
                 .unwrap_or_default();
 
-            // Build hook groups from plugin hooks + local hooks
+            // Build hook groups from plugin hooks + global hooks + local hooks
             let mut hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>> = Vec::new();
             if !plugin_hooks.is_empty() {
                 hook_groups.push(plugin_hooks);
+            }
+            let global_hooks = peri_middlewares::hooks::loader::load_global_settings_hooks();
+            if !global_hooks.is_empty() {
+                hook_groups.push(global_hooks);
             }
             let local_hooks =
                 peri_middlewares::hooks::loader::load_settings_local_hooks(&app.services.cwd);
@@ -670,17 +678,13 @@ async fn run_app(
             // Spawn notification pump
             acp_client.spawn_pump();
             // Wire notification receiver to active session's AgentComm
-            app.session_mgr.sessions[app.session_mgr.active]
-                .agent
-                .acp_notification_rx = Some(notification_rx);
+            app.session_mgr.current_mut().agent.acp_notification_rx = Some(notification_rx);
             app.acp_client = Some(acp_client);
         }
     }
 
     // Spinner tick 驱动：每次渲染前推进一帧
-    app.session_mgr.sessions[app.session_mgr.active]
-        .spinner_state
-        .advance_tick();
+    app.session_mgr.current_mut().spinner_state.advance_tick();
 
     // 初始全量绘制一次
     terminal.draw(|f| ui::main_ui::render(f, &mut app))?;
@@ -692,19 +696,12 @@ async fn run_app(
     const TARGET_FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
     'event_loop: loop {
-        // 推进所有 session 的 Spinner 动画帧
-        for i in 0..app.session_mgr.sessions.len() {
-            app.session_mgr.sessions[i].spinner_state.advance_tick();
-        }
-        // 轮询所有 session 的 agent 结果
+        // 推进 Spinner 动画帧
+        app.session_mgr.current_mut().spinner_state.advance_tick();
+        // 轮询 agent 结果
         let mut agent_updated = false;
-        for i in 0..app.session_mgr.sessions.len() {
-            let prev_active = app.session_mgr.active;
-            app.session_mgr.active = i;
-            agent_updated |= app.poll_agent();
-            agent_updated |= app.poll_at_mention();
-            app.session_mgr.active = prev_active;
-        }
+        agent_updated |= app.poll_agent();
+        agent_updated |= app.poll_at_mention();
         // 轮询后台事件（MCP OAuth 等）
         let bg_updated = app.poll_background_events();
         // 检查 cron 定时触发
@@ -727,16 +724,16 @@ async fn run_app(
             None => {
                 // 无用户事件（poll 超时）：在阻塞结束后重新读取缓存版本
                 // 这样能捕获渲染线程在等待期间发出的更新
-                let cache_version = app.session_mgr.sessions[app.session_mgr.active]
+                let cache_version = app
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .render_cache
                     .read()
                     .version;
-                let cache_updated = cache_version
-                    != app.session_mgr.sessions[app.session_mgr.active]
-                        .messages
-                        .last_render_version;
-                let loading = app.session_mgr.sessions[app.session_mgr.active].ui.loading;
+                let cache_updated =
+                    cache_version != app.session_mgr.current_mut().messages.last_render_version;
+                let loading = app.session_mgr.current_mut().ui.loading;
                 let should_render = cache_updated || agent_updated || bg_updated || loading;
                 if should_render {
                     let now = Instant::now();
@@ -755,6 +752,38 @@ async fn run_app(
         }
     }
 
+    // Fire SessionEnd hooks before shutdown
+    {
+        let mut hooks = app
+            .services
+            .plugin_data
+            .as_ref()
+            .map(|pd| pd.all_hooks.clone())
+            .unwrap_or_default();
+        hooks.extend(peri_middlewares::hooks::loader::load_global_settings_hooks());
+        hooks.extend(peri_middlewares::hooks::loader::load_settings_local_hooks(
+            &app.services.cwd,
+        ));
+        if !hooks.is_empty() {
+            let cwd = app.services.cwd.clone();
+            let provider_name = app.services.provider_name.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    peri_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
+                        &hooks,
+                        peri_middlewares::hooks::types::HookEvent::SessionEnd,
+                        &cwd,
+                        "",
+                        "",
+                        &provider_name,
+                        None,
+                    )
+                    .await;
+                })
+            });
+        }
+    }
+
     // 关闭 MCP 连接池（断开所有 MCP 服务器连接，清理子进程）
     if let Some(pool) = app.services.mcp_pool.take() {
         tracing::info!("正在关闭 MCP 连接池...");
@@ -763,7 +792,9 @@ async fn run_app(
     }
 
     // 等待最后一次 Langfuse flush 完成，防止 runtime drop 前 batcher 数据丢失
-    if let Some(handle) = app.session_mgr.sessions[app.session_mgr.active]
+    if let Some(handle) = app
+        .session_mgr
+        .current_mut()
         .langfuse
         .langfuse_flush_handle
         .take()

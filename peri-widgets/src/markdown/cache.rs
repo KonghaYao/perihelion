@@ -85,6 +85,12 @@ impl MarkdownCache {
         guard.len()
     }
 
+    /// 当前缓存是否为空
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// 创建指定容量的缓存实例（测试用）
     #[cfg(test)]
     pub fn new_for_test_with_capacity(cap: usize) -> Self {

@@ -28,7 +28,9 @@ pub(crate) fn render_attachment_bar(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
 
     // 第 1 行：所有附件标签
-    let tags: String = app.session_mgr.sessions[app.session_mgr.active]
+    let tags: String = app
+        .session_mgr
+        .current()
         .metadata
         .pending_attachments
         .iter()

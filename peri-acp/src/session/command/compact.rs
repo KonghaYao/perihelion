@@ -248,6 +248,8 @@ mod tests {
             event_sink: sink,
             args: String::new(),
             cancel_token: peri_agent::agent::AgentCancellationToken::new(),
+            thread_store: None,
+            thread_id: None,
         }
     }
 

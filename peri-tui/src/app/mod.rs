@@ -64,6 +64,8 @@ mod history_persistence;
 mod hitl_ops;
 mod hitl_prompt;
 pub use hitl_prompt::{HitlBatchPrompt, PendingAttachment};
+mod rewind_prompt;
+pub use rewind_prompt::{FileChangeInfo, RewindItem, RewindMode, RewindPrompt};
 
 // ── System Infrastructure ────────────────────────────────────────────────────
 mod chat_session;
@@ -136,7 +138,7 @@ pub use tasks_panel::TasksPanel;
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 pub struct App {
-    /// 会话管理器（sessions + active + session_areas）
+    /// 会话管理器（单个 ChatSession）
     pub session_mgr: SessionManager,
     /// 全局服务/状态聚合（跨 session 共享）
     pub services: ServiceRegistry,
@@ -281,18 +283,12 @@ impl App {
         self.session_mgr.current_mut()
     }
 
-    /// 获取指定 session 的不可变引用
-    pub fn session_at(&self, idx: usize) -> Option<&ChatSession> {
-        self.session_mgr.session_at(idx)
-    }
-
-    /// 获取指定 session 的可变引用
-    pub fn session_at_mut(&mut self, idx: usize) -> Option<&mut ChatSession> {
-        self.session_mgr.session_at_mut(idx)
-    }
-
-    /// 创建新 session 并切换到它
+    /// 创建新 session 并替换当前 session（用于 /clear）
     pub fn new_session(&mut self) {
+        // 取消旧 session 的 agent
+        if let Some(token) = &self.session_mgr.current_mut().agent.cancel_token {
+            token.cancel();
+        }
         let mut command_registry = crate::command::default_registry();
         let mut skills = {
             let mut dirs = Vec::new();
@@ -319,55 +315,15 @@ impl App {
             }
             command_registry.register_plugin_commands(pd.all_commands.clone());
         }
+        let diff_visible = self.session_mgr.current_mut().ui.diff_visible;
         let session = ChatSession::new(
             self.services.cwd.clone(),
             command_registry,
             skills,
             &self.services.lc,
-            self.session_mgr.sessions[self.session_mgr.active]
-                .ui
-                .diff_visible,
+            diff_visible,
         );
-        self.session_mgr.sessions.push(session);
-        self.session_mgr.active = self.session_mgr.sessions.len() - 1;
-    }
-
-    /// 关闭当前 session（保留 ≥1），返回被关闭 session 的 index
-    pub fn close_session(&mut self) -> Option<usize> {
-        if self.session_mgr.sessions.len() <= 1 {
-            return None;
-        }
-        let idx = self.session_mgr.active;
-        // 如果有运行中的 agent，取消它
-        if let Some(token) = &self.session_mgr.sessions[idx].agent.cancel_token {
-            token.cancel();
-        }
-        self.session_mgr.sessions.remove(idx);
-        // 调整 active index
-        if self.session_mgr.active >= self.session_mgr.sessions.len() {
-            self.session_mgr.active = self.session_mgr.sessions.len() - 1;
-        }
-        Some(idx)
-    }
-
-    /// 切换到下一个 session（循环）
-    pub fn switch_next_session(&mut self) {
-        if self.session_mgr.sessions.len() <= 1 {
-            return;
-        }
-        self.session_mgr.active = (self.session_mgr.active + 1) % self.session_mgr.sessions.len();
-    }
-
-    /// 切换到上一个 session（循环）
-    pub fn switch_prev_session(&mut self) {
-        if self.session_mgr.sessions.len() <= 1 {
-            return;
-        }
-        self.session_mgr.active = if self.session_mgr.active == 0 {
-            self.session_mgr.sessions.len() - 1
-        } else {
-            self.session_mgr.active - 1
-        };
+        self.session_mgr.replace(session);
     }
 
     /// 后台初始化 MCP 连接池（不阻塞 UI），在 run_app 中 App::new() 之后调用
@@ -441,107 +397,89 @@ impl App {
                 }
             });
             // 安全网：记录 cancel 时间，5 秒后如果仍在 loading 则强制清理
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .cancel_sent_at = Some(std::time::Instant::now());
+            self.session_mgr.current_mut().agent.cancel_sent_at = Some(std::time::Instant::now());
             // ACP 路径：cancel 已发送，UI 清理由后续 Interrupted/Done 事件完成。
             // 不执行强制清理——避免与 ACP server 端事件竞态导致双重清理。
             return;
         }
         // Fallback: direct cancel_token (legacy path, kept for tests)
-        if let Some(token) = &self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .cancel_token
-        {
+        if let Some(token) = &self.session_mgr.current_mut().agent.cancel_token {
             token.cancel();
-        } else if self.session_mgr.sessions[self.session_mgr.active]
-            .ui
-            .loading
-        {
+        } else if self.session_mgr.current_mut().ui.loading {
             tracing::warn!("interrupt: 无 cancel_token 但 loading=true，强制清理");
             self.set_loading(false);
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .interaction_prompt = None;
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .pending_hitl_items = None;
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .pending_ask_user = None;
-            if let Some(start) = self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .task_start_time
-            {
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .last_task_duration = Some(start.elapsed());
+            self.session_mgr.current_mut().agent.interaction_prompt = None;
+            self.session_mgr.current_mut().agent.pending_hitl_items = None;
+            self.session_mgr.current_mut().agent.pending_ask_user = None;
+            if let Some(start) = self.session_mgr.current_mut().agent.task_start_time {
+                self.session_mgr.current_mut().agent.last_task_duration = Some(start.elapsed());
             }
 
             // 始终尝试恢复用户文本到输入框（无论 agent 是否已回复）
-            if let Some(text) = self.session_mgr.sessions[self.session_mgr.active]
+            if let Some(text) = self
+                .session_mgr
+                .current_mut()
                 .messages
                 .last_submitted_text
                 .take()
             {
                 // 在 view_messages 中定位最后一个 UserBubble 的索引
-                let user_msg_idx = self.session_mgr.sessions[self.session_mgr.active]
+                let user_msg_idx = self
+                    .session_mgr
+                    .current_mut()
                     .messages
                     .view_messages
                     .iter()
                     .rposition(|vm| matches!(vm, MessageViewModel::UserBubble { .. }))
                     .unwrap_or(0);
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .messages
                     .view_messages
                     .truncate(user_msg_idx);
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr
+                    .current_mut()
                     .messages
                     .ephemeral_notes
                     .retain(|(a, _)| *a < user_msg_idx);
                 {
-                    let remaining = self.session_mgr.sessions[self.session_mgr.active]
+                    let remaining = self
+                        .session_mgr
+                        .current_mut()
                         .messages
                         .view_messages
                         .clone();
-                    let _ = self.session_mgr.sessions[self.session_mgr.active]
+                    let _ = self
+                        .session_mgr
+                        .current_mut()
                         .messages
                         .render_tx
                         .try_send(RenderEvent::Rebuild(remaining));
                 }
                 // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
-                let pre_len = self.session_mgr.sessions[self.session_mgr.active]
-                    .metadata
-                    .pre_submit_state_len;
-                self.session_mgr.sessions[self.session_mgr.active]
+                let pre_len = self.session_mgr.current_mut().metadata.pre_submit_state_len;
+                self.session_mgr
+                    .current_mut()
                     .agent
                     .origin_messages
                     .truncate(pre_len);
                 // 清除 pipeline 状态
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .pipeline
-                    .done();
-                let restored = self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .origin_messages
-                    .clone();
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr.current_mut().messages.pipeline.done();
+                let restored = self.session_mgr.current_mut().agent.origin_messages.clone();
+                self.session_mgr
+                    .current_mut()
                     .messages
                     .pipeline
                     .restore_completed(restored);
                 let mut ta = build_textarea(false);
                 ta.insert_str(text.clone());
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .ui
-                    .textarea = ta;
-                self.session_mgr.sessions[self.session_mgr.active]
+                self.session_mgr.current_mut().ui.textarea = ta;
+                self.session_mgr
+                    .current_mut()
                     .messages
                     .pending_messages
                     .clear();
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .metadata
-                    .last_human_message = None;
+                self.session_mgr.current_mut().metadata.last_human_message = None;
                 self.push_system_note(format!(
                     "⚠ {}",
                     self.services.lc.tr("app-interrupted-resumed")
@@ -577,9 +515,7 @@ impl App {
 
     /// 设置当前 Agent 的 ID（用于 AgentDefineMiddleware）
     pub fn set_agent_id(&mut self, id: Option<String>) {
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_id = id;
+        self.session_mgr.current_mut().agent.agent_id = id;
     }
 
     /// 获取当前 Agent 的 ID
@@ -592,18 +528,12 @@ impl App {
         match state.kind().scope() {
             panel_manager::PanelScope::Session => {
                 self.global_panels.close();
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .session_panels
-                    .close();
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .session_panels
-                    .open(state);
+                self.session_mgr.current_mut().session_panels.close();
+                self.session_mgr.current_mut().session_panels.open(state);
             }
             panel_manager::PanelScope::Global => {
                 self.global_panels.close();
-                for session in &mut self.session_mgr.sessions {
-                    session.session_panels.close();
-                }
+                self.session_mgr.current_mut().session_panels.close();
                 self.global_panels.open(state);
             }
         }
@@ -612,9 +542,7 @@ impl App {
     /// 关闭所有面板（跨所有作用域）
     pub fn close_all_panels(&mut self) {
         self.global_panels.close();
-        for session in &mut self.session_mgr.sessions {
-            session.session_panels.close();
-        }
+        self.session_mgr.current_mut().session_panels.close();
     }
 
     /// Setup 向导保存后刷新内存中的 Provider 状态
@@ -663,7 +591,9 @@ impl App {
     /// 弹窗激活时，底部 textarea 应失效——隐藏光标、禁止输入、视觉变暗。
     pub fn is_interaction_popup_active(&self) -> bool {
         self.global_ui.oauth_prompt.is_some()
-            || self.session_mgr.sessions[self.session_mgr.active]
+            || self
+                .session_mgr
+                .current()
                 .agent
                 .interaction_prompt
                 .is_some()
@@ -673,8 +603,9 @@ impl App {
     /// 终端通过 Bracketed Paste 发送组合后的中文），以及常规粘贴操作。
     /// 仅处理 AskUser 弹窗的 custom_input；HITL/OAuth 弹窗无文本输入区，静默丢弃。
     pub fn paste_to_interaction_popup(&mut self, text: &str) {
-        if let Some(crate::app::InteractionPrompt::Questions(p)) = self.session_mgr.sessions
-            [self.session_mgr.active]
+        if let Some(crate::app::InteractionPrompt::Questions(p)) = self
+            .session_mgr
+            .current_mut()
             .agent
             .interaction_prompt
             .as_mut()

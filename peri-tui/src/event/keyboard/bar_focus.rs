@@ -9,9 +9,7 @@ pub(super) fn handle_bar_focus(
     app: &mut App,
     key_event: &ratatui::crossterm::event::KeyEvent,
 ) -> Option<Action> {
-    let cursor = app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .bg_bar_cursor;
+    let cursor = app.session_mgr.current_mut().ui.bg_bar_cursor;
     if cursor.is_some() {
         return Some(handle_bar_key_event(app, *key_event));
     }
@@ -23,15 +21,11 @@ pub(super) fn handle_focused_only(
     app: &mut App,
     key_event: &ratatui::crossterm::event::KeyEvent,
 ) -> Option<Action> {
-    let focused = app.session_mgr.sessions[app.session_mgr.active]
-        .focused_instance_id
-        .is_some();
+    let focused = app.session_mgr.current_mut().focused_instance_id.is_some();
     if focused {
         if matches!(key_event.code, KeyCode::Esc) {
-            app.session_mgr.sessions[app.session_mgr.active].focused_instance_id = None;
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_cursor = None;
+            app.session_mgr.current_mut().focused_instance_id = None;
+            app.session_mgr.current_mut().ui.bg_bar_cursor = None;
             app.request_rebuild();
         }
         return Some(Action::Redraw);
@@ -48,23 +42,16 @@ pub(super) fn handle_bar_key_event(
         return Action::Redraw;
     }
 
-    let agents_len = app.session_mgr.sessions[app.session_mgr.active]
-        .background_agents
-        .len();
+    let agents_len = app.session_mgr.current_mut().background_agents.len();
     let total_items = 1 + agents_len.min(4);
 
-    let raw_cursor = app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .bg_bar_cursor
-        .unwrap_or(0);
+    let raw_cursor = app.session_mgr.current_mut().ui.bg_bar_cursor.unwrap_or(0);
     // Clamp cursor to valid range (agents may have been removed)
     let cursor = raw_cursor.min(total_items.saturating_sub(1));
 
     match key_event.code {
         KeyCode::Esc => {
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_cursor = None;
+            app.session_mgr.current_mut().ui.bg_bar_cursor = None;
             Action::Redraw
         }
         KeyCode::Up => {
@@ -73,33 +60,27 @@ pub(super) fn handle_bar_key_event(
             } else {
                 total_items - 1
             };
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_cursor = Some(new_cursor);
+            app.session_mgr.current_mut().ui.bg_bar_cursor = Some(new_cursor);
             Action::Redraw
         }
         KeyCode::Down => {
             let new_cursor = (cursor + 1) % total_items;
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_cursor = Some(new_cursor);
+            app.session_mgr.current_mut().ui.bg_bar_cursor = Some(new_cursor);
             Action::Redraw
         }
         KeyCode::Enter => {
             if cursor == 0 {
                 // 选中 main → 退出聚焦
-                app.session_mgr.sessions[app.session_mgr.active].focused_instance_id = None;
+                app.session_mgr.current_mut().focused_instance_id = None;
             } else {
                 // 选中后台 agent → 聚焦
-                let agents = &app.session_mgr.sessions[app.session_mgr.active].background_agents;
+                let agents = &app.session_mgr.current_mut().background_agents;
                 if let Some(agent) = agents.get(cursor - 1) {
-                    app.session_mgr.sessions[app.session_mgr.active].focused_instance_id =
+                    app.session_mgr.current_mut().focused_instance_id =
                         Some(agent.instance_id.clone());
                 }
             }
-            app.session_mgr.sessions[app.session_mgr.active]
-                .ui
-                .bg_bar_cursor = None;
+            app.session_mgr.current_mut().ui.bg_bar_cursor = None;
             app.request_rebuild();
             Action::Redraw
         }

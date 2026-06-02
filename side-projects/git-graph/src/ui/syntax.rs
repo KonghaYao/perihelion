@@ -11,7 +11,39 @@ static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
 static SYNTAX_THEME: OnceLock<Theme> = OnceLock::new();
 
 pub fn get_syntax_set() -> &'static SyntaxSet {
-    SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
+    SYNTAX_SET.get_or_init(|| {
+        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
+
+        // syntect 默认包不含 TypeScript。从 assets 目录加载额外语法定义。
+        let syntax_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join("syntaxes");
+        if syntax_dir.is_dir() {
+            // 忽略加载失败（目录不存在或 YAML 格式错误）
+            let _ = builder.add_from_folder(&syntax_dir, true);
+        }
+
+        // 兜底：确保 ts/tsx 映射存在（如果外部语法文件加载失败）
+        let has_ts = builder
+            .syntaxes()
+            .iter()
+            .any(|s| s.file_extensions.iter().any(|e| e == "ts" || e == "tsx"));
+        if !has_ts {
+            if let Some(js) = builder
+                .syntaxes()
+                .iter()
+                .find(|s| s.name == "JavaScript")
+                .cloned()
+            {
+                let mut ts = js.clone();
+                ts.name = "TypeScript".into();
+                ts.file_extensions = vec!["ts".into(), "tsx".into(), "mts".into(), "cts".into()];
+                builder.add(ts);
+            }
+        }
+
+        builder.build()
+    })
 }
 
 pub fn get_theme() -> &'static Theme {

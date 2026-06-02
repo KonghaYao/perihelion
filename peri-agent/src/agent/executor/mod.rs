@@ -277,6 +277,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
 
         let mut all_tool_calls: Vec<(ToolCall, ToolResult)> = Vec::new();
         let mut final_result: Option<AgentOutput> = None;
+        let mut consecutive_failures: HashMap<String, usize> = HashMap::new();
 
         for step in 0..self.max_iterations {
             state.set_current_step(step);
@@ -294,7 +295,12 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             if reasoning.needs_tool_call() {
                 // 工具分发
                 let step_calls = self::tool_dispatch::dispatch_tools(
-                    self, state, &reasoning, &all_tools, &cancel,
+                    self,
+                    state,
+                    &reasoning,
+                    &all_tools,
+                    &cancel,
+                    &mut consecutive_failures,
                 )
                 .await?;
                 all_tool_calls.extend(step_calls);

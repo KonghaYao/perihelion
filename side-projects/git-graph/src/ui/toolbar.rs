@@ -29,6 +29,7 @@ pub enum GlobalAction {
     ToggleBranches,
     ToggleTags,
     ToggleStash,
+    FileSearch,
 }
 
 pub struct ToolbarButton {
@@ -83,6 +84,12 @@ pub fn global_buttons() -> Vec<GlobalToolbarButton> {
             label: "stash",
             shortcut: 's',
             action: GlobalAction::ToggleStash,
+        },
+        GlobalToolbarButton {
+            emoji: "🔍",
+            label: "files",
+            shortcut: 'p', // Ctrl+P
+            action: GlobalAction::FileSearch,
         },
     ]
 }
@@ -321,26 +328,6 @@ pub fn draw_global_toolbar(f: &mut Frame, area: Rect, app: &mut App) {
             x += 3;
         }
 
-        spans.push(Span::raw("  "));
-        x += 2;
-    }
-
-    // 远程跟踪信息
-    let mut remote_info = String::new();
-    if let Some(upstream) = app.repo.upstream_name() {
-        remote_info.push_str(&format!(" {} ", upstream));
-    }
-    if let Some(remote_head) = app.repo.remote_head_branch() {
-        remote_info.push_str(&format!(" ▸ {} ", remote_head));
-    }
-    if !remote_info.is_empty() {
-        spans.push(Span::styled(
-            remote_info.clone(),
-            Style::default()
-                .fg(Color::Rgb(180, 180, 180))
-                .bg(Color::Rgb(30, 30, 35)),
-        ));
-        x += UnicodeWidthStr::width(remote_info.as_str()) as u16;
         spans.push(Span::raw("  "));
         x += 2;
     }

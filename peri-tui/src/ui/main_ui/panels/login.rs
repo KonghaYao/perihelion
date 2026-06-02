@@ -42,9 +42,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &mut Ap
     .border_style(Style::default().fg(border_color))
     .render(f, area);
 
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(inner);
+    app.session_mgr.current_mut().ui.panel_area = Some(inner);
 
     let active_provider_id = app
         .services

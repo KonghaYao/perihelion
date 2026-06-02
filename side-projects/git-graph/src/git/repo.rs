@@ -162,6 +162,7 @@ impl GitRepo {
     }
 
     /// 获取当前分支的 upstream 名称（如 "origin/main"）
+    #[allow(dead_code)]
     pub fn upstream_name(&self) -> Option<String> {
         let branch_name = self.head_branch()?;
         let branch = self
@@ -173,6 +174,7 @@ impl GitRepo {
     }
 
     /// 获取远程仓库的默认分支名（通过 origin/HEAD 符号引用）
+    #[allow(dead_code)]
     pub fn remote_head_branch(&self) -> Option<String> {
         let remote_head = self.repo.find_reference("refs/remotes/origin/HEAD").ok()?;
         let target = remote_head.symbolic_target()?;

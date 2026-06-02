@@ -103,6 +103,8 @@ fn make_command_context(sink: Arc<dyn crate::session::event_sink::EventSink>) ->
         event_sink: sink,
         args: String::new(),
         cancel_token: peri_agent::agent::AgentCancellationToken::new(),
+        thread_store: None,
+        thread_id: None,
     }
 }
 
@@ -316,6 +318,8 @@ async fn test_clear_command_ignores_existing_history() {
         event_sink: sink.clone(),
         args: String::new(),
         cancel_token: peri_agent::agent::AgentCancellationToken::new(),
+        thread_store: None,
+        thread_id: None,
     };
     let cmd = ClearCommand;
 

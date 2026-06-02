@@ -8,7 +8,7 @@
             buf_context_1m: false,
             cursor: ROW_OPUS,
         };
-        app.session_mgr.sessions[app.session_mgr.active]
+        app.session_mgr.current_mut()
             .session_panels
             .open(crate::app::panel_manager::PanelState::Model(panel.clone()));
         handle

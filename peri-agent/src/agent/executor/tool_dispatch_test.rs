@@ -481,3 +481,201 @@ async fn test_mixed_ok_rejected_error_all_tool_results_written() {
         .count();
     assert_eq!(ai_count, 0, "before_tool P4 错误路径不应写入 AI 消息");
 }
+
+/// LLM 输出小写 "bash"，工具注册为 PascalCase "Bash"，
+/// resolve_tool 通过大小写无关匹配找到工具，不产生 ToolNotFound。
+#[tokio::test]
+async fn test_tool_name_case_insensitive_fallback() {
+    struct EchoTool;
+    #[async_trait::async_trait]
+    impl BaseTool for EchoTool {
+        fn name(&self) -> &str {
+            "Bash"
+        }
+        fn description(&self) -> &str {
+            "echo shell"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("shell done".to_string())
+        }
+    }
+
+    struct LowerCaseBashLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for LowerCaseBashLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_tool_result = messages
+                .iter()
+                .any(|m| matches!(m, BaseMessage::Tool { .. }));
+            if !has_tool_result {
+                // LLM 输出小写 "bash"
+                Ok(Reasoning::with_tools(
+                    "call bash",
+                    vec![ToolCall::new("id1", "bash", serde_json::json!({}))],
+                ))
+            } else {
+                Ok(Reasoning::with_answer("done", "shell executed"))
+            }
+        }
+    }
+
+    let agent = ReActAgent::new(LowerCaseBashLLM)
+        .max_iterations(5)
+        .register_tool(Box::new(EchoTool));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await;
+
+    assert!(result.is_ok(), "大小写无关匹配应成功，实际: {:?}", result);
+    // 验证 tool_result 不是错误
+    let has_error_result = state
+        .messages()
+        .iter()
+        .any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
+    assert!(!has_error_result, "不应有 ToolNotFound 错误结果");
+}
+
+/// LLM 输出 "Task"（别名），工具注册为 "Agent"，
+/// resolve_tool 通过语义别名表匹配，不产生 ToolNotFound。
+#[tokio::test]
+async fn test_tool_name_alias_fallback() {
+    struct EchoAgent;
+    #[async_trait::async_trait]
+    impl BaseTool for EchoAgent {
+        fn name(&self) -> &str {
+            "Agent"
+        }
+        fn description(&self) -> &str {
+            "echo agent"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("agent done".to_string())
+        }
+    }
+
+    struct AliasTaskLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for AliasTaskLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_tool_result = messages
+                .iter()
+                .any(|m| matches!(m, BaseMessage::Tool { .. }));
+            if !has_tool_result {
+                // LLM 输出别名 "Task"
+                Ok(Reasoning::with_tools(
+                    "call task",
+                    vec![ToolCall::new("id1", "Task", serde_json::json!({}))],
+                ))
+            } else {
+                Ok(Reasoning::with_answer("done", "agent executed"))
+            }
+        }
+    }
+
+    let agent = ReActAgent::new(AliasTaskLLM)
+        .max_iterations(5)
+        .register_tool(Box::new(EchoAgent));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await;
+
+    assert!(result.is_ok(), "别名匹配应成功，实际: {:?}", result);
+    let has_error_result = state
+        .messages()
+        .iter()
+        .any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
+    assert!(!has_error_result, "不应有 ToolNotFound 错误结果");
+}
+
+/// 连续 5 次同工具+同错误后注入系统纠正消息
+#[tokio::test]
+async fn test_consecutive_failure_injects_correction() {
+    struct AlwaysFailRead;
+    #[async_trait::async_trait]
+    impl BaseTool for AlwaysFailRead {
+        fn name(&self) -> &str {
+            "Read"
+        }
+        fn description(&self) -> &str {
+            "read"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({ "properties": { "file_path": { "type": "string" } } })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Err("The 'file_path' parameter is required for the Read tool.".into())
+        }
+    }
+
+    struct StubbornLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for StubbornLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_correction = messages.iter().any(|m| {
+                matches!(m, BaseMessage::System { content, .. }
+                    if content.text_content().contains("5 consecutive times"))
+            });
+            if has_correction {
+                return Ok(Reasoning::with_answer("done", "I'll stop retrying"));
+            }
+            Ok(Reasoning::with_tools(
+                "retrying",
+                vec![ToolCall::new(
+                    format!("id_{}", messages.len()),
+                    "Read",
+                    serde_json::json!({}),
+                )],
+            ))
+        }
+    }
+
+    let agent = ReActAgent::new(StubbornLLM)
+        .max_iterations(20)
+        .register_tool(Box::new(AlwaysFailRead));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await;
+
+    assert!(result.is_ok(), "Agent 应正常完成，实际: {:?}", result);
+    let has_correction = state.messages().iter().any(|m| {
+        matches!(m, BaseMessage::System { content, .. }
+            if content.text_content().contains("5 consecutive times"))
+    });
+    assert!(has_correction, "应注入连续失败纠正消息");
+}

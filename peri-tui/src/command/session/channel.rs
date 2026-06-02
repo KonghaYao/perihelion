@@ -83,7 +83,12 @@ impl ChannelCommand {
         channel_state.authorize(&server_name, source.to_string());
 
         // Register message receiver for the active session
-        let session_id = app.session_mgr.current().metadata.session_id.to_string();
+        let session_id = app
+            .session_mgr
+            .current_mut()
+            .metadata
+            .session_id
+            .to_string();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         channel_state.register_session(session_id, tx);
         app.session_mgr

@@ -211,14 +211,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 └─────────────────────────────────────┘
 ```
 
-### 多 Session 分栏
-
-- 水平等分（各 50%），外层边框 `Borders::ALL`
-- 活跃列：ACCENT 边框
-- 非活跃列：BORDER_DIM (`#2A2A30`) 边框
-- 共享底部状态栏（3 行）
-- 切换：`Ctrl+N` / `Ctrl+P`，关闭：`Ctrl+W`
-
 ### 面板高度
 
 | 面板类型 | 最大高度 |
@@ -511,7 +503,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | `/cost` | Token 用量和成本面板（StatusPanel Cost tab） |
 | `/context` | 上下文窗口使用情况面板（StatusPanel Context tab） |
 | `/status` | 状态面板（含 Cost/Context 两个 tab） |
-| `/split` | 分屏管理 |
 | `/loop` | 循环执行 |
 | `/doctor` | 诊断配置完整性 |
 | `/effort <level>` | 查看或设置推理力度（low/medium/high/xhigh/max） |

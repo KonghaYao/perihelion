@@ -479,10 +479,16 @@ impl RenderTask {
                 }
                 RenderEvent::Clear => {
                     self.message_lines.clear();
+                    self.message_lines.shrink_to_fit();
                     self.message_hashes.clear();
+                    self.message_hashes.shrink_to_fit();
+                    self.last_messages.clear();
+                    self.last_messages.shrink_to_fit();
                     let mut cache = self.cache.write();
                     cache.lines.clear();
+                    cache.lines.shrink_to_fit();
                     cache.message_offsets.clear();
+                    cache.message_offsets.shrink_to_fit();
                     cache.total_lines = 0;
                     cache.wrap_map = Vec::new();
                     cache.version += 1;

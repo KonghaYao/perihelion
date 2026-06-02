@@ -17,10 +17,8 @@ use crate::{app::App, ui::theme};
 /// - 选项编号格式（单选: `❯ 1. label`，多选: `❯ ● 1. label`）
 /// - 自定义输入合并为最后一个编号选项
 pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(crate::app::InteractionPrompt::Questions(prompt)) = &app.session_mgr.sessions
-        [app.session_mgr.active]
-        .agent
-        .interaction_prompt
+    let Some(crate::app::InteractionPrompt::Questions(prompt)) =
+        &app.session_mgr.current_mut().agent.interaction_prompt
     else {
         return;
     };
@@ -178,15 +176,12 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let metrics = ScrollableArea::new(Text::from(lines))
         .scrollbar_style(Style::default().fg(theme::MUTED))
         .render(f, content_area, &mut scroll_state);
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_scrollbar_metrics = metrics;
+    app.session_mgr.current_mut().ui.panel_scrollbar_metrics = metrics;
     // 存储面板区域供鼠标事件路由
-    app.session_mgr.sessions[app.session_mgr.active]
-        .ui
-        .panel_area = Some(area);
-    if let Some(crate::app::InteractionPrompt::Questions(p)) = app.session_mgr.sessions
-        [app.session_mgr.active]
+    app.session_mgr.current_mut().ui.panel_area = Some(area);
+    if let Some(crate::app::InteractionPrompt::Questions(p)) = app
+        .session_mgr
+        .current_mut()
         .agent
         .interaction_prompt
         .as_mut()

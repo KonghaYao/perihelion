@@ -8,7 +8,7 @@
         let cmd = LoopCommand;
         cmd.execute(&mut app, "");
         assert_eq!(
-            app.session_mgr.sessions[app.session_mgr.active]
+            app.session_mgr.current_mut()
                 .messages
                 .view_messages
                 .len(),
@@ -16,7 +16,7 @@
         );
         let text = format!(
             "{:?}",
-            app.session_mgr.sessions[app.session_mgr.active]
+            app.session_mgr.current_mut()
                 .messages
                 .view_messages[0]
         );
@@ -33,7 +33,7 @@
         let cmd = LoopCommand;
         cmd.execute(&mut app, "   ");
         assert_eq!(
-            app.session_mgr.sessions[app.session_mgr.active]
+            app.session_mgr.current_mut()
                 .messages
                 .view_messages
                 .len(),
@@ -41,7 +41,7 @@
         );
         let text = format!(
             "{:?}",
-            app.session_mgr.sessions[app.session_mgr.active]
+            app.session_mgr.current_mut()
                 .messages
                 .view_messages[0]
         );
@@ -51,7 +51,7 @@
     #[tokio::test(flavor = "multi_thread")]
     async fn test_loop_cmd_valid_args_submits_message() {
         let mut app = headless_app().await;
-        let initial_len = app.session_mgr.sessions[app.session_mgr.active]
+        let initial_len = app.session_mgr.current_mut()
             .messages
             .view_messages
             .len();
@@ -59,7 +59,7 @@
         cmd.execute(&mut app, "每隔5分钟提醒我喝水");
         // submit_message 会添加一条 user 消息到 view_messages
         assert!(
-            app.session_mgr.sessions[app.session_mgr.active]
+            app.session_mgr.current_mut()
                 .messages
                 .view_messages
                 .len()
@@ -69,7 +69,7 @@
         // 检查提交的消息包含 cron_register 指令
         let text = format!(
             "{:?}",
-            app.session_mgr.sessions[app.session_mgr.active]
+            app.session_mgr.current_mut()
                 .messages
                 .view_messages
         );
